@@ -312,6 +312,15 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Workspace + persistence — 2026-10-25
+- **Added:** workspace document and operations layer (`lib/workspace/`); datasets and
+  visualizations saved on the device and restored on open; rename / describe / drag-reorder
+  datasets; Reset workspace.
+- **Changed:** the visualization visibility checkbox now goes through `updateVisualization`
+  instead of mutating the spec; drag-to-reorder extracted to `useDragReorder`.
+- **Defaults:** first open (or after Reset) seeds the EIA-861 utilities dataset as before.
+- **Docs:** system-design §4 Workspace, CLAUDE.md, help overview, TODO.
+
 ### v0.1.0 — [Date]
 - **Added:** Initial scaffold, header/footer wrapper, Help modal
 - **Infrastructure:** Netlify (production + preview deploys), branch-protected `main`

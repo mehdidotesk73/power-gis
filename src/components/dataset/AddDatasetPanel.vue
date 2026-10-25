@@ -22,6 +22,10 @@ export interface NewDataset {
   records: DataRecord[]
   columns: ColumnInfo[]
   binding: GeometryBinding
+  /** Set when the rows are a built-in table, so a reload re-reads it instead of storing a copy. */
+  builtinTable?: string
+  /** Vector columns combined at import (already applied to `records`). */
+  vectorColumns: { name: string; u: string; v: string }[]
 }
 
 const props = defineProps<{ builtIns: BuiltInTable[] }>()
@@ -40,8 +44,11 @@ const originLabel = ref('')
 const name = ref('')
 const binding = ref<GeometryBinding | null>(null)
 
-async function loaded(rows: DataRecord[], label: string, defaultName: string) {
+const builtinTable = ref<string | undefined>()
+
+async function loaded(rows: DataRecord[], label: string, defaultName: string, table?: string) {
   if (!rows.length) throw new Error('That table has no rows')
+  builtinTable.value = table
   records.value = rows
   columns.value = inferColumns(rows)
   originLabel.value = label
@@ -64,7 +71,7 @@ async function run(fn: () => Promise<void>) {
 
 function loadBuiltIn() {
   const b = props.builtIns[builtInIndex.value]
-  return run(async () => loaded(await b.connector.readTable(b.table), `Built-in · ${b.table}`, b.label))
+  return run(async () => loaded(await b.connector.readTable(b.table), `Built-in · ${b.table}`, b.label, b.table))
 }
 function onCsv(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0]
@@ -132,13 +139,23 @@ function add() {
   if (!records.value || !binding.value || !preview.value?.features) return
   let rows = records.value
   const cols = [...columns.value]
+  const applied: NewDataset['vectorColumns'] = []
   for (const vec of vectors.value) {
     const n = vec.name.trim()
     if (!n || !vec.u || !vec.v || cols.some((c) => c.name === n)) continue
     rows = withVectorColumn(rows, n, vec.u, vec.v)
     cols.push({ name: n, type: 'vector' })
+    applied.push({ name: n, u: vec.u, v: vec.v })
   }
-  emit('add', { name: name.value.trim() || originLabel.value, origin: originLabel.value, records: rows, columns: cols, binding: binding.value })
+  emit('add', {
+    name: name.value.trim() || originLabel.value,
+    origin: originLabel.value,
+    records: rows,
+    columns: cols,
+    binding: binding.value,
+    builtinTable: builtinTable.value,
+    vectorColumns: applied,
+  })
 }
 </script>
 

@@ -114,6 +114,13 @@ whatever they're actually asking about.
     its geometry kind): widgets register their map layers in `ctx.stacks` and `MapView.restack`
     moves them to match. `visualizationData` puts the value in `_value` and the page renders one
     `ScalarLayer` / `VectorLayer` per visualization, cached by what it shows.
+- **Workspace** (`src/lib/workspace/`): one serializable `WorkspaceDoc` (datasets + ordered
+  visualizations) is the source of truth; **every change is an operation** in `workspace.ts`
+  returning `{ok, doc}` or `{ok:false, error:{code,message}}` — the UI uses them and agents will
+  too. Saved on the device (localStorage doc, IndexedDB rows for imported tables; built-in tables
+  are re-read). Datasets carry standard metadata only (name, description, created/updated,
+  `extensions`) — **source and usage policy are not dataset properties**. New UI actions must go
+  through an op, never mutate state directly. Details: `docs/system-design.md` §4.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
   column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
   Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells, or combined from two
@@ -126,7 +133,7 @@ whatever they're actually asking about.
 - **Presets:** the built-in EIA-861 dataset is a normal dataset with preset visualizations
   (`utilityStyles.ts`) plus extras keyed by `preset: 'utilities'` — the county dashboard and
   utility search. Other datasets get the generic rows table in their click panel.
-- **Visualization list UI** (`VisualizationList.vue`): drag the ≡ handle to reorder, swipe left to
+- **Visualization list UI** (`VisualizationList.vue`; `DatasetList.vue` reorders the same way via `useDragReorder`): drag the ≡ handle to reorder, swipe left to
   reveal Delete — pointer events (not HTML5 drag-and-drop, which iOS lacks); the row uses
   `touch-action: pan-y` so vertical scrolling stays native.
 - Join key everywhere is the 5-digit county FIPS string (`county_fips` / `fips`). Keep it a
@@ -159,6 +166,7 @@ src/
     geometry.ts            anchor points (centroids), bbox
     utilities.ts           EIA-861 typed rows + utility list (search)
     data/connectors.ts     connectors: where tables come from
+    workspace/             workspace document + operations (workspace.ts), save/load (storage.ts)
     dataset/               datasets + visualizations: columns, aggregate, binding (+ wkt), dataset, visualization
     search.ts              ranked type-ahead search
     data/connectors.ts         DataConnector adapters: StaticFileConnector, LocalFileConnector (DB later)

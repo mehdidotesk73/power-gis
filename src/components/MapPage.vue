@@ -23,9 +23,27 @@ import type { HoverInfo } from './map/mapContext'
 import { loadBoundaries } from './dataset/boundaries'
 import { UTILITY_BINDING, UTILITY_NAME, UTILITY_TABLE, utilityVisualizations, withOwnershipFlags } from './utilityStyles'
 import { utilitiesFromRows, utilityRowsFromRecords, type Utility } from '../lib/utilities'
-import { MemoryConnector, StaticFileConnector } from '../lib/data/connectors'
-import { inferColumns } from '../lib/dataset/columns'
-import { buildDataset, newId, ROW_COUNT, type BuiltDataset } from '../lib/dataset/dataset'
+import { MemoryConnector, StaticFileConnector, type DataRecord } from '../lib/data/connectors'
+import { inferColumns, type ColumnInfo } from '../lib/dataset/columns'
+import { buildDataset, newId, ROW_COUNT, withVectorColumn, type BuiltDataset } from '../lib/dataset/dataset'
+import {
+  addDataset,
+  addVisualization as addVisualization_,
+  emptyWorkspace,
+  newDatasetMeta,
+  removeDataset as removeDataset_,
+  removeVisualization as removeVisualization_,
+  reorderDatasets as reorderDatasets_,
+  reorderVisualizations as reorderVisualizations_,
+  updateDataset as updateDataset_,
+  updateVisualization as updateVisualization_,
+  type DatasetEntry,
+  type OpContext,
+  type OpResult,
+  type WorkspaceDoc,
+} from '../lib/workspace/workspace'
+import { loadWorkspace, saveWorkspace } from '../lib/workspace/storage'
+import { indexedDbTableStore, localKeyValueStore } from './workspace/browserStores'
 import { defaultVisualization, visualizationData, makeVisualization, ROWS, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
 import { demoVectorRows } from '../lib/demo'
 import { focusBox } from '../lib/geometry'
@@ -48,42 +66,100 @@ const builtIns: BuiltInTable[] = [
   { label: 'Demo vector field (synthetic)', connector: demo, table: 'demo_vectors' },
 ]
 
-// ── datasets and visualizations ────────────────────────────────────────────
+// ── workspace: datasets and visualizations ─────────────────────────────────
+// The workspace document is the single source of truth and is saved on the
+// device; every change goes through an operation in lib/workspace. Built
+// datasets (features + rows) are kept beside it, by dataset id.
 
-const datasets = ref<LoadedDataset[]>([])
-const visualizations = ref<VisualizationSpec[]>([])
+const doc = shallowRef<WorkspaceDoc>(emptyWorkspace())
+const builts = shallowRef(new Map<string, BuiltDataset>())
 const importing = ref(false)
 const utilities = shallowRef<Utility[]>([])
+const tables = indexedDbTableStore
+let persist = false
+let warnedSave = false
 
+const datasets = computed<LoadedDataset[]>(() =>
+  doc.value.datasets.flatMap((e) => {
+    const built = builts.value.get(e.id)
+    return built ? [{ spec: { id: e.id, name: e.name, binding: e.binding, origin: e.origin }, built, meta: e.meta, preset: e.preset }] : []
+  }),
+)
+const visualizations = computed(() => doc.value.visualizations)
 const dsById = computed(() => new Map(datasets.value.map((d) => [d.spec.id, d])))
+const opCtx: OpContext = { columns: (id) => builts.value.get(id)?.columns.map((c) => c.name) }
 
-async function addDataset(
-  n: NewDataset,
-  opts: { visualizations?: (id: string) => VisualizationSpec[]; preset?: LoadedDataset['preset']; zoom?: boolean } = {},
-) {
-  const boundaries = n.binding.kind === 'boundary' ? await loadBoundaries(n.binding.boundary) : undefined
-  const id = newId('ds')
-  const built = buildDataset({ id, name: n.name, binding: n.binding, origin: n.origin }, n.records, n.columns, boundaries)
-  if (built.unmatched) logDebug(`${n.name}: ${built.unmatched} rows had no feature (e.g. ${built.unmatchedSamples.slice(0, 5).join(', ')})`, 'warn')
-  datasets.value.push({ spec: { id, name: n.name, binding: n.binding, origin: n.origin }, built: markRaw(built), preset: opts.preset })
-  // New visualizations go on top of the list (and the map).
-  visualizations.value.unshift(...(opts.visualizations?.(id) ?? [defaultVisualization(built, id)]))
-  logDebug(`imported "${n.name}": ${built.base.features.length} features from ${n.records.length} rows`)
-  if (opts.zoom) zoomTo(id)
+/** Applies an operation's result; failures are logged, not thrown. */
+function apply(r: OpResult): boolean {
+  if (!r.ok) {
+    logDebug(`workspace: ${r.error.message}`, 'warn')
+    return false
+  }
+  doc.value = r.doc
+  return true
+}
+
+watch(doc, (d) => {
+  if (!persist || saveWorkspace(localKeyValueStore, d) || warnedSave) return
+  warnedSave = true
+  logDebug('workspace could not be saved on this device (private browsing or storage full?)', 'warn')
+})
+
+/** A dataset's rows: built-in tables are re-read, imported ones come from device storage. */
+async function rowsFor(e: DatasetEntry): Promise<DataRecord[]> {
+  if (e.rows.kind === 'stored') {
+    const rows = await tables.get(e.id)
+    if (!rows) throw new Error('its rows are no longer stored on this device')
+    return rows
+  }
+  const table = e.rows.table
+  const t = builtIns.find((b) => b.table === table)
+  if (!t) throw new Error(`no built-in table "${table}"`)
+  let rows = await t.connector.readTable(table)
+  if (e.preset === 'utilities') rows = withOwnershipFlags(rows)
+  for (const v of e.vectorColumns ?? []) rows = withVectorColumn(rows, v.name, v.u, v.v)
+  return rows
+}
+
+async function build(e: DatasetEntry, records: DataRecord[], columns: ColumnInfo[]): Promise<BuiltDataset> {
+  const boundaries = e.binding.kind === 'boundary' ? await loadBoundaries(e.binding.boundary) : undefined
+  const built = markRaw(buildDataset({ id: e.id, name: e.name, binding: e.binding, origin: e.origin }, records, columns, boundaries))
+  if (built.unmatched) logDebug(`${e.name}: ${built.unmatched} rows had no feature (e.g. ${built.unmatchedSamples.slice(0, 5).join(', ')})`, 'warn')
+  builts.value = new Map(builts.value).set(e.id, built)
+  if (e.preset === 'utilities') utilities.value = utilitiesFromRows(utilityRowsFromRecords(records))
+  return built
 }
 
 async function onImport(n: NewDataset) {
   importing.value = false
+  const entry: DatasetEntry = {
+    id: newId('ds'),
+    name: n.name,
+    binding: n.binding,
+    origin: n.origin,
+    rows: n.builtinTable ? { kind: 'builtin', table: n.builtinTable } : { kind: 'stored' },
+    ...(n.vectorColumns.length ? { vectorColumns: n.vectorColumns } : {}),
+    meta: newDatasetMeta(),
+  }
   try {
-    await addDataset(n, { zoom: true })
+    const built = await build(entry, n.records, n.columns)
+    if (!apply(addDataset(doc.value, entry, [defaultVisualization(built, entry.id)]))) return
+    logDebug(`imported "${n.name}": ${built.base.features.length} features from ${n.records.length} rows`)
+    zoomTo(entry.id)
+    if (entry.rows.kind === 'stored') {
+      await tables.put(entry.id, n.records).catch((e: Error) => logDebug(`"${n.name}" couldn't be saved on this device, so it won't survive a reload: ${e.message}`, 'warn'))
+    }
   } catch (e) {
     logDebug(`could not import "${n.name}": ${(e as Error).message}`, 'error')
   }
 }
 
 function removeDataset(id: string) {
-  datasets.value = datasets.value.filter((d) => d.spec.id !== id)
-  visualizations.value = visualizations.value.filter((l) => l.datasetId !== id)
+  if (!apply(removeDataset_(doc.value, id))) return
+  const next = new Map(builts.value)
+  next.delete(id)
+  builts.value = next
+  tables.delete(id).catch(() => {})
   if (selected.value?.datasetId === id) selected.value = null
 }
 
@@ -92,21 +168,14 @@ function addVisualization(datasetId: string, column: string) {
   const ds = dsById.value.get(datasetId)
   if (!ds) return
   const v = makeVisualization(ds.built, datasetId, column)
-  visualizations.value.unshift(v)
-  vizList.value?.edit(v.id)
+  if (apply(addVisualization_(doc.value, v, 0, opCtx))) vizList.value?.edit(v.id)
 }
 
-function updateVisualization(v: VisualizationSpec) {
-  const i = visualizations.value.findIndex((x) => x.id === v.id)
-  if (i >= 0) visualizations.value[i] = v
-}
-function removeVisualization(id: string) {
-  visualizations.value = visualizations.value.filter((v) => v.id !== id)
-}
-function reorderVisualizations(ids: string[]) {
-  const byId = new Map(visualizations.value.map((v) => [v.id, v]))
-  visualizations.value = ids.map((id) => byId.get(id)).filter((v): v is VisualizationSpec => !!v)
-}
+const updateVisualization = (v: VisualizationSpec) => apply(updateVisualization_(doc.value, v, opCtx))
+const removeVisualization = (id: string) => apply(removeVisualization_(doc.value, id))
+const reorderVisualizations = (ids: string[]) => apply(reorderVisualizations_(doc.value, ids))
+const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids))
+const updateDataset = (id: string, patch: { name?: string; description?: string }) => apply(updateDataset_(doc.value, id, patch))
 
 function zoomTo(id: string) {
   const ds = dsById.value.get(id)
@@ -114,14 +183,61 @@ function zoomTo(id: string) {
   if (b) mapView.value?.fitBounds(b, 10)
 }
 
+/** The starting workspace: the EIA-861 utilities dataset with its preset visualizations. */
+async function seedDefault() {
+  const entry: DatasetEntry = {
+    id: newId('ds'),
+    name: UTILITY_NAME,
+    binding: UTILITY_BINDING,
+    origin: 'Built-in · utility_counties.csv (EIA-861, 2025)',
+    rows: { kind: 'builtin', table: UTILITY_TABLE },
+    preset: 'utilities',
+    meta: newDatasetMeta('Every US electric utility and the counties it serves (EIA Form 861 Service Territory, 2025).'),
+  }
+  const records = await rowsFor(entry)
+  await build(entry, records, inferColumns(records))
+  apply(addDataset(emptyWorkspace(), entry, utilityVisualizations(entry.id)))
+}
+
+/** Reopens the saved workspace; datasets that can't be rebuilt are dropped (and logged). */
+async function restore(saved: WorkspaceDoc) {
+  doc.value = saved
+  const failed: string[] = []
+  await Promise.all(
+    saved.datasets.map(async (e) => {
+      try {
+        const rows = await rowsFor(e)
+        await build(e, rows, inferColumns(rows))
+      } catch (err) {
+        failed.push(e.id)
+        logDebug(`couldn't reopen dataset "${e.name}": ${(err as Error).message}`, 'warn')
+      }
+    }),
+  )
+  for (const id of failed) apply(removeDataset_(doc.value, id))
+  logDebug(`workspace reopened: ${doc.value.datasets.length} datasets, ${doc.value.visualizations.length} visualizations`)
+}
+
+async function resetWorkspace() {
+  if (!confirm('Reset the workspace? This removes every imported dataset and visualization from this device.')) return
+  persist = false
+  selected.value = null
+  clearUtility()
+  await tables.clear().catch(() => {})
+  builts.value = new Map()
+  doc.value = emptyWorkspace()
+  await seedDefault()
+  persist = true
+  saveWorkspace(localKeyValueStore, doc.value)
+}
+
 onMounted(async () => {
   try {
-    const records = withOwnershipFlags(await builtIn.readTable(UTILITY_TABLE))
-    await addDataset(
-      { name: UTILITY_NAME, origin: 'Built-in · utility_counties.csv (EIA-861, 2025)', records, columns: inferColumns(records), binding: UTILITY_BINDING },
-      { visualizations: utilityVisualizations, preset: 'utilities' },
-    )
-    utilities.value = utilitiesFromRows(utilityRowsFromRecords(records))
+    const saved = loadWorkspace(localKeyValueStore)
+    if (saved) await restore(saved)
+    else await seedDefault()
+    persist = true
+    saveWorkspace(localKeyValueStore, doc.value)
     status.value = 'ready'
   } catch (e) {
     status.value = 'error'
@@ -320,11 +436,17 @@ const exportLayer = computed(() => (dsById.value.get(exportTarget.value ?? '') ?
           :viz-count="(id) => vizOf(id).length"
           @zoom="zoomTo"
           @remove="removeDataset"
+          @reorder="reorderDatasets"
+          @update="updateDataset"
         />
         <div class="import-wrap">
           <AddDatasetPanel v-if="importing" :built-ins="builtIns" @add="onImport" @cancel="importing = false" />
           <button v-else class="import-btn" @click="importing = true">＋ Import dataset</button>
         </div>
+        <p class="muted small saved">
+          Saved on this device ·
+          <button class="link" @click="resetWorkspace">Reset workspace</button>
+        </p>
       </details>
 
       <details class="box">
@@ -468,6 +590,17 @@ const exportLayer = computed(() => (dsById.value.get(exportTarget.value ?? '') ?
 }
 .small {
   font-size: 0.72rem;
+}
+.saved {
+  margin: 0.5rem 0 0;
+}
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-blue);
+  font-size: inherit;
+  text-decoration: underline;
 }
 .values {
   display: grid;
