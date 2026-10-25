@@ -43,6 +43,32 @@ results, because the agent workflow (step 6) drives the same operations as the U
    only **standard metadata** (name, description, created/updated, columns, profile) plus an
    open-ended extension slot for features to attach their own; **sources and usage policy are not
    dataset properties** — they belong to the agent workflow's records (step 6). Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
+1b. **Client / server boundary + database** (agreed 2026-10-25; reworks step 1 before it merges) —
+   everything is client-side today, but the code is split as if it weren't, so moving to a real
+   backend (Supabase) is a refactor, not a rewrite.
+   - **Rule:** lasting changes and heavy processing are **server side**. The client sends requests;
+     the server writes the database and returns **pointers** (uuids); the client reads the database
+     (read-only) by pointer. The client never writes the database directly.
+   - **Today's server** runs in a **Web Worker** (`src/server/`), talking only through serializable
+     messages; the client calls it through a typed API (`src/client/api.ts`). Database = IndexedDB;
+     DuckDB-WASM (step 2) lives in the worker. Later the same API goes over HTTP.
+   - **Base tables** (every row: `uuid` id + editable `name`; all readable/writable by everyone for
+     now — an access layer goes between users and tables later): `users` (one default local user),
+     `workspaces` (id, name, config JSON of pointers + order), `datasets` (registry: id, name, data
+     table, columns, row count, standard metadata), `transforms` (id, name, SQL, input dataset ids,
+     output dataset id — missing = new output), `visualizations` (id, name, dataset id, settings
+     JSON). **Each dataset is its own table** of rows.
+   - **Requests:** upload file → new dataset table → dataset id; save workspace / transform /
+     visualization → id; **run transform** (new or existing, any time) → output dataset id;
+     **query visualization** → one value per feature, computed server side (SQL GROUP BY).
+   - **Geometry binding lives in the visualization settings** (datasets are plain tables), so one
+     table can be drawn as counties or as points. Boundary polygons stay static client assets; the
+     server returns values per feature key (or geometry for lat/lon and shape bindings).
+   - **Explicit Save:** edits are a client-side draft (kept locally across reloads, "unsaved
+     changes" marker) until **Save** sends the config to the server.
+   - **Workspace file** download / load holds the config (pointers) only, never rows — it opens
+     wherever the database has those ids (this device today; any device with Supabase).
+   - Built-in EIA data is loaded into the database once, as an ordinary dataset.
 2. **DuckDB-WASM + derived datasets + dataset profiles** — DuckDB (lazy-loaded) for SQL; a derived
    dataset is a SQL query over datasets, then bound to geometry like an import (this also covers
    visualizations sourced from several datasets: join, then visualize). A **profile** for every
