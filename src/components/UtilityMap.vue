@@ -468,7 +468,7 @@ function onImported(layer: LayerData) {
 @media (max-width: 48rem) {
   .page {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 70dvh;
+    grid-template-rows: 70dvh auto;
     height: auto;
   }
   .controls {
