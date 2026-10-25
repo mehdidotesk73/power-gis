@@ -99,10 +99,36 @@ whatever they're actually asking about.
   PUDL. It needs `pandas` + `pyarrow`; downloads are cached in `scripts/.cache/` (git-ignored).
 - County polygons come from the `us-atlas` npm package (Census 2017 cartographic boundaries,
   1:10m). EIA-861 still reports Connecticut's eight legacy counties, which match it.
-- **All tables load through a `DataSource`** (`src/lib/data/source.ts`): `readTable(name)` returns
-  raw records. Today: the built-in CSVs (`StaticFileSource`) or a CSV picked on the device
-  (`LocalFileSource`). A database (Supabase etc.) is a new class implementing the same interface —
-  map code doesn't change. Row parsers accept both CSV strings and typed DB values.
+- **Three concepts — keep the names straight:**
+  - **Connector** (`src/lib/data/connectors.ts`, `DataConnector`): where tables come from —
+    `readTable(name)` returns raw records. Built-in CSVs (`StaticFileConnector`), a device CSV
+    (`LocalFileConnector`), in-memory tables (`MemoryConnector`: demo data, parsed GeoJSON / Esri /
+    ArcGIS features via `featureTable`). A database (Supabase etc.) is a new connector class.
+  - **Dataset** (`src/lib/dataset/dataset.ts`): the *data* — one imported table plus a
+    `GeometryBinding` saying which column(s) hold each row's feature: `boundary` (region codes
+    joined to built-in US county/state polygons), `latlon`, or `geometry` (GeoJSON or WKT).
+    `buildDataset` groups rows onto features with every column aggregated by default.
+  - **Visualization** (`src/lib/dataset/visualization.ts`): one dataset column with an
+    `Aggregation` and a style. Any number per dataset; the page keeps one ordered list, so
+    visualizations from any mix of datasets show together. **Top of the list draws on top** (within
+    its geometry kind): widgets register their map layers in `ctx.stacks` and `MapView.restack`
+    moves them to match. `visualizationData` puts the value in `_value` and the page renders one
+    `ScalarLayer` / `VectorLayer` per visualization, cached by what it shows.
+- **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
+  column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
+  Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells, or combined from two
+  numeric columns at import (`withVectorColumn`). They aggregate component-wise (sum / mean).
+  ArcGIS has no vector type, so exports split them into `<name>_u` / `<name>_v` Double fields;
+  our schema sidecar rebuilds them on re-import.
+- Column types are inferred (`inferColumns`); zero-padded codes stay text.
+- **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
+  basemap's labels (invisible slot layers added in `MapView`).
+- **Presets:** the built-in EIA-861 dataset is a normal dataset with preset visualizations
+  (`utilityStyles.ts`) plus extras keyed by `preset: 'utilities'` — the county dashboard and
+  utility search. Other datasets get the generic rows table in their click panel.
+- **Visualization list UI** (`VisualizationList.vue`): drag the ≡ handle to reorder, swipe left to
+  reveal Delete — pointer events (not HTML5 drag-and-drop, which iOS lacks); the row uses
+  `touch-action: pan-y` so vertical scrolling stays native.
 - Join key everywhere is the 5-digit county FIPS string (`county_fips` / `fips`). Keep it a
   string: leading zeros matter.
 
@@ -131,9 +157,11 @@ src/
     rasters.ts             pattern tiles + arrow SDF as raw RGBA
     arcgis.ts              Esri JSON / GeoJSON / CSV import-export, FeatureServer fetch
     geometry.ts            anchor points (centroids), bbox
-    utilities.ts           EIA-861 rows + county join (first dataset)
+    utilities.ts           EIA-861 typed rows + utility list (search)
+    data/connectors.ts     connectors: where tables come from
+    dataset/               datasets + visualizations: columns, aggregate, binding (+ wkt), dataset, visualization
     search.ts              ranked type-ahead search
-    data/source.ts         DataSource adapters: StaticFileSource, LocalFileSource (DB later)
+    data/connectors.ts         DataConnector adapters: StaticFileConnector, LocalFileConnector (DB later)
     data/csv.ts            CSV → records
     demo.ts                synthetic vector field for exercising the arrow widget
   components/
@@ -148,7 +176,8 @@ src/
       ScalarStyleEditor.vue, VectorStyleEditor.vue
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
-    UtilityMap.vue         the page: loads data, composes the widgets
+    MapPage.vue            the page: datasets + ordered visualization list → map widgets, panels, legend
+    dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, FeatureRows, boundaries
     UtilityCountyDashboard.vue  custom dashboard for a county
     utilityStyles.ts       view presets + ownership colors
     HelpModal.vue          renders docs/concepts/*.md into the Help modal

@@ -1,4 +1,4 @@
-import type { FieldType } from './schema'
+import { parseVector, type FieldType } from './schema'
 
 const intFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
 const dblFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
@@ -18,6 +18,13 @@ export function formatPrimitive(v: unknown, t: FieldType, unit?: string): string
     case 'boolean':
       s = v ? 'Yes' : 'No'
       break
+    case 'vector': {
+      const vec = parseVector(v)
+      if (!vec) return String(v)
+      const deg = Math.round(((Math.atan2(vec.u, vec.v) * 180) / Math.PI + 360) % 360)
+      s = `${dblFmt.format(Math.hypot(vec.u, vec.v))} toward ${deg}°`
+      break
+    }
     case 'datetime': {
       const d = new Date(String(v))
       s = Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString()

@@ -5,6 +5,8 @@
 //   int → Integer, double → Double, string → String, datetime → Date (epoch ms),
 //   boolean → SmallInteger (0/1; Esri has no boolean),
 //   list / dict / struct → String holding JSON.
+//   vector → two Double fields, <name>_u (east) and <name>_v (north) — Esri has
+//   no vector type, and u/v fields are what its vector renderers take.
 // The full schema rides along under SCHEMA_KEY, so a round trip through our own
 // exports restores the composite types exactly; ArcGIS ignores the extra key.
 
@@ -12,6 +14,7 @@ import { arcgisToGeoJSON, geojsonToArcGIS } from '@terraformer/arcgis'
 import type { FeatureCollection, Geometry } from 'geojson'
 import {
   geometryKindOf,
+  parseVector,
   inferFields,
   isPrimitive,
   type FieldDef,
@@ -121,10 +124,45 @@ export function esriFieldName(name: string): string {
   return n.slice(0, 64)
 }
 
+/** One output column: a field, or one component of a vector field. */
+interface FlatColumn {
+  name: string
+  field: FieldDef
+  part?: 'u' | 'v'
+}
+
+/** Fields as flat columns, vectors split into their u/v components. */
+function flatColumns(fields: FieldDef[]): FlatColumn[] {
+  return fields.flatMap((f) =>
+    f.type === 'vector'
+      ? (['u', 'v'] as const).map((part) => ({ name: `${f.name}_${part}`, field: f, part }))
+      : [{ name: f.name, field: f }],
+  )
+}
+
+function flatValue(c: FlatColumn, props: Record<string, unknown> | null | undefined): unknown {
+  const v = props?.[c.field.name]
+  if (!c.part) return v
+  const vec = parseVector(v)
+  return vec ? vec[c.part] : null
+}
+
+/** Rebuild vector properties from <name>_u / <name>_v columns (in place). */
+function joinVectors(props: Record<string, unknown>, fields: FieldDef[]) {
+  for (const f of fields) {
+    if (f.type !== 'vector' || props[f.name] != null) continue
+    const u = props[`${f.name}_u`]
+    const v = props[`${f.name}_v`]
+    props[f.name] = typeof u === 'number' && typeof v === 'number' ? { u, v } : null
+    delete props[`${f.name}_u`]
+    delete props[`${f.name}_v`]
+  }
+}
+
 /** A property value as an Esri attribute. */
 export function toEsriValue(v: unknown, t: FieldType): unknown {
   if (v === null || v === undefined) return null
-  if (!isPrimitive(t)) return JSON.stringify(v)
+  if (!isPrimitive(t) || t === 'vector') return JSON.stringify(v)
   if (t === 'datetime') {
     const ms = v instanceof Date ? v.getTime() : Date.parse(String(v))
     return Number.isFinite(ms) ? ms : null
@@ -149,6 +187,7 @@ export function fromEsriValue(v: unknown, t: FieldType): unknown {
     return Number.isNaN(d.getTime()) ? null : d.toISOString()
   }
   if (t === 'boolean') return v === 1 || v === true || v === '1' || v === 'true'
+  if (t === 'vector') return parseVector(v)
   return v
 }
 
@@ -160,23 +199,31 @@ function sidecar(layer: LayerData): SchemaSidecar {
 // ── export ─────────────────────────────────────────────────────────────────
 
 export function toEsriFeatureSet(layer: LayerData): EsriFeatureSet {
-  const names = layer.fields.map((f) => esriFieldName(f.name))
+  const cols = flatColumns(layer.fields)
+  const names = cols.map((c) => esriFieldName(c.name))
   return {
     objectIdFieldName: OID,
     geometryType: toEsriGeometryType(layer.geometry),
     spatialReference: { wkid: 4326 },
     fields: [
       { name: OID, type: 'esriFieldTypeOID', alias: OID },
-      ...layer.fields.map((f, i) => ({
-        name: names[i],
-        type: toEsriFieldType(f.type),
-        alias: f.alias ?? f.name,
-        ...(toEsriFieldType(f.type) === 'esriFieldTypeString' ? { length: isPrimitive(f.type) ? 255 : 65535 } : {}),
-      })),
+      ...cols.map((c, i) => {
+        if (c.part) return { name: names[i], type: 'esriFieldTypeDouble', alias: `${c.field.alias ?? c.field.name} (${c.part === 'u' ? 'east' : 'north'})` }
+        const f = c.field
+        return {
+          name: names[i],
+          type: toEsriFieldType(f.type),
+          alias: f.alias ?? f.name,
+          ...(toEsriFieldType(f.type) === 'esriFieldTypeString' ? { length: isPrimitive(f.type) ? 255 : 65535 } : {}),
+        }
+      }),
     ],
     features: layer.features.map((feat, i) => {
       const attributes: Record<string, unknown> = { [OID]: i + 1 }
-      layer.fields.forEach((f, k) => (attributes[names[k]] = toEsriValue(feat.properties?.[f.name], f.type)))
+      cols.forEach((c, k) => {
+        const v = flatValue(c, feat.properties)
+        attributes[names[k]] = c.part ? v : toEsriValue(v, c.field.type)
+      })
       const geometry = feat.geometry ? { ...geojsonToArcGIS(feat.geometry), spatialReference: { wkid: 4326 } } : null
       return { attributes, geometry }
     }),
@@ -195,9 +242,9 @@ export function toGeoJSON(layer: LayerData, flatten = false): FeatureCollection 
     : layer.features.map((f) => ({
         ...f,
         properties: Object.fromEntries(
-          layer.fields.map((fd) => {
-            const v = f.properties?.[fd.name]
-            return [fd.name, !isPrimitive(fd.type) && v != null ? JSON.stringify(v) : (v ?? null)]
+          flatColumns(layer.fields).map((c) => {
+            const v = flatValue(c, f.properties)
+            return [c.name, !isPrimitive(c.field.type) && v != null ? JSON.stringify(v) : (v ?? null)]
           }),
         ),
       }))
@@ -212,8 +259,9 @@ function csvCell(v: unknown): string {
 
 /** Attribute table as CSV (no geometry) — joinable in ArcGIS on the id field. */
 export function toCSV(layer: LayerData): string {
-  const header = layer.fields.map((f) => csvCell(f.name)).join(',')
-  const rows = layer.features.map((feat) => layer.fields.map((f) => csvCell(feat.properties?.[f.name])).join(','))
+  const cols = flatColumns(layer.fields)
+  const header = cols.map((c) => csvCell(c.name)).join(',')
+  const rows = layer.features.map((feat) => cols.map((c) => csvCell(flatValue(c, feat.properties))).join(','))
   return [header, ...rows].join('\n') + '\n'
 }
 
@@ -249,7 +297,10 @@ export function fromGeoJSON(fc: FeatureCollection & { [SCHEMA_KEY]?: SchemaSidec
   const fields = meta?.fields
   const features = fc.features.map((f) => {
     const props = { ...(f.properties ?? {}) }
-    if (fields) for (const fd of fields) props[fd.name] = fromEsriValue(props[fd.name], fd.type)
+    if (fields) {
+      joinVectors(props, fields)
+      for (const fd of fields) props[fd.name] = fromEsriValue(props[fd.name], fd.type)
+    }
     return { ...f, properties: props } as LayerFeature
   })
   return finishLayer(features, { name, ...meta }, fields ? [...fields] : undefined)
@@ -263,13 +314,16 @@ export function fromEsriFeatureSet(fs: EsriFeatureSet, name = 'Imported layer'):
     meta?.fields ??
     esriFields.map((f) => ({ name: f.name, type: fromEsriFieldType(String(f.type)), alias: f.alias !== f.name ? f.alias : undefined }))
   const byEsriName = new Map(fields.map((f) => [esriFieldName(f.name), f]))
+  const parts = new Map(flatColumns(fields).filter((c) => c.part).map((c) => [esriFieldName(c.name), c.name]))
   const features: LayerFeature[] = fs.features.map((ef) => {
     const props: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(ef.attributes ?? {})) {
       const fd = byEsriName.get(k) ?? fields.find((f) => f.name === k)
       if (fd) props[fd.name] = fromEsriValue(v, fd.type)
+      else if (parts.has(k)) props[parts.get(k)!] = v
       else if (!meta) props[k] = v
     }
+    joinVectors(props, fields)
     const geometry = ef.geometry ? (arcgisToGeoJSON(ef.geometry) as unknown as Geometry) : null
     return { type: 'Feature', geometry: geometry as Geometry, properties: props }
   })

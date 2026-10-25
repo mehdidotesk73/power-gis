@@ -7,7 +7,8 @@ import { formatCompact } from '../../lib/format'
 import { patternDataUrl } from './images'
 
 defineProps<{ entries: LegendEntry[]; source?: string }>()
-const collapsed = ref(false)
+// Phones start collapsed: the legend would cover most of a small map.
+const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 600)
 </script>
 
 <template>
@@ -50,6 +51,8 @@ const collapsed = ref(false)
   left: 0.5rem;
   bottom: 1.8rem;
   max-width: 14rem;
+  max-height: calc(100% - 3rem);
+  overflow: auto;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   border: 1px solid var(--border);
   border-radius: 0.4rem;

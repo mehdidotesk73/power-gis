@@ -81,3 +81,19 @@ export function bboxOf(geoms: (Geometry | null)[]): BBox | null {
   for (const g of geoms) if (g && 'coordinates' in g) visit(g.coordinates)
   return minX === Infinity ? null : [minX, minY, maxX, maxY]
 }
+
+/**
+ * Where to look for a set of features: the full bbox for a handful, else the
+ * 1st–99th percentile of their anchor points. Keeps one outlier — Aleutian
+ * islands across the antimeridian, a stray 0,0 point — from zooming the map
+ * out to the whole world.
+ */
+export function focusBox(geoms: (Geometry | null)[]): BBox | null {
+  if (geoms.length < 50) return bboxOf(geoms)
+  const pts = geoms.map(anchorPoint).filter((p): p is [number, number] => p !== null)
+  if (!pts.length) return null
+  const q = (vals: number[], t: number) => vals[Math.min(vals.length - 1, Math.max(0, Math.round(t * (vals.length - 1))))]
+  const xs = pts.map((p) => p[0]).sort((a, b) => a - b)
+  const ys = pts.map((p) => p[1]).sort((a, b) => a - b)
+  return [q(xs, 0.01), q(ys, 0.01), q(xs, 0.99), q(ys, 0.99)]
+}

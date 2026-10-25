@@ -2,7 +2,7 @@
 // Custom dashboard for a county in the utilities layer: ownership mix bar
 // plus the utilities serving it, each linkable to its full territory.
 import { computed } from 'vue'
-import type { LayerFeature } from '../lib/schema'
+import type { DataRecord } from '../lib/data/connectors'
 import { formatPrimitive } from '../lib/format'
 import { OWNERSHIP_COLORS } from './utilityStyles'
 
@@ -14,13 +14,17 @@ interface UtilityRef {
   counties_in_state: number
 }
 
-const props = defineProps<{ feature: LayerFeature; selectedUtilityId: number | null }>()
+/** The county's rows from the utility-county table. */
+const props = defineProps<{ rows: DataRecord[]; selectedUtilityId: number | null }>()
 defineEmits<{ (e: 'pick-utility', id: number): void }>()
 
-const utilities = computed(() => (props.feature.properties.utilities ?? []) as UtilityRef[])
+const utilities = computed(() =>
+  (props.rows as unknown as UtilityRef[]).slice().sort((a, b) => (b.state_customers ?? -1) - (a.state_customers ?? -1)),
+)
 const mix = computed(() => {
-  const counts = (props.feature.properties.entity_type_counts ?? {}) as Record<string, number>
-  const total = Object.values(counts).reduce((a, b) => a + b, 0)
+  const counts: Record<string, number> = {}
+  for (const u of utilities.value) counts[u.entity_type || 'Unknown'] = (counts[u.entity_type || 'Unknown'] ?? 0) + 1
+  const total = utilities.value.length
   return Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .map(([type, n]) => ({ type, n, pct: total ? (100 * n) / total : 0, color: OWNERSHIP_COLORS[type] ?? '#9e9e9e' }))

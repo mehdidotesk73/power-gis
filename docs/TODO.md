@@ -25,12 +25,37 @@ One-time setup — tick these off as they're done:
 
 ## Code
 
+### Workspace roadmap
+
+- **User login + linked workspace settings** — sign in and have the workspace saved to the account:
+  imported datasets, visualizations, tabs and app settings. Supersedes "remember between
+  visits" below; needs the `add-statefulness` → `add-database` path (auth + per-user storage).
+- **Dataset reordering** — datasets as a drag-reorderable list (visualizations already reorder by
+  drag, with swipe-to-delete). Show every pipeline (connector → dataset → derived dataset →
+  visualization) as a **DAG**.
+- **Derived datasets** — create new datasets from existing ones (filters, aggregates, joins),
+  shown as nodes in the DAG, and **visualizations sourced from more than one dataset**.
+- **Tabs** — each tab is its own map with its own set of open layers, and its own DAG.
+- **Split screen** — show tabs side by side using industry-standard splits (2 vertical,
+  2 horizontal, 2×2, 1 + 2), ideally with optional synced pan/zoom.
+- **SQL visualizations** — define a visualization with SQL over datasets: new aggregates and
+  joins across tables (e.g. an in-browser engine such as DuckDB-WASM), with the result bound to
+  geometry like any other dataset.
+- **Normalize the EIA-861 data** — split today's denormalized table into a **counties** dataset, a
+  **utilities** dataset and a **county ↔ utility join table**; a SQL join over the join table
+  produces a derived dataset that a visualization draws to reproduce today's map. Alternative:
+  give the utilities dataset a **list-of-counties column** and join on it (unnest) instead of a
+  join table. (Also fixes the misleading `counties_in_state` — it's per utility, not per state.)
+
+### Backlog
+
 - Real vector dataset (e.g. EIA-930 balancing-authority interchange flows) to replace the demo arrows
 - Point and polyline datasets (plants from EIA-860, transmission lines) to exercise those geometries
 - Patterns for polylines (dash arrays) and points (symbol overlays)
 - Arrow length encoding (currently size scales the whole glyph)
 - Per-county customer estimates (EIA reports customers per utility per state only)
-- Database `DataSource` (e.g. Supabase) — interface is ready in `src/lib/data/source.ts`; needs the
+- Remember imported datasets and visualizations between visits (specs in local storage; device files would need re-picking)
+- Database `DataConnector` (e.g. Supabase) — interface is ready in `src/lib/data/connectors.ts`; needs the
   `add-statefulness` / `add-database` decision first
 - Utility service-territory polygons (HIFLD) as an alternative to county granularity
 

@@ -6,11 +6,23 @@ import type { Map as MlMap, MapLayerMouseEvent } from 'maplibre-gl'
 
 export interface MapContext {
   map: ShallowRef<MlMap | null>
-  /** Data layers are inserted below this basemap layer (place labels stay on top). */
-  beforeId: string | undefined
+  /**
+   * Layer to insert a data layer before, by kind. Kinds stack regions →
+   * lines → points → arrows (all under the basemap's place labels), so a
+   * region layer added later never hides earlier points.
+   */
+  slot: (kind: DrawKind) => string | undefined
+  /** Map layers owned by each widget (by widget id), in their current bottom→top order. */
+  stacks: Map<string, { kind: DrawKind; layerIds: () => string[] }>
+  /** Re-apply the last requested order — widgets call this after (re)creating map layers. */
+  restackSoon: () => void
   /** Layers whose clicks count as "on a feature" (so MapView can detect background clicks). */
   interactive: Set<string>
 }
+
+export type DrawKind = 'region' | 'polyline' | 'point' | 'vector'
+export const DRAW_ORDER: DrawKind[] = ['region', 'polyline', 'point', 'vector']
+export const slotId = (kind: DrawKind) => `slot-${kind}`
 
 export const MAP_KEY: InjectionKey<MapContext> = Symbol('map')
 
