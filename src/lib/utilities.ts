@@ -40,6 +40,11 @@ const num = (s: string | undefined): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
+/** Retired county codes EIA still reports → the county that absorbed them. */
+export const FIPS_SUCCESSORS: Record<string, string> = {
+  '51515': '51019', // Bedford city, VA → Bedford County (2013)
+}
+
 export function parseUtilityCounties(csv: string): UtilityCountyRow[] {
   const parsed = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true, dynamicTyping: false })
   return parsed.data.map((r) => ({
@@ -108,8 +113,11 @@ export function buildCountyLayer(
 ): { layer: LayerData; unmatchedFips: string[] } {
   const byFips = new Map<string, UtilityCountyRow[]>()
   for (const r of rows) {
-    if (!byFips.has(r.county_fips)) byFips.set(r.county_fips, [])
-    byFips.get(r.county_fips)!.push(r)
+    const fips = FIPS_SUCCESSORS[r.county_fips] ?? r.county_fips
+    const list = byFips.get(fips) ?? []
+    // A utility listed in both the old and the absorbing county counts once.
+    if (!list.some((x) => x.utility_id_eia === r.utility_id_eia)) list.push(r)
+    byFips.set(fips, list)
   }
   const year = rows[0]?.report_year ?? null
   const seen = new Set<string>()

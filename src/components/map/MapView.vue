@@ -2,8 +2,11 @@
 // The map canvas. Layer widgets (ScalarLayer, VectorLayer) go in the default
 // slot and render once the basemap has loaded. Overlays (tooltip, legend,
 // panels) go in the `overlay` slot, positioned over the map.
-import { Map as MlMap, NavigationControl, type StyleSpecification } from 'maplibre-gl'
+import { Map as MlMap, NavigationControl, setWorkerUrl, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+// MapLibre looks for its worker beside its own module, which doesn't exist once
+// Vite bundles it — so emit the worker as an asset and point MapLibre at it.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue'
 import { MAP_KEY, type MapContext } from './mapContext'
 import type { BBox } from '../../lib/geometry'
@@ -13,44 +16,28 @@ const props = withDefaults(
   defineProps<{
     center?: [number, number]
     zoom?: number
-    basemap?: 'light' | 'dark' | 'none'
+    /** 'light' = OpenFreeMap Positron vector tiles (free, no API key); 'none' = plain background. */
+    basemap?: 'light' | 'none'
   }>(),
   { center: () => [-96.5, 38.5], zoom: 3.2, basemap: 'light' },
 )
 const emit = defineEmits<{ (e: 'background-click'): void }>()
 
-const LABELS = 'basemap-labels'
+setWorkerUrl(workerUrl)
 
-function basemapStyle(kind: 'light' | 'dark' | 'none'): StyleSpecification {
-  const bg = kind === 'dark' ? '#1d2024' : '#f4f3ef'
-  if (kind === 'none') return { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': bg } }] }
-  const base = kind === 'dark' ? 'dark_nolabels' : 'light_nolabels'
-  const labels = kind === 'dark' ? 'dark_only_labels' : 'light_only_labels'
-  const tiles = (set: string) => ['a', 'b', 'c', 'd'].map((s) => `https://${s}.basemaps.cartocdn.com/${set}/{z}/{x}/{y}@2x.png`)
-  const attribution = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>'
-  return {
-    version: 8,
-    sources: {
-      base: { type: 'raster', tiles: tiles(base), tileSize: 256, attribution },
-      labels: { type: 'raster', tiles: tiles(labels), tileSize: 256 },
-    },
-    layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': bg } },
-      { id: 'basemap', type: 'raster', source: 'base' },
-      { id: LABELS, type: 'raster', source: 'labels' },
-    ],
-  }
-}
+const BASEMAP_URL = 'https://tiles.openfreemap.org/styles/positron'
+const BLANK: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#f4f3ef' } }] }
 
 const el = ref<HTMLDivElement>()
 const map = shallowRef<MlMap | null>(null)
-const ctx: MapContext = { map, beforeId: props.basemap === 'none' ? undefined : LABELS, interactive: new Set() }
+// beforeId is filled in on load: data layers go under the basemap's first label layer.
+const ctx: MapContext = { map, beforeId: undefined, interactive: new Set() }
 provide(MAP_KEY, ctx)
 
 onMounted(() => {
   const m = new MlMap({
     container: el.value!,
-    style: basemapStyle(props.basemap),
+    style: props.basemap === 'light' ? BASEMAP_URL : BLANK,
     center: props.center,
     zoom: props.zoom,
     attributionControl: { compact: true },
@@ -59,8 +46,23 @@ onMounted(() => {
   })
   m.touchZoomRotate.disableRotation()
   m.addControl(new NavigationControl({ showCompass: false }), 'top-right')
-  m.on('load', () => (map.value = m))
-  m.on('error', (e) => logDebug(`map: ${e.error?.message ?? 'error'}`, 'warn'))
+  // Start fitted to the lower 48 so phones see both coasts.
+  m.fitBounds([-124.8, 24.4, -66.9, 49.4], { padding: 12, animate: false })
+  m.on('load', () => {
+    ctx.beforeId = m.getStyle().layers.find((l) => l.type === 'symbol')?.id
+    map.value = m
+  })
+  // If the basemap style itself can't load, fall back to a plain background
+  // so the data layers still render.
+  let fellBack = false
+  m.on('error', (e) => {
+    logDebug(`map: ${e.error?.message ?? 'error'}`, 'warn')
+    if (!map.value && !fellBack && !m.isStyleLoaded()) {
+      fellBack = true
+      logDebug('basemap unavailable — showing data on a plain background', 'warn')
+      m.setStyle(BLANK, { diff: false })
+    }
+  })
   m.on('click', (e) => {
     const layers = [...ctx.interactive].filter((id) => m.getLayer(id))
     if (!layers.length || !m.queryRenderedFeatures(e.point, { layers }).length) emit('background-click')

@@ -87,7 +87,7 @@ whatever they're actually asking about.
 - **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, one job named `build`), and the
   branch ruleset requires it to pass before merge. Tests stay inside that one job — never a separate
   job, since the ruleset only watches `build`.
-- **External data dependencies:** the map's basemap tiles (CARTO raster tiles), and — only when
+- **External data dependencies:** the basemap (OpenFreeMap Positron vector tiles, free, no key; the map falls back to a plain background if they fail), and — only when
   rebuilding the CSV — the PUDL mirror of EIA-861 on S3. The app's own data is static in `public/`.
   From this sandbox eia.gov and census.gov are blocked; the PUDL S3 bucket is reachable. You cannot
   see the rendered map here unless you drive a headless browser; lean on the user's screenshots.
