@@ -25,7 +25,7 @@ const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 600)
             <span>{{ formatCompact(e.max) }}</span>
           </div>
         </template>
-        <ul v-else class="lg-swatches">
+        <ul v-else class="lg-swatches" :class="{ cols: e.items.length > 12 }">
           <li v-for="it in e.items" :key="it.label">
             <span
               class="lg-swatch"
@@ -89,6 +89,17 @@ const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 600)
   padding: 0;
   display: grid;
   gap: 0.1rem;
+}
+.lg-swatches.cols {
+  /* Many categories (e.g. 50 states): columns instead of one long list. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 0.5rem;
+}
+.lg-swatches.cols li {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .lg-swatches li {
   display: flex;

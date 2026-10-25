@@ -312,6 +312,13 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Categorical palettes — 2026-10-25
+- **Added:** 12 / 24 / 60-color, Many and Auto palettes (`lib/palettes.ts`); palette picker.
+- **Removed:** the 9-category cap and grey "other" bucket; values are colored in sorted order
+  (was frequency order).
+- **Lesson:** a pure max-min color picker drifts to neon primaries next to Tableau's muted tones;
+  capping chroma (22–62) keeps one family at a small cost in minimum distance (22.6 → 17.6 ΔE).
+
 ### Explicit Save + workspace files — 2026-10-25
 - **Added:** workspace bar with Save / Discard and an Unsaved-changes marker; drafts survive
   reloads; workspace file download / load (pointers + settings only); rename the workspace.

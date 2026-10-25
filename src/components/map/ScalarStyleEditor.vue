@@ -4,7 +4,8 @@
 import { computed } from 'vue'
 import { COLORMAPS, cssGradient, type ColormapName } from '../../lib/colormaps'
 import { distinctValues, fieldLabel, isNumericType, type LayerData } from '../../lib/schema'
-import { PATTERNS, type ColorEncoding, type OpacityEncoding, type PatternEncoding, type PatternKind, type ScalarStyle } from '../../lib/style'
+import { PALETTE_LABELS, paletteSize, type PaletteName } from '../../lib/palettes'
+import { categoricalColors, PATTERNS, type ColorEncoding, type OpacityEncoding, type PatternEncoding, type PatternKind, type ScalarStyle } from '../../lib/style'
 
 const props = defineProps<{ layer: LayerData; modelValue: ScalarStyle }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: ScalarStyle): void }>()
@@ -26,6 +27,16 @@ function setColorKind(kind: ColorEncoding['kind']) {
 function patchColor(p: Record<string, unknown>) {
   update({ color: { ...color.value, ...p } as ColorEncoding })
 }
+
+// Categories: every value gets a color from the chosen palette.
+const palettes = Object.keys(PALETTE_LABELS) as PaletteName[]
+const categories = computed(() => (color.value.kind === 'categorical' ? categoricalColors(color.value, props.layer.features) : []))
+const repeats = computed(() => {
+  const c = color.value
+  if (c.kind !== 'categorical') return 0
+  const n = categories.value.filter((x) => !c.colors?.[x.value]).length
+  return n > paletteSize(c.palette ?? 'auto', n) ? paletteSize(c.palette ?? 'auto', n) : 0
+})
 
 const opacity = computed(() => props.modelValue.opacity)
 function setOpacityKind(kind: OpacityEncoding['kind']) {
@@ -90,12 +101,26 @@ function setPatternFor(value: string, p: PatternKind | '') {
           <label><input type="checkbox" :checked="color.scale === 'log'" @change="patchColor({ scale: ($event.target as HTMLInputElement).checked ? 'log' : 'linear' })" /> Log scale</label>
         </div>
       </template>
-      <label v-else class="row">
-        Field
-        <select :value="color.field" @change="patchColor({ field: ($event.target as HTMLSelectElement).value, colors: undefined })">
-          <option v-for="f in categoryFields" :key="f.name" :value="f.name">{{ fieldLabel(f) }}</option>
-        </select>
-      </label>
+      <template v-else>
+        <label class="row">
+          Field
+          <select :value="color.field" @change="patchColor({ field: ($event.target as HTMLSelectElement).value, colors: undefined })">
+            <option v-for="f in categoryFields" :key="f.name" :value="f.name">{{ fieldLabel(f) }}</option>
+          </select>
+        </label>
+        <label class="row">
+          Palette
+          <select :value="color.palette ?? 'auto'" @change="patchColor({ palette: ($event.target as HTMLSelectElement).value })">
+            <option v-for="p in palettes" :key="p" :value="p">{{ PALETTE_LABELS[p] }}</option>
+          </select>
+        </label>
+        <div class="swatches" :title="`${categories.length} values`">
+          <span v-for="c in categories" :key="c.value" :style="{ background: c.color }" />
+        </div>
+        <p class="note">
+          {{ categories.length.toLocaleString() }} values<template v-if="repeats"> · only {{ repeats }} colors, so colors repeat — pick a bigger palette or Many</template>
+        </p>
+      </template>
     </fieldset>
 
     <fieldset>
@@ -221,5 +246,20 @@ select {
 .ramp {
   height: 0.55rem;
   border-radius: 0.2rem;
+}
+.swatches {
+  display: flex;
+  height: 0.7rem;
+  border-radius: 0.2rem;
+  overflow: hidden;
+}
+.swatches span {
+  flex: 1;
+  min-width: 1px;
+}
+.note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 </style>

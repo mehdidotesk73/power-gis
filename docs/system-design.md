@@ -87,6 +87,24 @@ src/lib/
 
 Keep functions **pure** — same input → same output, no side effects.
 
+### Categorical palettes (`lib/palettes.ts`)
+
+Reusable by any widget that colors categories (map layers and legends now, charts later).
+`paletteColors(name, n)` returns `n` colors:
+
+- `p12`, `p24`, `p60` — fixed lists, nested (the first 12 of `p24` are `p12`), so a category keeps
+  its color when a bigger palette is picked. Built once, deterministically: Tableau 10's first nine,
+  then greedily the candidate farthest in CIELAB from all chosen so far, among colors with
+  L 40–82 and chroma 22–62 (readable on light and dark backgrounds, same family as Tableau).
+  Minimum pairwise ΔE ≈ 17.6 across all 60. Fixed palettes repeat when `n` is larger.
+- `many` — `manyColors(n)`: the 12 hues in ⌈n/12⌉ lightness variations (original first, then
+  alternately darker / lighter within ±24 L). Consecutive entries differ in hue.
+- `auto` — the smallest fixed palette that fits, else `many`. The default.
+
+Categorical color encodings (`style.ts`) color every distinct value (sorted, numeric-aware), honor
+explicit `colors`, and pick the rest from `palette`. The editor shows a swatch strip, the value count
+and a note when a fixed palette repeats; legends with more than 12 items go into three columns.
+
 ### Client / server boundary
 
 Everything runs in the browser today, but the code is split as if it didn't, so moving to a real

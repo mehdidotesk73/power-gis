@@ -32,6 +32,10 @@ Track feature development, improvements, and known issues here. Move completed w
   `parseDraft`); `.powergis.json` download / load of pointers + settings (`toWorkspaceFile`,
   `parseWorkspaceFile`, `fromWorkspaceFile`: fresh visualization ids, missing datasets reported).
   Reset is now a draft too.
+- **Categorical palettes** — `lib/palettes.ts` (`paletteColors`, `manyColors`, `PALETTES`): fixed
+  nested 12 / 24 / 60-color palettes (Tableau + CIELAB max-min), `many` (lightness variations) and
+  `auto`. Category colors no longer stop at 9 (no `maxCategories`); palette picker + swatch strip in
+  the editor; legends with many items in columns. Reusable for charts.
 
 ## Next (Current Sprint)
 
