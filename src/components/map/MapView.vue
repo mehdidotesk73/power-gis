@@ -2,8 +2,11 @@
 // The map canvas. Layer widgets (ScalarLayer, VectorLayer) go in the default
 // slot and render once the basemap has loaded. Overlays (tooltip, legend,
 // panels) go in the `overlay` slot, positioned over the map.
-import { Map as MlMap, NavigationControl, type StyleSpecification } from 'maplibre-gl'
+import { Map as MlMap, NavigationControl, setWorkerUrl, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+// MapLibre looks for its worker beside its own module, which doesn't exist once
+// Vite bundles it — so emit the worker as an asset and point MapLibre at it.
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue'
 import { MAP_KEY, type MapContext } from './mapContext'
 import type { BBox } from '../../lib/geometry'
@@ -18,6 +21,8 @@ const props = withDefaults(
   { center: () => [-96.5, 38.5], zoom: 3.2, basemap: 'light' },
 )
 const emit = defineEmits<{ (e: 'background-click'): void }>()
+
+setWorkerUrl(workerUrl)
 
 const LABELS = 'basemap-labels'
 
@@ -59,6 +64,8 @@ onMounted(() => {
   })
   m.touchZoomRotate.disableRotation()
   m.addControl(new NavigationControl({ showCompass: false }), 'top-right')
+  // Start fitted to the lower 48 so phones see both coasts.
+  m.fitBounds([-124.8, 24.4, -66.9, 49.4], { padding: 12, animate: false })
   m.on('load', () => (map.value = m))
   m.on('error', (e) => logDebug(`map: ${e.error?.message ?? 'error'}`, 'warn'))
   m.on('click', (e) => {

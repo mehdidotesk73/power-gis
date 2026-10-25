@@ -37,7 +37,8 @@ export default defineConfig({
     }),
   ],
   define: {
-    __BUILD_ID__: JSON.stringify(process.env.VITE_BUILD_ID || 'dev'),
+    // COMMIT_REF is set by Netlify on every build.
+    __BUILD_ID__: JSON.stringify(process.env.VITE_BUILD_ID || process.env.COMMIT_REF?.slice(0, 7) || 'dev'),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
 })
