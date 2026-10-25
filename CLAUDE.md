@@ -181,6 +181,17 @@ package-lock.json              committed — CI runs `npm ci` and needs it
 - **Mobile-first:** the user is on a phone. Keep controls tappable; hover is only a bonus
   (tooltips are suppressed on touch devices, tap opens the panel).
 
+## Version freshness
+
+- Every build writes `version.json` (`{commit, builtAt}`) via the `emit-version-json` plugin in
+  `vite.config.ts`; the build id is `VITE_BUILD_ID`, else Netlify's `COMMIT_REF`, else git.
+- `src/lib/useVersionCheck.ts` polls it every 60 s and compares it with `__BUILD_ID__`: the
+  footer shows "up to date" or "<commit> is live", and the header shows **Update available**.
+- `src/pwa.ts` registers the service worker itself (`injectRegister: false`), checks for new
+  deploys every 60 s and auto-reloads into them. Manual **Reload latest** unregisters the SW, clears
+  caches and navigates with `?fresh=` (stripped in `main.ts`), because a polite SW update proved
+  unreliable on iOS.
+
 ## Debugging on device (no console)
 
 - **Errors are captured automatically.** `installErrorCapture(app)` in
