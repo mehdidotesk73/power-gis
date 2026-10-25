@@ -3,7 +3,8 @@
 // (dataset pointers + ordered visualizations), reads registry records and
 // rows from the database (read-only), and asks the server for everything
 // lasting or heavy: uploads, dataset edits, each visualization's values,
-// the rows behind a feature, and saving the workspace. Top of the
+// the rows behind a feature, and saving the workspace (on Save; until then
+// edits are a draft kept on the device). Top of the
 // visualization list draws on top. The EIA-861 utilities dataset is the
 // starting workspace, with its own dashboard and utility search.
 import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue'
@@ -20,6 +21,7 @@ import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
 import UtilityCountyDashboard from './UtilityCountyDashboard.vue'
+import WorkspaceBar from './workspace/WorkspaceBar.vue'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { UTILITY_NAME, utilityVisualizations } from './utilityStyles'
@@ -39,6 +41,7 @@ import {
   emptyWorkspace,
   removeDataset as removeDataset_,
   removeVisualization as removeVisualization_,
+  renameWorkspace,
   reorderDatasets as reorderDatasets_,
   reorderVisualizations as reorderVisualizations_,
   updateVisualization as updateVisualization_,
@@ -46,6 +49,7 @@ import {
   type OpResult,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
+import { fileName, fromWorkspaceFile, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft } from '../lib/workspace/file'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -102,20 +106,42 @@ async function loadUtilities(r: DatasetRecord) {
   if (rows) utilities.value = utilitiesFromRows(utilityRowsFromRecords(rows))
 }
 
-// Saving: every change to the working copy is sent to the server (debounced).
-// (An explicit Save with a local draft comes next.)
-let persist = false
-let saveTimer: ReturnType<typeof setTimeout> | undefined
-watch(doc, () => {
-  if (!persist) return
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(save, 400)
+// Saving: edits are a draft until Save sends them to the server. The draft
+// is kept on this device (localStorage) so a reload doesn't lose it.
+const LAST_WORKSPACE = 'powergis.lastWorkspace'
+const DRAFT = 'powergis.draft'
+const loaded = ref(false)
+const savedSnap = ref('')
+const saving = ref(false)
+const barMessage = ref('')
+const dirty = computed(() => loaded.value && snapshot(doc.value) !== savedSnap.value)
+
+const store = {
+  get: (k: string) => {
+    try {
+      return localStorage.getItem(k)
+    } catch {
+      return null
+    }
+  },
+  set: (k: string, v: string | null) => {
+    try {
+      if (v === null) localStorage.removeItem(k)
+      else localStorage.setItem(k, v)
+    } catch {
+      /* per-device convenience only */
+    }
+  },
+}
+watch([doc, savedSnap], () => {
+  if (!loaded.value) return
+  store.set(DRAFT, dirty.value ? JSON.stringify({ doc: doc.value, saved: savedSnap.value } satisfies Draft) : null)
 })
-// One save at a time, each reading the latest working copy (so the second
-// of two quick edits updates the workspace the first one created).
-let saving: Promise<void> = Promise.resolve()
-const save = () => (saving = saving.then(saveNow))
-async function saveNow() {
+
+async function save() {
+  if (saving.value) return
+  saving.value = true
+  barMessage.value = ''
   const d = doc.value
   const r = await call(
     'save workspace',
@@ -126,16 +152,53 @@ async function saveNow() {
       visualizations: d.visualizations.map((v) => ({ id: v.id, name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
     }),
   )
-  if (r && !d.id) {
-    doc.value = { ...doc.value, id: r.workspaceId } // the watch fires once more; that save is a plain update
-    try {
-      localStorage.setItem(LAST_WORKSPACE, r.workspaceId)
-    } catch {
-      /* per-device convenience only */
-    }
-  }
+  saving.value = false
+  if (!r) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
+  savedSnap.value = snapshot(d)
+  if (!doc.value.id) doc.value = { ...doc.value, id: r.workspaceId }
+  store.set(LAST_WORKSPACE, r.workspaceId)
 }
-const LAST_WORKSPACE = 'powergis.lastWorkspace'
+
+/** Back to the workspace as last saved. */
+async function revert() {
+  const w = doc.value.id ? await readDb.get('workspaces', doc.value.id) : undefined
+  if (!w) return
+  resetSelection()
+  await open(w)
+  savedSnap.value = snapshot(doc.value)
+  barMessage.value = ''
+}
+
+function resetSelection() {
+  selected.value = null
+  clearUtility()
+}
+
+const rename = (name: string) => apply(renameWorkspace(doc.value, name))
+
+function download() {
+  const blob = new Blob([JSON.stringify(toWorkspaceFile(doc.value), null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = fileName(doc.value)
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+
+async function loadFile(f: File) {
+  const parsed = parseWorkspaceFile(await f.text())
+  if (!parsed.ok) return void (barMessage.value = parsed.error)
+  if (dirty.value && !confirm('Replace your unsaved changes with the workspace from this file?')) return
+  for (const id of parsed.file.datasetIds) await loadRecord(id)
+  const { doc: next, missing } = fromWorkspaceFile(parsed.file, doc.value, (id) => records.value.has(id))
+  resetSelection()
+  doc.value = next
+  barMessage.value =
+    `Loaded "${next.name}" (${next.visualizations.length} visualizations) — Save to keep it.` +
+    (missing.length ? ` ${missing.length} dataset${missing.length === 1 ? ' is' : 's are'} not in this database and ${missing.length === 1 ? 'was' : 'were'} left out.` : '')
+  if (missing.length) logDebug(`workspace file: datasets not in the database: ${missing.join(', ')}`, 'warn')
+}
+
 
 /** The first visualization for a dataset added to the workspace, from a guessed binding. */
 async function firstVisualizations(ds: DatasetRecord): Promise<VisualizationSpec[]> {
@@ -194,7 +257,7 @@ async function seedDefault() {
   const existing = (await readDb.list('datasets')).find((d) => d.extensions?.preset === 'utilities')
   const id = existing?.id ?? (await call('load built-in data', request('uploadDataset', { source: { kind: 'builtin', table: UTILITY_TABLE } })))?.datasetId
   if (!id || !(await loadRecord(id))) throw new Error('could not load the built-in utilities dataset')
-  apply(addDataset({ ...emptyWorkspace(), name: UTILITY_NAME }, id, utilityVisualizations(id)))
+  apply(addDataset({ ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}), name: UTILITY_NAME }, id, utilityVisualizations(id)))
 }
 
 /** Opens a saved workspace: its dataset pointers and visualization records. */
@@ -213,15 +276,12 @@ async function open(w: WorkspaceRecord) {
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations`)
 }
 
+/** Replaces the working copy with the default map (unsaved until Save). Datasets stay in the database. */
 async function resetWorkspace() {
-  if (!confirm('Reset the workspace? Its visualizations are deleted; datasets stay in the database (＋ Add dataset → Saved).')) return
-  persist = false
-  selected.value = null
-  clearUtility()
-  if (doc.value.id) await call('delete workspace', request('deleteWorkspace', { id: doc.value.id }))
+  if (!confirm('Reset this workspace to the default map? Nothing changes until you Save; your datasets stay in the database (＋ Add dataset → Saved).')) return
+  resetSelection()
   await seedDefault()
-  persist = true
-  await save()
+  barMessage.value = ''
 }
 
 onMounted(async () => {
@@ -229,17 +289,25 @@ onMounted(async () => {
     const init = await request('init', { baseUrl: new URL(base, location.href).href })
     if (!init.ok) throw new Error(init.error.message)
     const all = await readDb.list('workspaces')
-    let last: string | null = null
-    try {
-      last = localStorage.getItem(LAST_WORKSPACE)
-    } catch {
-      /* none */
-    }
+    const last = store.get(LAST_WORKSPACE)
     const w = all.find((x) => x.id === last) ?? all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-    if (w) await open(w)
-    else await seedDefault()
-    persist = true
-    if (!w) await save()
+    if (w) {
+      await open(w)
+      savedSnap.value = snapshot(doc.value)
+      const draft = parseDraft(store.get(DRAFT))
+      if (draft && draft.doc.id === w.id) {
+        // Unsaved edits from last time; drop pointers to datasets that have since gone.
+        for (const id of draft.doc.datasetIds) await loadRecord(id)
+        const ids = draft.doc.datasetIds.filter((id) => records.value.has(id))
+        doc.value = { ...draft.doc, datasetIds: ids, visualizations: draft.doc.visualizations.filter((v) => ids.includes(v.datasetId)) }
+        logDebug('restored unsaved changes from last time')
+      }
+    } else {
+      await seedDefault()
+      loaded.value = true
+      await save() // the first workspace exists as soon as it's made
+    }
+    loaded.value = true
     status.value = 'ready'
   } catch (e) {
     status.value = 'error'
@@ -423,6 +491,18 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 <template>
   <div class="page">
     <section class="controls">
+      <WorkspaceBar
+        :name="doc.name"
+        :dirty="dirty"
+        :saving="saving"
+        :message="barMessage"
+        @save="save"
+        @revert="revert"
+        @rename="rename"
+        @download="download"
+        @load="loadFile"
+        @reset="resetWorkspace"
+      />
       <div v-if="utilityDs" class="search">
         <SearchBox
           ref="searchBox"
@@ -474,10 +554,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
           <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
         </div>
-        <p class="muted small saved">
-          Workspace saved to the database (on this device for now) ·
-          <button class="link" @click="resetWorkspace">Reset workspace</button>
-        </p>
       </details>
 
       <details class="box">
@@ -623,17 +699,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 .small {
   font-size: 0.72rem;
 }
-.saved {
-  margin: 0.5rem 0 0;
-}
-.link {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--accent-blue);
-  font-size: inherit;
-  text-decoration: underline;
-}
+
 .values {
   display: grid;
   grid-template-columns: max-content 1fr;

@@ -129,12 +129,23 @@ workspace; the table stays), `reorderDatasets`, `renameWorkspace`, `addVisualiza
 operations and read why one failed. Dataset edits (rename, describe, vector columns) are server
 requests, not workspace ops, since datasets are shared records.
 
-`MapPage.vue` holds the copy in a `shallowRef`, applies ops through `apply()`, and sends it with
-`saveWorkspace` (debounced, one save at a time). On open it calls `init`, opens the last-used (or
-newest) workspace from the database, or seeds one with the built-in utilities dataset (reused if
-already uploaded). Visualization values are fetched per (dataset, binding, column, aggregation) and
-cached; restyling never refetches. **Next:** explicit Save with a local draft, and workspace file
-download/load (pointers only).
+`MapPage.vue` holds the copy in a `shallowRef` and applies ops through `apply()`.
+
+- **Explicit Save.** Edits are a draft until **Save** sends `saveWorkspace`. `snapshot(doc)`
+  (`file.ts`) is the stable text of what Save would store; the copy is dirty when it differs from
+  the snapshot taken at the last save/open. While dirty, the draft (`{doc, saved}`) is kept in
+  localStorage (`powergis.draft`) and restored on the next visit if it belongs to the opened
+  workspace (pointers to datasets since deleted are dropped). **Discard** re-opens the saved
+  workspace. Dataset uploads and edits are server writes right away — only the workspace is a draft.
+- **Workspace files** (`file.ts`): `toWorkspaceFile` → `.powergis.json` with `format`, `version`,
+  name, dataset ids and visualization settings — pointers, never rows. `parseWorkspaceFile` rejects
+  anything else with a readable reason. `fromWorkspaceFile` loads into the current workspace (keeps
+  its id), gives visualizations fresh ids (so they never collide with another workspace's records),
+  and drops datasets the database doesn't have, reporting them. The load is a draft until Save.
+- **Reset** replaces the copy with the default utilities map (a draft; datasets stay in the database).
+- On open it calls `init`, opens the last-used (or newest) workspace, or seeds and saves one with the
+  built-in utilities dataset (reused if already uploaded). Visualization values are fetched per
+  (dataset, binding, column, aggregation) and cached; restyling never refetches.
 
 ## §5 — Composables
 

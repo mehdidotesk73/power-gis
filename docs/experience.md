@@ -312,6 +312,15 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Explicit Save + workspace files — 2026-10-25
+- **Added:** workspace bar with Save / Discard and an Unsaved-changes marker; drafts survive
+  reloads; workspace file download / load (pointers + settings only); rename the workspace.
+- **Changed:** no more autosave; Reset produces an unsaved default map instead of deleting the
+  workspace.
+- **Lesson:** a text input's default ~20-character width made the sidebar 20px wider than a
+  390px phone; flex inputs need `width: 0; min-width: 0`.
+- **Docs:** CLAUDE.md, system-design §4, help overview, TODO.
+
 ### Client / server boundary — 2026-10-25
 - **Added:** server in a Web Worker with typed requests; IndexedDB database (base tables + one data
   table per dataset); read-only client database access; per-visualization geometry binding;
