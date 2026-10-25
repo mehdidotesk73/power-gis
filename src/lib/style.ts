@@ -6,7 +6,8 @@
 // Vectors encode as arrows: direction from the vector, size from magnitude,
 // plus the same color and opacity encodings.
 
-import { CATEGORICAL, colormapStops, cssGradient, type ColormapName } from './colormaps'
+import { colormapStops, cssGradient, type ColormapName } from './colormaps'
+import { paletteColors, type PaletteName } from './palettes'
 import { distinctValues, numericValues, parseVector, type LayerFeature } from './schema'
 
 /** A MapLibre style expression (kept loose so this module stays map-library free). */
@@ -28,10 +29,10 @@ export type ColorEncoding =
   | {
       kind: 'categorical'
       field: string
-      /** Explicit value → color; unlisted values get palette colors in frequency order. */
+      /** Explicit value → color; every other value gets a palette color, in sorted order. */
       colors?: Record<string, string>
-      maxCategories?: number
-      otherColor?: string
+      /** Default 'auto': the smallest fixed palette that fits, else 'many'. */
+      palette?: PaletteName
     }
 
 export type OpacityEncoding =
@@ -116,13 +117,13 @@ export function categoricalColors(
   enc: Extract<ColorEncoding, { kind: 'categorical' }>,
   features: LayerFeature[],
 ): { value: string; color: string }[] {
-  const max = enc.maxCategories ?? 9
-  const values = distinctValues(features, enc.field).slice(0, max)
-  let next = 0
-  return values.map((value) => {
-    const color = enc.colors?.[value] ?? CATEGORICAL[next++ % CATEGORICAL.length]
-    return { value, color }
-  })
+  // Every value gets a color. Sorted (numbers numerically), so a value keeps its
+  // color when others are added or counts change.
+  const values = distinctValues(features, enc.field).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const free = values.filter((v) => !enc.colors?.[v])
+  const colors = paletteColors(enc.palette ?? 'auto', free.length)
+  const byValue = new Map(free.map((v, i) => [v, colors[i]]))
+  return values.map((value) => ({ value, color: enc.colors?.[value] ?? byValue.get(value)! }))
 }
 
 export function colorExpression(enc: ColorEncoding, features: LayerFeature[]): Expr | string {
@@ -135,7 +136,7 @@ export function colorExpression(enc: ColorEncoding, features: LayerFeature[]): E
     return ['case', ['==', ['typeof', get], 'number'], ramp, enc.nullColor ?? 'rgba(0,0,0,0)'] as Expr
   }
   const cats = categoricalColors(enc, features)
-  const other = enc.otherColor ?? '#9e9e9e'
+  const other = '#9e9e9e' // values not seen when the style was built
   if (!cats.length) return other
   return ['match', ['to-string', get], ...cats.flatMap((c) => [c.value, c.color]), other] as Expr
 }

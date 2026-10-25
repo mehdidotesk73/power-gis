@@ -141,6 +141,11 @@ whatever they're actually asking about.
   numeric columns (`addVectorColumn` request → `withVectorColumn`). They aggregate component-wise (sum / mean).
   ArcGIS has no vector type, so exports split them into `<name>_u` / `<name>_v` Double fields;
   our schema sidecar rebuilds them on re-import.
+- **Categorical colors** (`lib/palettes.ts`): every value gets a color — no category cap. Palettes
+  `p12` / `p24` / `p60` are fixed, nested lists (each extends the smaller, starting from Tableau 10)
+  that repeat when values outnumber them; `many` makes lightness variations of the 12 hues for any
+  count; `auto` (default) picks the smallest that fits. Values are colored in sorted order, so a
+  value keeps its color as data changes. Use `paletteColors(name, n)` for any widget (charts too).
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).
@@ -174,7 +179,8 @@ src/
   lib/                     pure logic, no DOM/map — unit-tested
     schema.ts              field types, LayerData, schema inference
     style.ts               ScalarStyle / VectorStyle → MapLibre expressions + legends
-    colormaps.ts           colormap stops, categorical palette
+    colormaps.ts           colormap stops
+    palettes.ts            categorical palettes (12 / 24 / 60 fixed, many, auto) — reusable beyond the map
     rasters.ts             pattern tiles + arrow SDF as raw RGBA
     arcgis.ts              Esri JSON / GeoJSON / CSV import-export, FeatureServer fetch
     geometry.ts            anchor points (centroids), bbox

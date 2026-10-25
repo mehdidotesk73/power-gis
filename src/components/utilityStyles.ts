@@ -57,7 +57,7 @@ export function utilityVisualizations(datasetId: string): VisualizationSpec[] {
       column: 'entity_type',
       aggregation: 'mode',
       style: {
-        color: { kind: 'categorical', field: VALUE, colors: OWNERSHIP_COLORS, maxCategories: 8 },
+        color: { kind: 'categorical', field: VALUE, colors: OWNERSHIP_COLORS },
         opacity: { kind: 'constant', value: 0.75 },
         pattern: { kind: 'none' },
         outline,

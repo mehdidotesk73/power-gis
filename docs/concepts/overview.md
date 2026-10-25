@@ -16,6 +16,7 @@ A map of every electric utility operating in the US and the counties each one se
 - **Rename, describe and reorder datasets** — tap ✎ on a dataset to rename it or add a description; drag its ≡ handle to reorder the list.
 - **Order and delete** — drag the ≡ handle to reorder: the top of the list draws on top. Swipe a visualization left to reveal **Delete**.
 - **Edit a visualization** — choose its column, how rows on the same county are combined (count, sum, average, most common…), and its colors, colormap, transparency and fill pattern.
+- **Categories** — coloring by category gives every value its own color. **Palette** picks how: 12, 24 or 60 fixed colors (they repeat if there are more values — the editor tells you), **Many** for any number (shades of 12 colors), or **Auto**, which picks the smallest that fits. If another visualization is on underneath, its colors show through — untick it, or raise the opacity.
 - **Vectors (arrows)** — a column holding vectors (direction and size, like a flow) is drawn as arrows automatically. If your table has the two parts in separate columns (east and north), tap ✎ on the dataset and use **Combine two columns into a vector**.
 - **Demo vector field** — under ＋ Add dataset → Built-in, a made-up wind field to show how arrows look. It is not real data.
 - **Export** — download any dataset as GeoJSON, Esri JSON or CSV for ArcGIS. Vectors become two number columns (east and north), which ArcGIS can draw as arrows.
