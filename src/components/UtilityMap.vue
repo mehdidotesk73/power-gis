@@ -15,6 +15,7 @@ import FeaturePanel from './map/FeaturePanel.vue'
 import ScalarStyleEditor from './map/ScalarStyleEditor.vue'
 import VectorStyleEditor from './map/VectorStyleEditor.vue'
 import DataExchange from './map/DataExchange.vue'
+import SearchBox from './map/SearchBox.vue'
 import UtilityCountyDashboard from './UtilityCountyDashboard.vue'
 import type { HoverInfo } from './map/mapContext'
 import { DEMO_VECTOR_STYLE, UTILITY_PRESETS } from './utilityStyles'
@@ -144,26 +145,21 @@ const selectedCountyId = computed(() => (selected.value?.layerId === 'utility-co
 
 // ── utility search / territory highlight ───────────────────────────────────
 
-const query = ref('')
+const searchBox = ref<{ clear: () => void }>()
 const selectedUtility = ref<Utility | null>(null)
-const utilityLabel = (u: Utility) => `${u.utility_name} (${u.states.join(', ')}) #${u.utility_id_eia}`
-function onQuery() {
-  const m = /#(\d+)$/.exec(query.value)
-  const u = m ? utilities.value.find((x) => x.utility_id_eia === Number(m[1])) : null
-  if (u) pickUtility(u.utility_id_eia)
-}
+const utilityName = (u: Utility) => u.utility_name
+const utilityDetail = (u: Utility) => `${u.entity_type} · ${u.states.join(', ')} · ${u.county_fips.length} counties`
 function pickUtility(id: number) {
   const u = utilities.value.find((x) => x.utility_id_eia === id) ?? null
   selectedUtility.value = u
   if (!u || !counties.value) return
-  query.value = utilityLabel(u)
   const feats = u.county_fips.map((f) => byId.value.get('utility-counties')?.get(f)).filter(Boolean) as LayerFeature[]
   const b = bboxOf(feats.map((f) => f.geometry))
   if (b) mapView.value?.fitBounds(b)
 }
 function clearUtility() {
   selectedUtility.value = null
-  query.value = ''
+  searchBox.value?.clear()
 }
 const highlightIds = computed(() => selectedUtility.value?.county_fips ?? [])
 
@@ -207,19 +203,15 @@ function onImported(layer: LayerData) {
   <div class="page">
     <section class="controls">
       <div class="search">
-        <label for="utility-q" class="lbl">Find a utility</label>
-        <input
-          id="utility-q"
-          v-model="query"
-          list="utility-list"
+        <SearchBox
+          ref="searchBox"
+          label="Find a utility"
           placeholder="e.g. Duke Energy Carolinas"
-          autocomplete="off"
-          @change="onQuery"
-          @input="onQuery"
+          :items="utilities"
+          :text="utilityName"
+          :detail="utilityDetail"
+          @pick="(u) => pickUtility(u.utility_id_eia)"
         />
-        <datalist id="utility-list">
-          <option v-for="u in utilities" :key="u.utility_id_eia" :value="utilityLabel(u)" />
-        </datalist>
         <div v-if="selectedUtility" class="chip">
           <div>
             <strong>{{ selectedUtility.utility_name }}</strong>
@@ -349,20 +341,6 @@ function onImported(layer: LayerData) {
 }
 .map-wrap {
   min-height: 0;
-}
-.lbl {
-  font-weight: 600;
-  display: block;
-  margin-bottom: 0.25rem;
-}
-.search input {
-  width: 100%;
-  padding: 0.5rem;
-  font-size: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--bg);
-  color: var(--text);
 }
 .chip {
   margin-top: 0.4rem;
