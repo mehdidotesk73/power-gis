@@ -2,7 +2,7 @@
 // Parses public/data/utility_counties.csv and joins it onto county polygons
 // to make a county "region" layer whose features carry their utility list.
 
-import Papa from 'papaparse'
+import { parseCsv } from './data/csv'
 import type { Feature, Geometry } from 'geojson'
 import { dictOf, listOf, structOf, type FieldDef, type LayerData, type LayerFeature } from './schema'
 import { STATES } from './states'
@@ -34,33 +34,45 @@ export interface Utility {
 /** Government-owned ownership types, grouped as "public power". */
 export const PUBLIC_POWER = new Set(['Municipal', 'Political Subdivision', 'State', 'Federal', 'Municipal Mktg Authority'])
 
-const num = (s: string | undefined): number | null => {
-  if (s === undefined || s.trim() === '') return null
-  const n = Number(s)
+const num = (v: unknown): number | null => {
+  if (v === null || v === undefined || (typeof v === 'string' && v.trim() === '')) return null
+  const n = Number(v)
   return Number.isFinite(n) ? n : null
 }
+const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v))
+const bool = (v: unknown): boolean => v === true || v === 1 || /^(true|1)$/i.test(str(v))
 
 /** Retired county codes EIA still reports → the county that absorbed them. */
 export const FIPS_SUCCESSORS: Record<string, string> = {
   '51515': '51019', // Bedford city, VA → Bedford County (2013)
 }
 
-export function parseUtilityCounties(csv: string): UtilityCountyRow[] {
-  const parsed = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true, dynamicTyping: false })
-  return parsed.data.map((r) => ({
+/**
+ * Typed rows from raw records — CSV rows (all strings) or database rows
+ * (numbers/booleans already typed) both work.
+ */
+export function utilityRowsFromRecords(records: Record<string, unknown>[]): UtilityCountyRow[] {
+  return records.map((r) => ({
     utility_id_eia: Number(r.utility_id_eia),
-    utility_name: r.utility_name,
-    entity_type: r.entity_type || 'Unknown',
-    state: r.state,
-    county: r.county,
-    county_fips: r.county_fips.padStart(5, '0'),
+    utility_name: str(r.utility_name),
+    entity_type: str(r.entity_type) || 'Unknown',
+    state: str(r.state),
+    county: str(r.county),
+    county_fips: str(r.county_fips).padStart(5, '0'),
     counties_in_state: num(r.counties_in_state) ?? 0,
     state_customers: num(r.state_customers),
     state_sales_mwh: num(r.state_sales_mwh),
     state_revenue_usd: num(r.state_revenue_usd),
-    short_form: r.short_form === 'True' || r.short_form === 'true',
+    short_form: bool(r.short_form),
     report_year: Number(r.report_year),
   }))
+}
+
+/** Columns a utility-county table must have. */
+export const UTILITY_COUNTY_COLUMNS = ['utility_id_eia', 'utility_name', 'county_fips'] as const
+
+export function parseUtilityCounties(csv: string): UtilityCountyRow[] {
+  return utilityRowsFromRecords(parseCsv(csv))
 }
 
 export function utilitiesFromRows(rows: UtilityCountyRow[]): Utility[] {

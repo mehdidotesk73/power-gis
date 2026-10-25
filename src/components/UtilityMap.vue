@@ -19,7 +19,8 @@ import SearchBox from './map/SearchBox.vue'
 import UtilityCountyDashboard from './UtilityCountyDashboard.vue'
 import type { HoverInfo } from './map/mapContext'
 import { DEMO_VECTOR_STYLE, UTILITY_PRESETS } from './utilityStyles'
-import { buildCountyLayer, parseUtilityCounties, utilitiesFromRows, type Utility } from '../lib/utilities'
+import { buildCountyLayer, UTILITY_COUNTY_COLUMNS, utilitiesFromRows, utilityRowsFromRecords, type Utility } from '../lib/utilities'
+import { LocalFileSource, requireColumns, StaticFileSource, type DataSource } from '../lib/data/source'
 import { demoVectorLayer } from '../lib/demo'
 import { bboxOf } from '../lib/geometry'
 import { colorLegend, patternLegend, type LegendEntry, type ScalarStyle, type VectorStyle } from '../lib/style'
@@ -54,30 +55,49 @@ const importedStyle: ScalarStyle = {
   size: 5,
 }
 
-onMounted(async () => {
+// ── data source ────────────────────────────────────────────────────────────
+// The utility table comes through a DataSource (built-in CSV, a file on the
+// device, later a database). County polygons are part of the app either way.
+
+const TABLE = 'utility_counties'
+const builtIn = new StaticFileSource([TABLE, 'utilities'], base)
+const source = shallowRef<DataSource>(builtIn)
+let countyShapes: Promise<Feature<Geometry, { name?: string }>[]> | null = null
+const loadCountyShapes = () =>
+  (countyShapes ??= fetch(countiesUrl)
+    .then((r) => r.json())
+    .then((topo) => (topoFeature(topo, topo.objects.counties) as unknown as { features: Feature<Geometry, { name?: string }>[] }).features))
+
+async function load(src: DataSource) {
+  status.value = 'loading'
   try {
-    const [csv, topo] = await Promise.all([
-      fetch(`${base}data/utility_counties.csv`).then((r) => {
-        if (!r.ok) throw new Error(`utility_counties.csv: HTTP ${r.status}`)
-        return r.text()
-      }),
-      fetch(countiesUrl).then((r) => r.json()),
-    ])
-    const rows = parseUtilityCounties(csv)
-    const fc = topoFeature(topo, topo.objects.counties) as unknown as { features: Feature<Geometry, { name?: string }>[] }
-    const { layer, unmatchedFips } = buildCountyLayer(rows, fc.features)
-    if (unmatchedFips.length) logDebug(`${unmatchedFips.length} EIA county codes have no polygon: ${unmatchedFips.slice(0, 12).join(', ')}`, 'warn')
+    const [records, shapes] = await Promise.all([src.readTable(TABLE), loadCountyShapes()])
+    requireColumns(records, UTILITY_COUNTY_COLUMNS, TABLE)
+    const rows = utilityRowsFromRecords(records)
+    const { layer, unmatchedFips } = buildCountyLayer(rows, shapes)
+    if (unmatchedFips.length) logDebug(`${unmatchedFips.length} county codes have no polygon: ${unmatchedFips.slice(0, 12).join(', ')}`, 'warn')
     counties.value = layer
     utilities.value = utilitiesFromRows(rows)
     demo.value = demoVectorLayer(layer)
+    source.value = src
+    selected.value = null
+    clearUtility()
     status.value = 'ready'
-    logDebug(`loaded ${rows.length} utility-county rows, ${utilities.value.length} utilities`)
+    logDebug(`loaded ${rows.length} utility-county rows, ${utilities.value.length} utilities from ${src.label}`)
   } catch (e) {
     status.value = 'error'
     errorMsg.value = (e as Error).message
     logDebug(`load failed: ${errorMsg.value}`, 'error')
   }
-})
+}
+onMounted(() => load(builtIn))
+
+function onLocalFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const f = input.files?.[0]
+  if (f) load(new LocalFileSource([], { [TABLE]: f }))
+  input.value = ''
+}
 
 // ── feature lookup / hover / select ────────────────────────────────────────
 
@@ -223,6 +243,22 @@ function onImported(layer: LayerData) {
           <button aria-label="Clear utility" @click="clearUtility">✕</button>
         </div>
       </div>
+
+      <details class="box">
+        <summary>Data source</summary>
+        <p class="muted">Using: <strong>{{ source.label }}</strong></p>
+        <div class="src-btns">
+          <button :disabled="source === builtIn" @click="load(builtIn)">Built-in (EIA-861 2025)</button>
+          <label class="file-btn">
+            <input type="file" accept=".csv,text/csv" @change="onLocalFile" />
+            CSV on this device…
+          </label>
+        </div>
+        <p class="muted small">
+          A CSV needs at least <code>utility_id_eia</code>, <code>utility_name</code> and <code>county_fips</code> columns — same
+          layout as the built-in file. It stays on your device.
+        </p>
+      </details>
 
       <details class="box" open>
         <summary>Layers</summary>
@@ -393,6 +429,25 @@ function onImported(layer: LayerData) {
 }
 .small {
   font-size: 0.72rem;
+}
+.src-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.3rem 0;
+}
+.src-btns button,
+.file-btn {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.file-btn input {
+  display: none;
 }
 .status {
   position: absolute;
