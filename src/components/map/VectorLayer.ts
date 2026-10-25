@@ -62,7 +62,7 @@ export default defineComponent({
         },
         paint: {},
       },
-      ctx.beforeId,
+      ctx.slot('vector'),
     )
 
     function apply() {

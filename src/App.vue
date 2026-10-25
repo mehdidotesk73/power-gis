@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import HelpModal from './components/HelpModal.vue'
-import UtilityMap from './components/UtilityMap.vue'
+import MapPage from './components/MapPage.vue'
 import { debugState, logDebug, logAsText } from './debug'
 import { setupPWAUpdates } from './pwa'
 import { useVersionCheck } from './lib/useVersionCheck'
@@ -113,7 +113,7 @@ const helpDoc = ref('default')
     </header>
 
     <div class="content">
-      <UtilityMap />
+      <MapPage />
     </div>
 
     <footer class="debug">

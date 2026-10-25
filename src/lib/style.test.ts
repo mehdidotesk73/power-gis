@@ -73,3 +73,15 @@ describe('rasters', () => {
     expect(alpha(2, 2)).toBe(0) // corner
   })
 })
+
+describe('focusBox', () => {
+  it('ignores far-flung outliers once there are many features', async () => {
+    const { focusBox } = await import('./geometry')
+    const pts = Array.from({ length: 200 }, (_, i) => ({ type: 'Point' as const, coordinates: [-100 + (i % 20), 30 + (i % 10)] }))
+    pts.push({ type: 'Point', coordinates: [179, 52] }) // an Aleutian island
+    const [minX, , maxX] = focusBox(pts)!
+    expect(minX).toBeGreaterThanOrEqual(-100)
+    expect(maxX).toBeLessThan(-70)
+    expect(focusBox(pts.slice(0, 3))).toEqual([-100, 30, -98, 32]) // few features: exact bbox
+  })
+})

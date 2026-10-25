@@ -80,6 +80,39 @@ export class LocalFileSource implements DataSource {
   }
 }
 
+/** Tables held in memory — generated data, or features already parsed from a file. */
+export class MemorySource implements DataSource {
+  constructor(
+    readonly label: string,
+    private readonly tables: Record<string, DataRecord[]>,
+  ) {}
+
+  async listTables() {
+    return Object.keys(this.tables)
+  }
+
+  async readTable(name: string) {
+    const t = this.tables[name]
+    if (!t) throw new Error(`No table "${name}"`)
+    return t
+  }
+}
+
+/** Column holding each feature's geometry when features are read as a table. */
+export const GEOMETRY_COLUMN = 'geometry'
+
+/**
+ * Features (GeoJSON / Esri JSON / ArcGIS REST, already parsed) as table rows:
+ * their properties are the columns, plus a `geometry` column.
+ */
+export function featureTable(features: { geometry: unknown; properties: Record<string, unknown> | null }[]): DataRecord[] {
+  return features.map((f) => {
+    const props = { ...(f.properties ?? {}) }
+    delete props[GEOMETRY_COLUMN] // a property named "geometry" would shadow the real one
+    return { ...props, [GEOMETRY_COLUMN]: f.geometry }
+  })
+}
+
 /** Throws if the records lack any required column — a clear message beats a blank map. */
 export function requireColumns(records: DataRecord[], columns: readonly string[], table: string): void {
   if (!records.length) throw new Error(`"${table}" has no rows`)

@@ -1,5 +1,9 @@
-// Style presets for the utilities-by-county layer.
-import type { ScalarStyle, VectorStyle } from '../lib/style'
+// The built-in utilities-by-county source layer: a generic source layer
+// pre-configured with sublayers that show the dataset well.
+import type { DataRecord } from '../lib/data/source'
+import { PUBLIC_POWER } from '../lib/utilities'
+import { newId, ROWS, VALUE, type BuiltSource, type SublayerSpec } from '../lib/layers/sourceLayer'
+import type { GeometryBinding } from '../lib/layers/binding'
 
 export const OWNERSHIP_COLORS: Record<string, string> = {
   'Investor Owned': '#4e79a7',
@@ -17,54 +21,65 @@ export const OWNERSHIP_COLORS: Record<string, string> = {
   Unknown: '#bab0ac',
 }
 
+export const UTILITY_TABLE = 'utility_counties'
+export const UTILITY_NAME = 'Electric utilities by county (EIA-861)'
+export const UTILITY_BINDING: GeometryBinding = { kind: 'boundary', column: 'county_fips', boundary: 'us-counties', includeEmpty: true }
+
+/** Adds yes/no ownership columns so sublayers can hatch counties where a type is present. */
+export function withOwnershipFlags(records: DataRecord[]): DataRecord[] {
+  return records.map((r) => ({
+    ...r,
+    cooperative: r.entity_type === 'Cooperative',
+    public_power: PUBLIC_POWER.has(String(r.entity_type)),
+  }))
+}
+
 const outline = { color: '#ffffff', width: 0.3, opacity: 0.7 }
+const clear = { opacity: { kind: 'constant' as const, value: 0 }, outline: { color: '#ffffff', width: 0, opacity: 0 } }
 
-export const UTILITY_PRESETS: { id: string; label: string; style: ScalarStyle }[] = [
-  {
-    id: 'count',
-    label: 'Number of utilities',
-    style: {
-      color: { kind: 'colormap', field: 'utility_count', colormap: 'viridis', domain: [0, 10] },
-      opacity: { kind: 'constant', value: 0.75 },
-      pattern: { kind: 'none' },
-      outline,
+export function utilitySublayers(_built: BuiltSource): SublayerSpec[] {
+  return [
+    {
+      id: newId('s'),
+      name: 'Number of utilities',
+      visible: true,
+      kind: 'scalar',
+      column: ROWS,
+      aggregation: 'count',
+      style: {
+        color: { kind: 'colormap', field: VALUE, colormap: 'viridis', domain: [0, 10] },
+        opacity: { kind: 'constant', value: 0.75 },
+        pattern: { kind: 'none' },
+        outline,
+      },
     },
-  },
-  {
-    id: 'ownership',
-    label: 'Most common ownership type',
-    style: {
-      color: { kind: 'categorical', field: 'dominant_entity_type', colors: OWNERSHIP_COLORS, maxCategories: 8 },
-      opacity: { kind: 'constant', value: 0.75 },
-      pattern: { kind: 'none' },
-      outline,
+    {
+      id: newId('s'),
+      name: 'Most common ownership',
+      visible: false,
+      kind: 'scalar',
+      column: 'entity_type',
+      aggregation: 'mode',
+      style: {
+        color: { kind: 'categorical', field: VALUE, colors: OWNERSHIP_COLORS, maxCategories: 8 },
+        opacity: { kind: 'constant', value: 0.75 },
+        pattern: { kind: 'none' },
+        outline,
+      },
     },
-  },
-  {
-    id: 'count-coop',
-    label: 'Number of utilities, hatched where a co-op serves',
-    style: {
-      color: { kind: 'colormap', field: 'utility_count', colormap: 'ylOrRd', domain: [0, 10] },
-      opacity: { kind: 'constant', value: 0.7 },
-      pattern: { kind: 'field', field: 'served_by_cooperative', patterns: { true: 'hatch' }, color: '#1b5e20', opacity: 0.9 },
-      outline,
+    {
+      // Pattern only (transparent fill): stacks on top of either sublayer above.
+      id: newId('s'),
+      name: 'Co-op present (hatch)',
+      visible: false,
+      kind: 'scalar',
+      column: 'cooperative',
+      aggregation: 'any',
+      style: {
+        color: { kind: 'constant', color: '#000000' },
+        ...clear,
+        pattern: { kind: 'field', field: VALUE, patterns: { true: 'hatch' }, color: '#1b5e20', opacity: 0.9 },
+      },
     },
-  },
-  {
-    id: 'public-power',
-    label: 'Public power present',
-    style: {
-      color: { kind: 'categorical', field: 'served_by_public_power', colors: { true: '#f28e2b', false: '#dfe3e8' } },
-      opacity: { kind: 'constant', value: 0.75 },
-      pattern: { kind: 'field', field: 'served_by_investor_owned', patterns: { true: 'dots' }, color: '#1f3b73', opacity: 0.8 },
-      outline,
-    },
-  },
-]
-
-export const DEMO_VECTOR_STYLE: VectorStyle = {
-  components: { kind: 'uv', u: 'u_east', v: 'v_north' },
-  color: { kind: 'colormap', field: '_magnitude', colormap: 'plasma' },
-  opacity: { kind: 'constant', value: 0.9 },
-  size: { min: 0.5, max: 1.4 },
+  ]
 }

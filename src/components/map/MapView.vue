@@ -8,7 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // Vite bundles it — so emit the worker as an asset and point MapLibre at it.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { onBeforeUnmount, onMounted, provide, ref, shallowRef } from 'vue'
-import { MAP_KEY, type MapContext } from './mapContext'
+import { DRAW_ORDER, MAP_KEY, slotId, type MapContext } from './mapContext'
 import type { BBox } from '../../lib/geometry'
 import { logDebug } from '../../debug'
 
@@ -30,8 +30,8 @@ const BLANK: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'bg'
 
 const el = ref<HTMLDivElement>()
 const map = shallowRef<MlMap | null>(null)
-// beforeId is filled in on load: data layers go under the basemap's first label layer.
-const ctx: MapContext = { map, beforeId: undefined, interactive: new Set() }
+// Draw-order slots are added on load, under the basemap's first label layer.
+const ctx: MapContext = { map, slot: (kind) => slotId(kind), interactive: new Set() }
 provide(MAP_KEY, ctx)
 
 onMounted(() => {
@@ -49,7 +49,9 @@ onMounted(() => {
   // Start fitted to the lower 48 so phones see both coasts.
   m.fitBounds([-124.8, 24.4, -66.9, 49.4], { padding: 12, animate: false })
   m.on('load', () => {
-    ctx.beforeId = m.getStyle().layers.find((l) => l.type === 'symbol')?.id
+    // Invisible marker layers; each data layer is inserted just under its kind's marker.
+    const labels = m.getStyle().layers.find((l) => l.type === 'symbol')?.id
+    for (const kind of DRAW_ORDER) m.addLayer({ id: slotId(kind), type: 'background', layout: { visibility: 'none' } }, labels)
     map.value = m
   })
   // If the basemap style itself can't load, fall back to a plain background

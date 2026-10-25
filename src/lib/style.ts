@@ -199,13 +199,15 @@ export type LegendEntry =
   | { kind: 'ramp'; title: string; gradient: string; min: number; max: number; scale: 'linear' | 'log' }
   | { kind: 'swatches'; title: string; items: { label: string; color: string; pattern?: PatternKind }[] }
 
+const legendLabel = (v: string) => (v === 'true' ? 'Yes' : v === 'false' ? 'No' : v)
+
 export function colorLegend(enc: ColorEncoding, features: LayerFeature[], title: string): LegendEntry | null {
   if (enc.kind === 'constant') return null
   if (enc.kind === 'colormap') {
     const [min, max] = enc.domain ?? dataDomain(features, enc.field)
     return { kind: 'ramp', title, gradient: cssGradient(enc.colormap, enc.reverse), min, max, scale: enc.scale ?? 'linear' }
   }
-  const items = categoricalColors(enc, features).map((c) => ({ label: c.value, color: c.color }))
+  const items = categoricalColors(enc, features).map((c) => ({ label: legendLabel(c.value), color: c.color }))
   return { kind: 'swatches', title, items }
 }
 
@@ -215,6 +217,6 @@ export function patternLegend(enc: PatternEncoding, title: string): LegendEntry 
   return {
     kind: 'swatches',
     title,
-    items: Object.entries(enc.patterns).map(([label, pattern]) => ({ label, color, pattern })),
+    items: Object.entries(enc.patterns).map(([label, pattern]) => ({ label: legendLabel(label), color, pattern })),
   }
 }

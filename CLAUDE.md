@@ -100,9 +100,22 @@ whatever they're actually asking about.
 - County polygons come from the `us-atlas` npm package (Census 2017 cartographic boundaries,
   1:10m). EIA-861 still reports Connecticut's eight legacy counties, which match it.
 - **All tables load through a `DataSource`** (`src/lib/data/source.ts`): `readTable(name)` returns
-  raw records. Today: the built-in CSVs (`StaticFileSource`) or a CSV picked on the device
-  (`LocalFileSource`). A database (Supabase etc.) is a new class implementing the same interface —
-  map code doesn't change. Row parsers accept both CSV strings and typed DB values.
+  raw records. Today: built-in CSVs (`StaticFileSource`), a CSV on the device (`LocalFileSource`),
+  in-memory tables (`MemorySource`: demo data, parsed GeoJSON/Esri/ArcGIS features via
+  `featureTable`). A database (Supabase etc.) is a new class implementing the same interface.
+- **Source layers and sublayers** (`src/lib/layers/`). A *source layer* = one table + a
+  `GeometryBinding` saying which column(s) hold each row's feature: `boundary` (region codes joined
+  to built-in US county/state polygons), `latlon`, or `geometry` (GeoJSON object/text or WKT).
+  Rows on the same feature are grouped; `buildSource` makes one feature per group with every column
+  aggregated by default. Each *sublayer* picks a column + `Aggregation` (or u/v columns for arrows)
+  and a style; `sublayerData` adds its value as `_value` (`_u`/`_v`) and the page renders one
+  `ScalarLayer`/`VectorLayer` per sublayer. Column types are inferred (`inferColumns`); zero-padded
+  codes stay text. Sublayer data is cached by what it shows, so restyling never rebuilds data.
+- **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
+  basemap's labels (invisible slot layers added in `MapView`).
+- **Presets:** the built-in EIA-861 source is a normal source layer with preset sublayers
+  (`utilityStyles.ts`) plus extras keyed by `preset: 'utilities'` — the county dashboard and
+  utility search. Other sources get the generic rows table in their click panel.
 - Join key everywhere is the 5-digit county FIPS string (`county_fips` / `fips`). Keep it a
   string: leading zeros matter.
 
@@ -131,7 +144,8 @@ src/
     rasters.ts             pattern tiles + arrow SDF as raw RGBA
     arcgis.ts              Esri JSON / GeoJSON / CSV import-export, FeatureServer fetch
     geometry.ts            anchor points (centroids), bbox
-    utilities.ts           EIA-861 rows + county join (first dataset)
+    utilities.ts           EIA-861 typed rows + utility list (search)
+    layers/                source layers: columns, aggregate, binding (+ wkt), sourceLayer
     search.ts              ranked type-ahead search
     data/source.ts         DataSource adapters: StaticFileSource, LocalFileSource (DB later)
     data/csv.ts            CSV → records
@@ -148,7 +162,8 @@ src/
       ScalarStyleEditor.vue, VectorStyleEditor.vue
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
-    UtilityMap.vue         the page: loads data, composes the widgets
+    MapPage.vue            the page: source layers → sublayer widgets, panels, legend
+    data/                  AddLayerPanel, LayerTree, SublayerEditor, FeatureRows, boundaries
     UtilityCountyDashboard.vue  custom dashboard for a county
     utilityStyles.ts       view presets + ownership colors
     HelpModal.vue          renders docs/concepts/*.md into the Help modal

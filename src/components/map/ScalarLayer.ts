@@ -34,6 +34,7 @@ export default defineComponent({
     const outline = `${id}-outline`
     const highlight = `${id}-highlight`
     const geom = props.layer.geometry
+    const before = ctx.slot(geom)
     let patternLayers: string[] = []
     let prevSelected: string | null = null
 
@@ -43,12 +44,12 @@ export default defineComponent({
 
     const hoverOrSelected = ['any', ['boolean', ['feature-state', 'hover'], false], ['boolean', ['feature-state', 'selected'], false]]
     if (geom === 'region') {
-      map.addLayer({ id: main, type: 'fill', source: src, paint: {} }, ctx.beforeId)
-      map.addLayer({ id: outline, type: 'line', source: src, paint: {} }, ctx.beforeId)
+      map.addLayer({ id: main, type: 'fill', source: src, paint: {} }, before)
+      map.addLayer({ id: outline, type: 'line', source: src, paint: {} }, before)
     } else if (geom === 'polyline') {
-      map.addLayer({ id: main, type: 'line', source: src, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: {} }, ctx.beforeId)
+      map.addLayer({ id: main, type: 'line', source: src, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: {} }, before)
     } else {
-      map.addLayer({ id: main, type: 'circle', source: src, paint: {} }, ctx.beforeId)
+      map.addLayer({ id: main, type: 'circle', source: src, paint: {} }, before)
     }
     map.addLayer(
       {
@@ -58,7 +59,7 @@ export default defineComponent({
         filter: ['in', ['get', props.layer.idField], ['literal', []]],
         paint: { 'line-color': '#111', 'line-width': 2.2 },
       },
-      ctx.beforeId,
+      before,
     )
 
     function applyPaint() {

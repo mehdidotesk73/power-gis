@@ -1,19 +1,11 @@
 <script setup lang="ts">
-// Import / export for ArcGIS round trips.
-//   Export: GeoJSON, GeoJSON flattened for ArcGIS Online, Esri JSON
-//           FeatureSet, attribute CSV (join on the id field).
-//   Import: a .geojson / Esri .json file, or an ArcGIS REST layer URL.
-import { ref } from 'vue'
-import { fetchArcGISLayer, importJSON, toCSV, toEsriFeatureSet, toGeoJSON } from '../../lib/arcgis'
+// Export for ArcGIS round trips: GeoJSON, GeoJSON flattened for ArcGIS
+// Online, Esri JSON FeatureSet, attribute CSV (join on the id field).
+// (Importing is done by adding a data layer — see data/AddLayerPanel.vue.)
+import { toCSV, toEsriFeatureSet, toGeoJSON } from '../../lib/arcgis'
 import type { LayerData } from '../../lib/schema'
-import { logDebug } from '../../debug'
 
 const props = defineProps<{ layer: LayerData | null }>()
-const emit = defineEmits<{ (e: 'imported', layer: LayerData): void }>()
-
-const url = ref('')
-const busy = ref(false)
-const error = ref('')
 
 function download(name: string, text: string, type: string) {
   const blob = new Blob([text], { type })
@@ -35,34 +27,6 @@ function exportAs(kind: 'geojson' | 'agol' | 'esri' | 'csv') {
   else download(`${l.id}.csv`, toCSV(l), 'text/csv')
 }
 
-async function onFile(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  error.value = ''
-  try {
-    const layer = importJSON(JSON.parse(await file.text()), file.name.replace(/\.(geo)?json$/i, ''))
-    logDebug(`imported ${layer.features.length} features from ${file.name}`)
-    emit('imported', layer)
-  } catch (err) {
-    error.value = (err as Error).message
-  }
-  ;(e.target as HTMLInputElement).value = ''
-}
-
-async function onUrl() {
-  if (!url.value.trim()) return
-  busy.value = true
-  error.value = ''
-  try {
-    const layer = await fetchArcGISLayer(url.value.trim(), { maxFeatures: 5000 })
-    logDebug(`loaded ${layer.features.length} features from ArcGIS`)
-    emit('imported', layer)
-  } catch (err) {
-    error.value = `Could not load that layer: ${(err as Error).message}`
-  } finally {
-    busy.value = false
-  }
-}
 </script>
 
 <template>
@@ -75,18 +39,6 @@ async function onUrl() {
         <button :disabled="!layer" @click="exportAs('esri')" title="Esri FeatureSet JSON (WGS84)">Esri JSON</button>
         <button :disabled="!layer" @click="exportAs('csv')" title="Attributes only — join to geometry on the id field">CSV</button>
       </div>
-    </div>
-    <div class="group">
-      <div class="label">Import a layer</div>
-      <label class="file">
-        <input type="file" accept=".json,.geojson,application/json,application/geo+json" @change="onFile" />
-        GeoJSON or Esri JSON file…
-      </label>
-      <form class="url" @submit.prevent="onUrl">
-        <input v-model="url" type="url" placeholder="https://…/FeatureServer/0" inputmode="url" autocapitalize="off" />
-        <button type="submit" :disabled="busy">{{ busy ? 'Loading…' : 'Load' }}</button>
-      </form>
-      <p v-if="error" class="error">{{ error }}</p>
     </div>
   </div>
 </template>

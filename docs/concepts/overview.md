@@ -11,11 +11,11 @@ A map of every electric utility operating in the US and the counties each one se
 - **Find a utility** — type part of a name and pick it from the suggestions. Its whole service territory gets a dark outline and the map zooms to it.
 - **Tap a county** — a panel opens with the number of utilities, the ownership mix, and each utility's name, ownership type and customer count. Tap **Territory** next to a utility to outline everywhere it operates.
 - **Hover** (on a computer) — a small card shows the county and its largest utilities.
-- **View** — switch between preset views: number of utilities, most common ownership, hatching where a cooperative serves, and public power vs. investor-owned.
-- **Style** — change the colors, colormap, transparency and fill patterns yourself.
-- **Demo vector arrows** — a made-up arrow field to show how direction-and-size data (like power flows) will look. It is not real data.
-- **Data source** — the map uses the built-in EIA data by default. You can instead load your own CSV from your device in the same layout; it never leaves your device.
-- **Import / export** — download the layer as GeoJSON, Esri JSON or CSV for ArcGIS, or load a GeoJSON / Esri JSON file or an ArcGIS FeatureServer link onto the map.
+- **Layers** — each dataset is a layer with *sublayers*, one per thing it shows. The utilities layer has three: number of utilities, most common ownership, and a hatch where a cooperative serves. Tick any combination — they stack.
+- **Edit a sublayer** — choose which column it shows, how rows on the same county are combined (count, sum, average, most common…), and its colors, colormap, transparency and fill pattern. Switch it to **Vector** to draw arrows from two columns (east and north).
+- **Add data layer** — bring in any table: the built-in files, a CSV from your device, a GeoJSON / Esri JSON file, or an ArcGIS link. Then say where each row is on the map: a county or state code column, latitude and longitude columns, or a column holding the shape itself (GeoJSON or WKT). The panel tells you how many rows matched before you add it.
+- **Demo vector field** — under Add data layer → Built-in, a made-up arrow field to show how direction-and-size data (like power flows) will look. It is not real data.
+- **Export** — download any layer as GeoJSON, Esri JSON or CSV for ArcGIS.
 
 ## Common Questions
 
