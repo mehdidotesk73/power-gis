@@ -5,6 +5,7 @@
 // drag-and-drop, so both work on phones.
 import { computed, ref } from 'vue'
 import VisualizationEditor from './VisualizationEditor.vue'
+import { useDragReorder } from './useDragReorder'
 import type { LoadedDataset } from './types'
 import { AGGREGATIONS } from '../../lib/dataset/aggregate'
 import { columnLabel, ROWS, type VisualizationSpec } from '../../lib/dataset/visualization'
@@ -50,34 +51,12 @@ function confirmAdd() {
 // ── drag to reorder ────────────────────────────────────────────────────────
 
 const listEl = ref<HTMLElement>()
-const dragging = ref<string | null>(null)
-let order: string[] = []
-
-function onHandleDown(e: PointerEvent, id: string) {
-  e.preventDefault()
-  ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-  dragging.value = id
-  order = props.visualizations.map((v) => v.id)
-  closeSwipe()
-}
-function onHandleMove(e: PointerEvent) {
-  if (!dragging.value || !listEl.value) return
-  const rows = [...listEl.value.querySelectorAll<HTMLElement>(':scope > li[data-id]')]
-  // Target index: the first row whose middle is below the pointer.
-  let to = rows.findIndex((r) => {
-    const b = r.getBoundingClientRect()
-    return e.clientY < b.top + b.height / 2
-  })
-  if (to < 0) to = rows.length - 1
-  const from = order.indexOf(dragging.value)
-  if (to === from || from < 0) return
-  order.splice(from, 1)
-  order.splice(to, 0, dragging.value)
-  emit('reorder', [...order])
-}
-function onHandleUp() {
-  dragging.value = null
-}
+const { dragging, onHandleDown, onHandleMove, onHandleUp } = useDragReorder(
+  listEl,
+  () => props.visualizations.map((v) => v.id),
+  (ids) => emit('reorder', ids),
+  () => closeSwipe(),
+)
 
 // ── swipe to delete ────────────────────────────────────────────────────────
 
@@ -179,7 +158,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
               >≡</span
             >
             <label class="name">
-              <input v-model="v.visible" type="checkbox" />
+              <input :checked="v.visible" type="checkbox" @change="emit('update', { ...v, visible: ($event.target as HTMLInputElement).checked })" />
               <span>
                 {{ v.name }} <span v-if="v.kind === 'vector'" class="tag">➚</span>
                 <span class="muted">{{ dsOf(v)?.spec.name }} · {{ summary(v) }}</span>

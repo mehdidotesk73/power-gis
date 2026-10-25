@@ -87,6 +87,35 @@ src/lib/
 
 Keep functions **pure** — same input → same output, no side effects.
 
+### Workspace (`lib/workspace/`)
+
+The **workspace document** (`workspace.ts`, `WorkspaceDoc`) is the single source of truth for what
+the user has set up: `datasets` (`DatasetEntry`: id, name, geometry binding, origin, a `RowsRef`,
+re-applied `vectorColumns`, optional `preset`, and standard `meta` — description, created/updated,
+open `extensions`) and the ordered `visualizations` (top draws on top). It is plain JSON, versioned
+(`WORKSPACE_VERSION`).
+
+- **Every change is an operation** — `addDataset`, `updateDataset`, `removeDataset`,
+  `reorderDatasets`, `addVisualization`, `updateVisualization`, `removeVisualization`,
+  `reorderVisualizations`. Each is pure, never mutates its input, and returns
+  `{ok: true, doc}` or `{ok: false, error: {code, message}}` (`not_found` / `duplicate` /
+  `invalid`), so an agent can drive the same operations as the UI and read why one failed. Pass an
+  `OpContext` with `columns(datasetId)` to have visualization ops check the column exists.
+- **Rows aren't in the document.** `RowsRef` says where they come from: `builtin` tables are
+  re-read on open (picking up data rebuilds); `stored` rows were imported and live in a
+  `TableStore` under the dataset id. Columns are re-inferred from the rows on open.
+- **Persistence** (`storage.ts`): `loadWorkspace` / `saveWorkspace` over a `KeyValueStore`, never
+  throwing (private mode, quota). Browser implementations are in
+  `components/workspace/browserStores.ts` — localStorage for the document
+  (`powergis.workspace.v1`), IndexedDB (`powergis` → `tables`) for rows. In-memory stores serve tests.
+- **Not dataset properties:** a dataset's source and usage policy. Those belong to the agent
+  workflow's run records (roadmap step 6), linked to the datasets a run produced.
+
+`MapPage.vue` holds the document in a `shallowRef`, applies ops through `apply()`, saves on every
+change, and keeps built datasets (`BuiltDataset`) beside it by id. On open it restores the saved
+document (dropping datasets whose rows can't be found, with a log line) or seeds the default
+utilities dataset.
+
 ## §5 — Composables
 
 Vue reactive wrappers around data fetches. Example:

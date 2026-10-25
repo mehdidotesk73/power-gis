@@ -12,6 +12,13 @@ Track feature development, improvements, and known issues here. Move completed w
   ArcGIS interop in `lib/arcgis.ts` (Esri JSON, GeoJSON, CSV, FeatureServer fetch). EIA-861 2025
   service territory → `public/data/utility_counties.csv` (2,904 utilities, 11,798 utility-county
   rows, 3,133 counties) via `scripts/build_utility_counties.py`, joined to `us-atlas` counties.
+- **Workspace document + operations + on-device persistence (roadmap step 1)** — `lib/workspace/`:
+  `WorkspaceDoc` (datasets with standard metadata + ordered visualizations) changed only through
+  pure ops (`addDataset`, `updateDataset`, `reorderDatasets`, `addVisualization`, …) returning
+  agent-readable `{ok, doc} | {ok:false, error}`; saved via `saveWorkspace` to localStorage, imported
+  rows to IndexedDB (`indexedDbTableStore`), built-ins re-read; restored on open, **Reset
+  workspace**. Datasets can be renamed/described and drag-reordered (`useDragReorder`, shared
+  with the visualization list).
 
 ## Next (Current Sprint)
 
@@ -30,7 +37,7 @@ One-time setup — tick these off as they're done:
 Everything the UI can do must also be a plain, serializable operation with machine-readable
 results, because the agent workflow (step 6) drives the same operations as the UI.
 
-1. **Workspace document + operations + on-device persistence** — one serializable workspace
+1. ~~**Workspace document + operations + on-device persistence**~~ (done, see Done; derived datasets and tabs join the document in steps 2 and 5) — one serializable workspace
    (datasets, derived datasets, visualizations, tabs); a single operations layer (add dataset,
    add derived dataset, add/reorder visualization, …) used by both UI and agents. Datasets carry
    only **standard metadata** (name, description, created/updated, columns, profile) plus an
