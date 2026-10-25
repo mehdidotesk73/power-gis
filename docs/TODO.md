@@ -32,9 +32,10 @@ results, because the agent workflow (step 6) drives the same operations as the U
 
 1. **Workspace document + operations + on-device persistence** — one serializable workspace
    (datasets, derived datasets, visualizations, tabs); a single operations layer (add dataset,
-   add derived dataset, add/reorder visualization, …) used by both UI and agents; **provenance on
-   every dataset** (sources, retrieval method, usage policy: public sharing vs personal use).
-   Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
+   add derived dataset, add/reorder visualization, …) used by both UI and agents. Datasets carry
+   only **standard metadata** (name, description, created/updated, columns, profile) plus an
+   open-ended extension slot for features to attach their own; **sources and usage policy are not
+   dataset properties** — they belong to the agent workflow's records (step 6). Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
 2. **DuckDB-WASM + derived datasets + dataset profiles** — DuckDB (lazy-loaded) for SQL; a derived
    dataset is a SQL query over datasets, then bound to geometry like an import (this also covers
    visualizations sourced from several datasets: join, then visualize). A **profile** for every
@@ -44,7 +45,7 @@ results, because the agent workflow (step 6) drives the same operations as the U
    (and the alternative: a utilities **list-of-counties column** joined by unnest); rebuild today's
    map from a SQL join. Fixes the misleading `counties_in_state` (it's per utility, not per state).
 4. **DAG** — connector → dataset → derived dataset → visualization, built from the workspace
-   document, with provenance / usage policy on each node; live view of agent pipelines later.
+   document; later also a live view of agent pipelines (with their source / usage-policy records).
 5. **Tabs** — datasets shared; each tab has its own ordered visualizations, map view and DAG.
    **Phones: tabs only.**
 6. **Agent workflow** — see below.
@@ -65,14 +66,16 @@ bridge (holds the Anthropic API key, starts sessions, relays clarifications/appr
   scraper's summary against the transformation requirements (approve, or adjust the plan / the
   scraping request — sometimes waiting on several scrapers first); shares what's already found
   so agents don't repeat work. Checks every source's **usage policy** and reports at the end
-  whether the data can be shared publicly or is personal-use only. Sends one or several parallel
+  whether the data can be shared publicly or is personal-use only. Sources and usage policies live
+  in the **workflow's run records** (per request: plans, agent reports, approvals, sources,
+  policies), linked to the datasets it produced — not as properties of the datasets themselves. Sends one or several parallel
   transform requests; checks transformer metadata against visualization requirements; sends
   visualization requests; **orders** the returned visualizations; summarizes and asks the user to
   approve or adjust (adjustments restart the cycle with updated instructions). **No agent is
   iterated more than 5 times per cycle** — past that, report exactly what happened.
 - **Scraper agent** — searches the web for one dataset; reports a profile (partial vs complete,
   matched / missing columns, row count) and sources; saves and returns the data only after
-  approval; metadata carries **all sources**.
+  approval; its report (part of the run record) lists **all sources** and their usage terms.
 - **Transformer agent** — writes SQL (DuckDB) for its transformation request, creates the
   transformed datasets, reports their profiles; saves and returns only after approval.
 - **Visualizer agent** — turns visualization requests (strategy + datasets) into visualization
