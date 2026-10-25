@@ -27,6 +27,11 @@ Track feature development, improvements, and known issues here. Move completed w
   (`queryVisualization`, grouping cached per dataset+binding), feature rows and workspace saves all
   go through the server. Geometry binding moved into visualization settings (`BindingEditor`).
   Workspace config holds pointers only; datasets outlive workspaces (＋ Add dataset → Saved).
+- **Explicit Save + draft + workspace files (roadmap 1b, part 2)** — `WorkspaceBar` (name, Save,
+  Unsaved changes / Discard, ⋯ menu). Edits are a localStorage draft until Save (`snapshot`,
+  `parseDraft`); `.powergis.json` download / load of pointers + settings (`toWorkspaceFile`,
+  `parseWorkspaceFile`, `fromWorkspaceFile`: fresh visualization ids, missing datasets reported).
+  Reset is now a draft too.
 
 ## Next (Current Sprint)
 
@@ -51,7 +56,7 @@ results, because the agent workflow (step 6) drives the same operations as the U
    only **standard metadata** (name, description, created/updated, columns, profile) plus an
    open-ended extension slot for features to attach their own; **sources and usage policy are not
    dataset properties** — they belong to the agent workflow's records (step 6). Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
-1b. **Client / server boundary + database** (agreed 2026-10-25; part 1 done — see Done; **next: explicit Save + local draft + workspace file**) —
+1b. **Client / server boundary + database** (agreed 2026-10-25; done — see Done) —
    everything is client-side today, but the code is split as if it weren't, so moving to a real
    backend (Supabase) is a refactor, not a rewrite.
    - **Rule:** lasting changes and heavy processing are **server side**. The client sends requests;

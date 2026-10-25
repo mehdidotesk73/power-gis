@@ -129,9 +129,12 @@ whatever they're actually asking about.
     in `ctx.stacks` and `MapView.restack` moves them to match. Restyling never refetches values.
 - **Workspace** (`src/lib/workspace/workspace.ts`): the client's working copy (dataset pointers +
   ordered visualizations); **every edit is an operation** returning `{ok, doc}` or
-  `{ok:false, error}` — the UI uses them and agents will too. Saved to the server (debounced
-  `saveWorkspace`) for now; explicit Save + local draft + workspace file are next. Details:
-  `docs/system-design.md` §4.
+  `{ok:false, error}` — the UI uses them and agents will too. **Explicit Save**: edits are a
+  draft (localStorage `powergis.draft`, restored on reload, "Unsaved changes" + Discard in
+  `WorkspaceBar`) until Save sends `saveWorkspace`. **Workspace files** (`lib/workspace/file.ts`):
+  download / load a `.powergis.json` of pointers + settings, never rows; loading replaces the
+  working copy (fresh visualization ids, datasets missing from the database dropped and reported).
+  Details: `docs/system-design.md` §4.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
   column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
   Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells, or combined from two
@@ -177,7 +180,7 @@ src/
     geometry.ts            anchor points (centroids), bbox
     utilities.ts           EIA-861 typed rows + utility list (search)
     data/connectors.ts     connectors: how sources are read
-    workspace/             the client's working copy + operations (workspace.ts)
+    workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts)
     dataset/               columns, aggregate, binding (+ wkt), boundaries (loader), query (server-side grouping), visualization
     search.ts              ranked type-ahead search
     data/csv.ts            CSV → records
@@ -199,6 +202,7 @@ src/
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
     dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
+    workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     UtilityCountyDashboard.vue  custom dashboard for a county
     utilityStyles.ts       view presets + ownership colors
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
