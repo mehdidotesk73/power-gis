@@ -19,7 +19,7 @@ One-time setup — tick these off as they're done:
 
 - [x] Connect Netlify (finish-setup) — required; gives previews AND the production site
       (site: https://powergis.netlify.app)
-- [ ] Protect `main` (finish-setup) — required; this is what makes changes arrive as PRs with
+- [x] Protect `main` (finish-setup) — required; this is what makes changes arrive as PRs with
       preview links, instead of going straight to the live site
 - [ ] Review the utilities-by-county map on a phone
 
