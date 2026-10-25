@@ -25,6 +25,23 @@ One-time setup — tick these off as they're done:
 
 ## Code
 
+### Workspace roadmap
+
+- **User login + linked workspace settings** — sign in and have the workspace saved to the account:
+  imported data sources, visualizations (layers), tabs and app settings. Supersedes "remember between
+  visits" below; needs the `add-statefulness` → `add-database` path (auth + per-user storage).
+- **Drag reordering** — data sources as one reorderable list; visualizations as a separate
+  reorderable list, each linked to its data source. Show every visualization pipeline
+  (connector → data source → aggregation/SQL → visualization) as a **DAG**.
+- **Tabs** — each tab is its own map with its own set of open layers, and its own DAG.
+- **Split screen** — show tabs side by side using industry-standard splits (2 vertical,
+  2 horizontal, 2×2, 1 + 2), ideally with optional synced pan/zoom.
+- **SQL visualizations** — define a visualization with SQL over data sources: new aggregates and
+  joins across tables (e.g. an in-browser engine such as DuckDB-WASM), with the result bound to
+  geometry like any other data source.
+
+### Backlog
+
 - Real vector dataset (e.g. EIA-930 balancing-authority interchange flows) to replace the demo arrows
 - Point and polyline datasets (plants from EIA-860, transmission lines) to exercise those geometries
 - Patterns for polylines (dash arrays) and points (symbol overlays)
