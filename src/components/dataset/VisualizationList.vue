@@ -5,26 +5,29 @@
 // drag-and-drop, so both work on phones.
 import { computed, ref } from 'vue'
 import VisualizationEditor from './VisualizationEditor.vue'
+import BindingEditor from './BindingEditor.vue'
 import { useDragReorder } from './useDragReorder'
-import type { LoadedDataset } from './types'
+import { useBindingInfo } from './useBindingInfo'
 import { AGGREGATIONS } from '../../lib/dataset/aggregate'
-import { columnLabel, ROWS, type VisualizationSpec } from '../../lib/dataset/visualization'
+import { bindingColumns, guessBinding, type GeometryBinding } from '../../lib/dataset/binding'
+import { columnLabel, dataColumns, ROWS, type VisualizationSpec } from '../../lib/dataset/visualization'
+import type { DatasetRecord } from '../../shared/records'
 import type { LayerData } from '../../lib/schema'
 
 const props = defineProps<{
   visualizations: VisualizationSpec[]
-  datasets: LoadedDataset[]
+  datasets: DatasetRecord[]
   dataFor: (v: VisualizationSpec) => LayerData | null
 }>()
 const emit = defineEmits<{
   (e: 'update', v: VisualizationSpec): void
   (e: 'remove', id: string): void
   (e: 'reorder', ids: string[]): void
-  (e: 'add', datasetId: string, column: string): void
+  (e: 'add', datasetId: string, binding: GeometryBinding, column: string): void
 }>()
 
 const editing = ref<string | null>(null)
-const dsOf = (v: VisualizationSpec) => props.datasets.find((d) => d.spec.id === v.datasetId)
+const dsOf = (v: VisualizationSpec) => props.datasets.find((d) => d.id === v.datasetId)
 
 function summary(v: VisualizationSpec): string {
   const what = v.column === ROWS ? 'row count' : `${columnLabel(v.column)} · ${AGGREGATIONS[v.aggregation].toLowerCase()}`
@@ -36,15 +39,36 @@ function summary(v: VisualizationSpec): string {
 const adding = ref(false)
 const addDataset = ref('')
 const addColumn = ref(ROWS)
-const addColumns = computed(() => props.datasets.find((d) => d.spec.id === addDataset.value)?.built.columns ?? [])
-function openAdd() {
-  addDataset.value = props.datasets[0]?.spec.id ?? ''
+const addBinding = ref<GeometryBinding | null>(null)
+const addRecord = computed(() => props.datasets.find((d) => d.id === addDataset.value))
+const addColumns = computed(() => (addRecord.value && addBinding.value ? dataColumns(addRecord.value.columns, addBinding.value) : []))
+const { info: addInfo, error: addError } = useBindingInfo(
+  () => (adding.value ? addDataset.value : undefined),
+  () => addBinding.value,
+)
+
+/** The binding a dataset's other visualizations use, else a guess from its columns. */
+function bindingFor(d: DatasetRecord): GeometryBinding {
+  const used = props.visualizations.find((v) => v.datasetId === d.id)?.binding
+  return used ?? guessBinding(d.columns) ?? { kind: 'boundary', column: d.columns[0]?.name ?? '', boundary: 'us-counties' }
+}
+function pickDataset(id: string) {
+  addDataset.value = id
+  const d = props.datasets.find((x) => x.id === id)
+  addBinding.value = d ? bindingFor(d) : null
   addColumn.value = ROWS
+}
+function setAddBinding(b: GeometryBinding) {
+  addBinding.value = b
+  if (bindingColumns(b).includes(addColumn.value)) addColumn.value = ROWS
+}
+function openAdd() {
+  pickDataset(props.datasets[0]?.id ?? '')
   adding.value = true
 }
 function confirmAdd() {
-  if (!addDataset.value) return
-  emit('add', addDataset.value, addColumn.value)
+  if (!addDataset.value || !addBinding.value) return
+  emit('add', addDataset.value, addBinding.value, addColumn.value)
   adding.value = false
 }
 
@@ -115,10 +139,11 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
     <div v-if="adding" class="add-form">
       <label class="row">
         Dataset
-        <select v-model="addDataset" @change="addColumn = ROWS">
-          <option v-for="d in datasets" :key="d.spec.id" :value="d.spec.id">{{ d.spec.name }}</option>
+        <select :value="addDataset" @change="pickDataset(($event.target as HTMLSelectElement).value)">
+          <option v-for="d in datasets" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
       </label>
+      <BindingEditor v-if="addRecord && addBinding" :columns="addRecord.columns" :model-value="addBinding" :info="addInfo" :error="addError" @update:model-value="setAddBinding" />
       <label class="row">
         Column
         <select v-model="addColumn">
@@ -128,7 +153,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
       </label>
       <div class="row end">
         <button class="btn" @click="adding = false">Cancel</button>
-        <button class="btn primary" :disabled="!addDataset" @click="confirmAdd">Add</button>
+        <button class="btn primary" :disabled="!addInfo?.features" @click="confirmAdd">Add</button>
       </div>
     </div>
     <button v-else class="add-btn" :disabled="!datasets.length" @click="openAdd">＋ Add visualization</button>
@@ -161,7 +186,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
               <input :checked="v.visible" type="checkbox" @change="emit('update', { ...v, visible: ($event.target as HTMLInputElement).checked })" />
               <span>
                 {{ v.name }} <span v-if="v.kind === 'vector'" class="tag">➚</span>
-                <span class="muted">{{ dsOf(v)?.spec.name }} · {{ summary(v) }}</span>
+                <span class="muted">{{ dsOf(v)?.name }} · {{ summary(v) }}</span>
               </span>
             </label>
             <button class="edit" :class="{ on: editing === v.id }" @click="editing = editing === v.id ? null : v.id">
@@ -170,10 +195,10 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
           </div>
         </div>
         <VisualizationEditor
-          v-if="editing === v.id && dsOf(v) && dataFor(v)"
-          :built="dsOf(v)!.built"
+          v-if="editing === v.id && dsOf(v)"
+          :dataset="dsOf(v)!"
           :layer="v"
-          :data="dataFor(v)!"
+          :data="dataFor(v)"
           @update="(n) => emit('update', n)"
           @remove="emit('remove', v.id)"
         />

@@ -1,53 +1,16 @@
-// The workspace document: everything a user (or, later, an agent) has set
-// up — datasets and the ordered visualizations — as one plain, serializable
-// object. Every change goes through the operations below, which return
-// either the new document or an error an agent can read and act on.
-// Datasets' rows aren't in the document: built-in tables are referenced,
-// imported ones are stored on the device under the dataset's id.
+// The client's working copy of a workspace: dataset pointers and the ordered
+// visualizations. Every edit goes through the operations below, which return
+// the new document or an error an agent can read and act on. The server
+// stores it (saveWorkspace) as a config of pointers plus visualization
+// records; rows never live here — datasets are tables in the database.
 
-import type { GeometryBinding } from '../dataset/binding'
 import type { VisualizationSpec } from '../dataset/visualization'
 
-export const WORKSPACE_VERSION = 1
-
-/** Where a dataset's rows come from when the workspace is reopened. */
-export type RowsRef =
-  /** A built-in table, re-read on load (picks up data updates). */
-  | { kind: 'builtin'; table: string }
-  /** Rows stored on this device under the dataset's id. */
-  | { kind: 'stored' }
-
-/** Standard dataset metadata. Features attach their own under `extensions`. */
-export interface DatasetMeta {
-  description?: string
-  createdAt: string
-  updatedAt: string
-  extensions?: Record<string, unknown>
-}
-
-/** A vector column built from two numeric columns at import, re-applied on load. */
-export interface VectorColumnSpec {
-  name: string
-  u: string
-  v: string
-}
-
-export interface DatasetEntry {
-  id: string
-  name: string
-  binding: GeometryBinding
-  /** Where the rows came from, for display ("Device · plants.csv"). */
-  origin: string
-  rows: RowsRef
-  vectorColumns?: VectorColumnSpec[]
-  /** Dataset-specific app extras (custom dashboard, search). */
-  preset?: 'utilities'
-  meta: DatasetMeta
-}
-
 export interface WorkspaceDoc {
-  version: typeof WORKSPACE_VERSION
-  datasets: DatasetEntry[]
+  /** Server id once saved. */
+  id?: string
+  name: string
+  datasetIds: string[]
   /** Top of the list draws on top. */
   visualizations: VisualizationSpec[]
 }
@@ -66,68 +29,48 @@ export interface OpContext {
   columns?: (datasetId: string) => string[] | undefined
 }
 
-export const emptyWorkspace = (): WorkspaceDoc => ({ version: WORKSPACE_VERSION, datasets: [], visualizations: [] })
+export const emptyWorkspace = (name = 'My workspace'): WorkspaceDoc => ({ name, datasetIds: [], visualizations: [] })
 
-const now = () => new Date().toISOString()
+// ── datasets (pointers) ────────────────────────────────────────────────────
 
-// ── datasets ───────────────────────────────────────────────────────────────
-
-export function addDataset(doc: WorkspaceDoc, entry: DatasetEntry, visualizations: VisualizationSpec[] = []): OpResult {
-  if (!entry.name.trim()) return fail('invalid', 'A dataset needs a name')
-  if (doc.datasets.some((d) => d.id === entry.id)) return fail('duplicate', `Dataset id "${entry.id}" already exists`)
-  const foreign = visualizations.find((v) => v.datasetId !== entry.id)
-  if (foreign) return fail('invalid', `Visualization "${foreign.name}" doesn't belong to dataset "${entry.id}"`)
-  // New datasets go to the end; their visualizations go on top (and draw on top).
-  return ok({ ...doc, datasets: [...doc.datasets, entry], visualizations: [...visualizations, ...doc.visualizations] })
+/** Adds a dataset to the workspace (at the end); its visualizations go on top. */
+export function addDataset(doc: WorkspaceDoc, datasetId: string, visualizations: VisualizationSpec[] = []): OpResult {
+  if (doc.datasetIds.includes(datasetId)) return fail('duplicate', `Dataset "${datasetId}" is already in the workspace`)
+  const foreign = visualizations.find((v) => v.datasetId !== datasetId)
+  if (foreign) return fail('invalid', `Visualization "${foreign.name}" doesn't belong to dataset "${datasetId}"`)
+  return ok({ ...doc, datasetIds: [...doc.datasetIds, datasetId], visualizations: [...visualizations, ...doc.visualizations] })
 }
 
-export function updateDataset(
-  doc: WorkspaceDoc,
-  id: string,
-  patch: { name?: string; description?: string; extensions?: Record<string, unknown> },
-): OpResult {
-  const i = doc.datasets.findIndex((d) => d.id === id)
-  if (i < 0) return fail('not_found', `No dataset "${id}"`)
-  if (patch.name !== undefined && !patch.name.trim()) return fail('invalid', 'A dataset needs a name')
-  const d = doc.datasets[i]
-  const meta: DatasetMeta = {
-    ...d.meta,
-    ...(patch.description !== undefined ? { description: patch.description } : {}),
-    ...(patch.extensions !== undefined ? { extensions: { ...d.meta.extensions, ...patch.extensions } } : {}),
-    updatedAt: now(),
-  }
-  const datasets = [...doc.datasets]
-  datasets[i] = { ...d, ...(patch.name !== undefined ? { name: patch.name.trim() } : {}), meta }
-  return ok({ ...doc, datasets })
+/** Takes a dataset (and its visualizations) out of the workspace. The dataset itself stays in the database. */
+export function removeDataset(doc: WorkspaceDoc, datasetId: string): OpResult {
+  if (!doc.datasetIds.includes(datasetId)) return fail('not_found', `No dataset "${datasetId}" in the workspace`)
+  return ok({ ...doc, datasetIds: doc.datasetIds.filter((d) => d !== datasetId), visualizations: doc.visualizations.filter((v) => v.datasetId !== datasetId) })
 }
 
-/** Removes the dataset and every visualization of it. */
-export function removeDataset(doc: WorkspaceDoc, id: string): OpResult {
-  if (!doc.datasets.some((d) => d.id === id)) return fail('not_found', `No dataset "${id}"`)
-  return ok({ ...doc, datasets: doc.datasets.filter((d) => d.id !== id), visualizations: doc.visualizations.filter((v) => v.datasetId !== id) })
-}
-
-function reorder<T extends { id: string }>(items: T[], ids: string[], what: string): T[] | OpError {
-  const byId = new Map(items.map((x) => [x.id, x]))
-  if (ids.length !== items.length || new Set(ids).size !== ids.length || ids.some((id) => !byId.has(id))) {
-    return { code: 'invalid', message: `Reorder must list every ${what} exactly once (${items.length} expected)` }
-  }
-  return ids.map((id) => byId.get(id)!)
+function sameSet(ids: string[], current: string[]): boolean {
+  return ids.length === current.length && new Set(ids).size === ids.length && ids.every((id) => current.includes(id))
 }
 
 export function reorderDatasets(doc: WorkspaceDoc, ids: string[]): OpResult {
-  const r = reorder(doc.datasets, ids, 'dataset')
-  return Array.isArray(r) ? ok({ ...doc, datasets: r }) : { ok: false, error: r }
+  if (!sameSet(ids, doc.datasetIds)) return fail('invalid', `Reorder must list every dataset exactly once (${doc.datasetIds.length} expected)`)
+  return ok({ ...doc, datasetIds: [...ids] })
+}
+
+export function renameWorkspace(doc: WorkspaceDoc, name: string): OpResult {
+  if (!name.trim()) return fail('invalid', 'A workspace needs a name')
+  return ok({ ...doc, name: name.trim() })
 }
 
 // ── visualizations ─────────────────────────────────────────────────────────
 
 function checkVisualization(doc: WorkspaceDoc, v: VisualizationSpec, ctx: OpContext): OpError | null {
-  if (!doc.datasets.some((d) => d.id === v.datasetId)) return { code: 'not_found', message: `No dataset "${v.datasetId}"` }
+  if (!doc.datasetIds.includes(v.datasetId)) return { code: 'not_found', message: `No dataset "${v.datasetId}" in the workspace` }
   if (!v.name.trim()) return { code: 'invalid', message: 'A visualization needs a name' }
   const cols = ctx.columns?.(v.datasetId)
-  if (cols && v.column !== '__rows' && !cols.includes(v.column)) {
-    return { code: 'not_found', message: `Dataset "${v.datasetId}" has no column "${v.column}" (has: ${cols.join(', ')})` }
+  if (cols) {
+    const used = [v.column, ...(v.binding.kind === 'latlon' ? [v.binding.lat, v.binding.lon] : [v.binding.column])].filter((c) => c !== '__rows')
+    const missing = used.find((c) => !cols.includes(c))
+    if (missing) return { code: 'not_found', message: `Dataset "${v.datasetId}" has no column "${missing}" (has: ${cols.join(', ')})` }
   }
   return null
 }
@@ -159,34 +102,8 @@ export function removeVisualization(doc: WorkspaceDoc, id: string): OpResult {
 
 /** `ids` top first. */
 export function reorderVisualizations(doc: WorkspaceDoc, ids: string[]): OpResult {
-  const r = reorder(doc.visualizations, ids, 'visualization')
-  return Array.isArray(r) ? ok({ ...doc, visualizations: r }) : { ok: false, error: r }
-}
-
-// ── serialization ──────────────────────────────────────────────────────────
-
-export function serializeWorkspace(doc: WorkspaceDoc): string {
-  return JSON.stringify(doc)
-}
-
-/** Parses a saved workspace; rejects anything that isn't one (including other versions). */
-export function parseWorkspace(text: string): { ok: true; doc: WorkspaceDoc } | { ok: false; error: OpError } {
-  let o: unknown
-  try {
-    o = JSON.parse(text)
-  } catch {
-    return { ok: false, error: { code: 'invalid', message: 'Saved workspace is not valid JSON' } }
-  }
-  const d = o as Partial<WorkspaceDoc>
-  if (!d || d.version !== WORKSPACE_VERSION || !Array.isArray(d.datasets) || !Array.isArray(d.visualizations)) {
-    return { ok: false, error: { code: 'invalid', message: `Not a version-${WORKSPACE_VERSION} workspace` } }
-  }
-  const ids = new Set(d.datasets.map((x) => x.id))
-  // Drop visualizations whose dataset is gone rather than failing the whole load.
-  return { ok: true, doc: { version: WORKSPACE_VERSION, datasets: d.datasets, visualizations: d.visualizations.filter((v) => ids.has(v.datasetId)) } }
-}
-
-export function newDatasetMeta(description?: string): DatasetMeta {
-  const t = now()
-  return { ...(description ? { description } : {}), createdAt: t, updatedAt: t }
+  const current = doc.visualizations.map((v) => v.id)
+  if (!sameSet(ids, current)) return fail('invalid', `Reorder must list every visualization exactly once (${current.length} expected)`)
+  const byId = new Map(doc.visualizations.map((v) => [v.id, v]))
+  return ok({ ...doc, visualizations: ids.map((id) => byId.get(id)!) })
 }

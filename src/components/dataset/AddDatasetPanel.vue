@@ -1,275 +1,106 @@
 <script setup lang="ts">
-// Import a dataset: pick where the rows come from (a connector), say
-// which column(s) hold each row's feature, and optionally combine two numeric
-// columns into a vector column. Live match counts show whether the binding
-// works before anything is added.
-import { computed, ref, shallowRef, watch } from 'vue'
-import { featureTable, LocalFileConnector, MemoryConnector, type DataRecord, type DataConnector } from '../../lib/data/connectors'
-import { fetchArcGISLayer, importJSON } from '../../lib/arcgis'
-import { inferColumns, isNumericColumn, type ColumnInfo } from '../../lib/dataset/columns'
-import { withVectorColumn } from '../../lib/dataset/dataset'
-import { BOUNDARIES, groupRows, guessBinding, type BoundaryFeature, type BoundaryId, type GeometryBinding } from '../../lib/dataset/binding'
-import { loadBoundaries } from './boundaries'
+// Add a dataset to the workspace: upload a table (built-in, CSV, GeoJSON /
+// Esri JSON, ArcGIS URL) — the server stores it as a new table and returns
+// its id — or pick one already in the database. How its rows map to
+// features is chosen per visualization.
+import { computed, onMounted, ref } from 'vue'
+import { request } from '../../client/api'
+import { readDb } from '../../client/db'
+import type { UploadSource } from '../../shared/api'
+import { BUILTIN_TABLES } from '../../shared/builtins'
+import type { DatasetRecord } from '../../shared/records'
 
-export interface BuiltInTable {
-  label: string
-  connector: DataConnector
-  table: string
-}
-export interface NewDataset {
-  name: string
-  origin: string
-  records: DataRecord[]
-  columns: ColumnInfo[]
-  binding: GeometryBinding
-  /** Set when the rows are a built-in table, so a reload re-reads it instead of storing a copy. */
-  builtinTable?: string
-  /** Vector columns combined at import (already applied to `records`). */
-  vectorColumns: { name: string; u: string; v: string }[]
-}
+const props = defineProps<{ inWorkspace: string[] }>()
+const emit = defineEmits<{ (e: 'add', datasetId: string): void; (e: 'cancel'): void }>()
 
-const props = defineProps<{ builtIns: BuiltInTable[] }>()
-const emit = defineEmits<{ (e: 'add', v: NewDataset): void; (e: 'cancel'): void }>()
-
-type Origin = 'builtin' | 'csv' | 'json' | 'arcgis'
+type Origin = 'builtin' | 'csv' | 'json' | 'arcgis' | 'db'
 const origin = ref<Origin>('builtin')
-const builtInIndex = ref(0)
+const builtin = ref(BUILTIN_TABLES[0].table)
 const arcgisUrl = ref('')
+const name = ref('')
 const busy = ref(false)
 const error = ref('')
 
-const records = shallowRef<DataRecord[] | null>(null)
-const columns = shallowRef<ColumnInfo[]>([])
-const originLabel = ref('')
-const name = ref('')
-const binding = ref<GeometryBinding | null>(null)
-
-const builtinTable = ref<string | undefined>()
-
-async function loaded(rows: DataRecord[], label: string, defaultName: string, table?: string) {
-  if (!rows.length) throw new Error('That table has no rows')
-  builtinTable.value = table
-  records.value = rows
-  columns.value = inferColumns(rows)
-  originLabel.value = label
-  name.value = defaultName
-  vectors.value = []
-  binding.value = guessBinding(columns.value) ?? { kind: 'boundary', column: columns.value[0].name, boundary: 'us-counties' }
-}
-
-async function run(fn: () => Promise<void>) {
+async function upload(source: UploadSource) {
   busy.value = true
   error.value = ''
+  const r = await request('uploadDataset', { source, name: name.value.trim() || undefined })
+  busy.value = false
+  if (r.ok) emit('add', r.data.datasetId)
+  else error.value = r.error.message
+}
+function onFile(e: Event, kind: 'csv' | 'json') {
+  const f = (e.target as HTMLInputElement).files?.[0]
+  ;(e.target as HTMLInputElement).value = ''
+  if (f) upload({ kind, file: f })
+}
+
+// ── already in the database ────────────────────────────────────────────────
+
+const stored = ref<DatasetRecord[]>([])
+const available = computed(() => stored.value.filter((d) => !props.inWorkspace.includes(d.id)))
+async function refresh() {
   try {
-    await fn()
+    stored.value = (await readDb.list('datasets')).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   } catch (e) {
     error.value = (e as Error).message
-  } finally {
-    busy.value = false
   }
 }
-
-function loadBuiltIn() {
-  const b = props.builtIns[builtInIndex.value]
-  return run(async () => loaded(await b.connector.readTable(b.table), `Built-in · ${b.table}`, b.label, b.table))
-}
-function onCsv(e: Event) {
-  const f = (e.target as HTMLInputElement).files?.[0]
-  ;(e.target as HTMLInputElement).value = ''
-  if (!f) return
-  return run(async () => loaded(await new LocalFileConnector([], { t: f }).readTable('t'), `Device · ${f.name}`, f.name.replace(/\.csv$/i, '')))
-}
-function onJson(e: Event) {
-  const f = (e.target as HTMLInputElement).files?.[0]
-  ;(e.target as HTMLInputElement).value = ''
-  if (!f) return
-  return run(async () => {
-    const layer = importJSON(JSON.parse(await f.text()), f.name.replace(/\.(geo)?json$/i, ''))
-    const src = new MemoryConnector(f.name, { features: featureTable(layer.features) })
-    await loaded(await src.readTable('features'), `Device · ${f.name}`, layer.name)
-  })
-}
-function onArcgis() {
-  if (!arcgisUrl.value.trim()) return
-  return run(async () => {
-    const layer = await fetchArcGISLayer(arcgisUrl.value.trim(), { maxFeatures: 5000 })
-    await loaded(featureTable(layer.features), `ArcGIS · ${layer.name}`, layer.name)
-  })
-}
-
-// ── binding preview ────────────────────────────────────────────────────────
-
-const boundaries = shallowRef<Map<string, BoundaryFeature> | null>(null)
-watch(
-  () => (binding.value?.kind === 'boundary' ? binding.value.boundary : null),
-  async (id) => {
-    boundaries.value = null
-    if (id) await run(async () => void (boundaries.value = await loadBoundaries(id as BoundaryId)))
-  },
-  { immediate: true },
-)
-
-const preview = computed(() => {
-  const b = binding.value
-  if (!records.value || !b) return null
-  if (b.kind === 'boundary' && !boundaries.value) return null
-  const r = groupRows(records.value, { ...b, ...(b.kind === 'boundary' ? { includeEmpty: false } : {}) }, boundaries.value ?? undefined)
-  return { features: r.groups.length, matchedRows: records.value.length - r.unmatched, unmatched: r.unmatched, samples: r.unmatchedSamples }
-})
-
-function setKind(kind: GeometryBinding['kind']) {
-  const first = columns.value[0]?.name ?? ''
-  const guess = guessBinding(columns.value)
-  if (guess?.kind === kind) binding.value = guess
-  else if (kind === 'boundary') binding.value = { kind, column: first, boundary: 'us-counties' }
-  else if (kind === 'latlon') binding.value = { kind, lat: first, lon: columns.value[1]?.name ?? first }
-  else binding.value = { kind, column: first }
-}
-
-// ── vectors from two columns ───────────────────────────────────────────────
-
-const numeric = computed(() => columns.value.filter((c) => isNumericColumn(c.type)))
-const vectors = ref<{ name: string; u: string; v: string }[]>([])
-function addVector() {
-  const [u, v] = [numeric.value[0]?.name ?? '', numeric.value[1]?.name ?? numeric.value[0]?.name ?? '']
-  vectors.value.push({ name: `vector_${vectors.value.length + 1}`, u, v })
-}
-
-function add() {
-  if (!records.value || !binding.value || !preview.value?.features) return
-  let rows = records.value
-  const cols = [...columns.value]
-  const applied: NewDataset['vectorColumns'] = []
-  for (const vec of vectors.value) {
-    const n = vec.name.trim()
-    if (!n || !vec.u || !vec.v || cols.some((c) => c.name === n)) continue
-    rows = withVectorColumn(rows, n, vec.u, vec.v)
-    cols.push({ name: n, type: 'vector' })
-    applied.push({ name: n, u: vec.u, v: vec.v })
-  }
-  emit('add', {
-    name: name.value.trim() || originLabel.value,
-    origin: originLabel.value,
-    records: rows,
-    columns: cols,
-    binding: binding.value,
-    builtinTable: builtinTable.value,
-    vectorColumns: applied,
-  })
+onMounted(refresh)
+async function deleteStored(d: DatasetRecord) {
+  if (!confirm(`Delete "${d.name}" from the database? Visualizations of it in other workspaces go too.`)) return
+  const r = await request('deleteDataset', { id: d.id })
+  if (!r.ok) error.value = r.error.message
+  await refresh()
 }
 </script>
 
 <template>
   <div class="add">
-    <template v-if="!records">
-      <div class="seg">
-        <button :class="{ on: origin === 'builtin' }" @click="origin = 'builtin'">Built-in</button>
-        <button :class="{ on: origin === 'csv' }" @click="origin = 'csv'">CSV file</button>
-        <button :class="{ on: origin === 'json' }" @click="origin = 'json'">GeoJSON / Esri</button>
-        <button :class="{ on: origin === 'arcgis' }" @click="origin = 'arcgis'">ArcGIS URL</button>
-      </div>
+    <div class="seg">
+      <button :class="{ on: origin === 'builtin' }" @click="origin = 'builtin'">Built-in</button>
+      <button :class="{ on: origin === 'csv' }" @click="origin = 'csv'">CSV file</button>
+      <button :class="{ on: origin === 'json' }" @click="origin = 'json'">GeoJSON / Esri</button>
+      <button :class="{ on: origin === 'arcgis' }" @click="origin = 'arcgis'">ArcGIS URL</button>
+      <button :class="{ on: origin === 'db' }" @click="(origin = 'db'), refresh()">Saved</button>
+    </div>
+    <template v-if="origin !== 'db'">
+      <label class="row">Name <input v-model="name" type="text" placeholder="(from the source)" /></label>
       <div v-if="origin === 'builtin'" class="row">
-        <select v-model="builtInIndex">
-          <option v-for="(b, i) in builtIns" :key="b.table" :value="i">{{ b.label }}</option>
+        <select v-model="builtin">
+          <option v-for="b in BUILTIN_TABLES" :key="b.table" :value="b.table">{{ b.label }}</option>
         </select>
-        <button class="btn" :disabled="busy" @click="loadBuiltIn">Load</button>
+        <button class="btn primary" :disabled="busy" @click="upload({ kind: 'builtin', table: builtin })">Add</button>
       </div>
       <label v-else-if="origin === 'csv'" class="btn file">
-        <input type="file" accept=".csv,text/csv" @change="onCsv" />
+        <input type="file" accept=".csv,text/csv" :disabled="busy" @change="onFile($event, 'csv')" />
         Choose a CSV…
       </label>
       <label v-else-if="origin === 'json'" class="btn file">
-        <input type="file" accept=".json,.geojson,application/json,application/geo+json" @change="onJson" />
+        <input type="file" accept=".json,.geojson,application/json,application/geo+json" :disabled="busy" @change="onFile($event, 'json')" />
         Choose a .geojson / Esri .json…
       </label>
-      <form v-else class="row" @submit.prevent="onArcgis">
+      <form v-else class="row" @submit.prevent="arcgisUrl.trim() && upload({ kind: 'arcgis', url: arcgisUrl.trim() })">
         <input v-model="arcgisUrl" type="url" placeholder="https://…/FeatureServer/0" autocapitalize="off" />
-        <button class="btn" type="submit" :disabled="busy">Load</button>
+        <button class="btn primary" type="submit" :disabled="busy">Add</button>
       </form>
-      <p class="muted small">Files stay on your device.</p>
+      <p class="muted small">{{ busy ? 'Uploading…' : 'Stored as a new table in the database (on this device for now).' }}</p>
     </template>
-
-    <template v-else-if="binding">
-      <p class="muted small">{{ originLabel }} · {{ records.length.toLocaleString() }} rows · {{ columns.length }} columns</p>
-      <label class="row">Name <input v-model="name" type="text" /></label>
-
-      <div class="lbl">Each row's feature comes from</div>
-      <div class="seg">
-        <button :class="{ on: binding.kind === 'boundary' }" @click="setKind('boundary')">Region code</button>
-        <button :class="{ on: binding.kind === 'latlon' }" @click="setKind('latlon')">Lat / lon</button>
-        <button :class="{ on: binding.kind === 'geometry' }" @click="setKind('geometry')">Geometry column</button>
-      </div>
-      <template v-if="binding.kind === 'boundary'">
-        <label class="row">
-          Code column
-          <select v-model="binding.column">
-            <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }}</option>
-          </select>
-        </label>
-        <label class="row">
-          Regions
-          <select v-model="binding.boundary">
-            <option v-for="(label, id) in BOUNDARIES" :key="id" :value="id">{{ label }}</option>
-          </select>
-        </label>
-        <label class="check"><input v-model="binding.includeEmpty" type="checkbox" /> Also show regions with no rows</label>
-      </template>
-      <template v-else-if="binding.kind === 'latlon'">
-        <label class="row">
-          Latitude
-          <select v-model="binding.lat">
-            <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }}</option>
-          </select>
-        </label>
-        <label class="row">
-          Longitude
-          <select v-model="binding.lon">
-            <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }}</option>
-          </select>
-        </label>
-      </template>
-      <label v-else class="row">
-        GeoJSON / WKT column
-        <select v-model="binding.column">
-          <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }}</option>
-        </select>
-      </label>
-
-      <div v-if="numeric.length" class="vectors">
-        <div class="lbl">Vector columns <span class="muted small">(drawn as arrows)</span></div>
-        <p v-if="columns.some((c) => c.type === 'vector')" class="muted small">
-          Detected: {{ columns.filter((c) => c.type === 'vector').map((c) => c.name).join(', ') }}
-        </p>
-        <div v-for="(vec, i) in vectors" :key="i" class="vec">
-          <input v-model="vec.name" type="text" aria-label="Vector column name" />
-          <select v-model="vec.u" aria-label="East component">
-            <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
-          </select>
-          <select v-model="vec.v" aria-label="North component">
-            <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
-          </select>
-          <button class="icon" aria-label="Remove" @click="vectors.splice(i, 1)">✕</button>
-        </div>
-        <p v-if="vectors.length" class="muted small">name · east (u) column · north (v) column</p>
-        <button class="btn link add-vec" @click="addVector">＋ Combine two columns into a vector</button>
-      </div>
-
-      <p v-if="preview" class="small" :class="preview.features ? 'ok' : 'bad'">
-        {{ preview.features.toLocaleString() }} features from {{ preview.matchedRows.toLocaleString() }} rows
-        <template v-if="preview.unmatched">
-          · {{ preview.unmatched.toLocaleString() }} rows unmatched (e.g. {{ preview.samples.slice(0, 3).join(', ') }})
-        </template>
-      </p>
-      <p v-else class="muted small">Checking…</p>
-
-      <div class="row end">
-        <button class="btn" @click="records = null">Back</button>
-        <button class="btn primary" :disabled="!preview?.features" @click="add">Import</button>
-      </div>
+    <template v-else>
+      <p v-if="!available.length" class="muted small">No other datasets in the database.</p>
+      <ul class="stored">
+        <li v-for="d in available" :key="d.id">
+          <span class="grow">
+            <strong>{{ d.name }}</strong>
+            <span class="muted small">{{ d.rowCount.toLocaleString() }} rows · {{ d.origin }}</span>
+          </span>
+          <button class="btn primary" @click="emit('add', d.id)">Add</button>
+          <button class="icon" title="Delete from the database" @click="deleteStored(d)">🗑</button>
+        </li>
+      </ul>
     </template>
-
     <p v-if="error" class="error small">{{ error }}</p>
-    <button v-if="!records" class="btn link" @click="emit('cancel')">Cancel</button>
+    <button class="btn link" @click="emit('cancel')">Cancel</button>
   </div>
 </template>
 
@@ -380,6 +211,23 @@ form.row input {
 }
 .file input {
   display: none;
+}
+.stored {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.stored li {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.grow {
+  flex: 1;
+  display: grid;
+  min-width: 0;
 }
 .muted {
   color: var(--text-muted);

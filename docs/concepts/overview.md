@@ -11,13 +11,13 @@ A map of every electric utility operating in the US and the counties each one se
 - **Find a utility** — type part of a name and pick it from the suggestions. Its whole service territory gets a dark outline and the map zooms to it.
 - **Tap a county** — a panel opens with the number of utilities, the ownership mix, and each utility's name, ownership type and customer count. Tap **Territory** next to a utility to outline everywhere it operates.
 - **Hover** (on a computer) — a small card shows the county and its largest utilities.
-- **Datasets** — the data you've brought in. **Import dataset** takes the built-in files, a CSV from your device, a GeoJSON / Esri JSON file, or an ArcGIS link. Then say where each row is on the map: a county or state code column, latitude and longitude columns, or a column holding the shape itself (GeoJSON or WKT). The panel tells you how many rows matched before you import.
-- **Visualizations** — what's drawn. Each one shows a column of a dataset; tap **＋ Add visualization**, pick a dataset and a column. Visualizations from different datasets show together. The utilities dataset starts with three: a co-op hatch, most common ownership, and number of utilities. Tick any combination — they stack.
+- **Datasets** — tables of data. **＋ Add dataset** takes a built-in table, a CSV from your device, a GeoJSON / Esri JSON file, or an ArcGIS link, and stores it as a table in the database (on this device for now). **Saved** lists tables already in the database, to add back or delete. ✕ takes a dataset out of the workspace; the table stays in the database.
+- **Visualizations** — what's drawn. Tap **＋ Add visualization**, pick a dataset, say where each row is on the map (a county or state code column, latitude and longitude columns, or a column holding the shape itself as GeoJSON or WKT — it tells you how many rows matched), and pick a column. The same table can be drawn different ways: change **Features** in a visualization's editor, e.g. from counties to states. Visualizations from different datasets show together. The utilities dataset starts with three: a co-op hatch, most common ownership, and number of utilities. Tick any combination — they stack.
 - **Rename, describe and reorder datasets** — tap ✎ on a dataset to rename it or add a description; drag its ≡ handle to reorder the list.
 - **Order and delete** — drag the ≡ handle to reorder: the top of the list draws on top. Swipe a visualization left to reveal **Delete**.
 - **Edit a visualization** — choose its column, how rows on the same county are combined (count, sum, average, most common…), and its colors, colormap, transparency and fill pattern.
-- **Vectors (arrows)** — a column holding vectors (direction and size, like a flow) is drawn as arrows automatically. If your table has the two parts in separate columns (east and north), use **Combine two columns into a vector** when importing.
-- **Demo vector field** — under Import dataset → Built-in, a made-up wind field to show how arrows look. It is not real data.
+- **Vectors (arrows)** — a column holding vectors (direction and size, like a flow) is drawn as arrows automatically. If your table has the two parts in separate columns (east and north), tap ✎ on the dataset and use **Combine two columns into a vector**.
+- **Demo vector field** — under ＋ Add dataset → Built-in, a made-up wind field to show how arrows look. It is not real data.
 - **Export** — download any dataset as GeoJSON, Esri JSON or CSV for ArcGIS. Vectors become two number columns (east and north), which ArcGIS can draw as arrows.
 
 ## Common Questions
@@ -45,4 +45,4 @@ A: Take a screenshot and share it with the developer. Tap **View logs** in the f
 **Q: What data is stored on my device?**
 
 A: Only the app's cached files. Files you import stay in your browser and are not uploaded anywhere.
-- **Saved on this device** — your datasets, visualizations and their order are kept in this browser and come back when you reopen the app. Built-in data is re-read fresh; files you imported are stored on the device. Nothing is uploaded. **Reset workspace** (under Datasets) clears it all and starts over with the utilities map. Private browsing may not keep anything.
+- **Saved automatically** — your workspace (which datasets, the visualizations and their order) is saved to the database and comes back when you reopen the app. The workspace only points at datasets; their rows live in their own tables. Today the database is in this browser, so nothing leaves the device; private browsing may not keep anything. **Reset workspace** (under Datasets) starts over with the utilities map — your datasets stay under ＋ Add dataset → Saved.

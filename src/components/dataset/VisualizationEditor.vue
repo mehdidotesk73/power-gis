@@ -1,33 +1,52 @@
 <script setup lang="ts">
-// Edits one visualization: which column it shows, how rows combine per feature, and
-// its style. Arrows or scalar follow from the column's type.
+// Edits one visualization: where its features come from (binding), which
+// column it shows, how rows combine per feature, and its style. Arrows or
+// scalar follow from the column's type.
 import { computed } from 'vue'
 import ScalarStyleEditor from '../map/ScalarStyleEditor.vue'
 import VectorStyleEditor from '../map/VectorStyleEditor.vue'
+import BindingEditor from './BindingEditor.vue'
+import { useBindingInfo } from './useBindingInfo'
 import { AGGREGATIONS, aggregationsFor, type Aggregation } from '../../lib/dataset/aggregate'
-import { columnType, retarget, ROWS, type VisualizationSpec } from '../../lib/dataset/visualization'
-import type { BuiltDataset } from '../../lib/dataset/dataset'
+import { bindingColumns, type GeometryBinding } from '../../lib/dataset/binding'
+import { columnType, dataColumns, retarget, ROWS, type VisualizationSpec } from '../../lib/dataset/visualization'
+import type { DatasetRecord } from '../../shared/records'
 import type { LayerData } from '../../lib/schema'
 
-const props = defineProps<{ built: BuiltDataset; layer: VisualizationSpec; data: LayerData }>()
+const props = defineProps<{ dataset: DatasetRecord; layer: VisualizationSpec; data: LayerData | null }>()
 const emit = defineEmits<{ (e: 'update', l: VisualizationSpec): void; (e: 'remove'): void }>()
 
-const aggregations = computed<Aggregation[]>(() => (props.layer.column === ROWS ? ['count'] : aggregationsFor(columnType(props.built, props.layer.column))))
+const { info, error } = useBindingInfo(
+  () => props.dataset.id,
+  () => props.layer.binding,
+)
+const columns = computed(() => dataColumns(props.dataset.columns, props.layer.binding))
+const aggregations = computed<Aggregation[]>(() => (props.layer.column === ROWS ? ['count'] : aggregationsFor(columnType(columns.value, props.layer.column))))
 
 function setColumn(column: string, aggregation: Aggregation) {
-  const allowed = column === ROWS ? ['count'] : aggregationsFor(columnType(props.built, column))
-  emit('update', retarget(props.built, props.layer, column, allowed.includes(aggregation) ? aggregation : (allowed[0] as Aggregation)))
+  const shape = info.value ?? { columns: columns.value, maxRowsPerFeature: 1, geometryKind: 'region' as const }
+  const allowed = column === ROWS ? ['count'] : aggregationsFor(columnType(columns.value, column))
+  emit('update', retarget(shape, props.layer, column, allowed.includes(aggregation) ? aggregation : (allowed[0] as Aggregation)))
+}
+function setBinding(binding: GeometryBinding) {
+  // A column the new binding consumes can't also be the value.
+  const clash = bindingColumns(binding).includes(props.layer.column)
+  emit('update', { ...props.layer, binding, ...(clash ? { column: ROWS, aggregation: 'count' as const } : {}) } as VisualizationSpec)
 }
 </script>
 
 <template>
   <div class="ed">
     <label class="row">Name <input :value="layer.name" type="text" @change="emit('update', { ...layer, name: ($event.target as HTMLInputElement).value })" /></label>
+    <details class="where">
+      <summary>Features: {{ info ? `${info.features.toLocaleString()} ${info.geometryKind === 'point' ? 'points' : info.geometryKind === 'polyline' ? 'lines' : 'regions'}` : '…' }}</summary>
+      <BindingEditor :columns="dataset.columns" :model-value="layer.binding" :info="info" :error="error" @update:model-value="setBinding" />
+    </details>
     <label class="row">
       Column
       <select :value="layer.column" @change="setColumn(($event.target as HTMLSelectElement).value, layer.aggregation)">
         <option :value="ROWS">Number of rows</option>
-        <option v-for="c in built.columns" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }})</option>
+        <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }})</option>
       </select>
     </label>
     <label class="row">
@@ -37,8 +56,11 @@ function setColumn(column: string, aggregation: Aggregation) {
       </select>
     </label>
     <p class="muted">{{ layer.kind === 'vector' ? 'Vector values — drawn as arrows.' : 'Scalar values — drawn with color, transparency and pattern.' }}</p>
-    <ScalarStyleEditor v-if="layer.kind === 'scalar'" :model-value="layer.style" :layer="data" @update:model-value="(style) => emit('update', { ...layer, style } as VisualizationSpec)" />
-    <VectorStyleEditor v-else :model-value="layer.style" @update:model-value="(style) => emit('update', { ...layer, style } as VisualizationSpec)" />
+    <template v-if="data">
+      <ScalarStyleEditor v-if="layer.kind === 'scalar'" :model-value="layer.style" :layer="data" @update:model-value="(style) => emit('update', { ...layer, style } as VisualizationSpec)" />
+      <VectorStyleEditor v-else :model-value="layer.style" @update:model-value="(style) => emit('update', { ...layer, style } as VisualizationSpec)" />
+    </template>
+    <p v-else class="muted">Loading values…</p>
     <button class="remove" @click="emit('remove')">Remove visualization</button>
   </div>
 </template>
@@ -67,6 +89,13 @@ function setColumn(column: string, aggregation: Aggregation) {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.74rem;
+}
+.where summary {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.where[open] summary {
+  margin-bottom: 0.35rem;
 }
 .remove {
   justify-self: start;

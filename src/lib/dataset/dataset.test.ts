@@ -3,8 +3,9 @@ import { aggregate, defaultAggregation } from './aggregate'
 import { boundaryKey, geometryFromValue, groupRows, guessBinding, type BoundaryFeature } from './binding'
 import { coerce, inferColumns } from './columns'
 import { parseWkt } from './wkt'
-import { buildDataset, withVectorColumn } from './dataset'
-import { defaultVisualization, visualizationData, makeVisualization, retarget, ROWS, VALUE } from './visualization'
+import { withVectorColumn } from './dataset'
+import { bindingInfo, groupDataset, queryValues } from './query'
+import { defaultVisualization, makeVisualization, retarget, visualizationLayer, ROWS, VALUE } from './visualization'
 import { parseVector } from '../schema'
 
 const square = (x: number) => ({ type: 'Polygon' as const, coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 1], [x, 0]]] })
@@ -114,7 +115,7 @@ describe('vectors', () => {
   })
 })
 
-describe('datasets and visualizations', () => {
+describe('visualization queries', () => {
   const records = withVectorColumn(
     [
       { county_fips: '01001', utility: 'Alabama Power', type: 'IOU', customers: '100', u: '1', v: '0' },
@@ -125,45 +126,56 @@ describe('datasets and visualizations', () => {
     'u',
     'v',
   )
+  const columns = inferColumns(records)
   const binding = { kind: 'boundary' as const, column: 'county_fips', boundary: 'us-counties' as const }
-  const built = buildDataset({ id: 'ds', name: 'Utilities', binding }, records, inferColumns(records), counties)
+  const g = groupDataset(records, columns, binding, counties)
+  const shape = bindingInfo(g, columns, binding)
 
-  it('builds one feature per region with default aggregates', () => {
-    expect(built.maxRowsPerFeature).toBe(2)
-    expect(built.columns.map((c) => c.name)).not.toContain('county_fips')
-    const autauga = built.base.features.find((f) => f.id === '01001')!.properties
-    expect(autauga).toMatchObject({ _label: 'Autauga, AL', _rows: 2, customers: 150, type: 'Coop' }) // mode tie → alphabetical
-    expect(autauga.flow).toEqual({ u: 0.5, v: 0.5 })
-    expect(built.rowsByKey.get('01001')).toHaveLength(2)
+  it('describes the dataset under a binding', () => {
+    expect(shape).toMatchObject({ maxRowsPerFeature: 2, features: 2, matchedRows: 3, unmatched: 0, geometryKind: 'region' })
+    expect(shape.columns.map((c) => c.name)).not.toContain('county_fips')
+    const empty = bindingInfo(groupDataset(records, columns, { ...binding, includeEmpty: true }, counties), columns, binding)
+    expect(empty.features).toBe(2) // empty regions don't count as matched features
   })
 
-  it('picks the layer kind from the column type', () => {
-    expect(defaultVisualization(built, 'ds')).toMatchObject({ column: ROWS, aggregation: 'count', kind: 'scalar' })
-    expect(makeVisualization(built, 'ds', 'flow')).toMatchObject({ kind: 'vector', aggregation: 'mean' })
-    expect(makeVisualization(built, 'ds', 'customers').kind).toBe('scalar')
-    expect(makeVisualization(built, 'ds', 'flow', 'count').kind).toBe('scalar') // a count of vectors is a number
-    expect((makeVisualization(built, 'ds', 'type') as { style: { color: { kind: string } } }).style.color.kind).toBe('categorical')
+  it('picks the visualization kind from the column type', () => {
+    expect(defaultVisualization(shape, 'ds', binding)).toMatchObject({ column: ROWS, aggregation: 'count', kind: 'scalar', binding })
+    expect(makeVisualization(shape, 'ds', binding, 'flow')).toMatchObject({ kind: 'vector', aggregation: 'mean' })
+    expect(makeVisualization(shape, 'ds', binding, 'customers').kind).toBe('scalar')
+    expect(makeVisualization(shape, 'ds', binding, 'flow', 'count').kind).toBe('scalar') // a count of vectors is a number
+    expect((makeVisualization(shape, 'ds', binding, 'type') as { style: { color: { kind: string } } }).style.color.kind).toBe('categorical')
   })
 
-  it('computes each layer\'s value per feature', () => {
-    const count = visualizationData(built, 'Utilities', defaultVisualization(built, 'ds'))
-    expect(count.features.map((f) => f.properties[VALUE])).toEqual([2, 1])
-    const mean = makeVisualization(built, 'ds', 'customers', 'mean')
-    const data = visualizationData(built, 'Utilities', mean)
-    expect(data.id).toBe(mean.id)
-    expect(data.features[0].properties[VALUE]).toBe(75)
-    expect(data.fields[0]).toMatchObject({ name: VALUE, type: 'double' })
-    const flow = visualizationData(built, 'Utilities', makeVisualization(built, 'ds', 'flow', 'sum'))
-    expect(flow.features[0].properties[VALUE]).toEqual({ u: 1, v: 1 })
-    expect(flow.fields[0].type).toBe('vector')
+  it('computes one value per feature and attaches boundary polygons on the client side', () => {
+    const count = queryValues(g, columns, ROWS, 'count', false)
+    expect(count.features.map((f) => [f.key, f.value, f.geometry])).toEqual([['01001', 2, undefined], ['01003', 1, undefined]])
+    const mean = makeVisualization(shape, 'ds', binding, 'customers', 'mean')
+    const layer = visualizationLayer(queryValues(g, columns, 'customers', 'mean', false), mean, 'Utilities', counties)
+    expect(layer.id).toBe(mean.id)
+    expect(layer.features[0].properties).toMatchObject({ [VALUE]: 75, _label: 'Autauga, AL', _rows: 2 })
+    expect(layer.features[0].geometry).toEqual(square(0))
+    expect(layer.fields[0]).toMatchObject({ name: VALUE, type: 'double' })
+    const flow = queryValues(g, columns, 'flow', 'sum', false)
+    expect(flow.features[0].value).toEqual({ u: 1, v: 1 })
+    expect(flow.valueType).toBe('vector')
+    expect(queryValues(g, columns, 'type', 'mode', false).features[0].value).toBe('Coop') // mode tie → alphabetical
   })
 
-  it('retargets a layer, keeping its style only when the value kind matches', () => {
-    const l = makeVisualization(built, 'ds', 'customers', 'sum')
-    const sameKind = retarget(built, l, 'customers', 'mean')
+  it('carries geometry for lat/lon bindings', () => {
+    const pts = [{ lat: '35', lon: '-90', mw: '5' }, { lat: '35', lon: '-90', mw: '7' }, { lat: 'x', lon: '1', mw: '1' }]
+    const c = inferColumns(pts)
+    const b = { kind: 'latlon' as const, lat: 'lat', lon: 'lon' }
+    const v = queryValues(groupDataset(pts, c, b), c, 'mw', 'sum', true)
+    expect(v).toMatchObject({ geometryKind: 'point', unmatched: 1 })
+    expect(v.features).toEqual([{ key: '35.000000,-90.000000', label: '35.000000,-90.000000', rows: 2, value: 12, geometry: { type: 'Point', coordinates: [-90, 35] } }])
+  })
+
+  it('retargets a visualization, keeping its style only when the value kind matches', () => {
+    const l = makeVisualization(shape, 'ds', binding, 'customers', 'sum')
+    const sameKind = retarget(shape, l, 'customers', 'mean')
     expect(sameKind.style).toBe(l.style)
     expect(sameKind.id).toBe(l.id)
-    const toVector = retarget(built, l, 'flow', 'mean')
+    const toVector = retarget(shape, l, 'flow', 'mean')
     expect(toVector.kind).toBe('vector')
     expect(toVector.name).toBe('flow')
   })

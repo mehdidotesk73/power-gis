@@ -1,90 +1,98 @@
 <script setup lang="ts">
-// Imported datasets: what each holds, how its rows matched, how many
-// visualizations use it. Drag ≡ to reorder; Edit renames or describes.
-// (Visualizations are added from the Visualizations panel.)
-import { ref } from 'vue'
-import type { LoadedDataset } from './types'
+// The workspace's datasets: tables in the database, by pointer. Drag ≡ to
+// reorder; ✎ renames, describes, or combines two columns into a vector
+// (each a server request). ✕ takes a dataset out of the workspace — the
+// table stays in the database. (Visualizations are added from the
+// Visualizations panel; how rows map to features is part of each one.)
+import { computed, ref } from 'vue'
 import { useDragReorder } from './useDragReorder'
-import { BOUNDARIES } from '../../lib/dataset/binding'
+import { isNumericColumn } from '../../lib/dataset/columns'
+import type { DatasetRecord } from '../../shared/records'
 
-const props = defineProps<{ datasets: LoadedDataset[]; vizCount: (id: string) => number }>()
+const props = defineProps<{ datasets: DatasetRecord[]; vizCount: (id: string) => number }>()
 const emit = defineEmits<{
   (e: 'zoom', id: string): void
   (e: 'remove', id: string): void
   (e: 'reorder', ids: string[]): void
   (e: 'update', id: string, patch: { name?: string; description?: string }): void
+  (e: 'add-vector', id: string, vec: { name: string; u: string; v: string }): void
 }>()
 
 const listEl = ref<HTMLElement>()
 const { dragging, onHandleDown, onHandleMove, onHandleUp } = useDragReorder(
   listEl,
-  () => props.datasets.map((d) => d.spec.id),
+  () => props.datasets.map((d) => d.id),
   (ids) => emit('reorder', ids),
 )
 const editing = ref<string | null>(null)
-
-function where(ds: LoadedDataset): string {
-  const b = ds.spec.binding
-  if (b.kind === 'boundary') return `${b.column} → ${BOUNDARIES[b.boundary].split(' (')[0]}`
-  if (b.kind === 'latlon') return `${b.lat}, ${b.lon} → points`
-  return `${b.column} → shapes`
+const editingDs = computed(() => props.datasets.find((d) => d.id === editing.value))
+const numeric = computed(() => editingDs.value?.columns.filter((c) => isNumericColumn(c.type)) ?? [])
+const vec = ref({ name: '', u: '', v: '' })
+function startEdit(id: string) {
+  editing.value = editing.value === id ? null : id
+  const [u, v] = numeric.value
+  vec.value = { name: 'vector', u: u?.name ?? '', v: v?.name ?? u?.name ?? '' }
 }
 
-function stats(ds: LoadedDataset): string {
-  const n = ds.built.base.features.length
-  const rows = [...ds.built.rowsByKey.values()].reduce((a, r) => a + r.length, 0)
-  const kind = ds.built.geometryKind === 'point' ? 'points' : ds.built.geometryKind === 'polyline' ? 'lines' : 'regions'
-  return `${plural(rows, 'row')} · ${n.toLocaleString()} ${kind} · ${plural(ds.built.columns.length, 'column')}`
-}
-
+const stats = (d: DatasetRecord) => `${plural(d.rowCount, 'row')} · ${plural(d.columns.length, 'column')}`
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 </script>
 
 <template>
   <ul ref="listEl" class="list">
-    <li v-for="ds in datasets" :key="ds.spec.id" :data-id="ds.spec.id" class="ds" :class="{ dragging: dragging === ds.spec.id }">
+    <li v-for="ds in datasets" :key="ds.id" :data-id="ds.id" class="ds" :class="{ dragging: dragging === ds.id }">
       <div class="head">
         <span
           v-if="datasets.length > 1"
           class="handle"
           aria-label="Drag to reorder"
           title="Drag to reorder"
-          @pointerdown="onHandleDown($event, ds.spec.id)"
+          @pointerdown="onHandleDown($event, ds.id)"
           @pointermove="onHandleMove"
           @pointerup="onHandleUp"
           @pointercancel="onHandleUp"
           >≡</span
         >
         <div class="title">
-          <strong>{{ ds.spec.name }}</strong>
-          <span v-if="ds.meta.description" class="desc">{{ ds.meta.description }}</span>
-          <span class="muted">{{ stats(ds) }}</span>
-          <span class="muted">{{ where(ds) }} · {{ ds.spec.origin }}</span>
+          <strong>{{ ds.name }}</strong>
+          <span v-if="ds.description" class="desc">{{ ds.description }}</span>
+          <span class="muted">{{ stats(ds) }} · {{ ds.origin }}</span>
         </div>
-        <button class="icon" :class="{ on: editing === ds.spec.id }" title="Rename / describe" @click="editing = editing === ds.spec.id ? null : ds.spec.id">✎</button>
-        <button class="icon" title="Zoom to data" @click="emit('zoom', ds.spec.id)">⤢</button>
-        <button class="icon" title="Remove dataset and its visualizations" @click="emit('remove', ds.spec.id)">✕</button>
+        <button class="icon" :class="{ on: editing === ds.id }" title="Rename / describe" @click="startEdit(ds.id)">✎</button>
+        <button class="icon" title="Zoom to data" @click="emit('zoom', ds.id)">⤢</button>
+        <button class="icon" title="Take out of the workspace (stays in the database)" @click="emit('remove', ds.id)">✕</button>
       </div>
-      <div v-if="editing === ds.spec.id" class="edit">
+      <div v-if="editing === ds.id" class="edit">
         <label>
           Name
-          <input type="text" :value="ds.spec.name" @change="emit('update', ds.spec.id, { name: ($event.target as HTMLInputElement).value })" />
+          <input type="text" :value="ds.name" @change="emit('update', ds.id, { name: ($event.target as HTMLInputElement).value })" />
         </label>
         <label>
           Description
           <textarea
             rows="2"
-            :value="ds.meta.description ?? ''"
+            :value="ds.description ?? ''"
             placeholder="What this data is, where it's from"
-            @change="emit('update', ds.spec.id, { description: ($event.target as HTMLTextAreaElement).value })"
+            @change="emit('update', ds.id, { description: ($event.target as HTMLTextAreaElement).value })"
           />
         </label>
-        <span class="muted">Added {{ new Date(ds.meta.createdAt).toLocaleString() }}</span>
+        <div v-if="numeric.length" class="vec">
+          <span>Combine two columns into a vector (drawn as arrows)</span>
+          <div class="vec-row">
+            <input v-model="vec.name" type="text" aria-label="Vector column name" />
+            <select v-model="vec.u" aria-label="East component">
+              <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
+            </select>
+            <select v-model="vec.v" aria-label="North component">
+              <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
+            </select>
+            <button class="add" :disabled="!vec.name.trim() || !vec.u || !vec.v" @click="emit('add-vector', ds.id, { ...vec })">Add</button>
+          </div>
+          <span class="muted">name · east (u) column · north (v) column</span>
+        </div>
+        <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
       </div>
-      <p v-if="ds.built.unmatched" class="warn">
-        {{ plural(ds.built.unmatched, 'row') }} had no matching feature (e.g. {{ ds.built.unmatchedSamples.slice(0, 3).join(', ') }})
-      </p>
-      <p class="muted uses">Used by {{ plural(vizCount(ds.spec.id), 'visualization') }}</p>
+      <p class="muted uses">Used by {{ plural(vizCount(ds.id), 'visualization') }}</p>
     </li>
   </ul>
 </template>
@@ -136,6 +144,26 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
   font: inherit;
   padding: 0.3rem;
   font-size: 16px; /* below 16px iOS zooms the page on focus */
+}
+.vec {
+  display: grid;
+  gap: 0.2rem;
+}
+.vec-row {
+  display: flex;
+  gap: 0.25rem;
+}
+.vec-row input,
+.vec-row select {
+  min-width: 0;
+  flex: 1;
+}
+.add {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--accent-blue);
+  border-radius: 0.3rem;
+  background: none;
+  color: var(--accent-blue);
 }
 .head {
   display: flex;

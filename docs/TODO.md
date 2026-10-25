@@ -19,6 +19,14 @@ Track feature development, improvements, and known issues here. Move completed w
   rows to IndexedDB (`indexedDbTableStore`), built-ins re-read; restored on open, **Reset
   workspace**. Datasets can be renamed/described and drag-reordered (`useDragReorder`, shared
   with the visualization list).
+- **Client / server boundary + database (roadmap 1b, part 1)** — server in a Web Worker
+  (`server/server.ts` `createServer`, `worker.ts`), typed requests (`shared/api.ts`) returning
+  `ApiResult`s, client `request()` + read-only `readDb`. IndexedDB database with base tables
+  (`users`, `workspaces`, `datasets`, `transforms`, `visualizations`; uuid + name) and one data table
+  per dataset. Uploads, dataset edits (rename, describe, vector column), visualization values
+  (`queryVisualization`, grouping cached per dataset+binding), feature rows and workspace saves all
+  go through the server. Geometry binding moved into visualization settings (`BindingEditor`).
+  Workspace config holds pointers only; datasets outlive workspaces (＋ Add dataset → Saved).
 
 ## Next (Current Sprint)
 
@@ -43,7 +51,7 @@ results, because the agent workflow (step 6) drives the same operations as the U
    only **standard metadata** (name, description, created/updated, columns, profile) plus an
    open-ended extension slot for features to attach their own; **sources and usage policy are not
    dataset properties** — they belong to the agent workflow's records (step 6). Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
-1b. **Client / server boundary + database** (agreed 2026-10-25; reworks step 1 before it merges) —
+1b. **Client / server boundary + database** (agreed 2026-10-25; part 1 done — see Done; **next: explicit Save + local draft + workspace file**) —
    everything is client-side today, but the code is split as if it weren't, so moving to a real
    backend (Supabase) is a refactor, not a rewrite.
    - **Rule:** lasting changes and heavy processing are **server side**. The client sends requests;

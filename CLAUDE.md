@@ -99,32 +99,43 @@ whatever they're actually asking about.
   PUDL. It needs `pandas` + `pyarrow`; downloads are cached in `scripts/.cache/` (git-ignored).
 - County polygons come from the `us-atlas` npm package (Census 2017 cartographic boundaries,
   1:10m). EIA-861 still reports Connecticut's eight legacy counties, which match it.
-- **Three concepts — keep the names straight:**
-  - **Connector** (`src/lib/data/connectors.ts`, `DataConnector`): where tables come from —
-    `readTable(name)` returns raw records. Built-in CSVs (`StaticFileConnector`), a device CSV
-    (`LocalFileConnector`), in-memory tables (`MemoryConnector`: demo data, parsed GeoJSON / Esri /
-    ArcGIS features via `featureTable`). A database (Supabase etc.) is a new connector class.
-  - **Dataset** (`src/lib/dataset/dataset.ts`): the *data* — one imported table plus a
-    `GeometryBinding` saying which column(s) hold each row's feature: `boundary` (region codes
-    joined to built-in US county/state polygons), `latlon`, or `geometry` (GeoJSON or WKT).
-    `buildDataset` groups rows onto features with every column aggregated by default.
-  - **Visualization** (`src/lib/dataset/visualization.ts`): one dataset column with an
-    `Aggregation` and a style. Any number per dataset; the page keeps one ordered list, so
-    visualizations from any mix of datasets show together. **Top of the list draws on top** (within
-    its geometry kind): widgets register their map layers in `ctx.stacks` and `MapView.restack`
-    moves them to match. `visualizationData` puts the value in `_value` and the page renders one
-    `ScalarLayer` / `VectorLayer` per visualization, cached by what it shows.
-- **Workspace** (`src/lib/workspace/`): one serializable `WorkspaceDoc` (datasets + ordered
-  visualizations) is the source of truth; **every change is an operation** in `workspace.ts`
-  returning `{ok, doc}` or `{ok:false, error:{code,message}}` — the UI uses them and agents will
-  too. Saved on the device (localStorage doc, IndexedDB rows for imported tables; built-in tables
-  are re-read). Datasets carry standard metadata only (name, description, created/updated,
-  `extensions`) — **source and usage policy are not dataset properties**. New UI actions must go
-  through an op, never mutate state directly. Details: `docs/system-design.md` §4.
+- **Client / server boundary** (everything runs in the browser today, but split as if it didn't):
+  - **Server** (`src/server/`): a **Web Worker** (`worker.ts`) running `createServer` (`server.ts`).
+    It owns every **lasting change** and every **heavy computation**: uploads, dataset edits,
+    visualization values, feature rows, saving workspaces. Answers are pointers (uuids) or small
+    results, as `ApiResult` (`{ok, data}` / `{ok:false, error:{code,message}}`) — never throws.
+  - **Contract** (`src/shared/`): `api.ts` (request types), `records.ts` (base tables), `database.ts`
+    (`ReadDatabase` / `Database` + in-memory test DB), `idb.ts` (IndexedDB), `builtins.ts`.
+  - **Client** (`src/client/`, components): `request(type, payload)` (`api.ts`) for anything that
+    writes or computes; `readDb` (`db.ts`, read-only) to read records and rows. **Components never
+    write the database.** New features that change data add a request type, not client code.
+- **Database** (IndexedDB `powergis-db` on this device; Supabase later). Base tables, every row with a
+  uuid `id` + editable `name`, no access control yet: `users`, `workspaces` (config of **pointers**:
+  `datasetIds`, ordered `visualizationIds`), `datasets` (registry: data table name, columns, row
+  count, origin, description, `extensions`), `transforms` (SQL + input/output ids — table only, runs
+  in step 2), `visualizations` (dataset id + settings). **Each dataset is its own data table**
+  (`ds_<uuid>`). Datasets carry standard metadata only — **source and usage policy are not dataset
+  properties**.
+- **Concepts — keep the names straight:**
+  - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
+    device files, in-memory tables, ArcGIS features via `featureTable`).
+  - **Dataset**: a plain table in the database, by id. No geometry of its own.
+  - **Visualization** (`src/lib/dataset/visualization.ts`): a dataset pointer plus settings —
+    **geometry binding** (`boundary` region codes joined to US county/state polygons, `latlon`, or
+    `geometry` GeoJSON/WKT), column, `Aggregation`, style. The server groups rows onto features and
+    aggregates (`lib/dataset/query.ts`, cached per dataset+binding); the client attaches boundary
+    polygons from static files (`visualizationLayer`). Any number per dataset; one ordered list.
+    **Top of the list draws on top** (within its geometry kind): widgets register their map layers
+    in `ctx.stacks` and `MapView.restack` moves them to match. Restyling never refetches values.
+- **Workspace** (`src/lib/workspace/workspace.ts`): the client's working copy (dataset pointers +
+  ordered visualizations); **every edit is an operation** returning `{ok, doc}` or
+  `{ok:false, error}` — the UI uses them and agents will too. Saved to the server (debounced
+  `saveWorkspace`) for now; explicit Save + local draft + workspace file are next. Details:
+  `docs/system-design.md` §4.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
   column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
   Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells, or combined from two
-  numeric columns at import (`withVectorColumn`). They aggregate component-wise (sum / mean).
+  numeric columns (`addVectorColumn` request → `withVectorColumn`). They aggregate component-wise (sum / mean).
   ArcGIS has no vector type, so exports split them into `<name>_u` / `<name>_v` Double fields;
   our schema sidecar rebuilds them on re-import.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
@@ -165,13 +176,15 @@ src/
     arcgis.ts              Esri JSON / GeoJSON / CSV import-export, FeatureServer fetch
     geometry.ts            anchor points (centroids), bbox
     utilities.ts           EIA-861 typed rows + utility list (search)
-    data/connectors.ts     connectors: where tables come from
-    workspace/             workspace document + operations (workspace.ts), save/load (storage.ts)
-    dataset/               datasets + visualizations: columns, aggregate, binding (+ wkt), dataset, visualization
+    data/connectors.ts     connectors: how sources are read
+    workspace/             the client's working copy + operations (workspace.ts)
+    dataset/               columns, aggregate, binding (+ wkt), boundaries (loader), query (server-side grouping), visualization
     search.ts              ranked type-ahead search
-    data/connectors.ts         DataConnector adapters: StaticFileConnector, LocalFileConnector (DB later)
     data/csv.ts            CSV → records
     demo.ts                synthetic vector field for exercising the arrow widget
+  shared/                  client ↔ server contract: api, records (tables), database, idb, builtins
+  server/                  the server (Web Worker today): server.ts handlers, worker.ts entry
+  client/                  api.ts (requests to the server), db.ts (read-only database)
   components/
     map/                   reusable map widgets
       MapView.vue          the map; provides it to child layer widgets
@@ -184,8 +197,8 @@ src/
       ScalarStyleEditor.vue, VectorStyleEditor.vue
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
-    MapPage.vue            the page: datasets + ordered visualization list → map widgets, panels, legend
-    dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, FeatureRows, boundaries
+    MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
+    dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     UtilityCountyDashboard.vue  custom dashboard for a county
     utilityStyles.ts       view presets + ownership colors
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
@@ -205,11 +218,11 @@ package-lock.json              committed — CI runs `npm ci` and needs it
 
 - **Pure logic lives in `src/lib/`** as plain functions over already-loaded data. Keep map- and
   DOM-specific code in `src/components/map/` and keep page components thin.
-- **Adding a dataset** = produce a `LayerData` (features + typed `fields` + `idField`), pick a
-  style, and drop a `<ScalarLayer>` / `<VectorLayer>` into `<MapView>`. Custom per-layer dashboards
-  go in `FeaturePanel`'s default slot.
+- **Adding a dataset** = an `uploadDataset` request (or a new `UploadSource` kind on the server);
+  then visualizations of it via the ops. Dataset-specific extras (dashboard, search) key off
+  `extensions.preset`; custom dashboards go in `FeaturePanel`'s default slot.
 - **MapLibre flattens nested properties** into JSON strings in rendered features. Widgets emit only
-  feature ids; look the original feature up by id (see `byId` in `UtilityMap.vue`).
+  feature ids; look the original feature up by id (see `byKey` in `MapPage.vue`).
 - **Patterns are a region encoding** (fill-pattern). Points/polylines ignore `style.pattern`.
 - **Vector direction convention:** degrees clockwise from north, pointing where the vector goes;
   `u` = east component, `v` = north component.
