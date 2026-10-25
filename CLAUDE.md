@@ -105,10 +105,9 @@ whatever they're actually asking about.
 ## Deploys
 
 - **Netlify does both jobs** (`netlify.toml`): pushes to `main` build the **production** site at
-  `https://energeo.netlify.app`; every other branch/PR gets its own **Deploy Preview**
-  at `deploy-preview-<n>--energeo.netlify.app`. One host, one build pipeline — nothing
-  else to configure for hosting. (Site name is provisional until Netlify is connected — see
-  `docs/TODO.md`.)
+  `https://powergis.netlify.app`; every other branch/PR gets its own **Deploy Preview**
+  at `deploy-preview-<n>--powergis.netlify.app`. One host, one build pipeline — nothing
+  else to configure for hosting.
 - **`.github/workflows/ci.yml` only runs the build check on PRs** — it doesn't deploy anything.
 - **`package-lock.json` is committed and must stay that way** — CI runs
   `npm ci`, which fails outright without a lockfile in sync with
@@ -170,7 +169,7 @@ package-lock.json              committed — CI runs `npm ci` and needs it
 - **Vector direction convention:** degrees clockwise from north, pointing where the vector goes;
   `u` = east component, `v` = north component.
 - **ArcGIS type mapping** is in `src/lib/arcgis.ts`'s header comment. Composite types travel as JSON
-  strings in Esri fields; our full schema rides along under the `x-energeo` key.
+  strings in Esri fields; our full schema rides along under the `x-powergis` key.
 - **Mobile-first:** the user is on a phone. Keep controls tappable; hover is only a bonus
   (tooltips are suppressed on touch devices, tap opens the panel).
 

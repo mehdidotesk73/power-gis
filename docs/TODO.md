@@ -4,7 +4,7 @@ Track feature development, improvements, and known issues here. Move completed w
 
 ## Done
 
-- **Scaffold + personalization** — template copied in, docs filled for Energeo.
+- **Scaffold + personalization** — template copied in, docs filled for PowerGIS.
 - **Map widgets + first dataset (utilities by county)** — reusable MapLibre widgets
   (`MapView`, `ScalarLayer`, `VectorLayer`, `FeatureTooltip`, `FeaturePanel` + `PropertyValue`,
   `MapLegend`, style editors, `DataExchange`) over a typed layer model (`lib/schema.ts`) with
@@ -17,8 +17,8 @@ Track feature development, improvements, and known issues here. Move completed w
 
 One-time setup — tick these off as they're done:
 
-- [ ] Connect Netlify (finish-setup) — required; gives previews AND the production site
-      (proposed site name `energeo`; alternates `energeo-mehdi`, `energeo-app`)
+- [x] Connect Netlify (finish-setup) — required; gives previews AND the production site
+      (site: https://powergis.netlify.app)
 - [ ] Protect `main` (finish-setup) — required; this is what makes changes arrive as PRs with
       preview links, instead of going straight to the live site
 - [ ] Review the utilities-by-county map on a phone

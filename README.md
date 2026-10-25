@@ -1,6 +1,6 @@
-# Energeo
+# PowerGIS
 
-Power-sector data on a map. Energeo displays GeoJSON features (points, polylines and regions) with
+Power-sector data on a map. PowerGIS displays GeoJSON features (points, polylines and regions) with
 typed properties, and visualizes data on them through reusable map widgets:
 
 - **Scalars**: color (single, colormap or categorical), transparency, and fill patterns
@@ -16,8 +16,8 @@ Built with Vue 3 + TypeScript + Vite (PWA) and MapLibre GL.
 
 ## Links
 
-- Live site: https://energeo.netlify.app (once Netlify is connected)
-- Previews: `deploy-preview-<n>--energeo.netlify.app` for every PR
+- Live site: https://powergis.netlify.app
+- Previews: `deploy-preview-<n>--powergis.netlify.app` for every PR
 
 ## Local development
 

@@ -1,5 +1,5 @@
 {
-  "name": "energeo",
+  "name": "power-gis",
   "version": "0.1.0",
   "type": "module",
   "description": "Power-sector data on a map: reusable scalar/vector map widgets with ArcGIS interop",

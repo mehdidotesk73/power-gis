@@ -1,6 +1,6 @@
-# About Energeo
+# About PowerGIS
 
-Energeo shows power-sector data on a map of the United States.
+PowerGIS shows power-sector data on a map of the United States.
 
 ## What is this app?
 

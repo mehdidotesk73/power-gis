@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Energeo',
-        short_name: 'Energeo',
+        name: 'PowerGIS',
+        short_name: 'PowerGIS',
         description: 'US electric utility service territories and power data on a map',
         theme_color: '#ffffff',
         background_color: '#ffffff',

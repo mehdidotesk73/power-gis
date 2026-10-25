@@ -21,7 +21,7 @@ import {
   type LayerFeature,
 } from './schema'
 
-export const SCHEMA_KEY = 'x-energeo'
+export const SCHEMA_KEY = 'x-powergis'
 
 export type EsriFieldType =
   | 'esriFieldTypeOID'
