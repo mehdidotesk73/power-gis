@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { LocalFileSource, StaticFileSource, requireColumns } from './source'
+import { LocalFileConnector, StaticFileConnector, requireColumns } from './connectors'
 import { utilityRowsFromRecords } from '../utilities'
 
 const CSV = 'utility_id_eia,utility_name,county_fips,short_form\n195,Alabama Power Co,1001,False\n'
 const file = (name: string, text = CSV) => ({ name, text: async () => text })
 
-describe('StaticFileSource', () => {
+describe('StaticFileConnector', () => {
   it('fetches <base><dir>/<table>.csv', async () => {
     const urls: string[] = []
-    const src = new StaticFileSource(['utility_counties'], '/app/', 'data', async (u) => {
+    const src = new StaticFileConnector(['utility_counties'], '/app/', 'data', async (u) => {
       urls.push(u)
       return { ok: true, status: 200, text: async () => CSV }
     })
@@ -19,16 +19,16 @@ describe('StaticFileSource', () => {
   })
 
   it('reports HTTP failures', async () => {
-    const src = new StaticFileSource(['t'], '/', 'data', async () => ({ ok: false, status: 404, text: async () => '' }))
+    const src = new StaticFileConnector(['t'], '/', 'data', async () => ({ ok: false, status: 404, text: async () => '' }))
     await expect(src.readTable('t')).rejects.toThrow('t.csv: HTTP 404')
   })
 })
 
-describe('LocalFileSource', () => {
+describe('LocalFileConnector', () => {
   it('maps files to tables by name, or by explicit binding', async () => {
-    const byName = new LocalFileSource([file('utility_counties.csv')])
+    const byName = new LocalFileConnector([file('utility_counties.csv')])
     expect(await byName.listTables()).toEqual(['utility_counties'])
-    const bound = new LocalFileSource([], { utility_counties: file('my export.csv') })
+    const bound = new LocalFileConnector([], { utility_counties: file('my export.csv') })
     expect((await bound.readTable('utility_counties'))[0].county_fips).toBe('1001')
     expect(bound.label).toBe('my export.csv')
     await expect(bound.readTable('missing')).rejects.toThrow('Choose a CSV')

@@ -7,7 +7,7 @@
 // plus the same color and opacity encodings.
 
 import { CATEGORICAL, colormapStops, cssGradient, type ColormapName } from './colormaps'
-import { distinctValues, numericValues, type LayerFeature } from './schema'
+import { distinctValues, numericValues, parseVector, type LayerFeature } from './schema'
 
 /** A MapLibre style expression (kept loose so this module stays map-library free). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,6 +66,8 @@ export type VectorComponents =
   | { kind: 'uv'; u: string; v: string }
   /** direction in degrees clockwise from north, pointing where the vector goes. */
   | { kind: 'polar'; magnitude: string; direction: string }
+  /** One field holding a vector value ({u, v}). */
+  | { kind: 'vector'; field: string }
 
 export interface VectorStyle {
   components: VectorComponents
@@ -175,6 +177,10 @@ export function patternImageId(pattern: PatternKind, color: string): string {
 const finite = (x: unknown): number | null => (x === null || x === undefined || x === '' ? null : Number.isFinite(Number(x)) ? Number(x) : null)
 
 export function vectorOf(props: Record<string, unknown>, c: VectorComponents): { magnitude: number; direction: number } | null {
+  if (c.kind === 'vector') {
+    const vec = parseVector(props[c.field])
+    return vec ? vectorOf({ u: vec.u, v: vec.v }, { kind: 'uv', u: 'u', v: 'v' }) : null
+  }
   if (c.kind === 'uv') {
     const u = finite(props[c.u])
     const v = finite(props[c.v])

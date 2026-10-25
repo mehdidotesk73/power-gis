@@ -2,7 +2,7 @@
 // Custom dashboard for a county in the utilities layer: ownership mix bar
 // plus the utilities serving it, each linkable to its full territory.
 import { computed } from 'vue'
-import type { DataRecord } from '../lib/data/source'
+import type { DataRecord } from '../lib/data/connectors'
 import { formatPrimitive } from '../lib/format'
 import { OWNERSHIP_COLORS } from './utilityStyles'
 

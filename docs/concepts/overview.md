@@ -11,11 +11,12 @@ A map of every electric utility operating in the US and the counties each one se
 - **Find a utility** — type part of a name and pick it from the suggestions. Its whole service territory gets a dark outline and the map zooms to it.
 - **Tap a county** — a panel opens with the number of utilities, the ownership mix, and each utility's name, ownership type and customer count. Tap **Territory** next to a utility to outline everywhere it operates.
 - **Hover** (on a computer) — a small card shows the county and its largest utilities.
-- **Layers** — each dataset is a layer with *sublayers*, one per thing it shows. The utilities layer has three: number of utilities, most common ownership, and a hatch where a cooperative serves. Tick any combination — they stack.
-- **Edit a sublayer** — choose which column it shows, how rows on the same county are combined (count, sum, average, most common…), and its colors, colormap, transparency and fill pattern. Switch it to **Vector** to draw arrows from two columns (east and north).
-- **Add data layer** — bring in any table: the built-in files, a CSV from your device, a GeoJSON / Esri JSON file, or an ArcGIS link. Then say where each row is on the map: a county or state code column, latitude and longitude columns, or a column holding the shape itself (GeoJSON or WKT). The panel tells you how many rows matched before you add it.
-- **Demo vector field** — under Add data layer → Built-in, a made-up arrow field to show how direction-and-size data (like power flows) will look. It is not real data.
-- **Export** — download any layer as GeoJSON, Esri JSON or CSV for ArcGIS.
+- **Data sources** — the data you've brought in. **Import data source** takes the built-in files, a CSV from your device, a GeoJSON / Esri JSON file, or an ArcGIS link. Then say where each row is on the map: a county or state code column, latitude and longitude columns, or a column holding the shape itself (GeoJSON or WKT). The panel tells you how many rows matched before you import.
+- **Layers** — what's drawn. Each layer shows one column of a data source; a data source can have many layers, and layers from different data sources show together. The utilities data source starts with three: number of utilities, most common ownership, and a hatch where a cooperative serves. Tick any combination — they stack. Add more with **＋ Layer** on a data source.
+- **Edit a layer** — choose its column, how rows on the same county are combined (count, sum, average, most common…), and its colors, colormap, transparency and fill pattern.
+- **Vectors (arrows)** — a column holding vectors (direction and size, like a flow) is drawn as arrows automatically. If your table has the two parts in separate columns (east and north), use **Combine two columns into a vector** when importing.
+- **Demo vector field** — under Import data source → Built-in, a made-up wind field to show how arrows look. It is not real data.
+- **Export** — download any data source as GeoJSON, Esri JSON or CSV for ArcGIS. Vectors become two number columns (east and north), which ArcGIS can draw as arrows.
 
 ## Common Questions
 

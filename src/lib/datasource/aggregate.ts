@@ -2,6 +2,7 @@
 // visualized column is reduced to one value per feature by an aggregation.
 
 import { isNumericColumn, type ColumnType } from './columns'
+import { isVector, type Vector } from '../schema'
 
 export const AGGREGATIONS = {
   first: 'First value',
@@ -18,6 +19,7 @@ export type Aggregation = keyof typeof AGGREGATIONS
 
 /** Aggregations that make sense for a column type. */
 export function aggregationsFor(type: ColumnType): Aggregation[] {
+  if (type === 'vector') return ['mean', 'sum', 'first', 'count']
   if (isNumericColumn(type)) return ['sum', 'mean', 'min', 'max', 'first', 'count', 'distinct', 'mode']
   if (type === 'boolean') return ['any', 'count', 'mode', 'first']
   if (type === 'datetime') return ['max', 'min', 'first', 'count', 'distinct']
@@ -28,6 +30,7 @@ export function aggregationsFor(type: ColumnType): Aggregation[] {
 export function defaultAggregation(type: ColumnType, rowsPerFeature: number): Aggregation {
   if (rowsPerFeature <= 1) return 'first'
   if (isNumericColumn(type)) return 'sum'
+  if (type === 'vector') return 'mean'
   if (type === 'boolean') return 'any'
   if (type === 'datetime') return 'max'
   return 'mode'
@@ -36,6 +39,7 @@ export function defaultAggregation(type: ColumnType, rowsPerFeature: number): Ag
 /** Result type of an aggregation over a column. */
 export function aggregatedType(agg: Aggregation, type: ColumnType): ColumnType {
   if (agg === 'count' || agg === 'distinct') return 'int'
+  if (type === 'vector') return 'vector' // mean / sum / first of vectors is a vector
   if (agg === 'mean') return 'double'
   if (agg === 'any') return 'boolean'
   return type
@@ -62,6 +66,12 @@ export function aggregate(values: unknown[], agg: Aggregation): unknown {
       for (const [v, n] of counts) if (n > bestN || (n === bestN && String(v) < String(best))) (best = v), (bestN = n)
       return best
     }
+  }
+  const vecs = present.filter(isVector)
+  if (vecs.length && (agg === 'sum' || agg === 'mean')) {
+    // Component-wise: the mean of flows is the mean u and the mean v.
+    const s: Vector = vecs.reduce((a, b) => ({ u: a.u + b.u, v: a.v + b.v }), { u: 0, v: 0 })
+    return agg === 'sum' ? s : { u: s.u / vecs.length, v: s.v / vecs.length }
   }
   const nums = present.filter((v): v is number => typeof v === 'number')
   const strs = present.filter((v): v is string => typeof v === 'string')

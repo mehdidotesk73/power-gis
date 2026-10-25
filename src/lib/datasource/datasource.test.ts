@@ -3,7 +3,9 @@ import { aggregate, defaultAggregation } from './aggregate'
 import { boundaryKey, geometryFromValue, groupRows, guessBinding, type BoundaryFeature } from './binding'
 import { coerce, inferColumns } from './columns'
 import { parseWkt } from './wkt'
-import { buildSource, defaultSublayer, makeScalarSublayer, makeVectorSublayer, ROWS, sublayerData, U, V, VALUE } from './sourceLayer'
+import { buildDatasource, withVectorColumn } from './datasource'
+import { defaultLayer, layerData, makeLayer, retarget, ROWS, VALUE } from './layer'
+import { parseVector } from '../schema'
 
 const square = (x: number) => ({ type: 'Polygon' as const, coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 1], [x, 0]]] })
 const counties = new Map<string, BoundaryFeature>([
@@ -86,38 +88,83 @@ describe('bindings', () => {
   })
 })
 
-describe('source layers', () => {
-  const records = [
-    { county_fips: '01001', utility: 'Alabama Power', type: 'IOU', customers: '100', u: '1', v: '0' },
-    { county_fips: '01001', utility: 'Central Coop', type: 'Coop', customers: '50', u: '0', v: '1' },
-    { county_fips: '01003', utility: 'Alabama Power', type: 'IOU', customers: '100', u: '2', v: '2' },
-  ]
-  const meta = { id: 'src', name: 'Utilities', binding: { kind: 'boundary' as const, column: 'county_fips', boundary: 'us-counties' as const } }
-  const built = buildSource(meta, records, inferColumns(records), counties)
+describe('vectors', () => {
+  it('parses vector cells', () => {
+    expect(parseVector('[3, -1]')).toEqual({ u: 3, v: -1 })
+    expect(parseVector('(3,-1)')).toEqual({ u: 3, v: -1 })
+    expect(parseVector('3, -1')).toEqual({ u: 3, v: -1 })
+    expect(parseVector('{"u":1,"v":2}')).toEqual({ u: 1, v: 2 })
+    expect(parseVector({ x: 1, y: 2 })).toEqual({ u: 1, v: 2 })
+    expect(parseVector([1, 2])).toEqual({ u: 1, v: 2 })
+    expect(parseVector('3.1')).toBeNull()
+    expect(parseVector('3 1')).toBeNull()
+    expect(parseVector('abc')).toBeNull()
+  })
+
+  it('infers vector columns and aggregates them component-wise', () => {
+    const cols = inferColumns([{ flow: '[1, 0]' }, { flow: '[0, 1]' }])
+    expect(cols[0].type).toBe('vector')
+    expect(aggregate([{ u: 1, v: 0 }, { u: 0, v: 1 }, null], 'mean')).toEqual({ u: 0.5, v: 0.5 })
+    expect(aggregate([{ u: 1, v: 0 }, { u: 0, v: 1 }], 'sum')).toEqual({ u: 1, v: 1 })
+  })
+
+  it('builds a vector column from two numeric columns', () => {
+    const rows = withVectorColumn([{ e: '1', n: '2' }, { e: '', n: '2' }], 'wind', 'e', 'n')
+    expect(rows.map((r) => r.wind)).toEqual([{ u: 1, v: 2 }, null])
+  })
+})
+
+describe('data sources and layers', () => {
+  const records = withVectorColumn(
+    [
+      { county_fips: '01001', utility: 'Alabama Power', type: 'IOU', customers: '100', u: '1', v: '0' },
+      { county_fips: '01001', utility: 'Central Coop', type: 'Coop', customers: '50', u: '0', v: '1' },
+      { county_fips: '01003', utility: 'Alabama Power', type: 'IOU', customers: '100', u: '2', v: '2' },
+    ],
+    'flow',
+    'u',
+    'v',
+  )
+  const binding = { kind: 'boundary' as const, column: 'county_fips', boundary: 'us-counties' as const }
+  const built = buildDatasource({ id: 'ds', name: 'Utilities', binding }, records, inferColumns(records), counties)
 
   it('builds one feature per region with default aggregates', () => {
     expect(built.maxRowsPerFeature).toBe(2)
     expect(built.columns.map((c) => c.name)).not.toContain('county_fips')
     const autauga = built.base.features.find((f) => f.id === '01001')!.properties
     expect(autauga).toMatchObject({ _label: 'Autauga, AL', _rows: 2, customers: 150, type: 'Coop' }) // mode tie → alphabetical
+    expect(autauga.flow).toEqual({ u: 0.5, v: 0.5 })
     expect(built.rowsByKey.get('01001')).toHaveLength(2)
   })
 
-  it('makes a layer per sublayer with its own aggregation', () => {
-    const spec = { ...meta, sublayers: [], visible: true }
-    const first = defaultSublayer(built)
-    expect(first).toMatchObject({ column: ROWS, aggregation: 'count' })
-    expect(sublayerData(built, spec, first).features.map((f) => f.properties[VALUE])).toEqual([2, 1])
+  it('picks the layer kind from the column type', () => {
+    expect(defaultLayer(built, 'ds')).toMatchObject({ column: ROWS, aggregation: 'count', kind: 'scalar' })
+    expect(makeLayer(built, 'ds', 'flow')).toMatchObject({ kind: 'vector', aggregation: 'mean' })
+    expect(makeLayer(built, 'ds', 'customers').kind).toBe('scalar')
+    expect(makeLayer(built, 'ds', 'flow', 'count').kind).toBe('scalar') // a count of vectors is a number
+    expect((makeLayer(built, 'ds', 'type') as { style: { color: { kind: string } } }).style.color.kind).toBe('categorical')
+  })
 
-    const mean = makeScalarSublayer(built, 'customers', 'mean')
-    const data = sublayerData(built, spec, mean)
-    expect(data.id).toBe(`src__${mean.id}`)
+  it('computes each layer\'s value per feature', () => {
+    const count = layerData(built, 'Utilities', defaultLayer(built, 'ds'))
+    expect(count.features.map((f) => f.properties[VALUE])).toEqual([2, 1])
+    const mean = makeLayer(built, 'ds', 'customers', 'mean')
+    const data = layerData(built, 'Utilities', mean)
+    expect(data.id).toBe(mean.id)
     expect(data.features[0].properties[VALUE]).toBe(75)
     expect(data.fields[0]).toMatchObject({ name: VALUE, type: 'double' })
-    expect(mean.style.color.kind).toBe('colormap')
-    expect(makeScalarSublayer(built, 'type').style.color.kind).toBe('categorical')
+    const flow = layerData(built, 'Utilities', makeLayer(built, 'ds', 'flow', 'sum'))
+    expect(flow.features[0].properties[VALUE]).toEqual({ u: 1, v: 1 })
+    expect(flow.fields[0].type).toBe('vector')
+  })
 
-    const vec = sublayerData(built, spec, makeVectorSublayer(built, 'u', 'v'))
-    expect(vec.features[0].properties).toMatchObject({ [U]: 0.5, [V]: 0.5 })
+  it('retargets a layer, keeping its style only when the value kind matches', () => {
+    const l = makeLayer(built, 'ds', 'customers', 'sum')
+    const sameKind = retarget(built, l, 'customers', 'mean')
+    expect(sameKind.style).toBe(l.style)
+    expect(sameKind.id).toBe(l.id)
+    const toVector = retarget(built, l, 'flow', 'mean')
+    expect(toVector.kind).toBe('vector')
+    expect(toVector.name).toBe('flow')
   })
 })

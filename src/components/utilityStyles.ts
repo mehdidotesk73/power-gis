@@ -1,9 +1,10 @@
-// The built-in utilities-by-county source layer: a generic source layer
-// pre-configured with sublayers that show the dataset well.
-import type { DataRecord } from '../lib/data/source'
+// The built-in utilities-by-county data source: a generic data source with
+// preset layers that show the dataset well.
+import type { DataRecord } from '../lib/data/connectors'
 import { PUBLIC_POWER } from '../lib/utilities'
-import { newId, ROWS, VALUE, type BuiltSource, type SublayerSpec } from '../lib/layers/sourceLayer'
-import type { GeometryBinding } from '../lib/layers/binding'
+import { newId } from '../lib/datasource/datasource'
+import { ROWS, VALUE, type LayerSpec } from '../lib/datasource/layer'
+import type { GeometryBinding } from '../lib/datasource/binding'
 
 export const OWNERSHIP_COLORS: Record<string, string> = {
   'Investor Owned': '#4e79a7',
@@ -25,7 +26,7 @@ export const UTILITY_TABLE = 'utility_counties'
 export const UTILITY_NAME = 'Electric utilities by county (EIA-861)'
 export const UTILITY_BINDING: GeometryBinding = { kind: 'boundary', column: 'county_fips', boundary: 'us-counties', includeEmpty: true }
 
-/** Adds yes/no ownership columns so sublayers can hatch counties where a type is present. */
+/** Adds yes/no ownership columns so a layer can hatch counties where a type is present. */
 export function withOwnershipFlags(records: DataRecord[]): DataRecord[] {
   return records.map((r) => ({
     ...r,
@@ -37,10 +38,11 @@ export function withOwnershipFlags(records: DataRecord[]): DataRecord[] {
 const outline = { color: '#ffffff', width: 0.3, opacity: 0.7 }
 const clear = { opacity: { kind: 'constant' as const, value: 0 }, outline: { color: '#ffffff', width: 0, opacity: 0 } }
 
-export function utilitySublayers(_built: BuiltSource): SublayerSpec[] {
+export function utilityLayers(datasourceId: string): LayerSpec[] {
   return [
     {
-      id: newId('s'),
+      id: newId('l'),
+      datasourceId,
       name: 'Number of utilities',
       visible: true,
       kind: 'scalar',
@@ -54,7 +56,8 @@ export function utilitySublayers(_built: BuiltSource): SublayerSpec[] {
       },
     },
     {
-      id: newId('s'),
+      id: newId('l'),
+      datasourceId,
       name: 'Most common ownership',
       visible: false,
       kind: 'scalar',
@@ -68,8 +71,9 @@ export function utilitySublayers(_built: BuiltSource): SublayerSpec[] {
       },
     },
     {
-      // Pattern only (transparent fill): stacks on top of either sublayer above.
-      id: newId('s'),
+      // Pattern only (transparent fill): stacks on top of either layer above.
+      id: newId('l'),
+      datasourceId,
       name: 'Co-op present (hatch)',
       visible: false,
       kind: 'scalar',

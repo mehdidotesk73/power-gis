@@ -99,23 +99,32 @@ whatever they're actually asking about.
   PUDL. It needs `pandas` + `pyarrow`; downloads are cached in `scripts/.cache/` (git-ignored).
 - County polygons come from the `us-atlas` npm package (Census 2017 cartographic boundaries,
   1:10m). EIA-861 still reports Connecticut's eight legacy counties, which match it.
-- **All tables load through a `DataSource`** (`src/lib/data/source.ts`): `readTable(name)` returns
-  raw records. Today: built-in CSVs (`StaticFileSource`), a CSV on the device (`LocalFileSource`),
-  in-memory tables (`MemorySource`: demo data, parsed GeoJSON/Esri/ArcGIS features via
-  `featureTable`). A database (Supabase etc.) is a new class implementing the same interface.
-- **Source layers and sublayers** (`src/lib/layers/`). A *source layer* = one table + a
-  `GeometryBinding` saying which column(s) hold each row's feature: `boundary` (region codes joined
-  to built-in US county/state polygons), `latlon`, or `geometry` (GeoJSON object/text or WKT).
-  Rows on the same feature are grouped; `buildSource` makes one feature per group with every column
-  aggregated by default. Each *sublayer* picks a column + `Aggregation` (or u/v columns for arrows)
-  and a style; `sublayerData` adds its value as `_value` (`_u`/`_v`) and the page renders one
-  `ScalarLayer`/`VectorLayer` per sublayer. Column types are inferred (`inferColumns`); zero-padded
-  codes stay text. Sublayer data is cached by what it shows, so restyling never rebuilds data.
+- **Three concepts — keep the names straight:**
+  - **Connector** (`src/lib/data/connectors.ts`, `DataConnector`): where tables come from —
+    `readTable(name)` returns raw records. Built-in CSVs (`StaticFileConnector`), a device CSV
+    (`LocalFileConnector`), in-memory tables (`MemoryConnector`: demo data, parsed GeoJSON / Esri /
+    ArcGIS features via `featureTable`). A database (Supabase etc.) is a new connector class.
+  - **Data source** (`src/lib/datasource/datasource.ts`): the *data* — one imported table plus a
+    `GeometryBinding` saying which column(s) hold each row's feature: `boundary` (region codes
+    joined to built-in US county/state polygons), `latlon`, or `geometry` (GeoJSON or WKT).
+    `buildDatasource` groups rows onto features with every column aggregated by default.
+  - **Layer** (`src/lib/datasource/layer.ts`): a *visualization* of one data source column with an
+    `Aggregation` and a style. Any number per data source; the page keeps one flat layer list, so
+    layers from any mix of data sources show together. `layerData` puts the value in `_value` and
+    the page renders one `ScalarLayer` / `VectorLayer` per layer. Layer data is cached by what it
+    shows, so restyling never rebuilds data.
+- **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A layer's kind follows its
+  column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
+  Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells, or combined from two
+  numeric columns at import (`withVectorColumn`). They aggregate component-wise (sum / mean).
+  ArcGIS has no vector type, so exports split them into `<name>_u` / `<name>_v` Double fields;
+  our schema sidecar rebuilds them on re-import.
+- Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).
-- **Presets:** the built-in EIA-861 source is a normal source layer with preset sublayers
+- **Presets:** the built-in EIA-861 data source is a normal data source with preset layers
   (`utilityStyles.ts`) plus extras keyed by `preset: 'utilities'` — the county dashboard and
-  utility search. Other sources get the generic rows table in their click panel.
+  utility search. Other data sources get the generic rows table in their click panel.
 - Join key everywhere is the 5-digit county FIPS string (`county_fips` / `fips`). Keep it a
   string: leading zeros matter.
 
@@ -145,9 +154,10 @@ src/
     arcgis.ts              Esri JSON / GeoJSON / CSV import-export, FeatureServer fetch
     geometry.ts            anchor points (centroids), bbox
     utilities.ts           EIA-861 typed rows + utility list (search)
-    layers/                source layers: columns, aggregate, binding (+ wkt), sourceLayer
+    data/connectors.ts     connectors: where tables come from
+    datasource/            data sources + layers: columns, aggregate, binding (+ wkt), datasource, layer
     search.ts              ranked type-ahead search
-    data/source.ts         DataSource adapters: StaticFileSource, LocalFileSource (DB later)
+    data/connectors.ts         DataConnector adapters: StaticFileConnector, LocalFileConnector (DB later)
     data/csv.ts            CSV → records
     demo.ts                synthetic vector field for exercising the arrow widget
   components/
@@ -162,8 +172,8 @@ src/
       ScalarStyleEditor.vue, VectorStyleEditor.vue
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
-    MapPage.vue            the page: source layers → sublayer widgets, panels, legend
-    data/                  AddLayerPanel, LayerTree, SublayerEditor, FeatureRows, boundaries
+    MapPage.vue            the page: data sources + layer list → map widgets, panels, legend
+    datasource/            AddDatasourcePanel, DatasourceList, LayerList, LayerEditor, FeatureRows, boundaries
     UtilityCountyDashboard.vue  custom dashboard for a county
     utilityStyles.ts       view presets + ownership colors
     HelpModal.vue          renders docs/concepts/*.md into the Help modal

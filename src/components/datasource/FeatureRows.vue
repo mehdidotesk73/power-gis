@@ -1,13 +1,13 @@
 <script setup lang="ts">
 // The rows behind one feature, as a table — the generic "dashboard" any
-// source layer gets in its click panel.
+// data source gets in its click panel.
 import { computed } from 'vue'
 import PropertyValue from '../map/PropertyValue.vue'
-import type { DataRecord } from '../../lib/data/source'
+import type { DataRecord } from '../../lib/data/connectors'
 import { listOf, structOf } from '../../lib/schema'
-import { fieldTypeOf, type BuiltSource } from '../../lib/layers/sourceLayer'
+import { fieldTypeOf, type BuiltDatasource } from '../../lib/datasource/datasource'
 
-const props = defineProps<{ built: BuiltSource; rows: DataRecord[] }>()
+const props = defineProps<{ built: BuiltDatasource; rows: DataRecord[] }>()
 const type = computed(() => listOf(structOf(props.built.columns.map((c) => ({ name: c.name, type: fieldTypeOf(c.type) })))))
 </script>
 

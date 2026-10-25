@@ -1,18 +1,21 @@
-// Data sources: where the app's tables come from. Every dataset is read
-// through this one interface, so swapping the built-in CSVs for a file on
-// the device, or later a database, doesn't touch the map code.
+// Connectors: where tables come from. Every table is read through this one
+// interface, so swapping the built-in CSVs for a file on the device, or later
+// a database, doesn't touch the map code.
 //
-//   StaticFileSource  — CSVs shipped with the app (public/data/<table>.csv)
-//   LocalFileSource   — CSV files the user picks on their device
-//   (database)        — e.g. Supabase: implement DataSource with
-//                       readTable(name) = select * from <name>; nothing else
-//                       changes. Not built yet — see docs/TODO.md.
+//   StaticFileConnector  — CSVs shipped with the app (public/data/<table>.csv)
+//   LocalFileConnector   — CSV files the user picks on their device
+//   MemoryConnector      — tables already in memory (demo data, parsed GeoJSON/Esri)
+//   (database)           — e.g. Supabase: implement DataConnector with
+//                          readTable(name) = select * from <name>. Not built yet.
+//
+// A connector's table plus a geometry binding becomes a *data source*
+// (lib/datasource), which layers then visualize.
 
 import { parseCsv } from './csv'
 
 export type DataRecord = Record<string, unknown>
 
-export interface DataSource {
+export interface DataConnector {
   /** Short description for the UI, e.g. "Built-in data" or "utility_counties.csv". */
   readonly label: string
   /** Names of the tables this source can read. */
@@ -24,7 +27,7 @@ export interface DataSource {
 type FetchLike = (url: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>
 
 /** CSVs served alongside the app, at `${baseUrl}${dir}/<table>.csv`. */
-export class StaticFileSource implements DataSource {
+export class StaticFileConnector implements DataConnector {
   readonly label = 'Built-in data'
   constructor(
     private readonly tables: string[],
@@ -56,7 +59,7 @@ export interface FileLike {
  * table; a single file of any name can be bound to a table explicitly.
  * Files never leave the browser.
  */
-export class LocalFileSource implements DataSource {
+export class LocalFileConnector implements DataConnector {
   private readonly files = new Map<string, FileLike>()
 
   constructor(files: FileLike[] = [], bindings: Record<string, FileLike> = {}) {
@@ -81,7 +84,7 @@ export class LocalFileSource implements DataSource {
 }
 
 /** Tables held in memory — generated data, or features already parsed from a file. */
-export class MemorySource implements DataSource {
+export class MemoryConnector implements DataConnector {
   constructor(
     readonly label: string,
     private readonly tables: Record<string, DataRecord[]>,

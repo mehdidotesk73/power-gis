@@ -8,7 +8,7 @@
 // Rows that resolve to the same feature are grouped; aggregation happens later.
 
 import type { Feature, Geometry } from 'geojson'
-import type { DataRecord } from '../data/source'
+import type { DataRecord } from '../data/connectors'
 import { geometryKindOf, type GeometryKind } from '../schema'
 import { STATES } from '../states'
 import type { ColumnInfo } from './columns'

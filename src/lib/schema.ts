@@ -7,7 +7,46 @@
 
 import type { Feature, Geometry } from 'geojson'
 
-export type PrimitiveType = 'int' | 'double' | 'string' | 'datetime' | 'boolean'
+export type PrimitiveType = 'int' | 'double' | 'string' | 'datetime' | 'boolean' | 'vector'
+
+/**
+ * A 2-D vector: `u` east and `v` north components, in the data's units.
+ * A map primitive like a number — vector columns are drawn as arrows.
+ */
+export interface Vector {
+  u: number
+  v: number
+}
+
+export function isVector(v: unknown): v is Vector {
+  return !!v && typeof v === 'object' && typeof (v as Vector).u === 'number' && typeof (v as Vector).v === 'number'
+}
+
+/**
+ * A vector from a cell: {u, v} / {x, y} objects, [u, v] arrays, or text like
+ * "[3, -1]", "(3, -1)", "3,-1" or '{"u":3,"v":-1}'. Null if it isn't one.
+ */
+export function parseVector(raw: unknown): Vector | null {
+  if (raw === null || raw === undefined) return null
+  if (isVector(raw)) return { u: raw.u, v: raw.v }
+  if (Array.isArray(raw)) return raw.length === 2 && raw.every((n) => typeof n === 'number' && Number.isFinite(n)) ? { u: raw[0], v: raw[1] } : null
+  if (typeof raw === 'object') {
+    const o = raw as { x?: unknown; y?: unknown }
+    return typeof o.x === 'number' && typeof o.y === 'number' ? { u: o.x, v: o.y } : null
+  }
+  if (typeof raw !== 'string') return null
+  const s = raw.trim()
+  if (s.startsWith('{')) {
+    try {
+      return parseVector(JSON.parse(s))
+    } catch {
+      return null
+    }
+  }
+  const m = /^[[(]?\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*[,;\s]\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*[\])]?$/.exec(s)
+  // A bare "3,1" only counts with brackets or a separator — "3.1" alone is a number.
+  return m && /[[(,;]/.test(s) ? { u: Number(m[1]), v: Number(m[2]) } : null
+}
 
 export type FieldType =
   | PrimitiveType
@@ -87,6 +126,7 @@ export function inferValueType(v: unknown): FieldType | null {
   if (typeof v === 'number') return Number.isInteger(v) ? 'int' : 'double'
   if (typeof v === 'string') return ISO_DATE.test(v) ? 'datetime' : 'string'
   if (v instanceof Date) return 'datetime'
+  if (isVector(v)) return 'vector'
   if (Array.isArray(v)) {
     const inner = mergeTypes(v.map(inferValueType))
     return listOf(inner ?? 'string')

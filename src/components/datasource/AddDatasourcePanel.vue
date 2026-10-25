@@ -1,20 +1,22 @@
 <script setup lang="ts">
-// Add a source layer: pick where the rows come from, then say which
-// column(s) hold each row's feature. Live match counts show whether the
-// binding works before anything is added to the map.
+// Import a data source: pick where the rows come from (a connector), say
+// which column(s) hold each row's feature, and optionally combine two numeric
+// columns into a vector column. Live match counts show whether the binding
+// works before anything is added.
 import { computed, ref, shallowRef, watch } from 'vue'
-import { featureTable, LocalFileSource, MemorySource, type DataRecord, type DataSource } from '../../lib/data/source'
+import { featureTable, LocalFileConnector, MemoryConnector, type DataRecord, type DataConnector } from '../../lib/data/connectors'
 import { fetchArcGISLayer, importJSON } from '../../lib/arcgis'
-import { inferColumns, type ColumnInfo } from '../../lib/layers/columns'
-import { BOUNDARIES, groupRows, guessBinding, type BoundaryFeature, type BoundaryId, type GeometryBinding } from '../../lib/layers/binding'
+import { inferColumns, isNumericColumn, type ColumnInfo } from '../../lib/datasource/columns'
+import { withVectorColumn } from '../../lib/datasource/datasource'
+import { BOUNDARIES, groupRows, guessBinding, type BoundaryFeature, type BoundaryId, type GeometryBinding } from '../../lib/datasource/binding'
 import { loadBoundaries } from './boundaries'
 
 export interface BuiltInTable {
   label: string
-  source: DataSource
+  connector: DataConnector
   table: string
 }
-export interface NewSourceLayer {
+export interface NewDatasource {
   name: string
   origin: string
   records: DataRecord[]
@@ -23,7 +25,7 @@ export interface NewSourceLayer {
 }
 
 const props = defineProps<{ builtIns: BuiltInTable[] }>()
-const emit = defineEmits<{ (e: 'add', v: NewSourceLayer): void; (e: 'cancel'): void }>()
+const emit = defineEmits<{ (e: 'add', v: NewDatasource): void; (e: 'cancel'): void }>()
 
 type Origin = 'builtin' | 'csv' | 'json' | 'arcgis'
 const origin = ref<Origin>('builtin')
@@ -44,6 +46,7 @@ async function loaded(rows: DataRecord[], label: string, defaultName: string) {
   columns.value = inferColumns(rows)
   originLabel.value = label
   name.value = defaultName
+  vectors.value = []
   binding.value = guessBinding(columns.value) ?? { kind: 'boundary', column: columns.value[0].name, boundary: 'us-counties' }
 }
 
@@ -61,13 +64,13 @@ async function run(fn: () => Promise<void>) {
 
 function loadBuiltIn() {
   const b = props.builtIns[builtInIndex.value]
-  return run(async () => loaded(await b.source.readTable(b.table), `Built-in · ${b.table}`, b.label))
+  return run(async () => loaded(await b.connector.readTable(b.table), `Built-in · ${b.table}`, b.label))
 }
 function onCsv(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0]
   ;(e.target as HTMLInputElement).value = ''
   if (!f) return
-  return run(async () => loaded(await new LocalFileSource([], { t: f }).readTable('t'), `Device · ${f.name}`, f.name.replace(/\.csv$/i, '')))
+  return run(async () => loaded(await new LocalFileConnector([], { t: f }).readTable('t'), `Device · ${f.name}`, f.name.replace(/\.csv$/i, '')))
 }
 function onJson(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0]
@@ -75,7 +78,7 @@ function onJson(e: Event) {
   if (!f) return
   return run(async () => {
     const layer = importJSON(JSON.parse(await f.text()), f.name.replace(/\.(geo)?json$/i, ''))
-    const src = new MemorySource(f.name, { features: featureTable(layer.features) })
+    const src = new MemoryConnector(f.name, { features: featureTable(layer.features) })
     await loaded(await src.readTable('features'), `Device · ${f.name}`, layer.name)
   })
 }
@@ -116,9 +119,26 @@ function setKind(kind: GeometryBinding['kind']) {
   else binding.value = { kind, column: first }
 }
 
+// ── vectors from two columns ───────────────────────────────────────────────
+
+const numeric = computed(() => columns.value.filter((c) => isNumericColumn(c.type)))
+const vectors = ref<{ name: string; u: string; v: string }[]>([])
+function addVector() {
+  const [u, v] = [numeric.value[0]?.name ?? '', numeric.value[1]?.name ?? numeric.value[0]?.name ?? '']
+  vectors.value.push({ name: `vector_${vectors.value.length + 1}`, u, v })
+}
+
 function add() {
   if (!records.value || !binding.value || !preview.value?.features) return
-  emit('add', { name: name.value.trim() || originLabel.value, origin: originLabel.value, records: records.value, columns: columns.value, binding: binding.value })
+  let rows = records.value
+  const cols = [...columns.value]
+  for (const vec of vectors.value) {
+    const n = vec.name.trim()
+    if (!n || !vec.u || !vec.v || cols.some((c) => c.name === n)) continue
+    rows = withVectorColumn(rows, n, vec.u, vec.v)
+    cols.push({ name: n, type: 'vector' })
+  }
+  emit('add', { name: name.value.trim() || originLabel.value, origin: originLabel.value, records: rows, columns: cols, binding: binding.value })
 }
 </script>
 
@@ -198,6 +218,25 @@ function add() {
         </select>
       </label>
 
+      <div v-if="numeric.length" class="vectors">
+        <div class="lbl">Vector columns <span class="muted small">(drawn as arrows)</span></div>
+        <p v-if="columns.some((c) => c.type === 'vector')" class="muted small">
+          Detected: {{ columns.filter((c) => c.type === 'vector').map((c) => c.name).join(', ') }}
+        </p>
+        <div v-for="(vec, i) in vectors" :key="i" class="vec">
+          <input v-model="vec.name" type="text" aria-label="Vector column name" />
+          <select v-model="vec.u" aria-label="East component">
+            <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
+          </select>
+          <select v-model="vec.v" aria-label="North component">
+            <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
+          </select>
+          <button class="icon" aria-label="Remove" @click="vectors.splice(i, 1)">✕</button>
+        </div>
+        <p v-if="vectors.length" class="muted small">name · east (u) column · north (v) column</p>
+        <button class="btn link add-vec" @click="addVector">＋ Combine two columns into a vector</button>
+      </div>
+
       <p v-if="preview" class="small" :class="preview.features ? 'ok' : 'bad'">
         {{ preview.features.toLocaleString() }} features from {{ preview.matchedRows.toLocaleString() }} rows
         <template v-if="preview.unmatched">
@@ -208,7 +247,7 @@ function add() {
 
       <div class="row end">
         <button class="btn" @click="records = null">Back</button>
-        <button class="btn primary" :disabled="!preview?.features" @click="add">Add layer</button>
+        <button class="btn primary" :disabled="!preview?.features" @click="add">Import</button>
       </div>
     </template>
 
@@ -301,6 +340,26 @@ form.row input {
   color: var(--text-muted);
   justify-self: start;
   padding: 0;
+}
+.vec {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+.vec input,
+.vec select {
+  min-width: 0;
+  padding: 0.25rem;
+  font-size: 0.8rem;
+}
+.icon {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+}
+.add-vec {
+  color: var(--accent-blue);
 }
 .file input {
   display: none;

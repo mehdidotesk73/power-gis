@@ -1,7 +1,9 @@
 <script setup lang="ts">
-// The map page. Every dataset is a source layer (table + geometry binding)
-// with sublayers, each drawn by the reusable map widgets. The EIA-861
-// utilities source is preloaded with its own dashboard and utility search.
+// The map page. Users import data sources (a table + where its features
+// are); each data source gets any number of layers (visualizations of its
+// columns), and layers from any mix of data sources show together. The
+// EIA-861 utilities data source is preloaded with its own dashboard and
+// utility search.
 import { computed, markRaw, onMounted, ref, shallowRef } from 'vue'
 import MapView from './map/MapView.vue'
 import ScalarLayer from './map/ScalarLayer'
@@ -11,18 +13,20 @@ import FeatureTooltip from './map/FeatureTooltip.vue'
 import FeaturePanel from './map/FeaturePanel.vue'
 import DataExchange from './map/DataExchange.vue'
 import SearchBox from './map/SearchBox.vue'
-import AddLayerPanel, { type BuiltInTable, type NewSourceLayer } from './data/AddLayerPanel.vue'
-import LayerTree from './data/LayerTree.vue'
-import FeatureRows from './data/FeatureRows.vue'
+import AddDatasourcePanel, { type BuiltInTable, type NewDatasource } from './datasource/AddDatasourcePanel.vue'
+import DatasourceList from './datasource/DatasourceList.vue'
+import LayerList from './datasource/LayerList.vue'
+import FeatureRows from './datasource/FeatureRows.vue'
 import UtilityCountyDashboard from './UtilityCountyDashboard.vue'
-import type { LoadedSource } from './data/types'
+import type { LoadedDatasource } from './datasource/types'
 import type { HoverInfo } from './map/mapContext'
-import { loadBoundaries } from './data/boundaries'
-import { UTILITY_BINDING, UTILITY_NAME, UTILITY_TABLE, utilitySublayers, withOwnershipFlags } from './utilityStyles'
+import { loadBoundaries } from './datasource/boundaries'
+import { UTILITY_BINDING, UTILITY_NAME, UTILITY_TABLE, utilityLayers, withOwnershipFlags } from './utilityStyles'
 import { utilitiesFromRows, utilityRowsFromRecords, type Utility } from '../lib/utilities'
-import { MemorySource, StaticFileSource } from '../lib/data/source'
-import { inferColumns } from '../lib/layers/columns'
-import { buildSource, defaultSublayer, newId, ROW_COUNT, sublayerData, VALUE, U, V, type BuiltSource, type SublayerSpec } from '../lib/layers/sourceLayer'
+import { MemoryConnector, StaticFileConnector } from '../lib/data/connectors'
+import { inferColumns } from '../lib/datasource/columns'
+import { buildDatasource, newId, ROW_COUNT, type BuiltDatasource } from '../lib/datasource/datasource'
+import { defaultLayer, layerData, makeLayer, ROWS, VALUE, type LayerSpec } from '../lib/datasource/layer'
 import { demoVectorRows } from '../lib/demo'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
@@ -32,67 +36,87 @@ import { logDebug } from '../debug'
 
 const base = import.meta.env.BASE_URL
 const mapView = ref<InstanceType<typeof MapView>>()
+const layerList = ref<{ edit: (id: string) => void }>()
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const errorMsg = ref('')
 
-const builtIn = new StaticFileSource([UTILITY_TABLE, 'utilities'], base)
-const demo = new MemorySource('Demo', { demo_vectors: demoVectorRows() })
+const builtIn = new StaticFileConnector([UTILITY_TABLE, 'utilities'], base)
+const demo = new MemoryConnector('Demo', { demo_vectors: demoVectorRows() })
 const builtIns: BuiltInTable[] = [
-  { label: 'EIA-861 utilities by county', source: builtIn, table: UTILITY_TABLE },
-  { label: 'EIA-861 utility list (no geometry)', source: builtIn, table: 'utilities' },
-  { label: 'Demo vector field (synthetic)', source: demo, table: 'demo_vectors' },
+  { label: 'EIA-861 utilities by county', connector: builtIn, table: UTILITY_TABLE },
+  { label: 'EIA-861 utility list (no geometry)', connector: builtIn, table: 'utilities' },
+  { label: 'Demo vector field (synthetic)', connector: demo, table: 'demo_vectors' },
 ]
 
-// ── source layers ──────────────────────────────────────────────────────────
+// ── data sources and layers ───────────────────────────────────────────────
 
-const sources = ref<LoadedSource[]>([])
-const adding = ref(false)
+const datasources = ref<LoadedDatasource[]>([])
+const layers = ref<LayerSpec[]>([])
+const importing = ref(false)
 const utilities = shallowRef<Utility[]>([])
 
-async function addSource(
-  n: NewSourceLayer,
-  opts: { sublayers?: (b: BuiltSource) => SublayerSpec[]; preset?: LoadedSource['preset']; zoom?: boolean } = {},
+const dsById = computed(() => new Map(datasources.value.map((d) => [d.spec.id, d])))
+
+async function addDatasource(
+  n: NewDatasource,
+  opts: { layers?: (id: string) => LayerSpec[]; preset?: LoadedDatasource['preset']; zoom?: boolean } = {},
 ) {
   const boundaries = n.binding.kind === 'boundary' ? await loadBoundaries(n.binding.boundary) : undefined
-  const id = newId('src')
-  const built = buildSource({ id, name: n.name, binding: n.binding, source: { label: n.origin } }, n.records, n.columns, boundaries)
+  const id = newId('ds')
+  const built = buildDatasource({ id, name: n.name, binding: n.binding, origin: n.origin }, n.records, n.columns, boundaries)
   if (built.unmatched) logDebug(`${n.name}: ${built.unmatched} rows had no feature (e.g. ${built.unmatchedSamples.slice(0, 5).join(', ')})`, 'warn')
-  sources.value.push({
-    spec: { id, name: n.name, binding: n.binding, visible: true, sublayers: opts.sublayers?.(built) ?? [defaultSublayer(built)] },
-    built: markRaw(built),
-    origin: n.origin,
-    preset: opts.preset,
-  })
-  logDebug(`added "${n.name}": ${built.base.features.length} features from ${n.records.length} rows`)
+  datasources.value.push({ spec: { id, name: n.name, binding: n.binding, origin: n.origin }, built: markRaw(built), preset: opts.preset })
+  layers.value.push(...(opts.layers?.(id) ?? [defaultLayer(built, id)]))
+  logDebug(`imported "${n.name}": ${built.base.features.length} features from ${n.records.length} rows`)
   if (opts.zoom) zoomTo(id)
 }
 
-async function onAdd(n: NewSourceLayer) {
-  adding.value = false
+async function onImport(n: NewDatasource) {
+  importing.value = false
   try {
-    await addSource(n, { zoom: true })
+    await addDatasource(n, { zoom: true })
   } catch (e) {
-    logDebug(`could not add "${n.name}": ${(e as Error).message}`, 'error')
+    logDebug(`could not import "${n.name}": ${(e as Error).message}`, 'error')
   }
 }
 
-function removeSource(id: string) {
-  sources.value = sources.value.filter((s) => s.spec.id !== id)
-  if (selected.value?.sourceId === id) selected.value = null
+function removeDatasource(id: string) {
+  datasources.value = datasources.value.filter((d) => d.spec.id !== id)
+  layers.value = layers.value.filter((l) => l.datasourceId !== id)
+  if (selected.value?.datasourceId === id) selected.value = null
+}
+
+/** New layer on a data source: its first column not already shown, open for editing. */
+function addLayer(datasourceId: string) {
+  const ds = dsById.value.get(datasourceId)
+  if (!ds) return
+  const used = new Set(layers.value.filter((l) => l.datasourceId === datasourceId).map((l) => l.column))
+  const column = ds.built.columns.find((c) => !used.has(c.name))?.name ?? ROWS
+  const l = makeLayer(ds.built, datasourceId, column)
+  layers.value.push(l)
+  layerList.value?.edit(l.id)
+}
+
+function updateLayer(l: LayerSpec) {
+  const i = layers.value.findIndex((x) => x.id === l.id)
+  if (i >= 0) layers.value[i] = l
+}
+function removeLayer(id: string) {
+  layers.value = layers.value.filter((l) => l.id !== id)
 }
 
 function zoomTo(id: string) {
-  const src = sources.value.find((s) => s.spec.id === id)
-  const b = src && focusBox(src.built.base.features.filter((f) => (f.properties[ROW_COUNT] as number) > 0).map((f) => f.geometry))
+  const ds = dsById.value.get(id)
+  const b = ds && focusBox(ds.built.base.features.filter((f) => (f.properties[ROW_COUNT] as number) > 0).map((f) => f.geometry))
   if (b) mapView.value?.fitBounds(b, 10)
 }
 
 onMounted(async () => {
   try {
     const records = withOwnershipFlags(await builtIn.readTable(UTILITY_TABLE))
-    await addSource(
+    await addDatasource(
       { name: UTILITY_NAME, origin: 'Built-in · utility_counties.csv (EIA-861, 2025)', records, columns: inferColumns(records), binding: UTILITY_BINDING },
-      { sublayers: utilitySublayers, preset: 'utilities' },
+      { layers: utilityLayers, preset: 'utilities' },
     )
     utilities.value = utilitiesFromRows(utilityRowsFromRecords(records))
     status.value = 'ready'
@@ -103,76 +127,76 @@ onMounted(async () => {
   }
 })
 
-// ── sublayer data (cached: restyling must not rebuild or re-upload data) ────
+// ── layer data (cached: restyling must not rebuild or re-upload data) ──────
 
 interface CacheEntry {
   sig: string
-  built: BuiltSource
+  built: BuiltDatasource
   data: LayerData
   byKey: Map<string, LayerFeature>
 }
 const cache = new Map<string, CacheEntry>()
 
-function entryFor(src: LoadedSource, sub: SublayerSpec): CacheEntry {
-  const what = sub.kind === 'scalar' ? `${sub.column}|${sub.aggregation}` : `${sub.u}|${sub.v}|${sub.aggregation}`
-  const sig = `${sub.kind}|${what}|${src.spec.name}|${sub.name}`
-  const hit = cache.get(sub.id)
-  if (hit && hit.sig === sig && hit.built === src.built) return hit
-  const data = markRaw(sublayerData(src.built, src.spec, sub))
-  const entry = { sig, built: src.built, data, byKey: new Map(data.features.map((f) => [String(f.id), f])) }
-  cache.set(sub.id, entry)
+function entryFor(l: LayerSpec): CacheEntry | null {
+  const ds = dsById.value.get(l.datasourceId)
+  if (!ds) return null
+  const sig = `${l.column}|${l.aggregation}|${ds.spec.name}|${l.name}`
+  const hit = cache.get(l.id)
+  if (hit && hit.sig === sig && hit.built === ds.built) return hit
+  const data = markRaw(layerData(ds.built, ds.spec.name, l))
+  const entry = { sig, built: ds.built, data, byKey: new Map(data.features.map((f) => [String(f.id), f])) }
+  cache.set(l.id, entry)
   return entry
 }
-const dataFor = (src: LoadedSource, sub: SublayerSpec) => entryFor(src, sub).data
+const dataFor = (l: LayerSpec) => entryFor(l)?.data ?? null
 
 const rendered = computed(() =>
-  sources.value.flatMap((src) =>
-    src.spec.sublayers.map((sub) => ({ src, sub, data: dataFor(src, sub), visible: src.spec.visible && sub.visible })),
-  ),
+  layers.value.flatMap((l) => {
+    const e = entryFor(l)
+    const ds = dsById.value.get(l.datasourceId)
+    return e && ds ? [{ layer: l, ds, data: e.data }] : []
+  }),
 )
-const sublayerById = computed(() => new Map(rendered.value.map((r) => [r.data.id, r])))
+const renderedById = computed(() => new Map(rendered.value.map((r) => [r.layer.id, r])))
 
 // ── hover / select ─────────────────────────────────────────────────────────
 
 const canHover = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches
 const hover = ref<HoverInfo | null>(null)
-const selected = ref<{ sourceId: string; key: string } | null>(null)
+const selected = ref<{ datasourceId: string; key: string } | null>(null)
 
 function onHover(layerId: string, h: HoverInfo | null) {
   if (!canHover) return
   hover.value = h ? { ...h, layerId } : hover.value?.layerId === layerId ? null : hover.value
 }
 function onSelect(layerId: string, key: string) {
-  const r = sublayerById.value.get(layerId)
-  if (r) selected.value = { sourceId: r.src.spec.id, key }
+  const r = renderedById.value.get(layerId)
+  if (r) selected.value = { datasourceId: r.ds.spec.id, key }
   hover.value = null
 }
 
-/** One sublayer's value on a feature, as display text. */
-function displayValue(src: LoadedSource, sub: SublayerSpec, key: string): string {
-  const { data, byKey } = entryFor(src, sub)
-  const p = byKey.get(key)?.properties
-  if (!p) return '—'
-  if (sub.kind === 'vector') {
-    const v = vectorOf(p, { kind: 'uv', u: U, v: V })
-    return v ? `${formatPrimitive(v.magnitude, 'double')} toward ${Math.round(v.direction)}°` : '—'
-  }
-  return formatPrimitive(p[VALUE], data.fields[0].type)
+/** A layer's value on a feature, as display text. */
+function displayValue(l: LayerSpec, key: string): string {
+  const e = entryFor(l)
+  const p = e?.byKey.get(key)?.properties
+  return p ? formatPrimitive(p[VALUE], e!.data.fields[0].type) : '—'
 }
+
+/** Layers of a data source, visible ones first. */
+const layersOf = (dsId: string, visibleOnly = false) => layers.value.filter((l) => l.datasourceId === dsId && (!visibleOnly || l.visible))
 
 const hoverCard = computed(() => {
   const h = hover.value
-  const r = h && sublayerById.value.get(h.layerId)
+  const r = h && renderedById.value.get(h.layerId)
   if (!h || !r) return null
-  const f = entryFor(r.src, r.sub).byKey.get(h.featureId)
+  const f = entryFor(r.layer)?.byKey.get(h.featureId)
   if (!f) return null
-  const visible = r.src.spec.sublayers.filter((s) => s.visible)
   return {
     x: h.x,
     y: h.y,
     title: String(f.properties._label),
     rows: [
-      ...visible.map((s) => ({ label: s.name, value: displayValue(r.src, s, h.featureId) })),
+      ...layersOf(r.ds.spec.id, true).map((l) => ({ label: l.name, value: displayValue(l, h.featureId) })),
       { label: 'Rows', value: String(f.properties[ROW_COUNT]) },
     ],
   }
@@ -180,54 +204,54 @@ const hoverCard = computed(() => {
 
 const selectedFeature = computed(() => {
   const s = selected.value
-  const src = s && sources.value.find((x) => x.spec.id === s.sourceId)
-  const feature = src?.built.base.features.find((f) => f.id === s!.key)
-  return src && feature ? { src, feature, rows: src.built.rowsByKey.get(s!.key) ?? [] } : null
+  const ds = s && dsById.value.get(s.datasourceId)
+  const feature = ds?.built.base.features.find((f) => f.id === s!.key)
+  return ds && feature ? { ds, feature, key: s!.key, rows: ds.built.rowsByKey.get(s!.key) ?? [] } : null
 })
-const selectedKeyFor = (src: LoadedSource) => (selected.value?.sourceId === src.spec.id ? selected.value.key : null)
+const selectedKeyFor = (dsId: string) => (selected.value?.datasourceId === dsId ? selected.value.key : null)
 
 // ── utility search (preset extra) ──────────────────────────────────────────
 
 const searchBox = ref<{ clear: () => void }>()
 const selectedUtility = ref<Utility | null>(null)
-const utilitySource = computed(() => sources.value.find((s) => s.preset === 'utilities'))
+const utilityDs = computed(() => datasources.value.find((d) => d.preset === 'utilities'))
 const utilityName = (u: Utility) => u.utility_name
 const utilityDetail = (u: Utility) => `${u.entity_type} · ${u.states.join(', ')} · ${u.county_fips.length} counties`
 function pickUtility(id: number) {
   const u = utilities.value.find((x) => x.utility_id_eia === id) ?? null
   selectedUtility.value = u
-  const src = utilitySource.value
-  if (!u || !src) return
+  const ds = utilityDs.value
+  if (!u || !ds) return
   const keys = new Set(u.county_fips)
-  const b = focusBox(src.built.base.features.filter((f) => keys.has(String(f.id))).map((f) => f.geometry))
+  const b = focusBox(ds.built.base.features.filter((f) => keys.has(String(f.id))).map((f) => f.geometry))
   if (b) mapView.value?.fitBounds(b)
 }
 function clearUtility() {
   selectedUtility.value = null
   searchBox.value?.clear()
 }
-const highlightFor = (src: LoadedSource) => (src.preset === 'utilities' ? (selectedUtility.value?.county_fips ?? []) : [])
+const highlightFor = (ds: LoadedDatasource) => (ds.preset === 'utilities' ? (selectedUtility.value?.county_fips ?? []) : [])
 
 // ── legend ─────────────────────────────────────────────────────────────────
 
 const legend = computed<LegendEntry[]>(() => {
   const out: LegendEntry[] = []
-  const many = sources.value.filter((s) => s.spec.visible).length > 1
-  for (const r of rendered.value) {
-    if (!r.visible) continue
-    const title = many ? `${r.src.spec.name}: ${r.sub.name}` : r.sub.name
-    if (r.sub.kind === 'scalar') {
-      const e = colorLegend(r.sub.style.color, r.data.features, title)
+  const shown = rendered.value.filter((r) => r.layer.visible)
+  const many = new Set(shown.map((r) => r.ds.spec.id)).size > 1
+  for (const { layer: l, ds, data } of shown) {
+    const title = many ? `${ds.spec.name}: ${l.name}` : l.name
+    if (l.kind === 'scalar') {
+      const e = colorLegend(l.style.color, data.features, title)
       if (e) out.push(e)
-      const p = r.sub.style.pattern
+      const p = l.style.pattern
       if (p.kind === 'field') {
-        const fd = r.data.fields.find((f) => f.name === p.field)
+        const fd = data.fields.find((f) => f.name === p.field)
         const pe = patternLegend(p, `${title} — pattern${fd && fd.name !== VALUE ? `: ${fieldLabel(fd)}` : ''}`)
         if (pe) out.push(pe)
       }
-    } else if (r.sub.style.color.kind !== 'constant') {
-      const mags = r.data.features.map((f) => ({ ...f, properties: { [MAGNITUDE_FIELD]: vectorOf(f.properties, { kind: 'uv', u: U, v: V })?.magnitude ?? null } }))
-      const e = colorLegend(r.sub.style.color, mags, `${title} (magnitude)`)
+    } else if (l.style.color.kind !== 'constant') {
+      const mags = data.features.map((f) => ({ ...f, properties: { [MAGNITUDE_FIELD]: vectorOf(f.properties, l.style.components)?.magnitude ?? null } }))
+      const e = colorLegend(l.style.color, mags, `${title} (magnitude)`)
       if (e) out.push(e)
     }
   }
@@ -237,16 +261,13 @@ const legend = computed<LegendEntry[]>(() => {
 // ── export ─────────────────────────────────────────────────────────────────
 
 const exportTarget = ref<string | null>(null)
-const exportLayer = computed(() => {
-  const src = sources.value.find((s) => s.spec.id === exportTarget.value) ?? sources.value[0]
-  return src?.built.base ?? null
-})
+const exportLayer = computed(() => (dsById.value.get(exportTarget.value ?? '') ?? datasources.value[0])?.built.base ?? null)
 </script>
 
 <template>
   <div class="page">
     <section class="controls">
-      <div v-if="utilitySource" class="search">
+      <div v-if="utilityDs" class="search">
         <SearchBox
           ref="searchBox"
           label="Find a utility"
@@ -270,19 +291,30 @@ const exportLayer = computed(() => {
 
       <details class="box" open>
         <summary>Layers</summary>
-        <LayerTree :sources="sources" :data-for="dataFor" @remove-source="removeSource" @zoom="zoomTo" />
-        <div class="add-wrap">
-          <AddLayerPanel v-if="adding" :built-ins="builtIns" @add="onAdd" @cancel="adding = false" />
-          <button v-else class="add-btn" @click="adding = true">＋ Add data layer</button>
+        <LayerList ref="layerList" :layers="layers" :datasources="datasources" :data-for="dataFor" @update="updateLayer" @remove="removeLayer" />
+      </details>
+
+      <details class="box" open>
+        <summary>Data sources</summary>
+        <DatasourceList
+          :datasources="datasources"
+          :layer-count="(id) => layersOf(id).length"
+          @add-layer="addLayer"
+          @zoom="zoomTo"
+          @remove="removeDatasource"
+        />
+        <div class="import-wrap">
+          <AddDatasourcePanel v-if="importing" :built-ins="builtIns" @add="onImport" @cancel="importing = false" />
+          <button v-else class="import-btn" @click="importing = true">＋ Import data source</button>
         </div>
       </details>
 
       <details class="box">
         <summary>Export (ArcGIS)</summary>
         <label class="row">
-          Layer
-          <select :value="exportTarget ?? sources[0]?.spec.id" @change="exportTarget = ($event.target as HTMLSelectElement).value">
-            <option v-for="s in sources" :key="s.spec.id" :value="s.spec.id">{{ s.spec.name }}</option>
+          Data source
+          <select :value="exportTarget ?? datasources[0]?.spec.id" @change="exportTarget = ($event.target as HTMLSelectElement).value">
+            <option v-for="d in datasources" :key="d.spec.id" :value="d.spec.id">{{ d.spec.name }}</option>
           </select>
         </label>
         <DataExchange :layer="exportLayer" />
@@ -296,24 +328,24 @@ const exportLayer = computed(() => {
 
     <section class="map-wrap">
       <MapView ref="mapView" @background-click="selected = null">
-        <template v-for="r in rendered" :key="`${r.data.id}-${r.sub.kind}`">
+        <template v-for="r in rendered" :key="`${r.layer.id}-${r.layer.kind}`">
           <ScalarLayer
-            v-if="r.sub.kind === 'scalar'"
+            v-if="r.layer.kind === 'scalar'"
             :layer="r.data"
-            :style-spec="r.sub.style"
-            :visible="r.visible"
-            :highlight-ids="highlightFor(r.src)"
-            :selected-id="selectedKeyFor(r.src)"
-            @hover="(h) => onHover(r.data.id, h)"
-            @select="(id) => onSelect(r.data.id, id)"
+            :style-spec="r.layer.style"
+            :visible="r.layer.visible"
+            :highlight-ids="highlightFor(r.ds)"
+            :selected-id="selectedKeyFor(r.ds.spec.id)"
+            @hover="(h) => onHover(r.layer.id, h)"
+            @select="(id) => onSelect(r.layer.id, id)"
           />
           <VectorLayer
             v-else
             :layer="r.data"
-            :style-spec="r.sub.style"
-            :visible="r.visible"
-            @hover="(h) => onHover(r.data.id, h)"
-            @select="(id) => onSelect(r.data.id, id)"
+            :style-spec="r.layer.style"
+            :visible="r.layer.visible"
+            @hover="(h) => onHover(r.layer.id, h)"
+            @select="(id) => onSelect(r.layer.id, id)"
           />
         </template>
         <template #overlay>
@@ -322,20 +354,20 @@ const exportLayer = computed(() => {
           </div>
           <MapLegend :entries="legend" />
           <FeatureTooltip v-if="hoverCard && !selectedFeature" v-bind="hoverCard" />
-          <FeaturePanel v-if="selectedFeature" :layer="selectedFeature.src.built.base" :feature="selectedFeature.feature" @close="selected = null">
+          <FeaturePanel v-if="selectedFeature" :layer="selectedFeature.ds.built.base" :feature="selectedFeature.feature" @close="selected = null">
             <dl class="values">
-              <template v-for="s in selectedFeature.src.spec.sublayers" :key="s.id">
-                <dt>{{ s.name }}</dt>
-                <dd>{{ displayValue(selectedFeature.src, s, selectedFeature.feature.id as string) }}</dd>
+              <template v-for="l in layersOf(selectedFeature.ds.spec.id)" :key="l.id">
+                <dt>{{ l.name }}</dt>
+                <dd>{{ displayValue(l, selectedFeature.key) }}</dd>
               </template>
             </dl>
             <UtilityCountyDashboard
-              v-if="selectedFeature.src.preset === 'utilities'"
+              v-if="selectedFeature.ds.preset === 'utilities'"
               :rows="selectedFeature.rows"
               :selected-utility-id="selectedUtility?.utility_id_eia ?? null"
               @pick-utility="pickUtility"
             />
-            <FeatureRows v-else :built="selectedFeature.src.built" :rows="selectedFeature.rows" />
+            <FeatureRows v-else :built="selectedFeature.ds.built" :rows="selectedFeature.rows" />
           </FeaturePanel>
         </template>
       </MapView>
@@ -389,10 +421,10 @@ const exportLayer = computed(() => {
 .box[open] summary {
   margin-bottom: 0.45rem;
 }
-.add-wrap {
+.import-wrap {
   margin-top: 0.6rem;
 }
-.add-btn {
+.import-btn {
   width: 100%;
   padding: 0.45rem;
   border: 1px dashed var(--accent-blue);

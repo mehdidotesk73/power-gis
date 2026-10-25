@@ -2,9 +2,10 @@
 // arrive typed; either way each column gets one type, and values are coerced
 // to it before aggregation and styling.
 
-import type { DataRecord } from '../data/source'
+import type { DataRecord } from '../data/connectors'
+import { parseVector } from '../schema'
 
-export type ColumnType = 'int' | 'double' | 'boolean' | 'datetime' | 'string' | 'geometry'
+export type ColumnType = 'int' | 'double' | 'boolean' | 'datetime' | 'string' | 'vector' | 'geometry'
 
 export interface ColumnInfo {
   name: string
@@ -37,12 +38,14 @@ export function inferColumns(records: DataRecord[], sample = 2000): ColumnInfo[]
     let bool = 0
     let date = 0
     let geom = 0
+    let vec = 0
     let leadingZero = false
     for (const r of records) {
       const v = r[name]
       if (isEmpty(v)) continue
       if (++n > sample) break
       if (isGeometryLike(v)) geom++
+      else if (parseVector(v)) vec++
       else if (typeof v === 'boolean' || (typeof v === 'string' && BOOL.test(v))) bool++
       else if (typeof v === 'number' || (typeof v === 'string' && NUMBER.test(v.trim()))) {
         num++
@@ -55,6 +58,7 @@ export function inferColumns(records: DataRecord[], sample = 2000): ColumnInfo[]
     let type: ColumnType = 'string'
     if (n === 0) type = 'string'
     else if (geom === n) type = 'geometry'
+    else if (vec === n) type = 'vector'
     else if (bool === n) type = 'boolean'
     else if (num === n && !leadingZero) type = int === n ? 'int' : 'double'
     else if (date === n) type = 'datetime'
@@ -77,6 +81,8 @@ export function coerce(v: unknown, type: ColumnType): unknown {
       const d = v instanceof Date ? v : new Date(String(v))
       return Number.isNaN(d.getTime()) ? null : d.toISOString()
     }
+    case 'vector':
+      return parseVector(v)
     case 'geometry':
       return v
     default:
@@ -85,3 +91,6 @@ export function coerce(v: unknown, type: ColumnType): unknown {
 }
 
 export const isNumericColumn = (t: ColumnType) => t === 'int' || t === 'double'
+
+/** Vector columns are drawn as arrows; every other column as a scalar. */
+export const isVectorColumn = (t: ColumnType) => t === 'vector'

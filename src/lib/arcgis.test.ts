@@ -111,3 +111,36 @@ describe('GeoJSON / CSV', () => {
     expect(esriFieldName('2024 sales (MWh)')).toBe('f_2024_sales__MWh_')
   })
 })
+
+describe('vector fields', () => {
+  const vecLayer: LayerData = {
+    id: 'v',
+    name: 'Vectors',
+    geometry: 'point',
+    idField: 'id',
+    fields: [
+      { name: 'id', type: 'string' },
+      { name: 'wind', type: 'vector', alias: 'Wind' },
+    ],
+    features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { id: 'a', wind: { u: 3, v: -1 } } }],
+  }
+
+  it('exports a vector as two Double fields and restores it on import', () => {
+    const fs = toEsriFeatureSet(vecLayer)
+    expect(fs.fields!.map((f) => [f.name, f.type])).toEqual([
+      ['OBJECTID', 'esriFieldTypeOID'],
+      ['id', 'esriFieldTypeString'],
+      ['wind_u', 'esriFieldTypeDouble'],
+      ['wind_v', 'esriFieldTypeDouble'],
+    ])
+    expect(fs.features[0].attributes).toMatchObject({ wind_u: 3, wind_v: -1 })
+    expect(fromEsriFeatureSet(JSON.parse(JSON.stringify(fs))).features[0].properties.wind).toEqual({ u: 3, v: -1 })
+  })
+
+  it('splits vectors in CSV and flattened GeoJSON, keeps them whole in plain GeoJSON', () => {
+    expect(toCSV(vecLayer).split('\n')[0]).toBe('id,wind_u,wind_v')
+    expect(toGeoJSON(vecLayer, true).features[0].properties).toEqual({ id: 'a', wind_u: 3, wind_v: -1 })
+    expect(toGeoJSON(vecLayer).features[0].properties!.wind).toEqual({ u: 3, v: -1 })
+    expect(importJSON(JSON.parse(JSON.stringify(toGeoJSON(vecLayer, true)))).features[0].properties.wind).toEqual({ u: 3, v: -1 })
+  })
+})

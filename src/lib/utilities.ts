@@ -3,7 +3,7 @@
 // table on the map is generic — see lib/layers.)
 
 import { parseCsv } from './data/csv'
-import { COUNTY_SUCCESSORS } from './layers/binding'
+import { COUNTY_SUCCESSORS } from './datasource/binding'
 
 export interface UtilityCountyRow {
   utility_id_eia: number
