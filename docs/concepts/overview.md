@@ -1,0 +1,43 @@
+# About Power Map
+
+Power Map shows power-sector data on a map of the United States.
+
+## What is this app?
+
+A map of every electric utility operating in the US and the counties each one serves, from the federal EIA Form 861 survey (report year 2025). Each county is colored by what's there — how many utilities serve it, or what kind of ownership is most common — and you can tap any county to see the utilities serving it.
+
+## How do I use it?
+
+- **Find a utility** — type a name in the search box and pick it from the list. Its whole service territory gets a dark outline and the map zooms to it.
+- **Tap a county** — a panel opens with the number of utilities, the ownership mix, and each utility's name, ownership type and customer count. Tap **Territory** next to a utility to outline everywhere it operates.
+- **Hover** (on a computer) — a small card shows the county and its largest utilities.
+- **View** — switch between preset views: number of utilities, most common ownership, hatching where a cooperative serves, and public power vs. investor-owned.
+- **Style** — change the colors, colormap, transparency and fill patterns yourself.
+- **Demo vector arrows** — a made-up arrow field to show how direction-and-size data (like power flows) will look. It is not real data.
+- **Import / export** — download the layer as GeoJSON, Esri JSON or CSV for ArcGIS, or load a GeoJSON / Esri JSON file or an ArcGIS FeatureServer link onto the map.
+
+## Common Questions
+
+**Q: What does "Utilities serving county" count?**
+
+A: The number of utilities that report delivering electricity to customers in that county on EIA Form 861. A county commonly has several — say an investor-owned utility in town and an electric cooperative in the countryside.
+
+**Q: Why are customer numbers "state-wide"?**
+
+A: EIA reports customers and sales per utility per state, not per county, so the number shown is the utility's total in that state.
+
+**Q: Why is my change not showing?**
+
+A: This is a progressive web app (PWA), which means it caches content locally to work offline. If you deployed a new version but see an old one, try tapping "Reload latest" in the footer or opening the app in a private/incognito tab.
+
+**Q: Can I use this offline?**
+
+A: Mostly. Once you've opened the app, the app itself is cached. The background map tiles come from the internet, so without a connection you'll see the counties without the street map behind them.
+
+**Q: How do I report a bug?**
+
+A: Take a screenshot and share it with the developer. Tap **View logs** in the footer, then **Copy log**, and include that too — it helps debug issues.
+
+**Q: What data is stored on my device?**
+
+A: Only the app's cached files. Files you import stay in your browser and are not uploaded anywhere.
