@@ -1,7 +1,6 @@
 // The built-in utilities-by-county dataset: a generic dataset with preset
-// visualizations that show it well.
-import type { DataRecord } from '../lib/data/connectors'
-import { PUBLIC_POWER } from '../lib/utilities'
+// visualizations that show it well. (Its ownership flag columns are added
+// when the server loads the table: `withOwnershipFlags` in lib/utilities.)
 import { newId } from '../lib/dataset/dataset'
 import { ROWS, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
 import type { GeometryBinding } from '../lib/dataset/binding'
@@ -26,15 +25,6 @@ export const UTILITY_TABLE = 'utility_counties'
 export const UTILITY_NAME = 'Electric utilities by county (EIA-861)'
 export const UTILITY_BINDING: GeometryBinding = { kind: 'boundary', column: 'county_fips', boundary: 'us-counties', includeEmpty: true }
 
-/** Adds yes/no ownership columns so a visualization can hatch counties where a type is present. */
-export function withOwnershipFlags(records: DataRecord[]): DataRecord[] {
-  return records.map((r) => ({
-    ...r,
-    cooperative: r.entity_type === 'Cooperative',
-    public_power: PUBLIC_POWER.has(String(r.entity_type)),
-  }))
-}
-
 const outline = { color: '#ffffff', width: 0.3, opacity: 0.7 }
 const clear = { opacity: { kind: 'constant' as const, value: 0 }, outline: { color: '#ffffff', width: 0, opacity: 0 } }
 
@@ -42,7 +32,8 @@ const clear = { opacity: { kind: 'constant' as const, value: 0 }, outline: { col
 export function utilityVisualizations(datasetId: string): VisualizationSpec[] {
   const list: VisualizationSpec[] = [
     {
-      id: newId('l'),
+      id: newId(),
+      binding: UTILITY_BINDING,
       datasetId,
       name: 'Number of utilities',
       visible: true,
@@ -57,7 +48,8 @@ export function utilityVisualizations(datasetId: string): VisualizationSpec[] {
       },
     },
     {
-      id: newId('l'),
+      id: newId(),
+      binding: UTILITY_BINDING,
       datasetId,
       name: 'Most common ownership',
       visible: false,
@@ -73,7 +65,8 @@ export function utilityVisualizations(datasetId: string): VisualizationSpec[] {
     },
     {
       // Pattern only (transparent fill): stacks on top of either fill.
-      id: newId('l'),
+      id: newId(),
+      binding: UTILITY_BINDING,
       datasetId,
       name: 'Co-op present (hatch)',
       visible: false,

@@ -89,3 +89,12 @@ export function utilitiesFromRows(rows: UtilityCountyRow[]): Utility[] {
     })
     .sort((a, b) => a.utility_name.localeCompare(b.utility_name))
 }
+
+/** Adds yes/no ownership columns so a visualization can hatch counties where a type is present. */
+export function withOwnershipFlags(records: Record<string, unknown>[]): Record<string, unknown>[] {
+  return records.map((r) => ({
+    ...r,
+    cooperative: r.entity_type === 'Cooperative',
+    public_power: PUBLIC_POWER.has(String(r.entity_type)),
+  }))
+}

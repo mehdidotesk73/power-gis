@@ -312,6 +312,17 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Client / server boundary — 2026-10-25
+- **Added:** server in a Web Worker with typed requests; IndexedDB database (base tables + one data
+  table per dataset); read-only client database access; per-visualization geometry binding;
+  "Saved" datasets list; vector columns added from the dataset editor.
+- **Changed:** visualization values are computed server side; workspaces store pointers only;
+  datasets are shared records that outlive workspaces. The step-1 localStorage/IndexedDB save
+  format is dropped — the first open starts from the default utilities map.
+- **Lesson:** Vue reactive proxies can't be posted to a worker (`DataCloneError`); `request()`
+  unwraps payloads to plain data first.
+- **Docs:** CLAUDE.md, system-design §4, help overview, TODO.
+
 ### Workspace + persistence — 2026-10-25
 - **Added:** workspace document and operations layer (`lib/workspace/`); datasets and
   visualizations saved on the device and restored on open; rename / describe / drag-reorder

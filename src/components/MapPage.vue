@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// The map page. Users import datasets (a table + where its features are)
-// and add visualizations of their columns; one ordered list of
-// visualizations, from any mix of datasets, shows together (top draws on
-// top). The EIA-861 utilities dataset is preloaded with its own dashboard
-// and utility search.
-import { computed, markRaw, nextTick, onMounted, ref, shallowRef, watch } from 'vue'
+// The map page — a client. It holds the working copy of a workspace
+// (dataset pointers + ordered visualizations), reads registry records and
+// rows from the database (read-only), and asks the server for everything
+// lasting or heavy: uploads, dataset edits, each visualization's values,
+// the rows behind a feature, and saving the workspace. Top of the
+// visualization list draws on top. The EIA-861 utilities dataset is the
+// starting workspace, with its own dashboard and utility search.
+import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue'
 import MapView from './map/MapView.vue'
 import ScalarLayer from './map/ScalarLayer'
 import VectorLayer from './map/VectorLayer'
@@ -13,39 +15,37 @@ import FeatureTooltip from './map/FeatureTooltip.vue'
 import FeaturePanel from './map/FeaturePanel.vue'
 import DataExchange from './map/DataExchange.vue'
 import SearchBox from './map/SearchBox.vue'
-import AddDatasetPanel, { type BuiltInTable, type NewDataset } from './dataset/AddDatasetPanel.vue'
+import AddDatasetPanel from './dataset/AddDatasetPanel.vue'
 import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
 import UtilityCountyDashboard from './UtilityCountyDashboard.vue'
-import type { LoadedDataset } from './dataset/types'
 import type { HoverInfo } from './map/mapContext'
-import { loadBoundaries } from './dataset/boundaries'
-import { UTILITY_BINDING, UTILITY_NAME, UTILITY_TABLE, utilityVisualizations, withOwnershipFlags } from './utilityStyles'
+import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
+import { UTILITY_NAME, utilityVisualizations } from './utilityStyles'
+import { request } from '../client/api'
+import { readDb } from '../client/db'
+import { UTILITY_TABLE } from '../shared/builtins'
+import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
 import { utilitiesFromRows, utilityRowsFromRecords, type Utility } from '../lib/utilities'
-import { MemoryConnector, StaticFileConnector, type DataRecord } from '../lib/data/connectors'
-import { inferColumns, type ColumnInfo } from '../lib/dataset/columns'
-import { buildDataset, newId, ROW_COUNT, withVectorColumn, type BuiltDataset } from '../lib/dataset/dataset'
+import type { DataRecord } from '../lib/data/connectors'
+import { guessBinding, type GeometryBinding } from '../lib/dataset/binding'
+import { loadBoundaries } from '../lib/dataset/boundaries'
+import { ROW_COUNT } from '../lib/dataset/dataset'
+import { defaultVisualization, makeVisualization, settingsOf, visualizationLayer, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
 import {
   addDataset,
   addVisualization as addVisualization_,
   emptyWorkspace,
-  newDatasetMeta,
   removeDataset as removeDataset_,
   removeVisualization as removeVisualization_,
   reorderDatasets as reorderDatasets_,
   reorderVisualizations as reorderVisualizations_,
-  updateDataset as updateDataset_,
   updateVisualization as updateVisualization_,
-  type DatasetEntry,
   type OpContext,
   type OpResult,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
-import { loadWorkspace, saveWorkspace } from '../lib/workspace/storage'
-import { indexedDbTableStore, localKeyValueStore } from './workspace/browserStores'
-import { defaultVisualization, visualizationData, makeVisualization, ROWS, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
-import { demoVectorRows } from '../lib/demo'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -58,36 +58,18 @@ const vizList = ref<{ edit: (id: string) => void }>()
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const errorMsg = ref('')
 
-const builtIn = new StaticFileConnector([UTILITY_TABLE, 'utilities'], base)
-const demo = new MemoryConnector('Demo', { demo_vectors: demoVectorRows() })
-const builtIns: BuiltInTable[] = [
-  { label: 'EIA-861 utilities by county', connector: builtIn, table: UTILITY_TABLE },
-  { label: 'EIA-861 utility list (no geometry)', connector: builtIn, table: 'utilities' },
-  { label: 'Demo vector field (synthetic)', connector: demo, table: 'demo_vectors' },
-]
-
-// ── workspace: datasets and visualizations ─────────────────────────────────
-// The workspace document is the single source of truth and is saved on the
-// device; every change goes through an operation in lib/workspace. Built
-// datasets (features + rows) are kept beside it, by dataset id.
+// ── workspace ──────────────────────────────────────────────────────────────
 
 const doc = shallowRef<WorkspaceDoc>(emptyWorkspace())
-const builts = shallowRef(new Map<string, BuiltDataset>())
+/** Registry records of the workspace's datasets, read from the database. */
+const records = shallowRef(new Map<string, DatasetRecord>())
 const importing = ref(false)
 const utilities = shallowRef<Utility[]>([])
-const tables = indexedDbTableStore
-let persist = false
-let warnedSave = false
 
-const datasets = computed<LoadedDataset[]>(() =>
-  doc.value.datasets.flatMap((e) => {
-    const built = builts.value.get(e.id)
-    return built ? [{ spec: { id: e.id, name: e.name, binding: e.binding, origin: e.origin }, built, meta: e.meta, preset: e.preset }] : []
-  }),
-)
+const datasets = computed(() => doc.value.datasetIds.flatMap((id) => records.value.get(id) ?? []))
 const visualizations = computed(() => doc.value.visualizations)
-const dsById = computed(() => new Map(datasets.value.map((d) => [d.spec.id, d])))
-const opCtx: OpContext = { columns: (id) => builts.value.get(id)?.columns.map((c) => c.name) }
+const opCtx: OpContext = { columns: (id) => records.value.get(id)?.columns.map((c) => c.name) }
+const presetOf = (id: string) => records.value.get(id)?.extensions?.preset
 
 /** Applies an operation's result; failures are logged, not thrown. */
 function apply(r: OpResult): boolean {
@@ -99,75 +81,100 @@ function apply(r: OpResult): boolean {
   return true
 }
 
-watch(doc, (d) => {
-  if (!persist || saveWorkspace(localKeyValueStore, d) || warnedSave) return
-  warnedSave = true
-  logDebug('workspace could not be saved on this device (private browsing or storage full?)', 'warn')
+/** Runs a server request; logs and returns null on failure. */
+async function call<T>(what: string, p: Promise<{ ok: true; data: T } | { ok: false; error: { message: string } }>): Promise<T | null> {
+  const r = await p
+  if (r.ok) return r.data
+  logDebug(`${what}: ${r.error.message}`, 'error')
+  return null
+}
+
+async function loadRecord(id: string): Promise<DatasetRecord | undefined> {
+  const r = await readDb.get('datasets', id)
+  if (r) {
+    records.value = new Map(records.value).set(id, r)
+    if (r.extensions?.preset === 'utilities') void loadUtilities(r)
+  }
+  return r
+}
+async function loadUtilities(r: DatasetRecord) {
+  const rows = await readDb.readRows(r.table)
+  if (rows) utilities.value = utilitiesFromRows(utilityRowsFromRecords(rows))
+}
+
+// Saving: every change to the working copy is sent to the server (debounced).
+// (An explicit Save with a local draft comes next.)
+let persist = false
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+watch(doc, () => {
+  if (!persist) return
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(save, 400)
 })
-
-/** A dataset's rows: built-in tables are re-read, imported ones come from device storage. */
-async function rowsFor(e: DatasetEntry): Promise<DataRecord[]> {
-  if (e.rows.kind === 'stored') {
-    const rows = await tables.get(e.id)
-    if (!rows) throw new Error('its rows are no longer stored on this device')
-    return rows
-  }
-  const table = e.rows.table
-  const t = builtIns.find((b) => b.table === table)
-  if (!t) throw new Error(`no built-in table "${table}"`)
-  let rows = await t.connector.readTable(table)
-  if (e.preset === 'utilities') rows = withOwnershipFlags(rows)
-  for (const v of e.vectorColumns ?? []) rows = withVectorColumn(rows, v.name, v.u, v.v)
-  return rows
-}
-
-async function build(e: DatasetEntry, records: DataRecord[], columns: ColumnInfo[]): Promise<BuiltDataset> {
-  const boundaries = e.binding.kind === 'boundary' ? await loadBoundaries(e.binding.boundary) : undefined
-  const built = markRaw(buildDataset({ id: e.id, name: e.name, binding: e.binding, origin: e.origin }, records, columns, boundaries))
-  if (built.unmatched) logDebug(`${e.name}: ${built.unmatched} rows had no feature (e.g. ${built.unmatchedSamples.slice(0, 5).join(', ')})`, 'warn')
-  builts.value = new Map(builts.value).set(e.id, built)
-  if (e.preset === 'utilities') utilities.value = utilitiesFromRows(utilityRowsFromRecords(records))
-  return built
-}
-
-async function onImport(n: NewDataset) {
-  importing.value = false
-  const entry: DatasetEntry = {
-    id: newId('ds'),
-    name: n.name,
-    binding: n.binding,
-    origin: n.origin,
-    rows: n.builtinTable ? { kind: 'builtin', table: n.builtinTable } : { kind: 'stored' },
-    ...(n.vectorColumns.length ? { vectorColumns: n.vectorColumns } : {}),
-    meta: newDatasetMeta(),
-  }
-  try {
-    const built = await build(entry, n.records, n.columns)
-    if (!apply(addDataset(doc.value, entry, [defaultVisualization(built, entry.id)]))) return
-    logDebug(`imported "${n.name}": ${built.base.features.length} features from ${n.records.length} rows`)
-    zoomTo(entry.id)
-    if (entry.rows.kind === 'stored') {
-      await tables.put(entry.id, n.records).catch((e: Error) => logDebug(`"${n.name}" couldn't be saved on this device, so it won't survive a reload: ${e.message}`, 'warn'))
+// One save at a time, each reading the latest working copy (so the second
+// of two quick edits updates the workspace the first one created).
+let saving: Promise<void> = Promise.resolve()
+const save = () => (saving = saving.then(saveNow))
+async function saveNow() {
+  const d = doc.value
+  const r = await call(
+    'save workspace',
+    request('saveWorkspace', {
+      id: d.id,
+      name: d.name,
+      config: { datasetIds: d.datasetIds },
+      visualizations: d.visualizations.map((v) => ({ id: v.id, name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
+    }),
+  )
+  if (r && !d.id) {
+    doc.value = { ...doc.value, id: r.workspaceId } // the watch fires once more; that save is a plain update
+    try {
+      localStorage.setItem(LAST_WORKSPACE, r.workspaceId)
+    } catch {
+      /* per-device convenience only */
     }
-  } catch (e) {
-    logDebug(`could not import "${n.name}": ${(e as Error).message}`, 'error')
   }
+}
+const LAST_WORKSPACE = 'powergis.lastWorkspace'
+
+/** The first visualization for a dataset added to the workspace, from a guessed binding. */
+async function firstVisualizations(ds: DatasetRecord): Promise<VisualizationSpec[]> {
+  const binding = guessBinding(ds.columns)
+  if (!binding) return []
+  const info = await describeBinding(ds.id, binding)
+  return typeof info === 'string' || !info.features ? [] : [defaultVisualization(info, ds.id, binding)]
+}
+
+async function onAddDataset(datasetId: string) {
+  importing.value = false
+  const ds = await loadRecord(datasetId)
+  if (!ds) return void logDebug(`dataset ${datasetId} not found in the database`, 'error')
+  const first = await firstVisualizations(ds)
+  if (!apply(addDataset(doc.value, ds.id, first))) return
+  logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Add visualization'}`)
+  if (first.length) setTimeout(() => zoomTo(ds.id), 300)
 }
 
 function removeDataset(id: string) {
   if (!apply(removeDataset_(doc.value, id))) return
-  const next = new Map(builts.value)
-  next.delete(id)
-  builts.value = next
-  tables.delete(id).catch(() => {})
-  if (selected.value?.datasetId === id) selected.value = null
+  if (selected.value && vizById.value.get(selected.value.vizId)?.datasetId === id) selected.value = null
+}
+
+async function updateDataset(id: string, patch: { name?: string; description?: string }) {
+  if (await call('update dataset', request('updateDataset', { id, ...patch }))) await loadRecord(id)
+}
+async function addVectorColumn(id: string, vec: { name: string; u: string; v: string }) {
+  if (!(await call('add vector column', request('addVectorColumn', { datasetId: id, ...vec })))) return
+  forgetBindingInfo(id)
+  for (const k of valuesCache.keys()) if (k.startsWith(`${id}|`)) valuesCache.delete(k)
+  await loadRecord(id)
 }
 
 /** New visualization of a dataset column, on top of the list, open for editing. */
-function addVisualization(datasetId: string, column: string) {
-  const ds = dsById.value.get(datasetId)
-  if (!ds) return
-  const v = makeVisualization(ds.built, datasetId, column)
+async function addVisualization(datasetId: string, binding: GeometryBinding, column: string) {
+  const info = await describeBinding(datasetId, binding)
+  if (typeof info === 'string') return void logDebug(info, 'error')
+  const v = makeVisualization(info, datasetId, binding, column)
   if (apply(addVisualization_(doc.value, v, 0, opCtx))) vizList.value?.edit(v.id)
 }
 
@@ -175,69 +182,64 @@ const updateVisualization = (v: VisualizationSpec) => apply(updateVisualization_
 const removeVisualization = (id: string) => apply(removeVisualization_(doc.value, id))
 const reorderVisualizations = (ids: string[]) => apply(reorderVisualizations_(doc.value, ids))
 const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids))
-const updateDataset = (id: string, patch: { name?: string; description?: string }) => apply(updateDataset_(doc.value, id, patch))
 
-function zoomTo(id: string) {
-  const ds = dsById.value.get(id)
-  const b = ds && focusBox(ds.built.base.features.filter((f) => (f.properties[ROW_COUNT] as number) > 0).map((f) => f.geometry))
+function zoomTo(datasetId: string) {
+  const r = rendered.value.find((x) => x.layer.datasetId === datasetId)
+  const b = r && focusBox(r.data.features.filter((f) => (f.properties[ROW_COUNT] as number) > 0).map((f) => f.geometry))
   if (b) mapView.value?.fitBounds(b, 10)
 }
 
-/** The starting workspace: the EIA-861 utilities dataset with its preset visualizations. */
+/** The starting workspace: the EIA-861 utilities dataset (reused if already in the database) with its preset visualizations. */
 async function seedDefault() {
-  const entry: DatasetEntry = {
-    id: newId('ds'),
-    name: UTILITY_NAME,
-    binding: UTILITY_BINDING,
-    origin: 'Built-in · utility_counties.csv (EIA-861, 2025)',
-    rows: { kind: 'builtin', table: UTILITY_TABLE },
-    preset: 'utilities',
-    meta: newDatasetMeta('Every US electric utility and the counties it serves (EIA Form 861 Service Territory, 2025).'),
-  }
-  const records = await rowsFor(entry)
-  await build(entry, records, inferColumns(records))
-  apply(addDataset(emptyWorkspace(), entry, utilityVisualizations(entry.id)))
+  const existing = (await readDb.list('datasets')).find((d) => d.extensions?.preset === 'utilities')
+  const id = existing?.id ?? (await call('load built-in data', request('uploadDataset', { source: { kind: 'builtin', table: UTILITY_TABLE } })))?.datasetId
+  if (!id || !(await loadRecord(id))) throw new Error('could not load the built-in utilities dataset')
+  apply(addDataset({ ...emptyWorkspace(), name: UTILITY_NAME }, id, utilityVisualizations(id)))
 }
 
-/** Reopens the saved workspace; datasets that can't be rebuilt are dropped (and logged). */
-async function restore(saved: WorkspaceDoc) {
-  doc.value = saved
-  const failed: string[] = []
-  await Promise.all(
-    saved.datasets.map(async (e) => {
-      try {
-        const rows = await rowsFor(e)
-        await build(e, rows, inferColumns(rows))
-      } catch (err) {
-        failed.push(e.id)
-        logDebug(`couldn't reopen dataset "${e.name}": ${(err as Error).message}`, 'warn')
-      }
-    }),
-  )
-  for (const id of failed) apply(removeDataset_(doc.value, id))
-  logDebug(`workspace reopened: ${doc.value.datasets.length} datasets, ${doc.value.visualizations.length} visualizations`)
+/** Opens a saved workspace: its dataset pointers and visualization records. */
+async function open(w: WorkspaceRecord) {
+  const ids: string[] = []
+  for (const id of w.config.datasetIds) {
+    if (await loadRecord(id)) ids.push(id)
+    else logDebug(`workspace "${w.name}": dataset ${id} is no longer in the database`, 'warn')
+  }
+  const vizs: VisualizationSpec[] = []
+  for (const id of w.config.visualizationIds) {
+    const v = await readDb.get('visualizations', id)
+    if (v && ids.includes(v.datasetId)) vizs.push({ ...v.settings, id: v.id, name: v.name, datasetId: v.datasetId } as VisualizationSpec)
+  }
+  doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs }
+  logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations`)
 }
 
 async function resetWorkspace() {
-  if (!confirm('Reset the workspace? This removes every imported dataset and visualization from this device.')) return
+  if (!confirm('Reset the workspace? Its visualizations are deleted; datasets stay in the database (＋ Add dataset → Saved).')) return
   persist = false
   selected.value = null
   clearUtility()
-  await tables.clear().catch(() => {})
-  builts.value = new Map()
-  doc.value = emptyWorkspace()
+  if (doc.value.id) await call('delete workspace', request('deleteWorkspace', { id: doc.value.id }))
   await seedDefault()
   persist = true
-  saveWorkspace(localKeyValueStore, doc.value)
+  await save()
 }
 
 onMounted(async () => {
   try {
-    const saved = loadWorkspace(localKeyValueStore)
-    if (saved) await restore(saved)
+    const init = await request('init', { baseUrl: new URL(base, location.href).href })
+    if (!init.ok) throw new Error(init.error.message)
+    const all = await readDb.list('workspaces')
+    let last: string | null = null
+    try {
+      last = localStorage.getItem(LAST_WORKSPACE)
+    } catch {
+      /* none */
+    }
+    const w = all.find((x) => x.id === last) ?? all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+    if (w) await open(w)
     else await seedDefault()
     persist = true
-    saveWorkspace(localKeyValueStore, doc.value)
+    if (!w) await save()
     status.value = 'ready'
   } catch (e) {
     status.value = 'error'
@@ -246,33 +248,55 @@ onMounted(async () => {
   }
 })
 
-// ── visualization data (cached: restyling must not rebuild or re-upload data)
+// ── visualization values (from the server; restyling never refetches) ─────
 
-interface CacheEntry {
-  sig: string
-  built: BuiltDataset
-  data: LayerData
-  byKey: Map<string, LayerFeature>
-}
-const cache = new Map<string, CacheEntry>()
+const valuesCache = new Map<string, Promise<LayerData | null>>()
+const layers = shallowRef(new Map<string, { key: string; data: LayerData; byKey: Map<string, LayerFeature> }>())
 
-function entryFor(l: VisualizationSpec): CacheEntry | null {
-  const ds = dsById.value.get(l.datasetId)
-  if (!ds) return null
-  const sig = `${l.column}|${l.aggregation}|${ds.spec.name}|${l.name}`
-  const hit = cache.get(l.id)
-  if (hit && hit.sig === sig && hit.built === ds.built) return hit
-  const data = markRaw(visualizationData(ds.built, ds.spec.name, l))
-  const entry = { sig, built: ds.built, data, byKey: new Map(data.features.map((f) => [String(f.id), f])) }
-  cache.set(l.id, entry)
-  return entry
+const queryKey = (v: VisualizationSpec) => `${v.datasetId}|${JSON.stringify(v.binding)}|${v.column}|${v.aggregation}`
+const layerKey = (v: VisualizationSpec) => `${queryKey(v)}|${v.name}|${records.value.get(v.datasetId)?.name}|${records.value.get(v.datasetId)?.updatedAt}`
+
+function fetchLayer(v: VisualizationSpec): Promise<LayerData | null> {
+  const k = queryKey(v)
+  let p = valuesCache.get(k)
+  if (!p) {
+    p = (async () => {
+      const values = await call(`values for "${v.name}"`, request('queryVisualization', { datasetId: v.datasetId, binding: v.binding, column: v.column, aggregation: v.aggregation }))
+      if (!values) return null
+      if (values.unmatched) logDebug(`"${v.name}": ${values.unmatched} rows had no feature (e.g. ${values.unmatchedSamples.slice(0, 5).join(', ')})`, 'warn')
+      const boundaries = v.binding.kind === 'boundary' ? await loadBoundaries(v.binding.boundary) : undefined
+      return visualizationLayer(values, v, '', boundaries)
+    })()
+    p.then((x) => x || valuesCache.delete(k))
+    valuesCache.set(k, p)
+  }
+  return p
 }
-const dataFor = (l: VisualizationSpec) => entryFor(l)?.data ?? null
+
+watch(
+  () => visualizations.value.map(layerKey).join('\n'),
+  async () => {
+    for (const v of visualizations.value) {
+      const key = layerKey(v)
+      if (layers.value.get(v.id)?.key === key) continue
+      const raw = await fetchLayer(v)
+      const now = vizById.value.get(v.id)
+      if (!raw || !now || layerKey(now) !== key) continue
+      const ds = records.value.get(v.datasetId)
+      const data: LayerData = { ...raw, id: v.id, name: `${ds?.name ?? ''} · ${v.name}`, fields: raw.fields.map((f) => (f.name === VALUE ? { ...f, alias: v.name } : f)) }
+      layers.value = new Map(layers.value).set(v.id, { key, data, byKey: new Map(data.features.map((f) => [String(f.id), f])) })
+    }
+  },
+  { immediate: true },
+)
+
+const vizById = computed(() => new Map(visualizations.value.map((v) => [v.id, v])))
+const dataFor = (v: VisualizationSpec) => layers.value.get(v.id)?.data ?? null
 
 const rendered = computed(() =>
   visualizations.value.flatMap((l) => {
-    const e = entryFor(l)
-    const ds = dsById.value.get(l.datasetId)
+    const e = layers.value.get(l.id)
+    const ds = records.value.get(l.datasetId)
     return e && ds ? [{ layer: l, ds, data: e.data }] : []
   }),
 )
@@ -289,83 +313,89 @@ watch(
 
 const canHover = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches
 const hover = ref<HoverInfo | null>(null)
-const selected = ref<{ datasetId: string; key: string } | null>(null)
+const selected = ref<{ vizId: string; key: string } | null>(null)
+const selectedRows = shallowRef<DataRecord[] | null>(null)
+
+/** Visualizations drawing the same features (same dataset and binding) as `v`. */
+const siblingsOf = (v: VisualizationSpec, visibleOnly = false) =>
+  visualizations.value.filter((x) => x.datasetId === v.datasetId && JSON.stringify(x.binding) === JSON.stringify(v.binding) && (!visibleOnly || x.visible))
 
 function onHover(layerId: string, h: HoverInfo | null) {
   if (!canHover) return
   hover.value = h ? { ...h, layerId } : hover.value?.layerId === layerId ? null : hover.value
 }
-function onSelect(layerId: string, key: string) {
-  const r = renderedById.value.get(layerId)
-  if (r) selected.value = { datasetId: r.ds.spec.id, key }
+async function onSelect(layerId: string, key: string) {
+  const v = vizById.value.get(layerId)
   hover.value = null
+  if (!v) return
+  selected.value = { vizId: layerId, key }
+  selectedRows.value = null
+  const rows = await call('feature rows', request('featureRows', { datasetId: v.datasetId, binding: v.binding, key }))
+  if (selected.value?.vizId === layerId && selected.value.key === key) selectedRows.value = rows ?? []
 }
 
 /** A visualization's value on a feature, as display text. */
 function displayValue(l: VisualizationSpec, key: string): string {
-  const e = entryFor(l)
+  const e = layers.value.get(l.id)
   const p = e?.byKey.get(key)?.properties
   return p ? formatPrimitive(p[VALUE], e!.data.fields[0].type) : '—'
 }
-
-/** Visualizations of a dataset (optionally only the visible ones). */
-const vizOf = (dsId: string, visibleOnly = false) => visualizations.value.filter((l) => l.datasetId === dsId && (!visibleOnly || l.visible))
 
 const hoverCard = computed(() => {
   const h = hover.value
   const r = h && renderedById.value.get(h.layerId)
   if (!h || !r) return null
-  const f = entryFor(r.layer)?.byKey.get(h.featureId)
+  const f = layers.value.get(r.layer.id)?.byKey.get(h.featureId)
   if (!f) return null
   return {
     x: h.x,
     y: h.y,
     title: String(f.properties._label),
-    rows: [
-      ...vizOf(r.ds.spec.id, true).map((l) => ({ label: l.name, value: displayValue(l, h.featureId) })),
-      { label: 'Rows', value: String(f.properties[ROW_COUNT]) },
-    ],
+    rows: [...siblingsOf(r.layer, true).map((l) => ({ label: l.name, value: displayValue(l, h.featureId) })), { label: 'Rows', value: String(f.properties[ROW_COUNT]) }],
   }
 })
 
 const selectedFeature = computed(() => {
   const s = selected.value
-  const ds = s && dsById.value.get(s.datasetId)
-  const feature = ds?.built.base.features.find((f) => f.id === s!.key)
-  return ds && feature ? { ds, feature, key: s!.key, rows: ds.built.rowsByKey.get(s!.key) ?? [] } : null
+  const r = s && renderedById.value.get(s.vizId)
+  const feature = r && layers.value.get(r.layer.id)?.byKey.get(s!.key)
+  return r && feature ? { viz: r.layer, ds: r.ds, layer: r.data, feature, key: s!.key } : null
 })
-const selectedKeyFor = (dsId: string) => (selected.value?.datasetId === dsId ? selected.value.key : null)
+const selectedKeyFor = (v: VisualizationSpec) => {
+  const s = selected.value && vizById.value.get(selected.value.vizId)
+  return s && s.datasetId === v.datasetId && JSON.stringify(s.binding) === JSON.stringify(v.binding) ? selected.value!.key : null
+}
 
 // ── utility search (preset extra) ──────────────────────────────────────────
 
 const searchBox = ref<{ clear: () => void }>()
 const selectedUtility = ref<Utility | null>(null)
-const utilityDs = computed(() => datasets.value.find((d) => d.preset === 'utilities'))
+const utilityDs = computed(() => datasets.value.find((d) => d.extensions?.preset === 'utilities'))
 const utilityName = (u: Utility) => u.utility_name
 const utilityDetail = (u: Utility) => `${u.entity_type} · ${u.states.join(', ')} · ${u.county_fips.length} counties`
 function pickUtility(id: number) {
   const u = utilities.value.find((x) => x.utility_id_eia === id) ?? null
   selectedUtility.value = u
-  const ds = utilityDs.value
-  if (!u || !ds) return
+  const r = rendered.value.find((x) => x.layer.datasetId === utilityDs.value?.id && x.layer.binding.kind === 'boundary')
+  if (!u || !r) return
   const keys = new Set(u.county_fips)
-  const b = focusBox(ds.built.base.features.filter((f) => keys.has(String(f.id))).map((f) => f.geometry))
+  const b = focusBox(r.data.features.filter((f) => keys.has(String(f.id))).map((f) => f.geometry))
   if (b) mapView.value?.fitBounds(b)
 }
 function clearUtility() {
   selectedUtility.value = null
   searchBox.value?.clear()
 }
-const highlightFor = (ds: LoadedDataset) => (ds.preset === 'utilities' ? (selectedUtility.value?.county_fips ?? []) : [])
+const highlightFor = (v: VisualizationSpec) => (presetOf(v.datasetId) === 'utilities' ? (selectedUtility.value?.county_fips ?? []) : [])
 
 // ── legend ─────────────────────────────────────────────────────────────────
 
 const legend = computed<LegendEntry[]>(() => {
   const out: LegendEntry[] = []
   const shown = rendered.value.filter((r) => r.layer.visible)
-  const many = new Set(shown.map((r) => r.ds.spec.id)).size > 1
+  const many = new Set(shown.map((r) => r.ds.id)).size > 1
   for (const { layer: l, ds, data } of shown) {
-    const title = many ? `${ds.spec.name}: ${l.name}` : l.name
+    const title = many ? `${ds.name}: ${l.name}` : l.name
     if (l.kind === 'scalar') {
       const e = colorLegend(l.style.color, data.features, title)
       if (e) out.push(e)
@@ -387,7 +417,7 @@ const legend = computed<LegendEntry[]>(() => {
 // ── export ─────────────────────────────────────────────────────────────────
 
 const exportTarget = ref<string | null>(null)
-const exportLayer = computed(() => (dsById.value.get(exportTarget.value ?? '') ?? datasets.value[0])?.built.base ?? null)
+const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ?? '') ?? rendered.value[0])?.data ?? null)
 </script>
 
 <template>
@@ -433,18 +463,19 @@ const exportLayer = computed(() => (dsById.value.get(exportTarget.value ?? '') ?
         <summary>Datasets</summary>
         <DatasetList
           :datasets="datasets"
-          :viz-count="(id) => vizOf(id).length"
+          :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
           @zoom="zoomTo"
           @remove="removeDataset"
           @reorder="reorderDatasets"
           @update="updateDataset"
+          @add-vector="addVectorColumn"
         />
         <div class="import-wrap">
-          <AddDatasetPanel v-if="importing" :built-ins="builtIns" @add="onImport" @cancel="importing = false" />
-          <button v-else class="import-btn" @click="importing = true">＋ Import dataset</button>
+          <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
+          <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
         </div>
         <p class="muted small saved">
-          Saved on this device ·
+          Workspace saved to the database (on this device for now) ·
           <button class="link" @click="resetWorkspace">Reset workspace</button>
         </p>
       </details>
@@ -452,9 +483,9 @@ const exportLayer = computed(() => (dsById.value.get(exportTarget.value ?? '') ?
       <details class="box">
         <summary>Export (ArcGIS)</summary>
         <label class="row">
-          Dataset
-          <select :value="exportTarget ?? datasets[0]?.spec.id" @change="exportTarget = ($event.target as HTMLSelectElement).value">
-            <option v-for="d in datasets" :key="d.spec.id" :value="d.spec.id">{{ d.spec.name }}</option>
+          Visualization
+          <select :value="exportTarget ?? rendered[0]?.layer.id" @change="exportTarget = ($event.target as HTMLSelectElement).value">
+            <option v-for="r in rendered" :key="r.layer.id" :value="r.layer.id">{{ r.ds.name }} · {{ r.layer.name }}</option>
           </select>
         </label>
         <DataExchange :layer="exportLayer" />
@@ -474,8 +505,8 @@ const exportLayer = computed(() => (dsById.value.get(exportTarget.value ?? '') ?
             :layer="r.data"
             :style-spec="r.layer.style"
             :visible="r.layer.visible"
-            :highlight-ids="highlightFor(r.ds)"
-            :selected-id="selectedKeyFor(r.ds.spec.id)"
+            :highlight-ids="highlightFor(r.layer)"
+            :selected-id="selectedKeyFor(r.layer)"
             @hover="(h) => onHover(r.layer.id, h)"
             @select="(id) => onSelect(r.layer.id, id)"
           />
@@ -494,20 +525,21 @@ const exportLayer = computed(() => (dsById.value.get(exportTarget.value ?? '') ?
           </div>
           <MapLegend :entries="legend" />
           <FeatureTooltip v-if="hoverCard && !selectedFeature" v-bind="hoverCard" />
-          <FeaturePanel v-if="selectedFeature" :layer="selectedFeature.ds.built.base" :feature="selectedFeature.feature" @close="selected = null">
+          <FeaturePanel v-if="selectedFeature" :layer="selectedFeature.layer" :feature="selectedFeature.feature" @close="selected = null">
             <dl class="values">
-              <template v-for="l in vizOf(selectedFeature.ds.spec.id)" :key="l.id">
+              <template v-for="l in siblingsOf(selectedFeature.viz)" :key="l.id">
                 <dt>{{ l.name }}</dt>
                 <dd>{{ displayValue(l, selectedFeature.key) }}</dd>
               </template>
             </dl>
+            <p v-if="!selectedRows" class="muted small">Loading rows…</p>
             <UtilityCountyDashboard
-              v-if="selectedFeature.ds.preset === 'utilities'"
-              :rows="selectedFeature.rows"
+              v-else-if="selectedFeature.ds.extensions?.preset === 'utilities'"
+              :rows="selectedRows"
               :selected-utility-id="selectedUtility?.utility_id_eia ?? null"
               @pick-utility="pickUtility"
             />
-            <FeatureRows v-else :built="selectedFeature.ds.built" :rows="selectedFeature.rows" />
+            <FeatureRows v-else :columns="selectedFeature.ds.columns" :rows="selectedRows" />
           </FeaturePanel>
         </template>
       </MapView>

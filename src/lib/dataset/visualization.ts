@@ -1,71 +1,89 @@
-// A visualization draws one dataset column, aggregated per feature. The
-// column's type decides how: vector columns as arrows, every other column as
-// a scalar (color / transparency / pattern). A dataset can have any number of
-// visualizations, and visualizations from different datasets show together.
+// A visualization draws one dataset column on map features. Its settings say
+// where each row's feature comes from (the geometry binding), which column,
+// how rows on the same feature combine (aggregation), and the style. The
+// value type decides how it draws: vectors as arrows, everything else as a
+// scalar (color / transparency / pattern). Values are computed server side
+// (query.ts); this module holds the settings and their defaults.
 
-import type { FieldDef, LayerData } from '../schema'
+import type { FieldDef, GeometryKind, LayerData, LayerFeature } from '../schema'
 import type { ScalarStyle, VectorStyle } from '../style'
-import { aggregate, aggregatedType, defaultAggregation, type Aggregation } from './aggregate'
-import { isNumericColumn, type ColumnType } from './columns'
-import { fieldTypeOf, KEY, newId, type BuiltDataset } from './dataset'
-import type { GeometryKind } from '../schema'
+import { aggregatedType, defaultAggregation, type Aggregation } from './aggregate'
+import { bindingColumns, type BoundaryFeature, type GeometryBinding } from './binding'
+import { isNumericColumn, type ColumnInfo, type ColumnType } from './columns'
+import { fieldTypeOf, KEY, LABEL, newId, ROW_COUNT } from './dataset'
+import type { VizValues } from './query'
 
 /** Pseudo-column: the number of rows on each feature. */
 export const ROWS = '__rows'
-/** Property holding the layer's aggregated value on each feature. */
+/** Property holding the visualization's value on each feature. */
 export const VALUE = '_value'
 
-interface LayerBase {
-  id: string
-  datasetId: string
-  name: string
+interface Settings<K, S> {
+  kind: K
   visible: boolean
+  binding: GeometryBinding
   column: string
   aggregation: Aggregation
+  style: S
 }
-export interface ScalarVisualizationSpec extends LayerBase {
-  kind: 'scalar'
-  style: ScalarStyle
+/** What the visualizations table stores beside the dataset pointer. */
+export type VisualizationSettings = Settings<'scalar', ScalarStyle> | Settings<'vector', VectorStyle>
+export type VisualizationSpec = VisualizationSettings & { id: string; datasetId: string; name: string }
+export type ScalarVisualizationSpec = Extract<VisualizationSpec, { kind: 'scalar' }>
+export type VectorVisualizationSpec = Extract<VisualizationSpec, { kind: 'vector' }>
+
+export const settingsOf = ({ id: _id, datasetId: _d, name: _n, ...s }: VisualizationSpec): VisualizationSettings => s as VisualizationSettings
+
+/** What a dataset looks like under a binding: enough to pick defaults. */
+export interface DatasetShape {
+  /** Data columns (binding and geometry columns excluded). */
+  columns: ColumnInfo[]
+  maxRowsPerFeature: number
+  geometryKind: GeometryKind
 }
-export interface VectorVisualizationSpec extends LayerBase {
-  kind: 'vector'
-  style: VectorStyle
+
+/** A dataset's columns that can be visualized under a binding. */
+export function dataColumns(columns: ColumnInfo[], binding: GeometryBinding): ColumnInfo[] {
+  const skip = new Set(bindingColumns(binding))
+  return columns.filter((c) => !skip.has(c.name) && c.type !== 'geometry')
 }
-export type VisualizationSpec = ScalarVisualizationSpec | VectorVisualizationSpec
 
 export function columnLabel(column: string): string {
   return column === ROWS ? 'Number of rows' : column.replace(/_/g, ' ')
 }
 
-export function columnType(built: BuiltDataset, column: string): ColumnType {
-  return column === ROWS ? 'int' : (built.columns.find((c) => c.name === column)?.type ?? 'string')
+export function columnType(columns: ColumnInfo[], column: string): ColumnType {
+  return column === ROWS ? 'int' : (columns.find((c) => c.name === column)?.type ?? 'string')
 }
 
-/** Type of a layer's aggregated value. */
-export function valueType(built: BuiltDataset, column: string, agg: Aggregation): ColumnType {
-  return column === ROWS ? 'int' : aggregatedType(agg, columnType(built, column))
+/** Type of a visualization's aggregated value. */
+export function valueType(columns: ColumnInfo[], column: string, agg: Aggregation): ColumnType {
+  return column === ROWS ? 'int' : aggregatedType(agg, columnType(columns, column))
 }
 
 /** Arrows for vector values, scalar otherwise. */
-export function kindFor(built: BuiltDataset, column: string, agg: Aggregation): VisualizationSpec['kind'] {
-  return valueType(built, column, agg) === 'vector' ? 'vector' : 'scalar'
+export function kindFor(columns: ColumnInfo[], column: string, agg: Aggregation): VisualizationSpec['kind'] {
+  return valueType(columns, column, agg) === 'vector' ? 'vector' : 'scalar'
 }
 
-/** The renderable data for one visualization: the dataset's features plus its value. */
-export function visualizationData(built: BuiltDataset, datasetName: string, layer: VisualizationSpec): LayerData {
-  const features = built.base.features.map((f) => {
-    const rows = built.rowsByKey.get(String(f.properties[KEY])) ?? []
-    const value = layer.column === ROWS ? rows.length : aggregate(rows.map((r) => r[layer.column]), layer.aggregation)
-    return { ...f, properties: { ...f.properties, [VALUE]: value } }
-  })
-  const valueField: FieldDef = { name: VALUE, type: fieldTypeOf(valueType(built, layer.column, layer.aggregation)), alias: layer.name }
-  return {
-    ...built.base,
-    id: layer.id,
-    name: `${datasetName} · ${layer.name}`,
-    fields: [valueField, ...built.base.fields],
-    features,
+/**
+ * The renderable layer for one visualization from its server-computed
+ * values. Region-code bindings get their polygons from the client's static
+ * boundary files; other bindings carry their geometry in the values.
+ */
+export function visualizationLayer(values: VizValues, spec: VisualizationSpec, datasetName: string, boundaries?: Map<string, BoundaryFeature>): LayerData {
+  const features: LayerFeature[] = []
+  for (const f of values.features) {
+    const geometry = f.geometry ?? boundaries?.get(f.key)?.geometry
+    if (!geometry) continue
+    features.push({ type: 'Feature', id: f.key, geometry, properties: { [KEY]: f.key, [LABEL]: f.label, [ROW_COUNT]: f.rows, [VALUE]: f.value } })
   }
+  const fields: FieldDef[] = [
+    { name: VALUE, type: fieldTypeOf(values.valueType), alias: spec.name },
+    { name: LABEL, type: 'string', alias: 'Name' },
+    { name: ROW_COUNT, type: 'int', alias: 'Rows' },
+  ]
+  return { id: spec.id, name: `${datasetName} · ${spec.name}`, geometry: values.geometryKind, idField: KEY, titleField: LABEL, fields, features }
 }
 
 // ── defaults ───────────────────────────────────────────────────────────────
@@ -87,37 +105,47 @@ export const defaultVectorStyle = (): VectorStyle => ({
   size: { min: 0.5, max: 1.4 },
 })
 
-/** A layer showing `column`; its kind (scalar / vector) follows the column's type. */
-export function makeVisualization(built: BuiltDataset, datasetId: string, column: string, aggregation?: Aggregation, name?: string): VisualizationSpec {
-  const agg = aggregation ?? (column === ROWS ? 'count' : defaultAggregation(columnType(built, column), built.maxRowsPerFeature))
-  const base = { id: newId('l'), datasetId, name: name ?? columnLabel(column), visible: true, column, aggregation: agg }
-  return kindFor(built, column, agg) === 'vector'
+/** A visualization showing `column`; its kind (scalar / vector) follows the column's type. */
+export function makeVisualization(
+  shape: DatasetShape,
+  datasetId: string,
+  binding: GeometryBinding,
+  column: string,
+  aggregation?: Aggregation,
+  name?: string,
+): VisualizationSpec {
+  const agg = aggregation ?? (column === ROWS ? 'count' : defaultAggregation(columnType(shape.columns, column), shape.maxRowsPerFeature))
+  const base = { id: newId(), datasetId, name: name ?? columnLabel(column), visible: true, binding, column, aggregation: agg }
+  return kindFor(shape.columns, column, agg) === 'vector'
     ? { ...base, kind: 'vector', style: defaultVectorStyle() }
-    : { ...base, kind: 'scalar', style: defaultScalarStyle(valueType(built, column, agg), built.geometryKind) }
+    : { ...base, kind: 'scalar', style: defaultScalarStyle(valueType(shape.columns, column, agg), shape.geometryKind) }
 }
 
 /** First visualization for a new dataset: row counts when rows stack up, else a vector, numeric or text column. */
-export function defaultVisualization(built: BuiltDataset, datasetId: string): VisualizationSpec {
-  if (built.maxRowsPerFeature > 1) return makeVisualization(built, datasetId, ROWS)
+export function defaultVisualization(shape: DatasetShape, datasetId: string, binding: GeometryBinding): VisualizationSpec {
+  if (shape.maxRowsPerFeature > 1) return makeVisualization(shape, datasetId, binding, ROWS)
   const pick =
-    built.columns.find((c) => c.type === 'vector') ??
-    built.columns.find((c) => isNumericColumn(c.type)) ??
-    built.columns.find((c) => c.type === 'string' || c.type === 'boolean')
-  if (pick) return makeVisualization(built, datasetId, pick.name)
-  const l = makeVisualization(built, datasetId, ROWS, 'count', 'Features') as ScalarVisualizationSpec
+    shape.columns.find((c) => c.type === 'vector') ??
+    shape.columns.find((c) => isNumericColumn(c.type)) ??
+    shape.columns.find((c) => c.type === 'string' || c.type === 'boolean')
+  if (pick) return makeVisualization(shape, datasetId, binding, pick.name)
+  const l = makeVisualization(shape, datasetId, binding, ROWS, 'count', 'Features') as ScalarVisualizationSpec
   l.style.color = { kind: 'constant', color: '#3b82f6' }
   return l
 }
 
 /**
- * Point a layer at a different column/aggregation. Keeps its style when the
- * kind of value is unchanged; otherwise switches to a default for the new kind.
+ * Point a visualization at a different column/aggregation (or binding). Keeps
+ * its style when the kind of value is unchanged; otherwise switches to a
+ * default for the new kind.
  */
-export function retarget(built: BuiltDataset, layer: VisualizationSpec, column: string, aggregation: Aggregation): VisualizationSpec {
-  const next = makeVisualization(built, layer.datasetId, column, aggregation)
+export function retarget(shape: DatasetShape, layer: VisualizationSpec, column: string, aggregation: Aggregation, binding = layer.binding): VisualizationSpec {
+  const next = makeVisualization(shape, layer.datasetId, binding, column, aggregation)
   const sameKind = next.kind === layer.kind
   const sameScale =
-    sameKind && (layer.kind === 'vector' || isNumericColumn(valueType(built, layer.column, layer.aggregation)) === isNumericColumn(valueType(built, column, aggregation)))
+    sameKind &&
+    (layer.kind === 'vector' ||
+      isNumericColumn(valueType(shape.columns, layer.column, layer.aggregation)) === isNumericColumn(valueType(shape.columns, column, aggregation)))
   const autoName = layer.name === columnLabel(layer.column)
   return {
     ...next,

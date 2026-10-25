@@ -87,34 +87,54 @@ src/lib/
 
 Keep functions **pure** — same input → same output, no side effects.
 
+### Client / server boundary
+
+Everything runs in the browser today, but the code is split as if it didn't, so moving to a real
+backend (Supabase + functions) is a refactor, not a rewrite.
+
+- **Rule:** lasting changes and heavy processing are **server side**. The client sends requests; the
+  server writes the database and returns **pointers** (uuids) or small results; the client reads the
+  database read-only.
+- **Server** — `src/server/server.ts` (`createServer(db, env)`), run in a **Web Worker** by
+  `worker.ts`. Requests (`src/shared/api.ts`): `init`, `uploadDataset` (CSV / GeoJSON-Esri file,
+  ArcGIS URL, built-in table → new data table + registry row), `addVectorColumn`, `updateDataset`,
+  `deleteDataset` (cleans up visualizations and workspace configs), `describeBinding` (features,
+  unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
+  `saveWorkspace` (upserts its visualization records, deletes dropped ones), `deleteWorkspace`.
+  Every answer is an `ApiResult`; errors carry `not_found` / `invalid` / `failed` / `unsupported`.
+  Grouping a table onto features (`lib/dataset/query.ts`) is cached per dataset + binding and
+  dropped when the dataset changes.
+- **Client** — `src/client/api.ts` `request(type, payload)` posts to the worker (unwrapping Vue
+  proxies, which can't be cloned); `src/client/db.ts` `readDb` is a `ReadDatabase`.
+- **Database** — `src/shared/records.ts`. Base tables `users`, `workspaces`, `datasets`,
+  `transforms`, `visualizations`: every record has a uuid `id`, an editable `name`, created/updated.
+  A workspace's `config` holds only pointers (`datasetIds`, ordered `visualizationIds`). Each
+  dataset's rows are their own data table (`ds_<uuid>`). IndexedDB (`shared/idb.ts`, database
+  `powergis-db`: one store per base table + `data`) on this device; `MemoryDatabase` for tests. No
+  access control yet — an access layer between users and tables comes later.
+- **Geometry binding is a visualization setting** — datasets are plain tables, so one table can be
+  drawn as counties in one visualization and as points in another. Boundary polygons stay static
+  client files (`lib/dataset/boundaries.ts`, also loaded by the server to match codes); for lat/lon
+  and geometry bindings the server sends the geometry.
+- **Not dataset properties:** source and usage policy — they belong to the agent workflow's run
+  records (roadmap step 6).
+
 ### Workspace (`lib/workspace/`)
 
-The **workspace document** (`workspace.ts`, `WorkspaceDoc`) is the single source of truth for what
-the user has set up: `datasets` (`DatasetEntry`: id, name, geometry binding, origin, a `RowsRef`,
-re-applied `vectorColumns`, optional `preset`, and standard `meta` — description, created/updated,
-open `extensions`) and the ordered `visualizations` (top draws on top). It is plain JSON, versioned
-(`WORKSPACE_VERSION`).
+The client's working copy (`WorkspaceDoc`: server `id`, `name`, `datasetIds`, ordered
+`visualizations`). **Every edit is an operation** — `addDataset`, `removeDataset` (out of the
+workspace; the table stays), `reorderDatasets`, `renameWorkspace`, `addVisualization`,
+`updateVisualization`, `removeVisualization`, `reorderVisualizations` — pure, returning
+`{ok: true, doc}` or `{ok: false, error: {code, message}}`, so an agent can drive the same
+operations and read why one failed. Dataset edits (rename, describe, vector columns) are server
+requests, not workspace ops, since datasets are shared records.
 
-- **Every change is an operation** — `addDataset`, `updateDataset`, `removeDataset`,
-  `reorderDatasets`, `addVisualization`, `updateVisualization`, `removeVisualization`,
-  `reorderVisualizations`. Each is pure, never mutates its input, and returns
-  `{ok: true, doc}` or `{ok: false, error: {code, message}}` (`not_found` / `duplicate` /
-  `invalid`), so an agent can drive the same operations as the UI and read why one failed. Pass an
-  `OpContext` with `columns(datasetId)` to have visualization ops check the column exists.
-- **Rows aren't in the document.** `RowsRef` says where they come from: `builtin` tables are
-  re-read on open (picking up data rebuilds); `stored` rows were imported and live in a
-  `TableStore` under the dataset id. Columns are re-inferred from the rows on open.
-- **Persistence** (`storage.ts`): `loadWorkspace` / `saveWorkspace` over a `KeyValueStore`, never
-  throwing (private mode, quota). Browser implementations are in
-  `components/workspace/browserStores.ts` — localStorage for the document
-  (`powergis.workspace.v1`), IndexedDB (`powergis` → `tables`) for rows. In-memory stores serve tests.
-- **Not dataset properties:** a dataset's source and usage policy. Those belong to the agent
-  workflow's run records (roadmap step 6), linked to the datasets a run produced.
-
-`MapPage.vue` holds the document in a `shallowRef`, applies ops through `apply()`, saves on every
-change, and keeps built datasets (`BuiltDataset`) beside it by id. On open it restores the saved
-document (dropping datasets whose rows can't be found, with a log line) or seeds the default
-utilities dataset.
+`MapPage.vue` holds the copy in a `shallowRef`, applies ops through `apply()`, and sends it with
+`saveWorkspace` (debounced, one save at a time). On open it calls `init`, opens the last-used (or
+newest) workspace from the database, or seeds one with the built-in utilities dataset (reused if
+already uploaded). Visualization values are fetched per (dataset, binding, column, aggregation) and
+cached; restyling never refetches. **Next:** explicit Save with a local draft, and workspace file
+download/load (pointers only).
 
 ## §5 — Composables
 
