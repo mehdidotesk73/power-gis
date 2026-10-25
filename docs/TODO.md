@@ -30,6 +30,8 @@ One-time setup — tick these off as they're done:
 - Patterns for polylines (dash arrays) and points (symbol overlays)
 - Arrow length encoding (currently size scales the whole glyph)
 - Per-county customer estimates (EIA reports customers per utility per state only)
+- Database `DataSource` (e.g. Supabase) — interface is ready in `src/lib/data/source.ts`; needs the
+  `add-statefulness` / `add-database` decision first
 - Utility service-territory polygons (HIFLD) as an alternative to county granularity
 
 ## Docs

@@ -99,6 +99,10 @@ whatever they're actually asking about.
   PUDL. It needs `pandas` + `pyarrow`; downloads are cached in `scripts/.cache/` (git-ignored).
 - County polygons come from the `us-atlas` npm package (Census 2017 cartographic boundaries,
   1:10m). EIA-861 still reports Connecticut's eight legacy counties, which match it.
+- **All tables load through a `DataSource`** (`src/lib/data/source.ts`): `readTable(name)` returns
+  raw records. Today: the built-in CSVs (`StaticFileSource`) or a CSV picked on the device
+  (`LocalFileSource`). A database (Supabase etc.) is a new class implementing the same interface —
+  map code doesn't change. Row parsers accept both CSV strings and typed DB values.
 - Join key everywhere is the 5-digit county FIPS string (`county_fips` / `fips`). Keep it a
   string: leading zeros matter.
 
@@ -127,7 +131,10 @@ src/
     rasters.ts             pattern tiles + arrow SDF as raw RGBA
     arcgis.ts              Esri JSON / GeoJSON / CSV import-export, FeatureServer fetch
     geometry.ts            anchor points (centroids), bbox
-    utilities.ts           EIA-861 CSV parsing + county join (first dataset)
+    utilities.ts           EIA-861 rows + county join (first dataset)
+    search.ts              ranked type-ahead search
+    data/source.ts         DataSource adapters: StaticFileSource, LocalFileSource (DB later)
+    data/csv.ts            CSV → records
     demo.ts                synthetic vector field for exercising the arrow widget
   components/
     map/                   reusable map widgets
@@ -140,6 +147,7 @@ src/
       MapLegend.vue        ramps + swatches (incl. patterns)
       ScalarStyleEditor.vue, VectorStyleEditor.vue
       DataExchange.vue     ArcGIS import/export UI
+      SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
     UtilityMap.vue         the page: loads data, composes the widgets
     UtilityCountyDashboard.vue  custom dashboard for a county
     utilityStyles.ts       view presets + ownership colors

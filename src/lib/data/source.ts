@@ -1,0 +1,88 @@
+// Data sources: where the app's tables come from. Every dataset is read
+// through this one interface, so swapping the built-in CSVs for a file on
+// the device, or later a database, doesn't touch the map code.
+//
+//   StaticFileSource  — CSVs shipped with the app (public/data/<table>.csv)
+//   LocalFileSource   — CSV files the user picks on their device
+//   (database)        — e.g. Supabase: implement DataSource with
+//                       readTable(name) = select * from <name>; nothing else
+//                       changes. Not built yet — see docs/TODO.md.
+
+import { parseCsv } from './csv'
+
+export type DataRecord = Record<string, unknown>
+
+export interface DataSource {
+  /** Short description for the UI, e.g. "Built-in data" or "utility_counties.csv". */
+  readonly label: string
+  /** Names of the tables this source can read. */
+  listTables(): Promise<string[]>
+  /** All rows of a table. Rejects with a readable message if it's missing. */
+  readTable(name: string): Promise<DataRecord[]>
+}
+
+type FetchLike = (url: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>
+
+/** CSVs served alongside the app, at `${baseUrl}${dir}/<table>.csv`. */
+export class StaticFileSource implements DataSource {
+  readonly label = 'Built-in data'
+  constructor(
+    private readonly tables: string[],
+    private readonly baseUrl = '/',
+    private readonly dir = 'data',
+    private readonly fetchImpl: FetchLike = (u) => fetch(u),
+  ) {}
+
+  async listTables() {
+    return [...this.tables]
+  }
+
+  async readTable(name: string) {
+    if (!this.tables.includes(name)) throw new Error(`No built-in table "${name}"`)
+    const res = await this.fetchImpl(`${this.baseUrl}${this.dir}/${name}.csv`)
+    if (!res.ok) throw new Error(`${name}.csv: HTTP ${res.status}`)
+    return parseCsv(await res.text())
+  }
+}
+
+/** Anything with a name and text() — a browser File, or a stand-in in tests. */
+export interface FileLike {
+  name: string
+  text(): Promise<string>
+}
+
+/**
+ * CSV files picked on the device. A file named `<table>.csv` provides that
+ * table; a single file of any name can be bound to a table explicitly.
+ * Files never leave the browser.
+ */
+export class LocalFileSource implements DataSource {
+  private readonly files = new Map<string, FileLike>()
+
+  constructor(files: FileLike[] = [], bindings: Record<string, FileLike> = {}) {
+    for (const f of files) this.files.set(f.name.replace(/\.csv$/i, ''), f)
+    for (const [table, f] of Object.entries(bindings)) this.files.set(table, f)
+  }
+
+  get label() {
+    const names = [...new Set([...this.files.values()].map((f) => f.name))]
+    return names.length ? names.join(', ') : 'No files chosen'
+  }
+
+  async listTables() {
+    return [...this.files.keys()]
+  }
+
+  async readTable(name: string) {
+    const f = this.files.get(name)
+    if (!f) throw new Error(`Choose a CSV for "${name}"`)
+    return parseCsv(await f.text())
+  }
+}
+
+/** Throws if the records lack any required column — a clear message beats a blank map. */
+export function requireColumns(records: DataRecord[], columns: readonly string[], table: string): void {
+  if (!records.length) throw new Error(`"${table}" has no rows`)
+  const missing = columns.filter((c) => !(c in records[0]))
+  if (missing.length) throw new Error(`"${table}" is missing column${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`)
+}

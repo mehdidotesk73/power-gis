@@ -8,12 +8,13 @@ A map of every electric utility operating in the US and the counties each one se
 
 ## How do I use it?
 
-- **Find a utility** — type a name in the search box and pick it from the list. Its whole service territory gets a dark outline and the map zooms to it.
+- **Find a utility** — type part of a name and pick it from the suggestions. Its whole service territory gets a dark outline and the map zooms to it.
 - **Tap a county** — a panel opens with the number of utilities, the ownership mix, and each utility's name, ownership type and customer count. Tap **Territory** next to a utility to outline everywhere it operates.
 - **Hover** (on a computer) — a small card shows the county and its largest utilities.
 - **View** — switch between preset views: number of utilities, most common ownership, hatching where a cooperative serves, and public power vs. investor-owned.
 - **Style** — change the colors, colormap, transparency and fill patterns yourself.
 - **Demo vector arrows** — a made-up arrow field to show how direction-and-size data (like power flows) will look. It is not real data.
+- **Data source** — the map uses the built-in EIA data by default. You can instead load your own CSV from your device in the same layout; it never leaves your device.
 - **Import / export** — download the layer as GeoJSON, Esri JSON or CSV for ArcGIS, or load a GeoJSON / Esri JSON file or an ArcGIS FeatureServer link onto the map.
 
 ## Common Questions
