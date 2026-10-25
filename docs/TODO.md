@@ -25,27 +25,63 @@ One-time setup — tick these off as they're done:
 
 ## Code
 
-### Workspace roadmap
+### Roadmap (agreed order)
 
-- **User login + linked workspace settings** — sign in and have the workspace saved to the account:
-  imported datasets, visualizations, tabs and app settings. Supersedes "remember between
-  visits" below; needs the `add-statefulness` → `add-database` path (auth + per-user storage).
-- **Dataset reordering** — datasets as a drag-reorderable list (visualizations already reorder by
-  drag, with swipe-to-delete). Show every pipeline (connector → dataset → derived dataset →
-  visualization) as a **DAG**.
-- **Derived datasets** — create new datasets from existing ones (filters, aggregates, joins),
-  shown as nodes in the DAG, and **visualizations sourced from more than one dataset**.
-- **Tabs** — each tab is its own map with its own set of open layers, and its own DAG.
-- **Split screen** — show tabs side by side using industry-standard splits (2 vertical,
-  2 horizontal, 2×2, 1 + 2), ideally with optional synced pan/zoom.
-- **SQL visualizations** — define a visualization with SQL over datasets: new aggregates and
-  joins across tables (e.g. an in-browser engine such as DuckDB-WASM), with the result bound to
-  geometry like any other dataset.
-- **Normalize the EIA-861 data** — split today's denormalized table into a **counties** dataset, a
-  **utilities** dataset and a **county ↔ utility join table**; a SQL join over the join table
-  produces a derived dataset that a visualization draws to reproduce today's map. Alternative:
-  give the utilities dataset a **list-of-counties column** and join on it (unnest) instead of a
-  join table. (Also fixes the misleading `counties_in_state` — it's per utility, not per state.)
+Everything the UI can do must also be a plain, serializable operation with machine-readable
+results, because the agent workflow (step 6) drives the same operations as the UI.
+
+1. **Workspace document + operations + on-device persistence** — one serializable workspace
+   (datasets, derived datasets, visualizations, tabs); a single operations layer (add dataset,
+   add derived dataset, add/reorder visualization, …) used by both UI and agents; **provenance on
+   every dataset** (sources, retrieval method, usage policy: public sharing vs personal use).
+   Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
+2. **DuckDB-WASM + derived datasets + dataset profiles** — DuckDB (lazy-loaded) for SQL; a derived
+   dataset is a SQL query over datasets, then bound to geometry like an import (this also covers
+   visualizations sourced from several datasets: join, then visualize). A **profile** for every
+   dataset (row count, columns/types, nulls, completeness, key coverage) — the metadata agents
+   report for approval. SQL errors and profiles returned in agent-readable form.
+3. **Normalize the EIA-861 data** — **counties**, **utilities** and a **county ↔ utility join table**
+   (and the alternative: a utilities **list-of-counties column** joined by unnest); rebuild today's
+   map from a SQL join. Fixes the misleading `counties_in_state` (it's per utility, not per state).
+4. **DAG** — connector → dataset → derived dataset → visualization, built from the workspace
+   document, with provenance / usage policy on each node; live view of agent pipelines later.
+5. **Tabs** — datasets shared; each tab has its own ordered visualizations, map view and DAG.
+   **Phones: tabs only.**
+6. **Agent workflow** — see below.
+
+**Decided:** DuckDB for SQL · scraped datasets live **on the device** · agents may run only while
+the app is open at first · agents run on **Claude Managed Agents** with a thin **Netlify Function**
+bridge (holds the Anthropic API key, starts sessions, relays clarifications/approvals/results).
+**Postponed:** user login / cloud workspace · split screen.
+
+### Agent workflow (step 6)
+
+- **Orchestrator** — takes a request ("all datacenters and their loads", "temperature");
+  asks clarifying questions when ambiguous (e.g. frequency daily/weekly…, aggregate avg/max/min);
+  decides which base datasets are needed (e.g. datacenter load + county population + county→state
+  map → load-per-capita by state); writes a **scraping request** per base dataset (loose list of
+  intended columns), a **transformation plan** and a **visualization plan**, each with
+  requirements the previous stage must meet. Spawns one scraper per dataset; assesses each
+  scraper's summary against the transformation requirements (approve, or adjust the plan / the
+  scraping request — sometimes waiting on several scrapers first); shares what's already found
+  so agents don't repeat work. Checks every source's **usage policy** and reports at the end
+  whether the data can be shared publicly or is personal-use only. Sends one or several parallel
+  transform requests; checks transformer metadata against visualization requirements; sends
+  visualization requests; **orders** the returned visualizations; summarizes and asks the user to
+  approve or adjust (adjustments restart the cycle with updated instructions). **No agent is
+  iterated more than 5 times per cycle** — past that, report exactly what happened.
+- **Scraper agent** — searches the web for one dataset; reports a profile (partial vs complete,
+  matched / missing columns, row count) and sources; saves and returns the data only after
+  approval; metadata carries **all sources**.
+- **Transformer agent** — writes SQL (DuckDB) for its transformation request, creates the
+  transformed datasets, reports their profiles; saves and returns only after approval.
+- **Visualizer agent** — turns visualization requests (strategy + datasets) into visualization
+  specs (the step-1 operations) and returns them.
+- **Runtime** — Managed Agents sessions (orchestrator + sub-agents, built-in web search/fetch,
+  per-session container with DuckDB for transforms, session dollar budgets as a backstop to the
+  5-iteration cap); a Netlify Function bridge; datasets returned as files and stored on device;
+  a chat panel in the app for clarifications, approvals and the final summary; every step logged
+  into the DAG.
 
 ### Backlog
 
@@ -54,7 +90,6 @@ One-time setup — tick these off as they're done:
 - Patterns for polylines (dash arrays) and points (symbol overlays)
 - Arrow length encoding (currently size scales the whole glyph)
 - Per-county customer estimates (EIA reports customers per utility per state only)
-- Remember imported datasets and visualizations between visits (specs in local storage; device files would need re-picking)
 - Database `DataConnector` (e.g. Supabase) — interface is ready in `src/lib/data/connectors.ts`; needs the
   `add-statefulness` / `add-database` decision first
 - Utility service-territory polygons (HIFLD) as an alternative to county granularity
