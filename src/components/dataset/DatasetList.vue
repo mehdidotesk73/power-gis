@@ -1,20 +1,20 @@
 <script setup lang="ts">
-// Imported data sources: what each holds, how its rows matched, and a
-// button to add a layer (visualization) from it.
-import type { LoadedDatasource } from './types'
-import { BOUNDARIES } from '../../lib/datasource/binding'
+// Imported datasets: what each holds, how its rows matched, how many
+// visualizations use it. (Visualizations are added from the Visualizations panel.)
+import type { LoadedDataset } from './types'
+import { BOUNDARIES } from '../../lib/dataset/binding'
 
-defineProps<{ datasources: LoadedDatasource[]; layerCount: (id: string) => number }>()
-const emit = defineEmits<{ (e: 'add-layer', id: string): void; (e: 'zoom', id: string): void; (e: 'remove', id: string): void }>()
+defineProps<{ datasets: LoadedDataset[]; vizCount: (id: string) => number }>()
+const emit = defineEmits<{ (e: 'zoom', id: string): void; (e: 'remove', id: string): void }>()
 
-function where(ds: LoadedDatasource): string {
+function where(ds: LoadedDataset): string {
   const b = ds.spec.binding
   if (b.kind === 'boundary') return `${b.column} → ${BOUNDARIES[b.boundary].split(' (')[0]}`
   if (b.kind === 'latlon') return `${b.lat}, ${b.lon} → points`
   return `${b.column} → shapes`
 }
 
-function stats(ds: LoadedDatasource): string {
+function stats(ds: LoadedDataset): string {
   const n = ds.built.base.features.length
   const rows = [...ds.built.rowsByKey.values()].reduce((a, r) => a + r.length, 0)
   const kind = ds.built.geometryKind === 'point' ? 'points' : ds.built.geometryKind === 'polyline' ? 'lines' : 'regions'
@@ -26,7 +26,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
 
 <template>
   <ul class="list">
-    <li v-for="ds in datasources" :key="ds.spec.id" class="ds">
+    <li v-for="ds in datasets" :key="ds.spec.id" class="ds">
       <div class="head">
         <div class="title">
           <strong>{{ ds.spec.name }}</strong>
@@ -34,13 +34,12 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
           <span class="muted">{{ where(ds) }} · {{ ds.spec.origin }}</span>
         </div>
         <button class="icon" title="Zoom to data" @click="emit('zoom', ds.spec.id)">⤢</button>
-        <button class="icon" title="Remove data source and its layers" @click="emit('remove', ds.spec.id)">✕</button>
+        <button class="icon" title="Remove dataset and its visualizations" @click="emit('remove', ds.spec.id)">✕</button>
       </div>
       <p v-if="ds.built.unmatched" class="warn">
         {{ plural(ds.built.unmatched, 'row') }} had no matching feature (e.g. {{ ds.built.unmatchedSamples.slice(0, 3).join(', ') }})
       </p>
-      <button class="add" @click="emit('add-layer', ds.spec.id)">＋ Layer</button>
-      <span class="muted count">{{ plural(layerCount(ds.spec.id), 'layer') }}</span>
+      <p class="muted uses">Used by {{ plural(vizCount(ds.spec.id), 'visualization') }}</p>
     </li>
   </ul>
 </template>
@@ -84,15 +83,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
   font-size: 0.72rem;
   color: #b26a00;
 }
-.count {
-  margin-left: 0.5rem;
-}
-.add {
-  margin-top: 0.3rem;
-  background: none;
-  border: none;
-  color: var(--accent-blue);
-  font-size: 0.8rem;
-  padding: 0;
+.uses {
+  margin: 0.25rem 0 0;
 }
 </style>

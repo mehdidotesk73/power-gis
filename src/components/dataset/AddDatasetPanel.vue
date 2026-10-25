@@ -1,14 +1,14 @@
 <script setup lang="ts">
-// Import a data source: pick where the rows come from (a connector), say
+// Import a dataset: pick where the rows come from (a connector), say
 // which column(s) hold each row's feature, and optionally combine two numeric
 // columns into a vector column. Live match counts show whether the binding
 // works before anything is added.
 import { computed, ref, shallowRef, watch } from 'vue'
 import { featureTable, LocalFileConnector, MemoryConnector, type DataRecord, type DataConnector } from '../../lib/data/connectors'
 import { fetchArcGISLayer, importJSON } from '../../lib/arcgis'
-import { inferColumns, isNumericColumn, type ColumnInfo } from '../../lib/datasource/columns'
-import { withVectorColumn } from '../../lib/datasource/datasource'
-import { BOUNDARIES, groupRows, guessBinding, type BoundaryFeature, type BoundaryId, type GeometryBinding } from '../../lib/datasource/binding'
+import { inferColumns, isNumericColumn, type ColumnInfo } from '../../lib/dataset/columns'
+import { withVectorColumn } from '../../lib/dataset/dataset'
+import { BOUNDARIES, groupRows, guessBinding, type BoundaryFeature, type BoundaryId, type GeometryBinding } from '../../lib/dataset/binding'
 import { loadBoundaries } from './boundaries'
 
 export interface BuiltInTable {
@@ -16,7 +16,7 @@ export interface BuiltInTable {
   connector: DataConnector
   table: string
 }
-export interface NewDatasource {
+export interface NewDataset {
   name: string
   origin: string
   records: DataRecord[]
@@ -25,7 +25,7 @@ export interface NewDatasource {
 }
 
 const props = defineProps<{ builtIns: BuiltInTable[] }>()
-const emit = defineEmits<{ (e: 'add', v: NewDatasource): void; (e: 'cancel'): void }>()
+const emit = defineEmits<{ (e: 'add', v: NewDataset): void; (e: 'cancel'): void }>()
 
 type Origin = 'builtin' | 'csv' | 'json' | 'arcgis'
 const origin = ref<Origin>('builtin')

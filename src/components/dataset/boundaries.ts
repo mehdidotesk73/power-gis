@@ -5,7 +5,7 @@ import { feature as topoFeature } from 'topojson-client'
 import type { Feature, Geometry } from 'geojson'
 import countiesUrl from 'us-atlas/counties-10m.json?url'
 import statesUrl from 'us-atlas/states-10m.json?url'
-import { boundaryIndex, type BoundaryFeature, type BoundaryId } from '../../lib/datasource/binding'
+import { boundaryIndex, type BoundaryFeature, type BoundaryId } from '../../lib/dataset/binding'
 
 const SOURCES: Record<BoundaryId, { url: string; object: string }> = {
   'us-counties': { url: countiesUrl, object: 'counties' },

@@ -11,12 +11,13 @@ A map of every electric utility operating in the US and the counties each one se
 - **Find a utility** — type part of a name and pick it from the suggestions. Its whole service territory gets a dark outline and the map zooms to it.
 - **Tap a county** — a panel opens with the number of utilities, the ownership mix, and each utility's name, ownership type and customer count. Tap **Territory** next to a utility to outline everywhere it operates.
 - **Hover** (on a computer) — a small card shows the county and its largest utilities.
-- **Data sources** — the data you've brought in. **Import data source** takes the built-in files, a CSV from your device, a GeoJSON / Esri JSON file, or an ArcGIS link. Then say where each row is on the map: a county or state code column, latitude and longitude columns, or a column holding the shape itself (GeoJSON or WKT). The panel tells you how many rows matched before you import.
-- **Layers** — what's drawn. Each layer shows one column of a data source; a data source can have many layers, and layers from different data sources show together. The utilities data source starts with three: number of utilities, most common ownership, and a hatch where a cooperative serves. Tick any combination — they stack. Add more with **＋ Layer** on a data source.
-- **Edit a layer** — choose its column, how rows on the same county are combined (count, sum, average, most common…), and its colors, colormap, transparency and fill pattern.
+- **Datasets** — the data you've brought in. **Import dataset** takes the built-in files, a CSV from your device, a GeoJSON / Esri JSON file, or an ArcGIS link. Then say where each row is on the map: a county or state code column, latitude and longitude columns, or a column holding the shape itself (GeoJSON or WKT). The panel tells you how many rows matched before you import.
+- **Visualizations** — what's drawn. Each one shows a column of a dataset; tap **＋ Add visualization**, pick a dataset and a column. Visualizations from different datasets show together. The utilities dataset starts with three: a co-op hatch, most common ownership, and number of utilities. Tick any combination — they stack.
+- **Order and delete** — drag the ≡ handle to reorder: the top of the list draws on top. Swipe a visualization left to reveal **Delete**.
+- **Edit a visualization** — choose its column, how rows on the same county are combined (count, sum, average, most common…), and its colors, colormap, transparency and fill pattern.
 - **Vectors (arrows)** — a column holding vectors (direction and size, like a flow) is drawn as arrows automatically. If your table has the two parts in separate columns (east and north), use **Combine two columns into a vector** when importing.
-- **Demo vector field** — under Import data source → Built-in, a made-up wind field to show how arrows look. It is not real data.
-- **Export** — download any data source as GeoJSON, Esri JSON or CSV for ArcGIS. Vectors become two number columns (east and north), which ArcGIS can draw as arrows.
+- **Demo vector field** — under Import dataset → Built-in, a made-up wind field to show how arrows look. It is not real data.
+- **Export** — download any dataset as GeoJSON, Esri JSON or CSV for ArcGIS. Vectors become two number columns (east and north), which ArcGIS can draw as arrows.
 
 ## Common Questions
 

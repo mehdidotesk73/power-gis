@@ -119,6 +119,8 @@ export default defineComponent({
     setVisibility(map, allLayers(), props.visible)
 
     const unbind = bindInteraction(map, ctx, main, src, (h) => emit('hover', h), (fid) => emit('select', fid))
+    ctx.stacks.set(id, { kind: geom, layerIds: () => [main, ...patternLayers, outline, highlight].filter((l) => map.getLayer(l)) })
+    ctx.restackSoon()
 
     watch(
       () => props.layer,
@@ -132,6 +134,7 @@ export default defineComponent({
       () => {
         applyPaint()
         syncPatterns()
+        ctx.restackSoon()
       },
       { deep: true },
     )
@@ -156,6 +159,7 @@ export default defineComponent({
 
     onBeforeUnmount(() => {
       unbind()
+      ctx.stacks.delete(id)
       if (!map.getStyle()) return
       for (const l of allLayers()) map.removeLayer(l)
       if (map.getSource(src)) map.removeSource(src)

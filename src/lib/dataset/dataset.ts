@@ -1,7 +1,7 @@
-// A data source is one imported table plus a geometry binding — the data.
+// A dataset is one imported table plus a geometry binding — the data.
 // Building it groups the rows onto map features (one per region / point /
-// shape) with every column aggregated by default. Layers (layer.ts) then
-// visualize its columns. Pure functions: rows in, features out.
+// shape) with every column aggregated by default. Visualizations
+// (visualization.ts) then draw its columns. Pure functions: rows in, features out.
 
 import type { DataRecord } from '../data/connectors'
 import type { FieldDef, FieldType, GeometryKind, LayerData, LayerFeature } from '../schema'
@@ -10,12 +10,12 @@ import { aggregate, aggregatedType, defaultAggregation } from './aggregate'
 import { bindingColumns, dominantKind, groupRows, type BoundaryFeature, type GeometryBinding } from './binding'
 import { coerce, type ColumnInfo, type ColumnType } from './columns'
 
-// Synthetic properties on every data source feature.
+// Synthetic properties on every dataset feature.
 export const KEY = '_key'
 export const LABEL = '_label'
 export const ROW_COUNT = '_rows'
 
-export interface DatasourceSpec {
+export interface DatasetSpec {
   id: string
   name: string
   binding: GeometryBinding
@@ -23,7 +23,7 @@ export interface DatasourceSpec {
   origin: string
 }
 
-export interface BuiltDatasource {
+export interface BuiltDataset {
   /** One feature per resolved geometry, with every data column aggregated by default. */
   base: LayerData
   /** Data columns (binding columns excluded), typed. */
@@ -56,12 +56,12 @@ export function withVectorColumn(records: DataRecord[], name: string, u: string,
   })
 }
 
-export function buildDatasource(
+export function buildDataset(
   meta: { id: string; name: string; binding: GeometryBinding; origin?: string },
   records: DataRecord[],
   allColumns: ColumnInfo[],
   boundaries?: Map<string, BoundaryFeature>,
-): BuiltDatasource {
+): BuiltDataset {
   const skip = new Set(bindingColumns(meta.binding))
   const columns = allColumns.filter((c) => !skip.has(c.name) && c.type !== 'geometry')
   const rows = records.map((r) => {
@@ -76,7 +76,7 @@ export function buildDatasource(
   const rowsByKey = new Map<string, DataRecord[]>()
   const features: LayerFeature[] = []
   for (const g of groups) {
-    if (geometryKindOf(g.geometry) !== geometryKind) continue // one geometry kind per data source
+    if (geometryKindOf(g.geometry) !== geometryKind) continue // one geometry kind per dataset
     rowsByKey.set(g.key, g.rows)
     const props: Record<string, unknown> = { [KEY]: g.key, [LABEL]: g.label ?? g.key, [ROW_COUNT]: g.rows.length }
     for (const c of columns) props[c.name] = aggregate(g.rows.map((r) => r[c.name]), defaultAggregation(c.type, maxRowsPerFeature))

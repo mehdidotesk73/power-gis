@@ -12,6 +12,10 @@ export interface MapContext {
    * region layer added later never hides earlier points.
    */
   slot: (kind: DrawKind) => string | undefined
+  /** Map layers owned by each widget (by widget id), in their current bottom→top order. */
+  stacks: Map<string, { kind: DrawKind; layerIds: () => string[] }>
+  /** Re-apply the last requested order — widgets call this after (re)creating map layers. */
+  restackSoon: () => void
   /** Layers whose clicks count as "on a feature" (so MapView can detect background clicks). */
   interactive: Set<string>
 }

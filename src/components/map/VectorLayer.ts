@@ -79,6 +79,8 @@ export default defineComponent({
     setVisibility(map, [arrows], props.visible)
 
     const unbind = bindInteraction(map, ctx, arrows, src, (h) => emit('hover', h), (fid) => emit('select', fid))
+    ctx.stacks.set(id, { kind: 'vector', layerIds: () => [arrows] })
+    ctx.restackSoon()
 
     watch(arrowFeatures, () => {
       ;(map.getSource(src) as GeoJSONSource).setData(data())
@@ -93,6 +95,7 @@ export default defineComponent({
 
     onBeforeUnmount(() => {
       unbind()
+      ctx.stacks.delete(id)
       if (!map.getStyle()) return
       if (map.getLayer(arrows)) map.removeLayer(arrows)
       if (map.getSource(src)) map.removeSource(src)

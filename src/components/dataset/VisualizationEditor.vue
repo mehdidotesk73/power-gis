@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// Edits one layer: which column it shows, how rows combine per feature, and
+// Edits one visualization: which column it shows, how rows combine per feature, and
 // its style. Arrows or scalar follow from the column's type.
 import { computed } from 'vue'
 import ScalarStyleEditor from '../map/ScalarStyleEditor.vue'
 import VectorStyleEditor from '../map/VectorStyleEditor.vue'
-import { AGGREGATIONS, aggregationsFor, type Aggregation } from '../../lib/datasource/aggregate'
-import { columnType, retarget, ROWS, type LayerSpec } from '../../lib/datasource/layer'
-import type { BuiltDatasource } from '../../lib/datasource/datasource'
+import { AGGREGATIONS, aggregationsFor, type Aggregation } from '../../lib/dataset/aggregate'
+import { columnType, retarget, ROWS, type VisualizationSpec } from '../../lib/dataset/visualization'
+import type { BuiltDataset } from '../../lib/dataset/dataset'
 import type { LayerData } from '../../lib/schema'
 
-const props = defineProps<{ built: BuiltDatasource; layer: LayerSpec; data: LayerData }>()
-const emit = defineEmits<{ (e: 'update', l: LayerSpec): void; (e: 'remove'): void }>()
+const props = defineProps<{ built: BuiltDataset; layer: VisualizationSpec; data: LayerData }>()
+const emit = defineEmits<{ (e: 'update', l: VisualizationSpec): void; (e: 'remove'): void }>()
 
 const aggregations = computed<Aggregation[]>(() => (props.layer.column === ROWS ? ['count'] : aggregationsFor(columnType(props.built, props.layer.column))))
 
@@ -37,9 +37,9 @@ function setColumn(column: string, aggregation: Aggregation) {
       </select>
     </label>
     <p class="muted">{{ layer.kind === 'vector' ? 'Vector values — drawn as arrows.' : 'Scalar values — drawn with color, transparency and pattern.' }}</p>
-    <ScalarStyleEditor v-if="layer.kind === 'scalar'" :model-value="layer.style" :layer="data" @update:model-value="(style) => emit('update', { ...layer, style } as LayerSpec)" />
-    <VectorStyleEditor v-else :model-value="layer.style" @update:model-value="(style) => emit('update', { ...layer, style } as LayerSpec)" />
-    <button class="remove" @click="emit('remove')">Remove layer</button>
+    <ScalarStyleEditor v-if="layer.kind === 'scalar'" :model-value="layer.style" :layer="data" @update:model-value="(style) => emit('update', { ...layer, style } as VisualizationSpec)" />
+    <VectorStyleEditor v-else :model-value="layer.style" @update:model-value="(style) => emit('update', { ...layer, style } as VisualizationSpec)" />
+    <button class="remove" @click="emit('remove')">Remove visualization</button>
   </div>
 </template>
 

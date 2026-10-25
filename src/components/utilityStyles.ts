@@ -1,10 +1,10 @@
-// The built-in utilities-by-county data source: a generic data source with
-// preset layers that show the dataset well.
+// The built-in utilities-by-county dataset: a generic dataset with preset
+// visualizations that show it well.
 import type { DataRecord } from '../lib/data/connectors'
 import { PUBLIC_POWER } from '../lib/utilities'
-import { newId } from '../lib/datasource/datasource'
-import { ROWS, VALUE, type LayerSpec } from '../lib/datasource/layer'
-import type { GeometryBinding } from '../lib/datasource/binding'
+import { newId } from '../lib/dataset/dataset'
+import { ROWS, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
+import type { GeometryBinding } from '../lib/dataset/binding'
 
 export const OWNERSHIP_COLORS: Record<string, string> = {
   'Investor Owned': '#4e79a7',
@@ -26,7 +26,7 @@ export const UTILITY_TABLE = 'utility_counties'
 export const UTILITY_NAME = 'Electric utilities by county (EIA-861)'
 export const UTILITY_BINDING: GeometryBinding = { kind: 'boundary', column: 'county_fips', boundary: 'us-counties', includeEmpty: true }
 
-/** Adds yes/no ownership columns so a layer can hatch counties where a type is present. */
+/** Adds yes/no ownership columns so a visualization can hatch counties where a type is present. */
 export function withOwnershipFlags(records: DataRecord[]): DataRecord[] {
   return records.map((r) => ({
     ...r,
@@ -38,11 +38,12 @@ export function withOwnershipFlags(records: DataRecord[]): DataRecord[] {
 const outline = { color: '#ffffff', width: 0.3, opacity: 0.7 }
 const clear = { opacity: { kind: 'constant' as const, value: 0 }, outline: { color: '#ffffff', width: 0, opacity: 0 } }
 
-export function utilityLayers(datasourceId: string): LayerSpec[] {
-  return [
+/** Preset visualizations, top of the list first (the hatch draws over the fills). */
+export function utilityVisualizations(datasetId: string): VisualizationSpec[] {
+  const list: VisualizationSpec[] = [
     {
       id: newId('l'),
-      datasourceId,
+      datasetId,
       name: 'Number of utilities',
       visible: true,
       kind: 'scalar',
@@ -57,7 +58,7 @@ export function utilityLayers(datasourceId: string): LayerSpec[] {
     },
     {
       id: newId('l'),
-      datasourceId,
+      datasetId,
       name: 'Most common ownership',
       visible: false,
       kind: 'scalar',
@@ -71,9 +72,9 @@ export function utilityLayers(datasourceId: string): LayerSpec[] {
       },
     },
     {
-      // Pattern only (transparent fill): stacks on top of either layer above.
+      // Pattern only (transparent fill): stacks on top of either fill.
       id: newId('l'),
-      datasourceId,
+      datasetId,
       name: 'Co-op present (hatch)',
       visible: false,
       kind: 'scalar',
@@ -86,4 +87,5 @@ export function utilityLayers(datasourceId: string): LayerSpec[] {
       },
     },
   ]
+  return list.reverse()
 }

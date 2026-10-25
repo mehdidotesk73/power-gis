@@ -31,7 +31,36 @@ const BLANK: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'bg'
 const el = ref<HTMLDivElement>()
 const map = shallowRef<MlMap | null>(null)
 // Draw-order slots are added on load, under the basemap's first label layer.
-const ctx: MapContext = { map, slot: (kind) => slotId(kind), interactive: new Set() }
+// Widgets mount (and re-add pattern layers) on their own schedule, so the
+// last requested order is kept and re-applied whenever one changes.
+let lastOrder: string[] = []
+let restackQueued = false
+const ctx: MapContext = {
+  map,
+  slot: (kind) => slotId(kind),
+  interactive: new Set(),
+  stacks: new Map(),
+  restackSoon: () => {
+    if (restackQueued) return
+    restackQueued = true
+    queueMicrotask(() => {
+      restackQueued = false
+      applyOrder()
+    })
+  },
+}
+
+function applyOrder() {
+  const m = map.value
+  if (!m) return
+  // Moving each widget just under its kind's slot, bottom of the list first,
+  // leaves the list's top widget highest.
+  for (const id of [...lastOrder].reverse()) {
+    const s = ctx.stacks.get(id)
+    if (!s) continue
+    for (const layerId of s.layerIds()) if (m.getLayer(layerId)) m.moveLayer(layerId, slotId(s.kind))
+  }
+}
 provide(MAP_KEY, ctx)
 
 onMounted(() => {
@@ -77,6 +106,11 @@ defineExpose({
     map.value?.fitBounds([b[0], b[1], b[2], b[3]], { padding: 40, maxZoom, duration: 600 })
   },
   getMap: () => map.value,
+  /** Stack widget layers to match a list, first = on top (within each draw kind). */
+  restack(idsTopFirst: string[]) {
+    lastOrder = [...idsTopFirst]
+    applyOrder()
+  },
 })
 </script>
 

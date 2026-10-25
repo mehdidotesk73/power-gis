@@ -8,8 +8,8 @@
 //   (database)           — e.g. Supabase: implement DataConnector with
 //                          readTable(name) = select * from <name>. Not built yet.
 //
-// A connector's table plus a geometry binding becomes a *data source*
-// (lib/datasource), which layers then visualize.
+// A connector's table plus a geometry binding becomes a *dataset*
+// (lib/dataset), which layers then visualize.
 
 import { parseCsv } from './csv'
 

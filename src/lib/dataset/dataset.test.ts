@@ -3,8 +3,8 @@ import { aggregate, defaultAggregation } from './aggregate'
 import { boundaryKey, geometryFromValue, groupRows, guessBinding, type BoundaryFeature } from './binding'
 import { coerce, inferColumns } from './columns'
 import { parseWkt } from './wkt'
-import { buildDatasource, withVectorColumn } from './datasource'
-import { defaultLayer, layerData, makeLayer, retarget, ROWS, VALUE } from './layer'
+import { buildDataset, withVectorColumn } from './dataset'
+import { defaultVisualization, visualizationData, makeVisualization, retarget, ROWS, VALUE } from './visualization'
 import { parseVector } from '../schema'
 
 const square = (x: number) => ({ type: 'Polygon' as const, coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 1], [x, 0]]] })
@@ -114,7 +114,7 @@ describe('vectors', () => {
   })
 })
 
-describe('data sources and layers', () => {
+describe('datasets and visualizations', () => {
   const records = withVectorColumn(
     [
       { county_fips: '01001', utility: 'Alabama Power', type: 'IOU', customers: '100', u: '1', v: '0' },
@@ -126,7 +126,7 @@ describe('data sources and layers', () => {
     'v',
   )
   const binding = { kind: 'boundary' as const, column: 'county_fips', boundary: 'us-counties' as const }
-  const built = buildDatasource({ id: 'ds', name: 'Utilities', binding }, records, inferColumns(records), counties)
+  const built = buildDataset({ id: 'ds', name: 'Utilities', binding }, records, inferColumns(records), counties)
 
   it('builds one feature per region with default aggregates', () => {
     expect(built.maxRowsPerFeature).toBe(2)
@@ -138,28 +138,28 @@ describe('data sources and layers', () => {
   })
 
   it('picks the layer kind from the column type', () => {
-    expect(defaultLayer(built, 'ds')).toMatchObject({ column: ROWS, aggregation: 'count', kind: 'scalar' })
-    expect(makeLayer(built, 'ds', 'flow')).toMatchObject({ kind: 'vector', aggregation: 'mean' })
-    expect(makeLayer(built, 'ds', 'customers').kind).toBe('scalar')
-    expect(makeLayer(built, 'ds', 'flow', 'count').kind).toBe('scalar') // a count of vectors is a number
-    expect((makeLayer(built, 'ds', 'type') as { style: { color: { kind: string } } }).style.color.kind).toBe('categorical')
+    expect(defaultVisualization(built, 'ds')).toMatchObject({ column: ROWS, aggregation: 'count', kind: 'scalar' })
+    expect(makeVisualization(built, 'ds', 'flow')).toMatchObject({ kind: 'vector', aggregation: 'mean' })
+    expect(makeVisualization(built, 'ds', 'customers').kind).toBe('scalar')
+    expect(makeVisualization(built, 'ds', 'flow', 'count').kind).toBe('scalar') // a count of vectors is a number
+    expect((makeVisualization(built, 'ds', 'type') as { style: { color: { kind: string } } }).style.color.kind).toBe('categorical')
   })
 
   it('computes each layer\'s value per feature', () => {
-    const count = layerData(built, 'Utilities', defaultLayer(built, 'ds'))
+    const count = visualizationData(built, 'Utilities', defaultVisualization(built, 'ds'))
     expect(count.features.map((f) => f.properties[VALUE])).toEqual([2, 1])
-    const mean = makeLayer(built, 'ds', 'customers', 'mean')
-    const data = layerData(built, 'Utilities', mean)
+    const mean = makeVisualization(built, 'ds', 'customers', 'mean')
+    const data = visualizationData(built, 'Utilities', mean)
     expect(data.id).toBe(mean.id)
     expect(data.features[0].properties[VALUE]).toBe(75)
     expect(data.fields[0]).toMatchObject({ name: VALUE, type: 'double' })
-    const flow = layerData(built, 'Utilities', makeLayer(built, 'ds', 'flow', 'sum'))
+    const flow = visualizationData(built, 'Utilities', makeVisualization(built, 'ds', 'flow', 'sum'))
     expect(flow.features[0].properties[VALUE]).toEqual({ u: 1, v: 1 })
     expect(flow.fields[0].type).toBe('vector')
   })
 
   it('retargets a layer, keeping its style only when the value kind matches', () => {
-    const l = makeLayer(built, 'ds', 'customers', 'sum')
+    const l = makeVisualization(built, 'ds', 'customers', 'sum')
     const sameKind = retarget(built, l, 'customers', 'mean')
     expect(sameKind.style).toBe(l.style)
     expect(sameKind.id).toBe(l.id)
