@@ -94,7 +94,7 @@ onMounted(() => {
             </button>
           </div>
         </div>
-        <h1 class="app-title">Power Map</h1>
+        <h1 class="app-title">Energeo</h1>
         <button class="help-btn" @click="showHelp = true" aria-label="Help" title="Help">
           ? Help
         </button>

@@ -1,6 +1,6 @@
-# About Power Map
+# About Energeo
 
-Power Map shows power-sector data on a map of the United States.
+Energeo shows power-sector data on a map of the United States.
 
 ## What is this app?
 
