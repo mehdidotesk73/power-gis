@@ -1,9 +1,8 @@
 // Dataset helpers. A dataset is a plain table of rows (stored server side);
 // visualizations say how its rows become map features (query.ts).
 
-import type { DataRecord } from '../data/connectors'
 import type { FieldType } from '../schema'
-import type { ColumnType } from './columns'
+import { isGeometryColumn, type ColumnType } from './columns'
 
 // Synthetic properties on every dataset feature.
 export const KEY = '_key'
@@ -14,18 +13,15 @@ export const ROW_COUNT = '_rows'
 export const newId = (): string => crypto.randomUUID()
 
 export function fieldTypeOf(t: ColumnType): FieldType {
-  return t === 'geometry' ? 'string' : t
+  return isGeometryColumn(t) ? 'string' : t
 }
 
-/**
- * Add a vector column built from two numeric columns (east, north), for
- * tables that store vectors as separate u/v columns.
- */
-export function withVectorColumn(records: DataRecord[], name: string, u: string, v: string): DataRecord[] {
-  return records.map((r) => {
-    const uu = Number(r[u])
-    const vv = Number(r[v])
-    const ok = r[u] !== null && r[u] !== '' && r[v] !== null && r[v] !== '' && Number.isFinite(uu) && Number.isFinite(vv)
-    return { ...r, [name]: ok ? { u: uu, v: vv } : null }
-  })
+const LAT_COL = /^(lat|latitude|y|lat_?dd)$/i
+const LON_COL = /^(lon|lng|long|longitude|x|lon_?dd)$/i
+
+/** Latitude and longitude columns by name, if a table has an obvious pair. */
+export function guessLatLon(columns: { name: string }[]): { lat: string; lon: string } | null {
+  const lat = columns.find((c) => LAT_COL.test(c.name))
+  const lon = columns.find((c) => LON_COL.test(c.name))
+  return lat && lon ? { lat: lat.name, lon: lon.name } : null
 }

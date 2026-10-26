@@ -12,8 +12,8 @@ import { featureTable, type DataRecord } from '../lib/data/connectors'
 import { parseCsv } from '../lib/data/csv'
 import { fetchArcGISLayer, importJSON } from '../lib/arcgis'
 import type { BoundaryFeature, BoundaryId, GeometryBinding } from '../lib/dataset/binding'
-import { inferColumns, type ColumnInfo } from '../lib/dataset/columns'
-import { newId, withVectorColumn } from '../lib/dataset/dataset'
+import { inferColumns, isGeometryColumn, type ColumnInfo } from '../lib/dataset/columns'
+import { newId } from '../lib/dataset/dataset'
 import { bindingInfo, groupDataset, queryValues, type Grouped } from '../lib/dataset/query'
 
 export interface ServerEnv {
@@ -60,9 +60,9 @@ export function createServer(db: Database, env: ServerEnv) {
       p = (async () => {
         const ds = await dataset(datasetId)
         const cols = ds.columns.map((c) => c.name)
-        const used = binding.kind === 'latlon' ? [binding.lat, binding.lon] : [binding.column]
-        const missing = used.find((c) => !cols.includes(c))
-        if (missing) fail('invalid', `Dataset "${ds.name}" has no column "${missing}"`)
+        if (!cols.includes(binding.column)) fail('invalid', `Dataset "${ds.name}" has no column "${binding.column}"`)
+        const type = ds.columns.find((c) => c.name === binding.column)!.type
+        if (binding.kind === 'geometry' && !isGeometryColumn(type)) fail('invalid', `"${binding.column}" is a ${type} column, not a geometry column`)
         const rows = (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`)
         const boundaries = binding.kind === 'boundary' ? await env.loadBoundaries(binding.boundary) : undefined
         return { g: groupDataset(rows, ds.columns, binding, boundaries), columns: ds.columns }
@@ -108,35 +108,24 @@ export function createServer(db: Database, env: ServerEnv) {
     async uploadDataset({ source, name }) {
       const src = await readSource(source)
       if (!src.rows.length) fail('invalid', 'That table has no rows')
+      const rows = src.rows
+      const columns = inferColumns(rows)
       const id = newId()
       const t = now()
       const record: DatasetRecord = {
         id,
         name: name?.trim() || src.name,
         table: dataTableName(id),
-        columns: inferColumns(src.rows),
-        rowCount: src.rows.length,
+        columns,
+        rowCount: rows.length,
         origin: src.origin,
         createdAt: t,
         updatedAt: t,
         ...(src.extensions ? { extensions: src.extensions } : {}),
       }
-      await db.writeRows(record.table, src.rows)
+      await db.writeRows(record.table, rows)
       await db.put('datasets', record)
       return { datasetId: id }
-    },
-
-    async addVectorColumn({ datasetId, name, u, v }) {
-      const ds = await dataset(datasetId)
-      const n = name.trim()
-      if (!n) fail('invalid', 'A vector column needs a name')
-      if (ds.columns.some((c) => c.name === n)) fail('invalid', `Dataset "${ds.name}" already has a column "${n}"`)
-      for (const c of [u, v]) if (!ds.columns.some((x) => x.name === c)) fail('invalid', `Dataset "${ds.name}" has no column "${c}"`)
-      const rows = (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`)
-      await db.writeRows(ds.table, withVectorColumn(rows, n, u, v))
-      await db.put('datasets', { ...ds, columns: [...ds.columns, { name: n, type: 'vector' }], updatedAt: now() })
-      forget(datasetId)
-      return { datasetId }
     },
 
     async updateDataset({ id, name, description, extensions }) {

@@ -3,9 +3,14 @@
 // to it before aggregation and styling.
 
 import type { DataRecord } from '../data/connectors'
-import { parseVector } from '../schema'
+import { geometryKindOf, parseVector, type GeometryKind } from '../schema'
+import { geometryFromValue } from './wkt'
 
-export type ColumnType = 'int' | 'double' | 'boolean' | 'datetime' | 'string' | 'vector' | 'geometry'
+/** Geometry columns hold real features (GeoJSON geometries, lon/lat) of one kind. */
+export type GeometryColumnType = GeometryKind // 'point' | 'polyline' | 'region'
+export type ColumnType = 'int' | 'double' | 'boolean' | 'datetime' | 'string' | 'vector' | GeometryColumnType
+export const GEOMETRY_TYPES: readonly GeometryColumnType[] = ['point', 'polyline', 'region']
+export const isGeometryColumn = (t: ColumnType): t is GeometryColumnType => (GEOMETRY_TYPES as readonly string[]).includes(t)
 
 export interface ColumnInfo {
   name: string
@@ -37,14 +42,18 @@ export function inferColumns(records: DataRecord[], sample = 2000): ColumnInfo[]
     let int = 0
     let bool = 0
     let date = 0
-    let geom = 0
+    const geom: Record<GeometryKind, number> = { point: 0, polyline: 0, region: 0 }
+    let geoms = 0
     let vec = 0
     let leadingZero = false
     for (const r of records) {
       const v = r[name]
       if (isEmpty(v)) continue
       if (++n > sample) break
-      if (isGeometryLike(v)) geom++
+      if (isGeometryLike(v)) {
+        const k = geometryKindOf(geometryFromValue(v))
+        if (k) geom[k]++, geoms++
+      }
       else if (parseVector(v)) vec++
       else if (typeof v === 'boolean' || (typeof v === 'string' && BOOL.test(v))) bool++
       else if (typeof v === 'number' || (typeof v === 'string' && NUMBER.test(v.trim()))) {
@@ -57,7 +66,7 @@ export function inferColumns(records: DataRecord[], sample = 2000): ColumnInfo[]
     n = Math.min(n, sample)
     let type: ColumnType = 'string'
     if (n === 0) type = 'string'
-    else if (geom === n) type = 'geometry'
+    else if (geoms === n) type = GEOMETRY_TYPES.reduce((a, b) => (geom[b] > geom[a] ? b : a)) // mixed kinds: the most common
     else if (vec === n) type = 'vector'
     else if (bool === n) type = 'boolean'
     else if (num === n && !leadingZero) type = int === n ? 'int' : 'double'
@@ -83,8 +92,12 @@ export function coerce(v: unknown, type: ColumnType): unknown {
     }
     case 'vector':
       return parseVector(v)
-    case 'geometry':
-      return v
+    case 'point':
+    case 'polyline':
+    case 'region': {
+      const g = geometryFromValue(v)
+      return g && geometryKindOf(g) === type ? g : null
+    }
     default:
       return String(v)
   }

@@ -37,8 +37,6 @@ export interface Api {
   init: [{ baseUrl: string }, { userId: string }]
   /** Upload a table: stored as a new data table, registered in `datasets`. */
   uploadDataset: [{ source: UploadSource; name?: string }, { datasetId: string }]
-  /** Adds a vector column combined from two numeric columns (east, north) to a dataset's table. */
-  addVectorColumn: [{ datasetId: string; name: string; u: string; v: string }, { datasetId: string }]
   updateDataset: [{ id: string; name?: string; description?: string; extensions?: Record<string, unknown> }, { datasetId: string }]
   /** Drops the data table and registry row, and every visualization of it. */
   deleteDataset: [{ id: string }, { datasetId: string }]

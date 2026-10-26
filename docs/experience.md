@@ -312,6 +312,15 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Geometry columns — 2026-10-26
+- **Added:** point / polyline / region column types; the demo vector field carries a point column.
+- **Removed:** lat/lon visualization bindings — saved ones are dropped with a log line; the
+  dataset editor's "Combine two columns into a vector" — deriving columns (lat/lon → point,
+  u/v → vector) is left to SQL transforms (step 2). A brief auto point column at upload and an
+  "Add a column" form were built and dropped before merge for the same reason.
+- **Changed:** default visualizations skip latitude / longitude columns as values.
+- **Docs:** CLAUDE.md, system-design §4, help overview, TODO roadmap (1c, step 3 data-agnostic).
+
 ### Categorical palettes — 2026-10-25
 - **Added:** 12 / 24 / 60-color, Many and Auto palettes (`lib/palettes.ts`); palette picker.
 - **Removed:** the 9-category cap and grey "other" bucket; values are colored in sorted order

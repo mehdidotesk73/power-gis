@@ -36,6 +36,11 @@ Track feature development, improvements, and known issues here. Move completed w
   nested 12 / 24 / 60-color palettes (Tableau + CIELAB max-min), `many` (lightness variations) and
   `auto`. Category colors no longer stop at 9 (no `maxCategories`); palette picker + swatch strip in
   the editor; legends with many items in columns. Reusable for charts.
+- **Geometry columns** — `point` / `polyline` / `region` column types (GeoJSON, lon/lat; inferred
+  from GeoJSON or WKT); visualizations draw a geometry column (lat/lon bindings removed;
+  `isSupportedBinding` drops old ones). Geometry comes with the data (nothing derived at upload;
+  lat/lon → point and u/v → vector are transforms, step 2). Region-code binding kept as a stopgap
+  until boundary datasets + joins.
 
 ## Next (Current Sprint)
 
@@ -86,14 +91,21 @@ results, because the agent workflow (step 6) drives the same operations as the U
    - **Workspace file** download / load holds the config (pointers) only, never rows — it opens
      wherever the database has those ids (this device today; any device with Supabase).
    - Built-in EIA data is loaded into the database once, as an ordinary dataset.
+1c. ~~**Geometry columns**~~ (done, see Done) — visualizations draw real features: a point /
+   polyline / region column (lon/lat), from the data or a transform.
 2. **DuckDB-WASM + derived datasets + dataset profiles** — DuckDB (lazy-loaded) for SQL; a derived
-   dataset is a SQL query over datasets, then bound to geometry like an import (this also covers
+   dataset is a SQL query over datasets (e.g. lat + lon → point, east + north → vector), whose geometry columns visualizations draw (this also covers
    visualizations sourced from several datasets: join, then visualize). A **profile** for every
    dataset (row count, columns/types, nulls, completeness, key coverage) — the metadata agents
    report for approval. SQL errors and profiles returned in agent-readable form.
 3. **Normalize the EIA-861 data** — **counties**, **utilities** and a **county ↔ utility join table**
    (and the alternative: a utilities **list-of-counties column** joined by unnest); rebuild today's
    map from a SQL join. Fixes the misleading `counties_in_state` (it's per utility, not per state).
+   Built-in **counties** and **states** boundary datasets (fips → region column) replace the
+   region-code binding. **Data-agnostic:** today's map rebuilt from datasets, a join transform and a
+   default workspace file; utility- and county-specific code (`utilityStyles`, the county dashboard,
+   utility search, `withOwnershipFlags`, boundary matching) deleted — general replacements where
+   needed (column search; the rows table).
 4. **DAG** — connector → dataset → derived dataset → visualization, built from the workspace
    document; later also a live view of agent pipelines (with their source / usage-policy records).
 5. **Tabs** — datasets shared; each tab has its own ordered visualizations, map view and DAG.

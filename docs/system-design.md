@@ -115,7 +115,7 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   database read-only.
 - **Server** — `src/server/server.ts` (`createServer(db, env)`), run in a **Web Worker** by
   `worker.ts`. Requests (`src/shared/api.ts`): `init`, `uploadDataset` (CSV / GeoJSON-Esri file,
-  ArcGIS URL, built-in table → new data table + registry row), `addVectorColumn`, `updateDataset`,
+  ArcGIS URL, built-in table → new data table + registry row), `updateDataset`,
   `deleteDataset` (cleans up visualizations and workspace configs), `describeBinding` (features,
   unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
   `saveWorkspace` (upserts its visualization records, deletes dropped ones), `deleteWorkspace`.
@@ -130,10 +130,18 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   dataset's rows are their own data table (`ds_<uuid>`). IndexedDB (`shared/idb.ts`, database
   `powergis-db`: one store per base table + `data`) on this device; `MemoryDatabase` for tests. No
   access control yet — an access layer between users and tables comes later.
-- **Geometry binding is a visualization setting** — datasets are plain tables, so one table can be
-  drawn as counties in one visualization and as points in another. Boundary polygons stay static
-  client files (`lib/dataset/boundaries.ts`, also loaded by the server to match codes); for lat/lon
-  and geometry bindings the server sends the geometry.
+- **Geometry columns.** `point`, `polyline` and `region` are column types (`lib/dataset/columns.ts`):
+  GeoJSON geometries in lon/lat, inferred from GeoJSON or WKT cells (a mixed column takes its most
+  common kind; cells of another kind coerce to null). Geometry comes with the data — features get a
+  typed geometry column, WKT / GeoJSON cells are typed — and nothing is derived at upload: building
+  a point from latitude / longitude (or a vector from two columns) is a transform (step 2).
+- **Geometry binding is a visualization setting** — `{kind: 'geometry', column}` draws a geometry
+  column; rows with identical geometry become one feature. There are no lat/lon bindings: a
+  visualization always draws real features (older saved lat/lon visualizations are dropped on load
+  with a log line, `isSupportedBinding`). The stopgap `{kind: 'boundary'}` matches region codes to
+  built-in county / state polygons (static client files, `lib/dataset/boundaries.ts`, also loaded by
+  the server to match codes) until transforms can join a boundary dataset. For geometry bindings the
+  server sends the geometry; for boundary ones the client attaches it.
 - **Not dataset properties:** source and usage policy — they belong to the agent workflow's run
   records (roadmap step 6).
 

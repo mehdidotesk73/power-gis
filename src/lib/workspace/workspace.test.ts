@@ -14,7 +14,7 @@ import {
 } from './workspace'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 
-const binding = { kind: 'latlon' as const, lat: 'lat', lon: 'lon' }
+const binding = { kind: 'geometry' as const, column: 'loc' }
 const viz = (id: string, datasetId: string, column = ROWS): VisualizationSpec => ({
   kind: 'scalar',
   id,
@@ -61,11 +61,11 @@ describe('workspace operations', () => {
   })
 
   it('adds, updates and removes visualizations, validating dataset, column and binding columns', () => {
-    const ctx = { columns: (id: string) => (id === 'a' ? ['mw', 'lat', 'lon'] : []) }
+    const ctx = { columns: (id: string) => (id === 'a' ? ['mw', 'loc'] : []) }
     expect(doc(addVisualization(base, viz('n', 'a', 'mw'), 0, ctx)).visualizations[0].id).toBe('n')
     expect(doc(addVisualization(base, viz('n', 'a'), 99)).visualizations.at(-1)!.id).toBe('n')
     expect(addVisualization(base, viz('n', 'a', 'nope'), 0, ctx)).toMatchObject({ ok: false, error: { code: 'not_found' } })
-    expect(addVisualization(base, { ...viz('n', 'a'), binding: { kind: 'latlon', lat: 'y', lon: 'lon' } }, 0, ctx)).toMatchObject({ ok: false })
+    expect(addVisualization(base, { ...viz('n', 'a'), binding: { kind: 'geometry', column: 'nope' } }, 0, ctx)).toMatchObject({ ok: false })
     expect(addVisualization(base, viz('n', 'zz'))).toMatchObject({ ok: false, error: { code: 'not_found' } })
     expect(addVisualization(base, viz('a1', 'a'))).toMatchObject({ ok: false, error: { code: 'duplicate' } })
     expect(doc(updateVisualization(base, { ...viz('a1', 'a'), visible: false })).visualizations[1].visible).toBe(false)

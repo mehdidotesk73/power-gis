@@ -50,7 +50,7 @@ const { info: addInfo, error: addError } = useBindingInfo(
 /** The binding a dataset's other visualizations use, else a guess from its columns. */
 function bindingFor(d: DatasetRecord): GeometryBinding {
   const used = props.visualizations.find((v) => v.datasetId === d.id)?.binding
-  return used ?? guessBinding(d.columns) ?? { kind: 'boundary', column: d.columns[0]?.name ?? '', boundary: 'us-counties' }
+  return used ?? guessBinding(d.columns) ?? { kind: 'geometry', column: '' } // nothing to draw on: the editor says so
 }
 function pickDataset(id: string) {
   addDataset.value = id

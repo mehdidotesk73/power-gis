@@ -68,7 +68,7 @@ function checkVisualization(doc: WorkspaceDoc, v: VisualizationSpec, ctx: OpCont
   if (!v.name.trim()) return { code: 'invalid', message: 'A visualization needs a name' }
   const cols = ctx.columns?.(v.datasetId)
   if (cols) {
-    const used = [v.column, ...(v.binding.kind === 'latlon' ? [v.binding.lat, v.binding.lon] : [v.binding.column])].filter((c) => c !== '__rows')
+    const used = [v.column, v.binding.column].filter((c) => c !== '__rows')
     const missing = used.find((c) => !cols.includes(c))
     if (missing) return { code: 'not_found', message: `Dataset "${v.datasetId}" has no column "${missing}" (has: ${cols.join(', ')})` }
   }
