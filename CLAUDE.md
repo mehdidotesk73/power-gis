@@ -139,7 +139,7 @@ whatever they're actually asking about.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
   column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
   Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells, or combined from two
-  numeric columns (`addVectorColumn` request → `withVectorColumn`). They aggregate component-wise (sum / mean).
+  numeric columns (`addColumn` request, `from: {kind: 'vector'}` → `withVectorColumn`). They aggregate component-wise (sum / mean).
   ArcGIS has no vector type, so exports split them into `<name>_u` / `<name>_v` Double fields;
   our schema sidecar rebuilds them on re-import.
 - **Categorical colors** (`lib/palettes.ts`): every value gets a color — no category cap. Palettes
