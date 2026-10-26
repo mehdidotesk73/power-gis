@@ -254,9 +254,13 @@ const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids
 
 // ── graph (DAG) view of the workspace ──────────────────────────────────────
 
-// Controls show as one graph (every time the app opens) or as lists.
-const view = ref<'list' | 'graph'>('graph')
-watch(view, () => closeNode())
+// Controls show as one graph (the default) or as lists; the choice is remembered per device.
+const VIEW = 'powergis.controlsView'
+const view = ref<'list' | 'graph'>(store.get(VIEW) === 'list' ? 'list' : 'graph')
+watch(view, (v) => {
+  store.set(VIEW, v)
+  closeNode()
+})
 const dag = computed(() => buildDag(doc.value, (id) => records.value.get(id)))
 /** The node open under the graph (by key, so it follows edits and disappears when deleted). */
 const dagKey = ref<string | null>(null)

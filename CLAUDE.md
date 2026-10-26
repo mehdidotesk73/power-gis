@@ -213,8 +213,8 @@ whatever they're actually asking about.
   Run, Edit, Delete.
 - **List view** panels (Visualizations, Datasets, Transforms, Export) open collapsed; each panel's
   ＋ button sits at its top.
-- **Graph view (DAG)** — the default: the app always opens on **Graph**; a **List | Graph** switch
-  above the panels changes it for the session. `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
+- **Graph view (DAG)** — the default view; a **List | Graph** switch above the panels changes it,
+  remembered per device (`powergis.controlsView`). `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
   nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest
   input, its output below it, every visualization in the bottom row), one barycenter pass orders each
   row; `layoutDag` places them (automatic, nothing stored). Transforms show **not run yet** (no

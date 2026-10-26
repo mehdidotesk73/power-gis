@@ -325,8 +325,8 @@ Two additions from reviewing it here, beyond what the originating project report
 - **Changed:** transforms are inputs + outputs (one SQL per output; Run writes all, or none if one
   fails). Old single-SQL transforms are read through `normalizeTransform`. **＋ Dataset** joined the
   graph's toolbar (the separate Add dataset button under the graph is gone). The List view opens
-  with every panel collapsed, and ＋ Add dataset sits at the top of its panel like the others. The
-  app opens on the Graph view every time (the List choice is no longer remembered).
+  with every panel collapsed, and ＋ Add dataset sits at the top of its panel like the others. Graph
+  is the default view; the List | Graph choice is remembered per device.
 - **Fixed:** the transform editor could widen the whole controls column past a phone's screen (a
   grid's auto column grows to its widest child) — `minmax(0, 1fr)` on the page grid and the editor.
 - **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
