@@ -11,12 +11,20 @@ import { vReveal } from '../reveal'
 import { usePanZoom } from './usePanZoom'
 import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode } from '../../lib/workspace/dag'
 
-const props = defineProps<{ dag: Dag; selected: string | null }>()
+const props = defineProps<{
+  dag: Dag
+  selected: string | null
+  /** How many transforms "Run all stale" would run (0 hides it). */
+  staleCount?: number
+  /** While running, "Running 2 of 3 · …"; then the outcome. */
+  staleProgress?: { running: boolean; text: string } | null
+}>()
 const emit = defineEmits<{
   (e: 'select', node: DagNode | null): void
   (e: 'new-transform', datasetIds: string[]): void
   (e: 'new-viz', datasetId: string): void
   (e: 'new-dataset'): void
+  (e: 'run-stale'): void
 }>()
 
 const DIRECTION = 'powergis.dagDirection'
@@ -123,6 +131,14 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
       <button class="kind-pill k-transform" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
       <button class="kind-pill k-viz" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
       <button
+        v-if="staleCount && !staleProgress?.running"
+        class="kind-pill k-attention"
+        title="Re-run every transform marked ↻, and what depends on them, in order"
+        @click="emit('run-stale')"
+      >
+        ↻ Run all stale ({{ staleCount }})
+      </button>
+      <button
         class="flip"
         :title="direction === 'vertical' ? 'Flowing down — switch to left to right' : 'Flowing right — switch to top to bottom'"
         :aria-label="direction === 'vertical' ? 'Lay out left to right' : 'Lay out top to bottom'"
@@ -131,7 +147,8 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
         {{ direction === 'vertical' ? '↓' : '→' }}
       </button>
     </div>
-    <div v-else class="banner">
+    <p v-if="!mode && staleProgress" class="stale-msg" role="status">{{ staleProgress.text }}</p>
+    <div v-else-if="mode" class="banner">
       <span v-if="mode === 'transform'">Tap the datasets this transform reads{{ picked.length ? ` · ${picked.length} picked` : '' }}.</span>
       <span v-else>Tap the dataset to visualize.</span>
       <span class="actions">
@@ -196,6 +213,11 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 .bar {
   flex-wrap: wrap;
   gap: 0.3rem;
+}
+.stale-msg {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--text-muted);
 }
 .flip {
   margin-left: auto;

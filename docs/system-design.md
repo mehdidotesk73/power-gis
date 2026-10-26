@@ -242,6 +242,13 @@ under the graph using the list components filtered to that item (`compact` props
 buttons and hints); holding the card gives its menu, exactly as in the lists. Only a transform or
 visualization just created from the graph opens straight into its editor.
 
+**↻ Run all stale** (`staleRunOrder` in `dag.ts`): every transform that needs a re-run, plus every
+transform downstream of one (already run, reading a pending one's output — it would be stale once that
+rewrites its input), ordered so writers run before readers (depth-first; a self-reading transform
+can't loop). Never-run transforms are skipped as possible drafts. `MapPage.runAllStale` runs them one
+by one through the ordinary `runTransform`, shows "Running 2 of 3 · name…", and stops at the first
+failure. The pill (amber, `.kind-pill.k-attention`) appears only when the list is non-empty.
+
 Each dataset has at most one writer: each transform output writes a new dataset (made on Run) or
 an existing dataset that isn't one of its transform's inputs and that no other output writes
 (`checkTransform` in `workspace.ts`). Deleting a transform keeps its output dataset; that dataset

@@ -34,7 +34,7 @@ import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { newId, ROW_COUNT } from '../lib/dataset/dataset'
-import { buildDag, type DagNode } from '../lib/workspace/dag'
+import { buildDag, staleRunOrder, type DagNode } from '../lib/workspace/dag'
 import { defaultVisualization, makeVisualization, settingsOf, visualizationLayer, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
 import {
   addDataset,
@@ -401,6 +401,31 @@ async function runTransform(id: string) {
   logDebug(`transform "${t.name}": ${lines.join(' · ')}`)
 }
 
+// ── Run all stale ──────────────────────────────────────────────────────────
+// Every transform needing a re-run, plus everything downstream of one, inputs
+// first (lib/workspace/dag.ts staleRunOrder). Stops at the first failure.
+const staleOrder = computed(() => staleRunOrder(doc.value, (id) => records.value.get(id)))
+/** "2 of 3 · Utilities by county" while running; the outcome after. */
+const staleProgress = ref<{ running: boolean; text: string } | null>(null)
+async function runAllStale() {
+  const order = [...staleOrder.value]
+  if (!order.length || staleProgress.value?.running) return
+  for (const [i, id] of order.entries()) {
+    const t = doc.value.transforms.find((x) => x.id === id)
+    staleProgress.value = { running: true, text: `Running ${i + 1} of ${order.length}${t ? ` · ${t.name}` : ''}…` }
+    await runTransform(id)
+    const st = runStatus.value[id]
+    if (st?.state === 'error') {
+      staleProgress.value = { running: false, text: `⚠ “${t?.name ?? 'transform'}” failed: ${st.message ?? ''} — ${i} of ${order.length} ran.` }
+      return
+    }
+  }
+  staleProgress.value = { running: false, text: `✓ Re-ran ${order.length} transform${order.length === 1 ? '' : 's'}.` }
+  setTimeout(() => {
+    if (!staleProgress.value?.running) staleProgress.value = null
+  }, 6000)
+}
+
 /** Fits the map to a visualization's features (those with rows). */
 function zoomToViz(vizId: string) {
   const r = renderedById.value.get(vizId)
@@ -737,7 +762,17 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
       <template v-if="view === 'graph'">
         <div class="graph-wrap" :class="{ split: dagNode || dagNewViz || dagNewDataset }">
         <section class="box">
-          <DagView :dag="dag" :selected="dagKey" @select="openNode" @new-transform="newTransformFrom" @new-viz="newVizFor" @new-dataset="newDataset" />
+          <DagView
+            :dag="dag"
+            :selected="dagKey"
+            :stale-count="staleOrder.length"
+            :stale-progress="staleProgress"
+            @select="openNode"
+            @new-transform="newTransformFrom"
+            @new-viz="newVizFor"
+            @new-dataset="newDataset"
+            @run-stale="runAllStale"
+          />
         </section>
         <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
           <div class="dag-detail-head">
@@ -804,6 +839,10 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 
         <details class="box">
           <summary>Transforms</summary>
+          <div v-if="staleOrder.length || staleProgress" class="stale-row">
+            <button v-if="staleOrder.length && !staleProgress?.running" class="kind-pill k-attention" @click="runAllStale">↻ Run all stale ({{ staleOrder.length }})</button>
+            <span v-if="staleProgress" class="stale-msg">{{ staleProgress.text }}</span>
+          </div>
           <TransformsPanel
             :transforms="doc.transforms"
             :datasets="datasets"
@@ -1098,6 +1137,17 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .box[open] summary {
   margin-bottom: 0.45rem;
+}
+.stale-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+.stale-msg {
+  font-size: 0.74rem;
+  color: var(--text-muted);
 }
 .import-wrap {
   margin-bottom: 0.45rem; /* above the list, as the other panels' ＋ buttons */

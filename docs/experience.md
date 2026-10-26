@@ -312,6 +312,11 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Run all stale — 2026-10-26
+- **Added:** ↻ Run all stale (graph toolbar and list Transforms panel): every stale transform plus
+  everything downstream, writers before readers, one by one, stopping at the first failure.
+- **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
+
 ### Graph layout + panel UI — 2026-10-26
 - **Changed:** the DAG ordering minimizes arrow crossings — edges that skip rows get virtual points
   (their own lane in each row, drawn through), then alternating barycenter sweeps with neighbour

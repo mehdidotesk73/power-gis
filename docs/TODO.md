@@ -70,6 +70,8 @@ Track feature development, improvements, and known issues here. Move completed w
   [column]"), compact pill ＋ buttons (as bitcoin-explorer's toggles), flows scroll each step into view, clearer visualization-form labels.
 - **Dark theme** — dark only; colour tokens by job (blue interaction, violet datasets, orange
   transforms, green visualizations, amber attention + mark, orchid Search matches); dark basemap.
+- **Run all stale** — ↻ pill (graph + list): stale transforms and everything downstream, inputs
+  first, stops on the first failure (`staleRunOrder`).
 - **Workspace in the header** — Workspace button (amber ● when unsaved) with a drop-down panel; list
   panels ordered Visualizations / Transforms / Datasets with the same ＋ pills.
 - **Graph pan / zoom** — drag, Shift + wheel, trackpad pinch; phones: hold then drag, pinch.
@@ -82,7 +84,7 @@ One-time setup — tick these off as they're done:
       (site: https://powergis.netlify.app)
 - [x] Protect `main` (finish-setup) — required; this is what makes changes arrive as PRs with
       preview links, instead of going straight to the live site
-- [ ] Review the utilities-by-county map on a phone (now built from datasets + a join transform)
+- [x] Review the utilities-by-county map on a phone (now built from datasets + a join transform)
 
 ## Code
 
@@ -135,8 +137,7 @@ results, because the agent workflow (step 6) drives the same operations as the U
    columns round-trip through transforms.
 4. **DAG** — first version done (see Done): a Graph view of datasets → transforms → outputs →
    visualizations, auto-laid-out, where transforms and visualizations can be added and opened.
-   Still open: saved node positions / dragging, rewiring by dragging edges (computers), Run all
-   stale, and later a live view of agent pipelines (with their source / usage-policy records).
+   Still open: saved node positions / dragging, rewiring by dragging edges (computers), and later a live view of agent pipelines (with their source / usage-policy records).
 5. **Tabs** — datasets shared; each tab has its own ordered visualizations, map view and DAG.
    **Phones: tabs only.**
 6. **Agent workflow** — see below.
