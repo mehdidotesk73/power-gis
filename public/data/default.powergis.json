@@ -6,7 +6,6 @@
   "datasetIds": [
     "transform:0",
     "builtin:utilities",
-    "builtin:utility_sales",
     "builtin:utility_counties",
     "builtin:us_counties",
     "builtin:us_states"
@@ -174,7 +173,7 @@
   "transforms": [
     {
       "name": "Utilities by county",
-      "sql": "-- Each county with the utilities serving it (one row per link); counties no utility reports keep one empty row.\n-- Customers are the utility's in the county's state: EIA reports them per state, never per county.\nSELECT c.geometry, c.name AS county, c.fips AS county_fips, c.state,\n  u.utility_id_eia, u.utility_name, u.entity_type,\n  u.entity_type = 'Cooperative' AS cooperative,\n  s.customers AS state_customers\nFROM counties c\nLEFT JOIN links l ON l.county_fips = c.fips\nLEFT JOIN utilities u ON u.utility_id_eia = l.utility_id_eia\nLEFT JOIN sales s ON s.utility_id_eia = l.utility_id_eia AND s.state = c.state\nORDER BY c.fips, u.utility_name",
+      "sql": "-- Each county with the utilities serving it (one row per link); counties no utility reports keep one empty row.\nSELECT c.geometry, c.name AS county, c.fips AS county_fips, c.state,\n  u.utility_id_eia, u.utility_name, u.entity_type,\n  u.entity_type = 'Cooperative' AS cooperative\nFROM counties c\nLEFT JOIN links l ON l.county_fips = c.fips\nLEFT JOIN utilities u ON u.utility_id_eia = l.utility_id_eia\nORDER BY c.fips, u.utility_name",
       "inputs": [
         {
           "datasetId": "builtin:us_counties",
@@ -187,10 +186,6 @@
         {
           "datasetId": "builtin:utilities",
           "alias": "utilities"
-        },
-        {
-          "datasetId": "builtin:utility_sales",
-          "alias": "sales"
         }
       ],
       "outputId": "transform:0"

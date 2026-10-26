@@ -314,7 +314,7 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Boundary datasets + data-agnostic default map — 2026-10-26
 - **Added:** built-in boundary datasets `us_counties` / `us_states` (region geometry from us-atlas);
-  normalized EIA-861 tables (`utilities`, `utility_sales` per state, `utility_counties` links); the
+  normalized EIA-861 tables (`utilities` identity, `utility_counties` links); the
   default workspace file `public/data/default.powergis.json` (placeholders `builtin:<table>` /
   `transform:<n>`, resolved by `seedDefault`); a feature-name column in the geometry binding (`label`).
 - **Removed:** the region-code binding (`kind: 'boundary'`, `includeEmpty`, client boundary loader),
@@ -322,8 +322,8 @@ Two additions from reviewing it here, beyond what the originating project report
   `preset: 'utilities'` extension. Old saved visualizations of the removed kind are dropped on open
   with a note pointing at ⋯ → Reset. Clicking a county now shows the generic rows table.
 - **Fixed:** the misleading `counties_in_state` column is gone (count links in a transform instead).
-  Customers / sales / revenue live in their own table at EIA's grain (utility × state); totals are a
-  `GROUP BY`.
+  Customers / sales / revenue dropped for now (a separate built-in later, at EIA's utility × state
+  grain).
 - **Lesson:** a stored copy of a built-in must carry a version, or a device keeps feeding the old
   columns to a new default transform (`extensions.version`).
   `checkSelect` counted semicolons inside comments and strings as statement breaks; a trailing

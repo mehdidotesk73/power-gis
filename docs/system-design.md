@@ -198,9 +198,9 @@ transform). `seedDefault` (`MapPage.vue`) uploads each built-in (or reuses a cop
 `extensions.builtin` with the built-in's current `extensions.version`), runs each transform in order (or reuses an output marked `extensions.madeBy`
 = its SQL + resolved inputs), swaps ids in with `replacePointers` and opens the result with
 `fromWorkspaceFile`, unsaved like any loaded file (the very first one is saved at once). Today's file:
-`utilities` + `utility_sales` (per state) + `utility_counties` (links) + `us_counties` + `us_states`;
-the transform **Utilities by county** (`counties LEFT JOIN links LEFT JOIN utilities LEFT JOIN sales
-ON utility and the county's state` — counties no utility reports keep one empty row, so they draw as 0); visualizations Number of utilities (count of
+`utilities` + `utility_counties` (links) + `us_counties` + `us_states`; the transform **Utilities by
+county** (`counties LEFT JOIN links LEFT JOIN utilities` — counties no utility reports keep one empty
+row, so they draw as 0); visualizations Number of utilities (count of
 `utility_id_eia`), Most common ownership, Co-op present (hatch) and State borders (`us_states`).
 The first run loads DuckDB (~6 s on a desktop); later visits reuse the stored output.
 

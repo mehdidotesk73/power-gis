@@ -79,7 +79,7 @@ describe('the default workspace file (a template)', () => {
 
   it('is a valid workspace file over built-ins and its transform output', () => {
     if (!parsed.ok) throw new Error(parsed.error)
-    expect(templateBuiltins(parsed.file).sort()).toEqual(['us_counties', 'us_states', 'utilities', 'utility_counties', 'utility_sales'])
+    expect(templateBuiltins(parsed.file).sort()).toEqual(['us_counties', 'us_states', 'utilities', 'utility_counties'])
     expect(parsed.file.visualizations.every((v) => v.settings.binding.kind === 'geometry')).toBe(true)
   })
 

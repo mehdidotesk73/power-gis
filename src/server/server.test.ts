@@ -194,11 +194,11 @@ describe('built-in boundary datasets and the default join', () => {
     expect(states.find((r) => r.fips === '48')).toMatchObject({ name: 'Texas', abbr: 'TX' })
   })
 
-  it("runs the default workspace's join (counties × links × utilities × sales), and other views of the same tables", async () => {
+  it("runs the default workspace's join (counties × links × utilities), and a state-level view of the same tables", async () => {
     const tables: Record<string, Record<string, unknown>[]> = {
       us_counties: [
-        { fips: '01001', name: 'Autauga, AL', county: 'Autauga', state: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } },
-        { fips: '01003', name: 'Baldwin, AL', county: 'Baldwin', state: 'AL', geometry: { type: 'Polygon', coordinates: [[[2, 0], [3, 0], [3, 1], [2, 0]]] } },
+        { fips: '01001', name: 'Autauga, AL', county: 'Autauga', state: 'AL', state_fips: '01', geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } },
+        { fips: '01003', name: 'Baldwin, AL', county: 'Baldwin', state: 'AL', state_fips: '01', geometry: { type: 'Polygon', coordinates: [[[2, 0], [3, 0], [3, 1], [2, 0]]] } },
       ],
       utility_counties: [
         { utility_id_eia: '195', county_fips: '01001' },
@@ -207,10 +207,6 @@ describe('built-in boundary datasets and the default join', () => {
       utilities: [
         { utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned' },
         { utility_id_eia: '3222', utility_name: 'Central Alabama Electric Coop', entity_type: 'Cooperative' },
-      ],
-      utility_sales: [
-        { utility_id_eia: '195', state: 'AL', customers: '1557733', sales_mwh: '52177426' },
-        { utility_id_eia: '195', state: 'GA', customers: '10', sales_mwh: '5' },
       ],
       us_states: [{ fips: '01', name: 'Alabama', abbr: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 1], [0, 0]]] } }],
     }
@@ -231,19 +227,19 @@ describe('built-in boundary datasets and the default join', () => {
     const coop = data(await server.handle('queryVisualization', { datasetId: out.datasetId, binding: n.binding, column: 'cooperative', aggregation: 'any' }))
     expect(coop.features.map((f) => f.value)).toEqual([true, null])
     const rows = data(await server.handle('featureRows', { datasetId: out.datasetId, binding: n.binding, key: values.features[0].key }))
-    expect(rows.map((r) => [r.utility_name, r.state_customers])).toEqual([['Alabama Power Co', 1557733], ['Central Alabama Electric Coop', null]]) // AL's customers, not GA's
+    expect(rows.map((r) => r.utility_name)).toEqual(['Alabama Power Co', 'Central Alabama Electric Coop'])
 
-    // Utilities by state is an aggregation over the same three tables.
-    const inputs = t.inputs
+    // State level: states ⋈ counties ⋈ links ⋈ utilities, grouped by state and utility.
+    const states = data(await server.handle('uploadDataset', { source: { kind: 'builtin', table: 'us_states' } })).datasetId
     const byState = data(
       await server.handle('previewTransform', {
-        sql: 'SELECT c.state, count(DISTINCT l.utility_id_eia) AS utilities FROM counties c JOIN links l ON l.county_fips = c.fips GROUP BY c.state',
-        inputs,
+        sql: `SELECT s.geometry, s.name AS state, u.utility_name, count(*) AS counties
+              FROM states s JOIN counties c ON c.state_fips = s.fips JOIN links l ON l.county_fips = c.fips JOIN utilities u USING (utility_id_eia)
+              GROUP BY ALL ORDER BY u.utility_name`,
+        inputs: [...t.inputs, { datasetId: states, alias: 'states' }],
       }),
     )
-    expect(byState.rows).toEqual([{ state: 'AL', utilities: 2 }])
-    // A utility's totals are a GROUP BY over its states.
-    const totals = data(await server.handle('previewTransform', { sql: 'SELECT utility_id_eia, sum(customers) AS customers FROM sales GROUP BY 1', inputs }))
-    expect(totals.rows).toEqual([{ utility_id_eia: 195, customers: 1557743 }])
+    expect(byState.rows.map((r) => [r.state, r.utility_name, r.counties])).toEqual([['Alabama', 'Alabama Power Co', 1], ['Alabama', 'Central Alabama Electric Coop', 1]])
+    expect(byState.columns.find((c) => c.name === 'geometry')!.type).toBe('region')
   })
 })

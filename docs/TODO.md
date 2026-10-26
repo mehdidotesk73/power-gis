@@ -55,7 +55,7 @@ Track feature development, improvements, and known issues here. Move completed w
   `point(lat, lon)` (was lon, lat). **Find** replaces "Find a utility": any visualization, all data or
   one column, typo-tolerant, server-built index (`findIndex` / `findFeatures`), highlight + zoom.
 - **Normalized EIA data + boundary datasets, data-agnostic (roadmap step 3)** — EIA-861 as
-  `utilities`, `utility_sales` (per state) and `utility_counties` (links); built-in `us_counties` / `us_states`
+  `utilities` (identity) and `utility_counties` (links); built-in `us_counties` / `us_states`
   boundary datasets; the default map is `public/data/default.powergis.json` (built-ins + the
   **Utilities by county** join transform + visualizations). Region-code binding, the county dashboard,
   utility presets and ownership flags deleted; geometry bindings name features by a `label` column.
@@ -163,6 +163,7 @@ bridge (holds the Anthropic API key, starts sessions, relays clarifications/appr
 
 ### Backlog
 
+- EIA-861 customers / sales / revenue as a separate built-in (per utility × state)
 - Real vector dataset (e.g. EIA-930 balancing-authority interchange flows) to replace the demo arrows
 - Point and polyline datasets (plants from EIA-860, transmission lines) to exercise those geometries
 - Patterns for polylines (dash arrays) and points (symbol overlays)

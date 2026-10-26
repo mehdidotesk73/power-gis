@@ -6,9 +6,10 @@ Cooperative PUDL project: https://catalyst.coop/pudl/
 
 Outputs (public/data/), normalized — join them in a transform:
   utilities.csv         one row per utility: EIA id, name, ownership type, short-form filer
-  utility_sales.csv     one row per (utility, state): customers, sales, revenue — EIA's own
-                        grain (never per county); totals are a GROUP BY
   utility_counties.csv  one row per (utility, county): the service-territory links
+
+(Customers / sales / revenue — reported per utility per state — can become a
+separate built-in later.)
 
 County polygons are a separate built-in dataset (us-atlas), joined on county_fips.
 
@@ -50,18 +51,6 @@ def main() -> None:
     territory = territory[territory["year"] == year]
     sales = sales[sales["year"] == year]
 
-    # Per utility+state figures. Customers are counted on the wires side
-    # (bundled + delivery) and energy on the supply side (bundled + energy),
-    # so choice-state customers aren't counted twice.
-    wires = sales[sales["service_type"].isin(["bundled", "delivery"])]
-    supply = sales[sales["service_type"].isin(["bundled", "energy"])]
-    keys = ["utility_id_eia", "state"]
-    by_state = (
-        wires.groupby(keys)["customers"].sum(min_count=1).rename("state_customers").to_frame()
-        .join(supply.groupby(keys)["sales_mwh"].sum(min_count=1).rename("state_sales_mwh"), how="outer")
-        .join(sales.groupby(keys)["sales_revenue"].sum(min_count=1).rename("state_revenue_usd"), how="outer")
-        .reset_index()
-    )
     entity = (
         sales.dropna(subset=["entity_type"])
         .groupby("utility_id_eia")["entity_type"].agg(lambda s: s.mode().iat[0])
@@ -87,16 +76,10 @@ def main() -> None:
     )
     utilities["entity_type"] = utilities["entity_type"].fillna("Unknown")
 
-    sales_out = by_state.rename(columns=lambda c: c.replace("state_", "") if c != "state" else c)
-    sales_out = sales_out[sales_out["utility_id_eia"].isin(utilities["utility_id_eia"])].sort_values(keys)
-    sales_out["customers"] = sales_out["customers"].astype("Int64")
-    sales_out["report_year"] = year
-
     OUT.mkdir(parents=True, exist_ok=True)
     utilities.to_csv(OUT / "utilities.csv", index=False)
-    sales_out.to_csv(OUT / "utility_sales.csv", index=False, float_format="%.0f")
     links.to_csv(OUT / "utility_counties.csv", index=False)
-    print(f"{year}: {utilities.shape[0]} utilities, {sales_out.shape[0]} utility-state sales rows, {links.shape[0]} utility-county links, "
+    print(f"{year}: {utilities.shape[0]} utilities, {links.shape[0]} utility-county links, "
           f"{links['county_fips'].nunique()} counties")
 
 

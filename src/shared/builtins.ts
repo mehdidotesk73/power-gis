@@ -17,7 +17,6 @@ export const BUILTIN_TABLES: BuiltinTable[] = [
   { table: 'us_counties', label: 'US counties', source: 'boundary', version: 1, description: 'County polygons (Census 2017, 1:10m, via us-atlas): fips, name, county, state, state_fips, geometry.' },
   { table: 'us_states', label: 'US states', source: 'boundary', version: 1, description: 'State and territory polygons (Census 2017, 1:10m, via us-atlas): fips, name, abbr, geometry.' },
   { table: 'utilities', label: 'EIA-861 utilities', source: 'csv', version: 3, description: 'One row per electric utility: EIA id, name, ownership type, short-form filer (EIA-861 2025, via PUDL).' },
-  { table: 'utility_sales', label: 'EIA-861 customers, sales & revenue', source: 'csv', version: 1, description: 'One row per utility per state (how EIA reports them, never per county): customers, sales (MWh), revenue (USD). Short-form filers have none.' },
   { table: 'utility_counties', label: 'EIA-861 utility ↔ county links', source: 'csv', version: 2, description: 'Many-to-many links: one row per utility per county it serves (utility_id_eia, county_fips).' },
   { table: 'demo_vectors', label: 'Demo vector field (synthetic)', source: 'generated', version: 1, description: 'A synthetic vector field for trying arrows.' },
 ]
