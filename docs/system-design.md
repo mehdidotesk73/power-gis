@@ -242,6 +242,12 @@ under the graph using the list components filtered to that item (`compact` props
 buttons and hints); holding the card gives its menu, exactly as in the lists. Only a transform or
 visualization just created from the graph opens straight into its editor.
 
+**Transform editor.** Inputs and outputs are one line each; the dataset picker (SearchBox) only
+opens on ⇄ or for a new input. A **preview dock** (`TransformsPanel.vue`, sticky to the screen
+bottom while the editor is in view, collapsible) shows one input or output at a time: an input's
+first 20 rows via `readDb.readRows`, an output via `previewTransform` on its current SQL (nothing
+stored). Geometry cells show their kind (`PreviewTable`), also for GeoJSON text from SQL.
+
 **↻ Run all stale** (`staleRunOrder` in `dag.ts`): every transform that needs a re-run, plus every
 transform downstream of one (already run, reading a pending one's output — it would be stale once that
 rewrites its input), ordered so writers run before readers (depth-first; a self-reading transform

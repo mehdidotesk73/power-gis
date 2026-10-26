@@ -315,6 +315,8 @@ Two additions from reviewing it here, beyond what the originating project report
 ### Run all stale — 2026-10-26
 - **Added:** ↻ Run all stale (graph toolbar and list Transforms panel): every stale transform plus
   everything downstream, writers before readers, one by one, stopping at the first failure.
+- **Changed:** the transform editor is compact — one line per input / output — with a sticky,
+  collapsible preview dock: tap an input for its rows, an output for what its SQL makes.
 - **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
 
 ### Graph layout + panel UI — 2026-10-26

@@ -5,12 +5,16 @@
 // SQL) and the outputs (each a new dataset made on Run, or an existing one no
 // other transform writes) first; below, one SELECT per output, each with its
 // own Preview (first rows, nothing stored). Run writes every output together.
+// Inputs and outputs are one compact line each; tapping one previews it in
+// the dock at the bottom of the editor (one at a time, collapsible): an
+// input's first rows, or what an output's SQL would write.
 // Edits are part of the workspace draft, saved with Save. Cards in an
 // ObjectList: hold one (right-click with a mouse) for Preview, Run, Edit and
 // Delete.
 import { vReveal } from '../reveal'
 import { nextTick, ref } from 'vue'
 import { request } from '../../client/api'
+import { readDb } from '../../client/db'
 import SearchBox from '../map/SearchBox.vue'
 import PreviewTable from './PreviewTable.vue'
 import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
@@ -69,7 +73,7 @@ const actions = (t: TransformSpec): ObjectAction[] => [
 function onAction(id: string, t: TransformSpec) {
   if (id === 'preview') togglePreview(t)
   else if (id === 'run') emit('run', t.id)
-  else if (id === 'edit') editing.value = editing.value === t.id ? null : t.id
+  else if (id === 'edit') editing.value === t.id ? closeEditor() : (editing.value = t.id)
   else if (id === 'delete') emit('remove', t.id)
 }
 
@@ -89,7 +93,9 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 function addInput(t: TransformSpec) {
   const used = new Set(t.inputs.map((i) => i.datasetId))
   const d = props.datasets.find((x) => !used.has(x.id)) ?? props.datasets[0]
-  if (d) patch(t, { inputs: [...t.inputs, { datasetId: d.id, alias: aliasFor(d.name) }] })
+  if (!d) return
+  patch(t, { inputs: [...t.inputs, { datasetId: d.id, alias: aliasFor(d.name) }] })
+  changing.value = t.inputs.length
 }
 
 // ── outputs ────────────────────────────────────────────────────────────────
@@ -168,6 +174,64 @@ async function togglePreview(t: TransformSpec) {
   for (const o of t.outputs) await previewOutput(t, o)
 }
 
+// ── the editor's preview dock: one input or output at a time ───────────────
+
+type DockTarget = { kind: 'input'; index: number } | { kind: 'output'; key: string }
+const dockOn = ref<DockTarget | null>(null)
+const dockOpen = ref(true)
+const dock = ref<Preview | null>(null)
+const dockBusy = ref(false)
+let dockSeq = 0
+const isDocked = (d: DockTarget) =>
+  !!dockOn.value && dockOn.value.kind === d.kind && (d.kind === 'input' ? d.index === (dockOn.value as { index: number }).index : d.key === (dockOn.value as { key: string }).key)
+function dockLabel(t: TransformSpec) {
+  const d = dockOn.value
+  if (!d) return ''
+  if (d.kind === 'input') {
+    const inp = t.inputs[d.index]
+    return inp ? `${nameIn(inp.datasetId)} as ${inp.alias}` : ''
+  }
+  const o = t.outputs.find((x) => x.key === d.key)
+  return o ? `${outName(o)} (from its SQL)` : ''
+}
+/** Shows an input's first rows, or what an output's SQL would write (nothing is stored). */
+async function showInDock(t: TransformSpec, d: DockTarget) {
+  dockOn.value = d
+  dockOpen.value = true
+  dock.value = null
+  dockBusy.value = true
+  const mine = ++dockSeq
+  let result: Preview
+  if (d.kind === 'input') {
+    const ds = props.datasets.find((x) => x.id === t.inputs[d.index]?.datasetId)
+    if (!ds) result = { error: 'That dataset is not in the workspace.' }
+    else {
+      try {
+        const rows = (await readDb.readRows(ds.table)) ?? []
+        result = { columns: ds.columns, rows: rows.slice(0, 20), rowCount: ds.rowCount }
+      } catch (e) {
+        result = { error: (e as Error).message }
+      }
+    }
+  } else {
+    const o = t.outputs.find((x) => x.key === d.key)
+    if (!o) return
+    const r = await request('previewTransform', { sql: currentSql(t, o), inputs: t.inputs, limit: 20 })
+    result = r.ok ? r.data : { error: r.error.message }
+  }
+  if (mine !== dockSeq) return
+  dock.value = result
+  dockBusy.value = false
+}
+function closeEditor() {
+  editing.value = null
+  dockOn.value = null
+  dock.value = null
+}
+
+/** Which input's dataset picker is open (⇄, or a freshly added input). */
+const changing = ref<number | null>(null)
+
 defineExpose({ edit: (id: string) => (editing.value = id) })
 </script>
 
@@ -198,52 +262,65 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
         <div v-if="editing === t.id" v-reveal class="ed">
           <label class="row">Name <input type="text" :value="t.name" @change="patch(t, { name: ($event.target as HTMLInputElement).value })" /></label>
 
-          <div class="lbl">Inputs <span class="muted">(search by name or paste a dataset id; each is a table in the SQL by the name after "as")</span></div>
-          <div v-for="(inp, i) in t.inputs" :key="i" class="input">
-            <SearchBox
-              class="pick"
-              :items="datasets"
-              :text="(d) => d.name"
-              :match="(d) => `${d.name} ${d.id} ${d.id.replace(/-/g, '')}`"
-              :detail="(d) => d.id"
-              :value="nameIn(inp.datasetId)"
-              placeholder="Dataset name or id"
-              fuzzy
-              all-when-empty
-              @pick="(d) => setInput(t, i, { datasetId: d.id })"
-            />
-            <span class="as">as</span>
-            <input
-              type="text"
-              :value="inp.alias"
-              placeholder="table name in SQL"
-              aria-label="Table name in the SQL"
-              autocapitalize="off"
-              spellcheck="false"
-              @change="setInput(t, i, { alias: ($event.target as HTMLInputElement).value.trim() })"
-            />
-            <button class="btn" title="Insert this table name into the SQL you're editing" @click="insert(t, inp.alias)">Insert</button>
-            <button v-if="t.inputs.length > 1" class="icon" aria-label="Remove input" @click="patch(t, { inputs: t.inputs.filter((_, j) => j !== i) })">✕</button>
+          <div class="lbl">Inputs <span class="muted">— tap one to preview it below; "as" is its table name in the SQL</span></div>
+          <div v-for="(inp, i) in t.inputs" :key="i" class="io">
+            <template v-if="changing === i">
+              <SearchBox
+                class="pick"
+                :items="datasets"
+                :text="(d) => d.name"
+                :match="(d) => `${d.name} ${d.id} ${d.id.replace(/-/g, '')}`"
+                :detail="(d) => d.id"
+                :value="nameIn(inp.datasetId)"
+                placeholder="Dataset name or id"
+                fuzzy
+                all-when-empty
+                @pick="(d) => (setInput(t, i, { datasetId: d.id }), (changing = null), showInDock(t, { kind: 'input', index: i }))"
+              />
+              <button class="icon" aria-label="Keep this dataset" title="Done" @click="changing = null">✓</button>
+            </template>
+            <template v-else>
+              <button class="chip k-dataset" :class="{ on: isDocked({ kind: 'input', index: i }) }" :title="`Preview ${nameIn(inp.datasetId)}`" @click="showInDock(t, { kind: 'input', index: i })">
+                {{ nameIn(inp.datasetId) }}
+              </button>
+              <span class="as">as</span>
+              <input
+                class="alias"
+                type="text"
+                :value="inp.alias"
+                placeholder="table"
+                aria-label="Table name in the SQL"
+                autocapitalize="off"
+                spellcheck="false"
+                @change="setInput(t, i, { alias: ($event.target as HTMLInputElement).value.trim() })"
+              />
+              <button class="icon" aria-label="Insert the table name into the SQL" title="Insert into the SQL" @click="insert(t, inp.alias)">⤵</button>
+              <button class="icon" aria-label="Use another dataset" title="Use another dataset" @click="changing = i">⇄</button>
+              <button v-if="t.inputs.length > 1" class="icon" aria-label="Remove input" title="Remove" @click="patch(t, { inputs: t.inputs.filter((_, j) => j !== i) })">✕</button>
+            </template>
           </div>
           <button class="btn link" @click="addInput(t)">＋ Add an input</button>
 
-          <div class="lbl">Outputs <span class="muted">(each has its own SQL below; Run writes them all)</span></div>
-          <div v-for="o in t.outputs" :key="o.key" class="output">
+          <div class="lbl">Outputs <span class="muted">— tap one to preview what its SQL makes; Run writes them all</span></div>
+          <div v-for="o in t.outputs" :key="o.key" class="io">
+            <button class="chip k-out" :class="{ on: isDocked({ kind: 'output', key: o.key }) }" title="Preview this output" @click="showInDock(t, { kind: 'output', key: o.key })">▤</button>
             <input
+              class="oname"
               type="text"
-              :value="o.name"
+              :value="o.outputId ? nameIn(o.outputId) : o.name"
               :disabled="!!o.outputId"
-              :placeholder="o.outputId ? '' : 'New dataset name'"
+              placeholder="New dataset name"
               aria-label="Output name"
               @change="patchOutput(t, o.key, { name: ($event.target as HTMLInputElement).value })"
             />
+            <span class="as">→</span>
             <select :value="o.outputId ?? ''" aria-label="Writes to" @change="patchOutput(t, o.key, { outputId: ($event.target as HTMLSelectElement).value || undefined })">
               <option value="">New dataset</option>
               <option v-for="d in outputChoices(t, o)" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
-            <button v-if="t.outputs.length > 1" class="icon" aria-label="Remove output" @click="removeOutput(t, o.key)">✕</button>
+            <button v-if="t.outputs.length > 1" class="icon" aria-label="Remove output" title="Remove" @click="removeOutput(t, o.key)">✕</button>
           </div>
-          <p class="muted">An existing dataset's rows are replaced on Run — pick one whose transform was deleted to make it updatable again.</p>
+          <p class="muted">Writing to an existing dataset replaces its rows on Run — pick one whose transform was deleted to make it updatable again.</p>
           <button class="btn link" @click="addOutput(t)">＋ Add an output</button>
 
           <section v-for="o in t.outputs" :key="o.key" class="out-sql">
@@ -261,11 +338,8 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
               @change="patchOutput(t, o.key, { sql: ($event.target as HTMLTextAreaElement).value })"
             />
             <div class="row end">
-              <button class="btn" :disabled="previewing" @click="previews[sk(t, o)] ? clearPreviews(t) : previewOutput(t, o)">
-                {{ previews[sk(t, o)] ? 'Hide preview' : previewing ? 'Previewing…' : 'Preview' }}
-              </button>
+              <button class="btn" @click="showInDock(t, { kind: 'output', key: o.key })">Preview ↓</button>
             </div>
-            <PreviewTable v-if="previews[sk(t, o)]" :preview="previews[sk(t, o)]" />
           </section>
           <p class="muted">
             Helpers: <code>point(lat, lon)</code> makes a point · <code>vector(east, north)</code> makes a vector. Geometry columns are GeoJSON
@@ -275,8 +349,23 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
             <button class="btn primary" :disabled="status[t.id]?.state === 'running'" @click="emit('run', t.id)">
               Run{{ t.outputs.length > 1 ? ` (${t.outputs.length} outputs)` : '' }}
             </button>
-            <button class="btn" @click="editing = null">Done</button>
+            <button class="btn" @click="closeEditor">Done</button>
           </div>
+
+          <!-- One input or output at a time; sticks to the screen bottom while the editor scrolls. -->
+          <section class="dock" :class="{ closed: !dockOpen }" aria-label="Preview">
+            <button class="dock-head" :aria-expanded="dockOpen" @click="dockOpen = !dockOpen">
+              <span class="dock-title">
+                <strong>Preview</strong>
+                <span class="muted">{{ dockOn ? ` · ${dockLabel(t)}` : ' · tap an input or output above' }}</span>
+              </span>
+              <span aria-hidden="true">{{ dockOpen ? '▾' : '▴' }}</span>
+            </button>
+            <div v-if="dockOpen && dockOn" class="dock-body">
+              <p v-if="dockBusy" class="muted">Loading…</p>
+              <PreviewTable v-else-if="dock" :preview="dock" />
+            </div>
+          </section>
         </div>
 
         <!-- Previews from the card's menu, while not editing -->
@@ -327,43 +416,99 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
   font-weight: 600;
   font-size: 0.78rem;
 }
-.input {
+.io {
   display: flex;
-  gap: 0.25rem;
-}
-.input {
-  flex-wrap: wrap;
   align-items: center;
-}
-.input .pick {
-  flex: 1 1 100%; /* its own line on phones; the table name and Insert go below */
+  gap: 0.25rem;
   min-width: 0;
 }
-.input input {
+.io .pick {
   flex: 1;
+  min-width: 0;
+}
+.chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--k);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--k) 10%, transparent);
+  color: var(--text);
+  font-size: 0.76rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip.k-dataset {
+  --k: var(--kind-dataset);
+}
+.chip.k-out {
+  --k: var(--kind-dataset);
+  flex: none;
+  max-width: none;
+}
+.chip.on {
+  background: color-mix(in srgb, var(--k) 30%, transparent);
+  box-shadow: 0 0 0 1px var(--k);
+}
+.alias,
+.oname {
+  min-width: 0;
+  padding: 0.15rem 0.35rem;
+  font-size: 16px; /* below 16px iOS zooms on focus */
+}
+.alias {
+  flex: 1 1 6rem;
+  width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.oname {
+  flex: 1 1 6rem;
+  width: 0;
+}
+.io select {
+  flex: 1 1 6rem;
   min-width: 0;
   width: 0;
-  padding: 0.25rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 16px;
+  padding: 0.2rem;
+  font-size: 0.8rem;
 }
-.output {
+.dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0.2rem -0.3rem -0.3rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem 0.5rem 0.4rem 0.4rem;
+  background: var(--bg-elev);
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.35);
+}
+.dock-head {
   display: flex;
-  gap: 0.35rem;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 0.8rem;
+  text-align: left;
 }
-.output input {
-  flex: 1;
+.dock-title {
   min-width: 0;
-  padding: 0.3rem;
-  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.output select {
-  flex: 1;
-  min-width: 0;
-  max-width: 11rem;
-  padding: 0.3rem;
-  font-size: 0.85rem;
+.dock-body {
+  padding: 0 0.5rem 0.5rem;
+  max-height: 40svh;
+  overflow: auto;
 }
 .out-sql {
   display: grid;
@@ -434,9 +579,18 @@ code {
   justify-self: start;
 }
 .icon {
-  background: none;
+  flex: none;
+  min-width: 1.7rem;
+  height: 1.8rem;
   border: none;
+  border-radius: 0.3rem;
+  background: none;
   color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.icon:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
 }
 .add-pill {
   justify-self: start;

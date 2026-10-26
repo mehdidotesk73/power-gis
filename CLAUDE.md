@@ -178,8 +178,11 @@ whatever they're actually asking about.
   after the output; returns `{outputs: [{key, datasetId, rowCount, created}]}`). Older single-SQL
   transforms (`sql` + `outputId`) are read through `normalizeTransform` (drafts, files, records).
   Transforms are part of the workspace draft (ops `addTransform` / `updateTransform` /
-  `removeTransform`) and saved with it. The editor sets inputs and outputs first, then one SQL per
-  output with its own Preview; Run writes them all. Inputs are `{datasetId, alias}` pairs: the dataset is picked
+  `removeTransform`) and saved with it. The editor sets inputs and outputs first — **one compact line each**
+  (input: dataset chip · `as` alias · ⤵ Insert · ⇄ change · ✕; output: ▤ · name · → writes to · ✕) —
+  then one SQL per output; Run writes them all. A **preview dock** at the editor's bottom (sticky,
+  collapsible) shows one thing at a time: tap an input chip for its first rows (read from the
+  database), an output's ▤ (or its SQL's **Preview ↓**) for what its SQL would write. Inputs are `{datasetId, alias}` pairs: the dataset is picked
   in a search box (name, typo-tolerant, or a pasted id — a dataset's hold menu → Copy id); the alias is the
   table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
   table's error lists the aliases). Tests run real DuckDB through its Node build
