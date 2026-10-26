@@ -205,6 +205,17 @@ whatever they're actually asking about.
   Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
   (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Run,
   Edit, Delete.
+- **Graph view (DAG)** — a **List | Graph** switch above the panels (remembered per device,
+  `powergis.controlsView`). `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
+  nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest
+  input, its output below it, every visualization in the bottom row), one barycenter pass orders each
+  row; `layoutDag` places them (automatic, nothing stored). Transforms show **not run yet** (no
+  output) or **needs re-run** (an input's `updatedAt` is newer than the output's). `DagView.vue`
+  draws it (nodes are buttons, edges one SVG); **tap** a node to open it under the graph — the same
+  list components filtered to that item (`compact`), transforms and visualizations straight into
+  their editors. **＋ Transform**: tap input datasets, Next → a new transform with those inputs opens
+  in its editor; **＋ Visualization**: tap a dataset → the add form. The graph is an interface to
+  the same workspace operations, not a separate model.
 - County join keys are 5-digit FIPS strings (`county_fips` / `fips`). Keep them strings: leading
   zeros matter.
 
@@ -236,7 +247,7 @@ src/
     geometry.ts            anchor points (centroids), bbox
     data/connectors.ts     connectors: how sources are read
     data/boundaryTables.ts us-atlas → us_counties / us_states rows (built-in boundary datasets)
-    workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts)
+    workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts), graph (dag.ts)
     dataset/               columns, aggregate, binding (+ wkt), query (server-side grouping), profile, visualization
     search.ts              ranked type-ahead search (optional typo-tolerant `fuzzy`)
     data/csv.ts            CSV → records
@@ -257,6 +268,7 @@ src/
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
     list/                  ObjectList.vue (cards + hold menu + reorder), useLongPress, useDragReorder
+    dag/DagView.vue        the workspace graph: datasets → transforms → outputs → visualizations
     FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
     dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows

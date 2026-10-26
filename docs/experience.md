@@ -312,6 +312,15 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Graph view (DAG) — 2026-10-26
+- **Added:** List | Graph switch. The graph (`lib/workspace/dag.ts`, `components/dag/DagView.vue`)
+  shows datasets → transforms → outputs → visualizations, laid out automatically (rows by depth,
+  barycenter order); tap a node to open it under the graph; ＋ Transform by tapping input datasets;
+  ＋ Visualization by tapping a dataset; transforms marked not run yet / needs re-run.
+- **Decided:** automatic layout only for now (no saved positions); tap-to-pick inputs (no edge
+  dragging); visualizations are nodes.
+- **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
+
 ### Object lists: hold menus for datasets, visualizations, transforms — 2026-10-26
 - **Added:** `components/list/ObjectList.vue` — a generic card list fed `items`, a card slot and
   `actions(item)` for its tap-and-hold (right-click) menu; built-in Reorder (≡ handles, vertically

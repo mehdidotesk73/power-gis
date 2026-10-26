@@ -179,6 +179,26 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
   Visualization values are keyed by the dataset's `updatedAt`, so a re-run refreshes the map.
 - **Tests** run real DuckDB via `@duckdb/duckdb-wasm`'s Node build (`server/testEngine.ts`).
 
+### Graph view (DAG)
+
+The controls show the workspace as lists or as one graph (**List | Graph**, per device in
+localStorage). `lib/workspace/dag.ts`: `buildDag(doc, dataset)` makes nodes for every dataset (the
+workspace's, plus transform inputs and outputs), transform and visualization, with edges input →
+transform → output → visualization. Rows: datasets no transform makes are row 0; a transform is one
+row below its deepest input and its output one below it; all visualizations share the bottom row.
+Each row is ordered by the mean position of its parents (one barycenter pass); row 0 keeps the
+workspace's dataset order. `layoutDag` gives pixel positions (rows centered; wider than the screen →
+it scrolls, opened centered). Nothing about the layout is stored. Transform state: **not run yet**
+(no output), **needs re-run** (an input's `updatedAt` is after the output's), else ready.
+
+`DagView.vue` draws nodes as buttons over one SVG of curved edges. Tapping a node opens it under
+the graph using the list components filtered to that item (`compact` props hide their add buttons
+and hints): a dataset's card (hold menu), a transform's editor, a visualization's editor.
+**＋ Transform** enters pick mode (tap input datasets, Next) and adds a transform whose inputs are
+those datasets (aliases from their names, deduplicated), opened in its editor. **＋ Visualization**
+picks a dataset and opens the visualization add form for it. Everything goes through the same
+workspace operations as the lists.
+
 ### Find
 
 `FindPanel.vue` searches one visualization's features. The server indexes them (`findIndex`,

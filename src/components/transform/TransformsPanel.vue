@@ -26,6 +26,8 @@ const props = defineProps<{
   /** Any dataset's name by id (outputs may not be in the workspace). */
   nameOf: (id: string) => string | undefined
   status: Record<string, RunStatus>
+  /** Shown under the graph: no ＋ button, hint or empty message. */
+  compact?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'add', t: TransformSpec): void
@@ -117,13 +119,15 @@ async function runPreview(t: TransformSpec) {
   preview.value = r.ok ? { id: t.id, ...r.data } : { id: t.id, error: r.error.message }
 }
 const shown = computed(() => (preview.value && editing.value === preview.value.id ? preview.value : null))
+defineExpose({ edit: (id: string) => (editing.value = id) })
+
 const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 60)
 </script>
 
 <template>
   <div class="transforms">
-    <button class="add-btn" :disabled="!datasets.length" @click="create">＋ New transform</button>
-    <p v-if="!transforms.length" class="muted">
+    <button v-if="!compact" class="add-btn" :disabled="!datasets.length" @click="create">＋ New transform</button>
+    <p v-if="!transforms.length && !compact" class="muted">
       No transforms yet. A transform is a SQL query over your datasets — joins, filters, sums, or building a point from latitude and
       longitude — whose result becomes a new dataset.
     </p>
@@ -132,7 +136,7 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
       :item-key="(t) => t.id"
       :item-label="(t) => t.name"
       :actions="actions"
-      hint="Tap and hold a transform to run, edit or delete it."
+      :hint="compact ? '' : 'Tap and hold a transform to run, edit or delete it.'"
       @action="onAction"
     >
       <template #default="{ item: t }">

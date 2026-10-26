@@ -18,12 +18,15 @@ const props = defineProps<{
   visualizations: VisualizationSpec[]
   datasets: DatasetRecord[]
   dataFor: (v: VisualizationSpec) => LayerData | null
+  /** Shown under the graph: no add button, hint or empty message. */
+  compact?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'update', v: VisualizationSpec): void
   (e: 'remove', id: string): void
   (e: 'reorder', ids: string[]): void
   (e: 'zoom', id: string): void
+  (e: 'cancel-add'): void
   (e: 'add', datasetId: string, binding: GeometryBinding, column: string): void
 }>()
 
@@ -86,7 +89,14 @@ function onAction(id: string, v: VisualizationSpec) {
   else if (id === 'delete') emit('remove', v.id)
 }
 
-defineExpose({ edit: (id: string) => (editing.value = id) })
+defineExpose({
+  edit: (id: string) => (editing.value = id),
+  /** Opens the add form on a dataset (the graph's ＋ Visualization). */
+  addFor: (datasetId: string) => {
+    pickDataset(datasetId)
+    adding.value = true
+  },
+})
 </script>
 
 <template>
@@ -107,13 +117,13 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
         </select>
       </label>
       <div class="row end">
-        <button class="btn" @click="adding = false">Cancel</button>
+        <button class="btn" @click="(adding = false), emit('cancel-add')">Cancel</button>
         <button class="btn primary" :disabled="!addInfo?.features" @click="confirmAdd">Add</button>
       </div>
     </div>
-    <button v-else class="add-btn" :disabled="!datasets.length" @click="openAdd">＋ Add visualization</button>
+    <button v-else-if="!compact" class="add-btn" :disabled="!datasets.length" @click="openAdd">＋ Add visualization</button>
 
-    <p v-if="!visualizations.length" class="muted">No visualizations yet.</p>
+    <p v-if="!visualizations.length && !compact" class="muted">No visualizations yet.</p>
     <ObjectList
       :items="visualizations"
       :item-key="(v) => v.id"
@@ -121,7 +131,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
       :actions="actions"
       reorderable
       reorder-hint="Drag ≡ to reorder · top draws on top"
-      hint="Tap and hold a visualization for options · top draws on top."
+      :hint="compact ? '' : 'Tap and hold a visualization for options · top draws on top.'"
       @action="onAction"
       @reorder="(ids) => emit('reorder', ids)"
     >
