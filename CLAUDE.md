@@ -121,8 +121,9 @@ whatever they're actually asking about.
     device files, in-memory tables, ArcGIS features via `featureTable`).
   - **Dataset**: a plain table in the database, by id. No geometry of its own.
   - **Visualization** (`src/lib/dataset/visualization.ts`): a dataset pointer plus settings —
-    **geometry binding** (`boundary` region codes joined to US county/state polygons, `latlon`, or
-    `geometry` GeoJSON/WKT), column, `Aggregation`, style. The server groups rows onto features and
+    **geometry binding** (`geometry`: a geometry column; or the stopgap `boundary`: region codes
+    joined to built-in US county/state polygons until transforms can join a boundary dataset),
+    column, `Aggregation`, style. **No lat/lon pairs**: a visualization draws real features. The server groups rows onto features and
     aggregates (`lib/dataset/query.ts`, cached per dataset+binding); the client attaches boundary
     polygons from static files (`visualizationLayer`). Any number per dataset; one ordered list.
     **Top of the list draws on top** (within its geometry kind): widgets register their map layers
@@ -146,6 +147,12 @@ whatever they're actually asking about.
   that repeat when values outnumber them; `many` makes lightness variations of the 12 hues for any
   count; `auto` (default) picks the smallest that fits. Values are colored in sorted order, so a
   value keeps its color as data changes. Use `paletteColors(name, n)` for any widget (charts too).
+- **Geometry columns** are column types — `point`, `polyline`, `region` (closed polylines) —
+  holding GeoJSON geometries in lon/lat (WGS84); cells may arrive as GeoJSON or WKT and are coerced.
+  Geometry is set up at **ingestion**: GeoJSON / Esri / ArcGIS features get a typed geometry column;
+  a table with an obvious lat/lon pair (`guessLatLon`) and no geometry gets a `location` point
+  column (`withPointColumn`). Otherwise the dataset editor's **Add a column** (`addColumn` request:
+  point from lat/lon, or vector from east/north) — later, transforms.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).

@@ -8,6 +8,8 @@ import { computed, ref } from 'vue'
 import { useDragReorder } from './useDragReorder'
 import { isNumericColumn } from '../../lib/dataset/columns'
 import type { DatasetRecord } from '../../shared/records'
+import type { DerivedColumn } from '../../shared/api'
+import { guessLatLon } from '../../lib/dataset/dataset'
 
 const props = defineProps<{ datasets: DatasetRecord[]; vizCount: (id: string) => number }>()
 const emit = defineEmits<{
@@ -15,7 +17,7 @@ const emit = defineEmits<{
   (e: 'remove', id: string): void
   (e: 'reorder', ids: string[]): void
   (e: 'update', id: string, patch: { name?: string; description?: string }): void
-  (e: 'add-vector', id: string, vec: { name: string; u: string; v: string }): void
+  (e: 'add-column', id: string, name: string, from: DerivedColumn): void
 }>()
 
 const listEl = ref<HTMLElement>()
@@ -27,11 +29,25 @@ const { dragging, onHandleDown, onHandleMove, onHandleUp } = useDragReorder(
 const editing = ref<string | null>(null)
 const editingDs = computed(() => props.datasets.find((d) => d.id === editing.value))
 const numeric = computed(() => editingDs.value?.columns.filter((c) => isNumericColumn(c.type)) ?? [])
-const vec = ref({ name: '', u: '', v: '' })
+// A new column from two numeric ones: a point (lat, lon) or a vector (east, north).
+const add = ref({ kind: 'point' as DerivedColumn['kind'], name: '', a: '', b: '' })
+function resetAdd(kind: DerivedColumn['kind']) {
+  const [x, y] = numeric.value
+  const ll = kind === 'point' ? guessLatLon(numeric.value) : null
+  add.value = {
+    kind,
+    name: kind === 'point' ? 'location' : 'vector',
+    a: ll?.lat ?? x?.name ?? '',
+    b: ll?.lon ?? y?.name ?? x?.name ?? '',
+  }
+}
 function startEdit(id: string) {
   editing.value = editing.value === id ? null : id
-  const [u, v] = numeric.value
-  vec.value = { name: 'vector', u: u?.name ?? '', v: v?.name ?? u?.name ?? '' }
+  resetAdd('point')
+}
+function confirmAdd(id: string) {
+  const { kind, name, a, b } = add.value
+  emit('add-column', id, name, kind === 'point' ? { kind, lat: a, lon: b } : { kind, u: a, v: b })
 }
 
 const stats = (d: DatasetRecord) => `${plural(d.rowCount, 'row')} · ${plural(d.columns.length, 'column')}`
@@ -77,18 +93,24 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
           />
         </label>
         <div v-if="numeric.length" class="vec">
-          <span>Combine two columns into a vector (drawn as arrows)</span>
+          <span>
+            Add a column:
+            <select :value="add.kind" aria-label="Kind of column" @change="resetAdd(($event.target as HTMLSelectElement).value as DerivedColumn['kind'])">
+              <option value="point">Point from latitude, longitude</option>
+              <option value="vector">Vector from east, north</option>
+            </select>
+          </span>
           <div class="vec-row">
-            <input v-model="vec.name" type="text" aria-label="Vector column name" />
-            <select v-model="vec.u" aria-label="East component">
+            <input v-model="add.name" type="text" aria-label="New column name" />
+            <select v-model="add.a" :aria-label="add.kind === 'point' ? 'Latitude' : 'East component'">
               <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
             </select>
-            <select v-model="vec.v" aria-label="North component">
+            <select v-model="add.b" :aria-label="add.kind === 'point' ? 'Longitude' : 'North component'">
               <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
             </select>
-            <button class="add" :disabled="!vec.name.trim() || !vec.u || !vec.v" @click="emit('add-vector', ds.id, { ...vec })">Add</button>
+            <button class="add" :disabled="!add.name.trim() || !add.a || !add.b" @click="confirmAdd(ds.id)">Add</button>
           </div>
-          <span class="muted">name · east (u) column · north (v) column</span>
+          <span class="muted">{{ add.kind === 'point' ? 'name · latitude column · longitude column' : 'name · east (u) column · north (v) column' }}</span>
         </div>
         <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
       </div>

@@ -6,6 +6,7 @@
 import type { VisualizationSettings, VisualizationSpec } from '../dataset/visualization'
 import { settingsOf } from '../dataset/visualization'
 import { newId } from '../dataset/dataset'
+import { isSupportedBinding } from '../dataset/binding'
 import type { WorkspaceDoc } from './workspace'
 
 export const FILE_FORMAT = 'powergis-workspace'
@@ -71,7 +72,7 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   const missing = file.datasetIds.filter((id) => !inDatabase(id))
   const datasetIds = file.datasetIds.filter((id) => inDatabase(id))
   const visualizations = file.visualizations
-    .filter((v) => datasetIds.includes(v.datasetId))
+    .filter((v) => datasetIds.includes(v.datasetId) && isSupportedBinding(v.settings.binding)) // older files had lat/lon pairs
     .map((v) => ({ ...v.settings, id: newId(), name: v.name, datasetId: v.datasetId }) as VisualizationSpec)
   return { doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds, visualizations }, missing }
 }

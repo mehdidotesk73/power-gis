@@ -24,6 +24,8 @@ export type UploadSource =
   | { kind: 'arcgis'; url: string }
   | { kind: 'builtin'; table: string }
 
+export type DerivedColumn = { kind: 'vector'; u: string; v: string } | { kind: 'point'; lat: string; lon: string }
+
 export interface VisualizationInput {
   id: string
   name: string
@@ -35,10 +37,13 @@ export interface VisualizationInput {
 export interface Api {
   /** Ensures the default user exists; tells the server where static files live. */
   init: [{ baseUrl: string }, { userId: string }]
-  /** Upload a table: stored as a new data table, registered in `datasets`. */
+  /**
+   * Upload a table: stored as a new data table, registered in `datasets`. A table with no
+   * geometry column but an obvious latitude / longitude pair gets a `location` point column.
+   */
   uploadDataset: [{ source: UploadSource; name?: string }, { datasetId: string }]
-  /** Adds a vector column combined from two numeric columns (east, north) to a dataset's table. */
-  addVectorColumn: [{ datasetId: string; name: string; u: string; v: string }, { datasetId: string }]
+  /** Adds a column derived from two others: a vector (east, north) or a point (latitude, longitude). */
+  addColumn: [{ datasetId: string; name: string; from: DerivedColumn }, { datasetId: string }]
   updateDataset: [{ id: string; name?: string; description?: string; extensions?: Record<string, unknown> }, { datasetId: string }]
   /** Drops the data table and registry row, and every visualization of it. */
   deleteDataset: [{ id: string }, { datasetId: string }]

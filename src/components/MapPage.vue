@@ -29,9 +29,10 @@ import { request } from '../client/api'
 import { readDb } from '../client/db'
 import { UTILITY_TABLE } from '../shared/builtins'
 import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
+import type { DerivedColumn } from '../shared/api'
 import { utilitiesFromRows, utilityRowsFromRecords, type Utility } from '../lib/utilities'
 import type { DataRecord } from '../lib/data/connectors'
-import { guessBinding, type GeometryBinding } from '../lib/dataset/binding'
+import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { loadBoundaries } from '../lib/dataset/boundaries'
 import { ROW_COUNT } from '../lib/dataset/dataset'
 import { defaultVisualization, makeVisualization, settingsOf, visualizationLayer, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
@@ -226,8 +227,8 @@ function removeDataset(id: string) {
 async function updateDataset(id: string, patch: { name?: string; description?: string }) {
   if (await call('update dataset', request('updateDataset', { id, ...patch }))) await loadRecord(id)
 }
-async function addVectorColumn(id: string, vec: { name: string; u: string; v: string }) {
-  if (!(await call('add vector column', request('addVectorColumn', { datasetId: id, ...vec })))) return
+async function addColumn(id: string, name: string, from: DerivedColumn) {
+  if (!(await call('add column', request('addColumn', { datasetId: id, name, from })))) return
   forgetBindingInfo(id)
   for (const k of valuesCache.keys()) if (k.startsWith(`${id}|`)) valuesCache.delete(k)
   await loadRecord(id)
@@ -270,7 +271,10 @@ async function open(w: WorkspaceRecord) {
   const vizs: VisualizationSpec[] = []
   for (const id of w.config.visualizationIds) {
     const v = await readDb.get('visualizations', id)
-    if (v && ids.includes(v.datasetId)) vizs.push({ ...v.settings, id: v.id, name: v.name, datasetId: v.datasetId } as VisualizationSpec)
+    if (!v || !ids.includes(v.datasetId)) continue
+    // Older visualizations drew from a lat/lon pair; now they need a point column.
+    if (!isSupportedBinding(v.settings.binding)) logDebug(`"${v.name}" used a lat/lon pair — add a point column to its dataset and visualize that`, 'warn')
+    else vizs.push({ ...v.settings, id: v.id, name: v.name, datasetId: v.datasetId } as VisualizationSpec)
   }
   doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs }
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations`)
@@ -299,7 +303,7 @@ onMounted(async () => {
         // Unsaved edits from last time; drop pointers to datasets that have since gone.
         for (const id of draft.doc.datasetIds) await loadRecord(id)
         const ids = draft.doc.datasetIds.filter((id) => records.value.has(id))
-        doc.value = { ...draft.doc, datasetIds: ids, visualizations: draft.doc.visualizations.filter((v) => ids.includes(v.datasetId)) }
+        doc.value = { ...draft.doc, datasetIds: ids, visualizations: draft.doc.visualizations.filter((v) => ids.includes(v.datasetId) && isSupportedBinding(v.binding)) }
         logDebug('restored unsaved changes from last time')
       }
     } else {
@@ -548,7 +552,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           @remove="removeDataset"
           @reorder="reorderDatasets"
           @update="updateDataset"
-          @add-vector="addVectorColumn"
+          @add-column="addColumn"
         />
         <div class="import-wrap">
           <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />

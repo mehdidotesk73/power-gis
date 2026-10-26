@@ -9,8 +9,8 @@ import type { FieldDef, GeometryKind, LayerData, LayerFeature } from '../schema'
 import type { ScalarStyle, VectorStyle } from '../style'
 import { aggregatedType, defaultAggregation, type Aggregation } from './aggregate'
 import { bindingColumns, type BoundaryFeature, type GeometryBinding } from './binding'
-import { isNumericColumn, type ColumnInfo, type ColumnType } from './columns'
-import { fieldTypeOf, KEY, LABEL, newId, ROW_COUNT } from './dataset'
+import { isGeometryColumn, isNumericColumn, type ColumnInfo, type ColumnType } from './columns'
+import { fieldTypeOf, guessLatLon, KEY, LABEL, newId, ROW_COUNT } from './dataset'
 import type { VizValues } from './query'
 
 /** Pseudo-column: the number of rows on each feature. */
@@ -45,7 +45,7 @@ export interface DatasetShape {
 /** A dataset's columns that can be visualized under a binding. */
 export function dataColumns(columns: ColumnInfo[], binding: GeometryBinding): ColumnInfo[] {
   const skip = new Set(bindingColumns(binding))
-  return columns.filter((c) => !skip.has(c.name) && c.type !== 'geometry')
+  return columns.filter((c) => !skip.has(c.name) && !isGeometryColumn(c.type))
 }
 
 export function columnLabel(column: string): string {
@@ -124,9 +124,11 @@ export function makeVisualization(
 /** First visualization for a new dataset: row counts when rows stack up, else a vector, numeric or text column. */
 export function defaultVisualization(shape: DatasetShape, datasetId: string, binding: GeometryBinding): VisualizationSpec {
   if (shape.maxRowsPerFeature > 1) return makeVisualization(shape, datasetId, binding, ROWS)
+  const ll = guessLatLon(shape.columns)
+  const coords = new Set(ll ? [ll.lat, ll.lon] : []) // where a row is, not what to show
   const pick =
     shape.columns.find((c) => c.type === 'vector') ??
-    shape.columns.find((c) => isNumericColumn(c.type)) ??
+    shape.columns.find((c) => isNumericColumn(c.type) && !coords.has(c.name)) ??
     shape.columns.find((c) => c.type === 'string' || c.type === 'boolean')
   if (pick) return makeVisualization(shape, datasetId, binding, pick.name)
   const l = makeVisualization(shape, datasetId, binding, ROWS, 'count', 'Features') as ScalarVisualizationSpec

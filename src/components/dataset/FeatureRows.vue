@@ -6,10 +6,10 @@ import PropertyValue from '../map/PropertyValue.vue'
 import type { DataRecord } from '../../lib/data/connectors'
 import { listOf, structOf } from '../../lib/schema'
 import { fieldTypeOf } from '../../lib/dataset/dataset'
-import type { ColumnInfo } from '../../lib/dataset/columns'
+import { isGeometryColumn, type ColumnInfo } from '../../lib/dataset/columns'
 
 const props = defineProps<{ columns: ColumnInfo[]; rows: DataRecord[] }>()
-const type = computed(() => listOf(structOf(props.columns.filter((c) => c.type !== 'geometry').map((c) => ({ name: c.name, type: fieldTypeOf(c.type) })))))
+const type = computed(() => listOf(structOf(props.columns.filter((c) => !isGeometryColumn(c.type)).map((c) => ({ name: c.name, type: fieldTypeOf(c.type) })))))
 </script>
 
 <template>

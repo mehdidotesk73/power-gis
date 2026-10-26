@@ -1,36 +1,46 @@
 <script setup lang="ts">
-// Where each row's feature comes from: a region-code column, lat/lon
-// columns, or a geometry column — part of a visualization's settings. Shows
-// the server's answer for how many rows matched.
-import { BOUNDARIES, guessBinding, type GeometryBinding } from '../../lib/dataset/binding'
+// Where a visualization draws: a geometry column (points, polylines or
+// regions) — or, until transforms can join a boundary dataset, a column of
+// region codes matched to built-in county / state polygons. Shows the
+// server's answer for how many rows matched.
+import { computed } from 'vue'
+import { BOUNDARIES, geometryColumns, type GeometryBinding } from '../../lib/dataset/binding'
 import type { ColumnInfo } from '../../lib/dataset/columns'
 import type { BindingInfo } from '../../lib/dataset/query'
 
 const props = defineProps<{ columns: ColumnInfo[]; modelValue: GeometryBinding; info: BindingInfo | null; error?: string }>()
 const emit = defineEmits<{ (e: 'update:modelValue', b: GeometryBinding): void }>()
 
+const geoms = computed(() => geometryColumns(props.columns))
+const codes = computed(() => props.columns.filter((c) => c.type === 'string' || c.type === 'int'))
 const set = (patch: Partial<GeometryBinding>) => emit('update:modelValue', { ...props.modelValue, ...patch } as GeometryBinding)
 
 function setKind(kind: GeometryBinding['kind']) {
-  const first = props.columns[0]?.name ?? ''
-  const guess = guessBinding(props.columns)
-  if (guess?.kind === kind) emit('update:modelValue', guess)
-  else if (kind === 'boundary') emit('update:modelValue', { kind, column: first, boundary: 'us-counties' })
-  else if (kind === 'latlon') emit('update:modelValue', { kind, lat: first, lon: props.columns[1]?.name ?? first })
-  else emit('update:modelValue', { kind, column: first })
+  if (kind === 'geometry') emit('update:modelValue', { kind, column: geoms.value[0]?.name ?? '' })
+  else emit('update:modelValue', { kind, column: codes.value[0]?.name ?? props.columns[0]?.name ?? '', boundary: 'us-counties' })
 }
 const value = (e: Event) => (e.target as HTMLSelectElement).value
 </script>
 
 <template>
   <div class="binding">
-    <div class="lbl">Each row's feature comes from</div>
+    <div class="lbl">Draw on</div>
     <div class="seg">
-      <button :class="{ on: modelValue.kind === 'boundary' }" @click="setKind('boundary')">Region code</button>
-      <button :class="{ on: modelValue.kind === 'latlon' }" @click="setKind('latlon')">Lat / lon</button>
       <button :class="{ on: modelValue.kind === 'geometry' }" @click="setKind('geometry')">Geometry column</button>
+      <button :class="{ on: modelValue.kind === 'boundary' }" @click="setKind('boundary')">Region code</button>
     </div>
-    <template v-if="modelValue.kind === 'boundary'">
+    <template v-if="modelValue.kind === 'geometry'">
+      <label v-if="geoms.length" class="row">
+        Column
+        <select :value="modelValue.column" @change="set({ column: value($event) })">
+          <option v-for="c in geoms" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }})</option>
+        </select>
+      </label>
+      <p v-else class="small muted">
+        This dataset has no geometry column. If it has latitude and longitude, add a point column from them (✎ on the dataset → Add a column).
+      </p>
+    </template>
+    <template v-else>
       <label class="row">
         Code column
         <select :value="modelValue.column" @change="set({ column: value($event) })">
@@ -47,33 +57,14 @@ const value = (e: Event) => (e.target as HTMLSelectElement).value
         <input type="checkbox" :checked="!!modelValue.includeEmpty" @change="set({ includeEmpty: ($event.target as HTMLInputElement).checked })" />
         Also show regions with no rows
       </label>
+      <p class="small muted">Built-in county / state shapes — a stopgap until a boundary dataset can be joined in.</p>
     </template>
-    <template v-else-if="modelValue.kind === 'latlon'">
-      <label class="row">
-        Latitude
-        <select :value="modelValue.lat" @change="set({ lat: value($event) })">
-          <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }}</option>
-        </select>
-      </label>
-      <label class="row">
-        Longitude
-        <select :value="modelValue.lon" @change="set({ lon: value($event) })">
-          <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }}</option>
-        </select>
-      </label>
-    </template>
-    <label v-else class="row">
-      GeoJSON / WKT column
-      <select :value="modelValue.column" @change="set({ column: value($event) })">
-        <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }}</option>
-      </select>
-    </label>
     <p v-if="error" class="small bad">{{ error }}</p>
     <p v-else-if="info" class="small" :class="info.features ? 'ok' : 'bad'">
       {{ info.features.toLocaleString() }} features from {{ info.matchedRows.toLocaleString() }} rows
-      <template v-if="info.unmatched"> · {{ info.unmatched.toLocaleString() }} rows unmatched (e.g. {{ info.unmatchedSamples.slice(0, 3).join(', ') }})</template>
+      <template v-if="info.unmatched"> · {{ info.unmatched.toLocaleString() }} rows without one (e.g. {{ info.unmatchedSamples.slice(0, 3).join(', ') }})</template>
     </p>
-    <p v-else class="small muted">Checking…</p>
+    <p v-else-if="modelValue.column" class="small muted">Checking…</p>
   </div>
 </template>
 

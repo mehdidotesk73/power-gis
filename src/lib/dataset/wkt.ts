@@ -1,7 +1,10 @@
-// Minimal WKT → GeoJSON geometry parser: POINT, LINESTRING, POLYGON and their
-// MULTI forms, with optional Z/M values (dropped) and an optional SRID=…; prefix.
+// Geometry cell values. A minimal WKT → GeoJSON parser (POINT, LINESTRING,
+// POLYGON and their MULTI forms, optional Z/M values dropped, optional
+// SRID=…; prefix), and `geometryFromValue` for any cell: GeoJSON object or
+// text, or WKT. Coordinates are longitude / latitude (WGS84).
 
 import type { Geometry, Position } from 'geojson'
+import { geometryKindOf } from '../schema'
 
 type Nested = Position | Nested[]
 
@@ -51,4 +54,23 @@ export function parseWkt(text: string): Geometry | null {
     return null
   }
   return null
+}
+
+/** GeoJSON geometry from a cell: a Geometry/Feature object, GeoJSON text, or WKT. */
+export function geometryFromValue(v: unknown): Geometry | null {
+  if (v === null || v === undefined) return null
+  let o: unknown = v
+  if (typeof v === 'string') {
+    const s = v.trim()
+    if (!s) return null
+    if (!s.startsWith('{')) return parseWkt(s)
+    try {
+      o = JSON.parse(s)
+    } catch {
+      return null
+    }
+  }
+  const obj = o as { type?: string; geometry?: Geometry }
+  if (obj?.type === 'Feature') return obj.geometry ?? null
+  return geometryKindOf(obj as Geometry) ? (obj as Geometry) : null
 }

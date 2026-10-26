@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { aggregate, defaultAggregation } from './aggregate'
-import { boundaryKey, geometryFromValue, groupRows, guessBinding, type BoundaryFeature } from './binding'
-import { coerce, inferColumns } from './columns'
+import { boundaryKey, geometryFromValue, groupRows, guessBinding, isSupportedBinding, type BoundaryFeature } from './binding'
+import { coerce, inferColumns, type ColumnType } from './columns'
 import { parseWkt } from './wkt'
-import { withVectorColumn } from './dataset'
+import { guessLatLon, withPointColumn, withVectorColumn } from './dataset'
 import { bindingInfo, groupDataset, queryValues } from './query'
 import { defaultVisualization, makeVisualization, retarget, visualizationLayer, ROWS, VALUE } from './visualization'
 import { parseVector } from '../schema'
@@ -22,7 +22,7 @@ describe('columns', () => {
       { fips: '01003', n: '4', x: '', ok: 'false', when: '2025-02-01', name: 'B', geom: 'POINT (3 4)' },
     ])
     expect(Object.fromEntries(cols.map((c) => [c.name, c.type]))).toEqual({
-      fips: 'string', n: 'int', x: 'double', ok: 'boolean', when: 'datetime', name: 'string', geom: 'geometry',
+      fips: 'string', n: 'int', x: 'double', ok: 'boolean', when: 'datetime', name: 'string', geom: 'point',
     })
     expect(coerce('', 'int')).toBeNull()
     expect(coerce('True', 'boolean')).toBe(true)
@@ -74,18 +74,37 @@ describe('bindings', () => {
     expect(r.unmatched).toBe(1)
     const all = groupRows(recs.slice(0, 1), { kind: 'boundary', column: 'f', boundary: 'us-counties', includeEmpty: true }, counties)
     expect(all.groups).toHaveLength(3)
-    const pts = groupRows([{ la: '35', lo: '-90' }, { la: '', lo: '-90' }, { la: null, lo: 1 }], { kind: 'latlon', lat: 'la', lon: 'lo' })
-    expect(pts.groups[0].geometry).toEqual({ type: 'Point', coordinates: [-90, 35] })
-    expect(pts.unmatched).toBe(2)
+    const p = (x: number) => ({ type: 'Point', coordinates: [x, 0] })
+    const pts = groupRows([{ g: p(1) }, { g: p(1) }, { g: p(2) }, { g: null }], { kind: 'geometry', column: 'g' })
+    expect(pts.groups.map((x) => x.rows.length)).toEqual([2, 1]) // the same point is one feature
+    expect(pts.unmatched).toBe(1)
   })
 
-  it('guesses a binding from column names', () => {
-    const c = (name: string, type: 'string' | 'double' | 'geometry' = 'string') => ({ name, type })
-    expect(guessBinding([c('name'), c('Latitude', 'double'), c('Longitude', 'double')])).toEqual({ kind: 'latlon', lat: 'Latitude', lon: 'Longitude' })
+  it('guesses a binding: a geometry column (regions first), else region codes — never lat/lon pairs', () => {
+    const c = (name: string, type: ColumnType = 'string') => ({ name, type })
+    expect(guessBinding([c('name'), c('Latitude', 'double'), c('Longitude', 'double')])).toBeNull()
     expect(guessBinding([c('county_fips'), c('state')])).toMatchObject({ kind: 'boundary', column: 'county_fips', boundary: 'us-counties' })
     expect(guessBinding([c('state'), c('value', 'double')])).toMatchObject({ boundary: 'us-states' })
-    expect(guessBinding([c('wkt', 'geometry')])).toEqual({ kind: 'geometry', column: 'wkt' })
+    expect(guessBinding([c('site', 'point'), c('area', 'region'), c('fips')])).toEqual({ kind: 'geometry', column: 'area' })
     expect(guessBinding([c('a'), c('b')])).toBeNull()
+    expect(isSupportedBinding({ kind: 'latlon', lat: 'a', lon: 'b' } as never)).toBe(false)
+  })
+
+  it('types geometry columns by kind and coerces their cells to GeoJSON', () => {
+    const cols = inferColumns([
+      { site: 'POINT (-90 35)', line: { type: 'LineString', coordinates: [[0, 0], [1, 1]] }, area: '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}' },
+      { site: 'POINT (-91 36)', line: null, area: 'MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))' },
+    ])
+    expect(cols.map((x) => x.type)).toEqual(['point', 'polyline', 'region'])
+    expect(coerce('POINT (-90 35)', 'point')).toEqual({ type: 'Point', coordinates: [-90, 35] })
+    expect(coerce('POINT (-90 35)', 'region')).toBeNull() // wrong kind for the column
+  })
+
+  it('makes a point column from latitude and longitude', () => {
+    const rows = withPointColumn([{ la: '35', lo: '-90' }, { la: '', lo: '-90' }, { la: '95', lo: 1 }], 'loc', 'la', 'lo')
+    expect(rows.map((r) => r.loc)).toEqual([{ type: 'Point', coordinates: [-90, 35] }, null, null])
+    expect(guessLatLon([{ name: 'Latitude' }, { name: 'lng' }])).toEqual({ lat: 'Latitude', lon: 'lng' })
+    expect(guessLatLon([{ name: 'lat' }])).toBeNull()
   })
 })
 
@@ -161,13 +180,15 @@ describe('visualization queries', () => {
     expect(queryValues(g, columns, 'type', 'mode', false).features[0].value).toBe('Coop') // mode tie → alphabetical
   })
 
-  it('carries geometry for lat/lon bindings', () => {
-    const pts = [{ lat: '35', lon: '-90', mw: '5' }, { lat: '35', lon: '-90', mw: '7' }, { lat: 'x', lon: '1', mw: '1' }]
+  it('carries geometry for geometry-column bindings', () => {
+    const pts = withPointColumn([{ lat: '35', lon: '-90', mw: '5' }, { lat: '35', lon: '-90', mw: '7' }, { lat: 'x', lon: '1', mw: '1' }], 'loc', 'lat', 'lon')
     const c = inferColumns(pts)
-    const b = { kind: 'latlon' as const, lat: 'lat', lon: 'lon' }
-    const v = queryValues(groupDataset(pts, c, b), c, 'mw', 'sum', true)
+    expect(c.find((x) => x.name === 'loc')!.type).toBe('point')
+    const v = queryValues(groupDataset(pts, c, { kind: 'geometry', column: 'loc' }), c, 'mw', 'sum', true)
     expect(v).toMatchObject({ geometryKind: 'point', unmatched: 1 })
-    expect(v.features).toEqual([{ key: '35.000000,-90.000000', label: '35.000000,-90.000000', rows: 2, value: 12, geometry: { type: 'Point', coordinates: [-90, 35] } }])
+    expect(v.features).toEqual([{ key: 'f1', label: 'f1', rows: 2, value: 12, geometry: { type: 'Point', coordinates: [-90, 35] } }])
+    const shape = { columns: c.filter((x) => x.name !== 'loc'), maxRowsPerFeature: 1, geometryKind: 'point' as const }
+    expect(defaultVisualization(shape, 'ds', { kind: 'geometry', column: 'loc' }).column).toBe('mw') // not a coordinate
   })
 
   it('retargets a visualization, keeping its style only when the value kind matches', () => {
