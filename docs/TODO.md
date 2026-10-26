@@ -138,16 +138,59 @@ results, because the agent workflow (step 6) drives the same operations as the U
 4. **DAG** — first version done (see Done): a Graph view of datasets → transforms → outputs →
    visualizations, auto-laid-out, where transforms and visualizations can be added and opened.
    Still open: saved node positions / dragging, rewiring by dragging edges (computers), and later a live view of agent pipelines (with their source / usage-policy records).
-5. **Tabs** — datasets shared; each tab has its own ordered visualizations, map view and DAG.
-   **Phones: tabs only.**
-6. **Agent workflow** — see below.
+5. **Agent workflow (data finding)** — see below.
+6. **Tabs, with a widget layout** — see *Display model* below. Datasets are shared; each tab owns
+   its transforms, visualizations and widgets, and has its own map view and DAG. **New** (blank),
+   **Duplicate** (independent copies; duplicated transforms write fresh outputs, since a dataset
+   has one writer) and **Derived** (pick **anchors** — datasets, transforms, visualizations — from
+   another tab: shown locked 🔗, live, editable only in their source tab; "detach a copy" to edit;
+   "Link from another tab…" later in any tab). Even with only a map widget, a tab holds a *list of
+   widgets* so charts slot in without a migration. **Phones: tabs only**; a tab's widgets stack.
+7. **Charts (static)** — a chart widget; visualizations grouped by x (+ series) with y and color
+   encodings, marks line / bar / scatter. Useful before any interactivity.
+8. **Interactivity** — variables, events → variables, views, widget filters (see *Display model*).
+   E.g. a map of 2024 prices by county; tapping a county sets `county`; a view
+   `SELECT year, avg_price FROM prices WHERE county = :county` feeds a time-series chart.
+9. **Agents compose displays** — everything above is serializable config, so agents can build
+   "map + chart on click" setups as well as datasets.
+
+### Display model (agreed 2026-10-26)
+
+Three layers; maps and charts are the same kind of thing:
+
+| Layer | What | Kinds |
+|---|---|---|
+| **Source** (data) | a table of rows | **dataset** (stored, lineage, staleness, run on demand) · **view** (a SELECT computed on the fly, never stored, may use variables, re-evaluates when inputs or variables change) |
+| **Visualization** (encoding) | a source + a **grouping key** (which columns make one mark) + aggregation + channels (columns → color / size / x / y …) | map layer: key = geometry (+ name) · chart series: key = x (+ series) |
+| **Widget** (display) | a coordinate space holding an ordered stack of visualizations | **map** (geographic) · **chart** (axes) · later table, … |
+
+- **A mark is a group of rows** identified by its key values — on maps too (a county in
+  utilities-by-county is many rows). One-row-per-mark is just a unique key.
+- **Selection** on any widget = `{visualizationId, key}` → the rows behind the mark. The map's
+  selected feature already has this shape.
+- **Variables** (per tab: name, type, default, value; editable as a small form) are set by
+  **events** configured in the UI ("when a feature is selected on *Map* → set `county` to its
+  *fips*"), binding either the **key value** or a **column of the selected rows** (one value if all
+  rows agree, else a list for `IN :var`).
+- **Views** take variables as **bound parameters** (never pasted into SQL). Run in the DuckDB
+  worker, debounced, stale answers dropped (the Find `seq` pattern). The common case needs no SQL:
+  a **widget filter** `column = {variable}` on a dataset.
+- **Transforms stay persistent and on-demand — no autorun.** Reactive steps are views; rewriting
+  a stored dataset on every click would churn staleness, lineage and the one-writer rule.
+- **DAG:** variables become nodes; dashed "reactive" edges map → variable → view → chart.
+- **Code shape later:** the geometry binding generalizes to a grouping key; a new `Widget`
+  `{type: 'map' | 'chart', visualizationIds, settings}` (today's visualization list = the map
+  widget's layers); a tab = an arrangement of widgets.
+- **Keep now:** transforms as pure SELECTs; map selection as an emitted `{visualization, key}`.
 
 **Decided:** DuckDB for SQL · scraped datasets live **on the device** · agents may run only while
 the app is open at first · agents run on **Claude Managed Agents** with a thin **Netlify Function**
 bridge (holds the Anthropic API key, starts sessions, relays clarifications/approvals/results).
 **Postponed:** user login / cloud workspace · split screen.
+**Order:** data-finding agents → tabs (widget layout) → static charts → interactivity → agents
+composing displays — each step useful alone, none reworked by the next.
 
-### Agent workflow (step 6)
+### Agent workflow (step 5)
 
 - **Orchestrator** — takes a request ("all datacenters and their loads", "temperature");
   asks clarifying questions when ambiguous (e.g. frequency daily/weekly…, aggregate avg/max/min);
