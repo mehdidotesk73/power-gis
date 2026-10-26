@@ -11,7 +11,7 @@ import type { DatasetRecord } from '../../shared/records'
 import type { DataRecord } from '../../lib/data/connectors'
 import { isGeometryColumn } from '../../lib/dataset/columns'
 
-defineProps<{ datasets: DatasetRecord[]; vizCount: (id: string) => number }>()
+defineProps<{ datasets: DatasetRecord[]; vizCount: (id: string) => number; /** Shown under the graph: no hint. */ compact?: boolean }>()
 const emit = defineEmits<{
   (e: 'remove', id: string): void
   (e: 'reorder', ids: string[]): void
@@ -91,7 +91,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
     :item-label="(d) => d.name"
     :actions="actions"
     reorderable
-    hint="Tap and hold a dataset for options."
+    :hint="compact ? '' : 'Tap and hold a dataset for options.'"
     @action="onAction"
     @reorder="(ids) => emit('reorder', ids)"
   >

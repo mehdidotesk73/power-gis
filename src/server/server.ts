@@ -186,8 +186,11 @@ export function createServer(db: Database, env: ServerEnv) {
         const config = { ...w.config, datasetIds: w.config.datasetIds.filter((d) => d !== id), visualizationIds: w.config.visualizationIds.filter((v) => !gone.has(v)) }
         await db.put('workspaces', { ...w, config, updatedAt: now() })
       }
-      // A transform that wrote this dataset makes a new one on its next run.
-      for (const tr of await db.list('transforms')) if (tr.outputId === id) await db.put('transforms', { ...tr, outputId: undefined, updatedAt: now() })
+      // A transform output that wrote this dataset makes a new one on its next run.
+      for (const tr of await db.list('transforms')) {
+        if (!tr.outputs?.some((o) => o.outputId === id)) continue
+        await db.put('transforms', { ...tr, outputs: tr.outputs.map((o) => (o.outputId === id ? { ...o, outputId: undefined } : o)), updatedAt: now() })
+      }
       forget(id)
       return { datasetId: id }
     },
@@ -198,24 +201,42 @@ export function createServer(db: Database, env: ServerEnv) {
 
     async runTransform({ transform }) {
       if (!transform.name.trim()) fail('invalid', 'A transform needs a name')
-      const out = await runSql(transform.sql, transform.inputs)
-      const t = now()
-      const existing = transform.outputId ? await db.get('datasets', transform.outputId) : undefined
-      const id = existing?.id ?? newId()
-      const record: DatasetRecord = {
-        ...(existing ?? { id, table: dataTableName(id), origin: `Transform · ${transform.name.trim()}`, name: transform.name.trim(), createdAt: t }),
-        columns: out.columns,
-        rowCount: out.rows.length,
-        profile: profileRows(out.rows, out.columns),
-        updatedAt: t,
+      if (!transform.outputs?.length) fail('invalid', 'A transform needs at least one output')
+      // Every output's SQL runs first; nothing is written unless all of them succeed.
+      const results: { o: (typeof transform.outputs)[number]; out: Awaited<ReturnType<typeof runSql>> }[] = []
+      for (const o of transform.outputs) {
+        try {
+          results.push({ o, out: await runSql(o.sql, transform.inputs) })
+        } catch (e) {
+          const label = o.name.trim() || transform.name.trim()
+          fail(e instanceof Failure ? e.code : 'failed', transform.outputs.length > 1 ? `${label}: ${(e as Error).message}` : (e as Error).message)
+        }
       }
-      await db.writeRows(record.table, out.rows)
-      await db.put('datasets', record)
-      forget(id)
-      // A saved transform remembers where its output went.
+      const t = now()
+      const written: { key: string; datasetId: string; rowCount: number; created: boolean }[] = []
+      for (const { o, out } of results) {
+        const existing = o.outputId ? await db.get('datasets', o.outputId) : undefined
+        const id = existing?.id ?? newId()
+        const name = o.name.trim() || transform.name.trim()
+        const record: DatasetRecord = {
+          ...(existing ?? { id, table: dataTableName(id), origin: `Transform · ${transform.name.trim()}`, name, createdAt: t }),
+          columns: out.columns,
+          rowCount: out.rows.length,
+          profile: profileRows(out.rows, out.columns),
+          updatedAt: t,
+        }
+        await db.writeRows(record.table, out.rows)
+        await db.put('datasets', record)
+        forget(id)
+        written.push({ key: o.key, datasetId: id, rowCount: out.rows.length, created: !existing })
+      }
+      // A saved transform remembers where each output went.
       const saved = await db.get('transforms', transform.id)
-      if (saved && saved.outputId !== id) await db.put('transforms', { ...saved, outputId: id, updatedAt: t })
-      return { datasetId: id, rowCount: out.rows.length, created: !existing }
+      if (saved) {
+        const outputs = (saved.outputs ?? []).map((o) => ({ ...o, outputId: written.find((w) => w.key === o.key)?.datasetId ?? o.outputId }))
+        await db.put('transforms', { ...saved, outputs, updatedAt: t })
+      }
+      return { outputs: written }
     },
 
     async profileDataset({ datasetId }) {
@@ -276,9 +297,8 @@ export function createServer(db: Database, env: ServerEnv) {
         const record: TransformRecord = {
           id: tr.id,
           name: tr.name.trim(),
-          sql: tr.sql,
           inputs: tr.inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })),
-          ...(tr.outputId ? { outputId: tr.outputId } : {}),
+          outputs: tr.outputs.map((o) => ({ key: o.key, name: o.name, sql: o.sql, ...(o.outputId ? { outputId: o.outputId } : {}) })),
           createdAt: old?.createdAt ?? t,
           updatedAt: t,
         }

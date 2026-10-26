@@ -312,6 +312,25 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Graph view (DAG) — 2026-10-26
+- **Added:** List | Graph switch. The graph (`lib/workspace/dag.ts`, `components/dag/DagView.vue`)
+  shows datasets → transforms → outputs → visualizations, laid out automatically (rows by depth,
+  barycenter order); tap a node to open it under the graph; ＋ Transform by tapping input datasets;
+  ＋ Visualization by tapping a dataset; transforms marked not run yet / needs re-run.
+- **Decided:** automatic layout only for now (no saved positions); tap-to-pick inputs (no edge
+  dragging); visualizations are nodes. Tapping a node shows its card (hold for options) — editors
+  open only for new items. One writer per dataset: a transform's Writes to (new / an unclaimed
+  dataset); deleting a transform keeps its output, re-linkable by another transform. Transform menu
+  gained Preview.
+- **Changed:** transforms are inputs + outputs (one SQL per output; Run writes all, or none if one
+  fails). Old single-SQL transforms are read through `normalizeTransform`. **＋ Dataset** joined the
+  graph's toolbar (the separate Add dataset button under the graph is gone). The List view opens
+  with every panel collapsed, and ＋ Add dataset sits at the top of its panel like the others. Graph
+  is the default view; the List | Graph choice is remembered per device.
+- **Fixed:** the transform editor could widen the whole controls column past a phone's screen (a
+  grid's auto column grows to its widest child) — `minmax(0, 1fr)` on the page grid and the editor.
+- **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
+
 ### Object lists: hold menus for datasets, visualizations, transforms — 2026-10-26
 - **Added:** `components/list/ObjectList.vue` — a generic card list fed `items`, a card slot and
   `actions(item)` for its tap-and-hold (right-click) menu; built-in Reorder (≡ handles, vertically

@@ -59,6 +59,11 @@ Track feature development, improvements, and known issues here. Move completed w
   boundary datasets; the default map is `public/data/default.powergis.json` (built-ins + the
   **Utilities by county** join transform + visualizations). Region-code binding, the county dashboard,
   utility presets and ownership flags deleted; geometry bindings name features by a `label` column.
+- **Graph view (roadmap step 4, first version)** — List | Graph switch; `lib/workspace/dag.ts`
+  (nodes, edges, rows by depth, barycenter order, automatic layout) + `DagView.vue`; tap a node to
+  open it under the graph; ＋ Transform (tap inputs) and ＋ Visualization (tap a dataset); transforms
+  marked not run yet / needs re-run. Transforms have several outputs (one SQL each, per-output
+  Preview, one Run writes all; nothing written if any fails); one writer per dataset.
 
 ## Next (Current Sprint)
 
@@ -119,8 +124,10 @@ results, because the agent workflow (step 6) drives the same operations as the U
 3. ~~**Normalize the EIA-861 data + boundary datasets, data-agnostic**~~ (done, see Done) — still
    open: the alternative shape (a utilities **list-of-counties column** joined by unnest) once list
    columns round-trip through transforms.
-4. **DAG** — connector → dataset → derived dataset → visualization, built from the workspace
-   document; later also a live view of agent pipelines (with their source / usage-policy records).
+4. **DAG** — first version done (see Done): a Graph view of datasets → transforms → outputs →
+   visualizations, auto-laid-out, where transforms and visualizations can be added and opened.
+   Still open: saved node positions / dragging, rewiring by dragging edges (computers), Run all
+   stale, and later a live view of agent pipelines (with their source / usage-policy records).
 5. **Tabs** — datasets shared; each tab has its own ordered visualizations, map view and DAG.
    **Phones: tabs only.**
 6. **Agent workflow** — see below.

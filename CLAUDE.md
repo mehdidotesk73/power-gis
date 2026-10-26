@@ -169,10 +169,15 @@ whatever they're actually asking about.
   (`server/duckdb.ts`; the ~34 MB eh wasm is kept out of the PWA precache). `server/sql.ts` loads
   each input dataset as a table named by its alias (INSERT … VALUES — no file registration, which hangs
   the Node build), runs one SELECT, and types the result again (GeoJSON text → geometry, `{u, v}` →
-  vector). Helpers in SQL: `point(lat, lon)`, `vector(u, v)`. Requests: `previewTransform` (first rows,
-  nothing stored), `runTransform` (writes `outputId`'s table or a new dataset; returns the pointer).
-  Transforms are part of the workspace draft (`TransformSpec`, ops `addTransform` / `updateTransform`
-  / `removeTransform`) and saved with it. Inputs are `{datasetId, alias}` pairs: the dataset is picked
+  vector). Helpers in SQL: `point(lat, lon)`, `vector(u, v)`. A transform is **inputs + outputs**:
+  `TransformSpec {id, name, inputs, outputs: {key, name, sql, outputId?}[]}` — one SELECT per output.
+  Requests: `previewTransform` (one SQL's first rows, nothing stored), `runTransform` (runs every
+  output's SQL, then — only if all succeed — writes each into its `outputId` or a new dataset named
+  after the output; returns `{outputs: [{key, datasetId, rowCount, created}]}`). Older single-SQL
+  transforms (`sql` + `outputId`) are read through `normalizeTransform` (drafts, files, records).
+  Transforms are part of the workspace draft (ops `addTransform` / `updateTransform` /
+  `removeTransform`) and saved with it. The editor sets inputs and outputs first, then one SQL per
+  output with its own Preview; Run writes them all. Inputs are `{datasetId, alias}` pairs: the dataset is picked
   in a search box (name, typo-tolerant, or a pasted id — a dataset's hold menu → Copy id); the alias is the
   table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
   table's error lists the aliases). Tests run real DuckDB through its Node build
@@ -186,7 +191,8 @@ whatever they're actually asking about.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).
 - **Default workspace** (`public/data/default.powergis.json`): a workspace file whose pointers are
-  placeholders — `builtin:<table>` and `transform:<n>` (the n-th transform's output). `seedDefault`
+  placeholders — `builtin:<table>` and `transform:<n>` (the n-th transform's first output;
+  `transform:<n>.<m>` its m-th). `seedDefault`
   (`MapPage.vue`) uploads or reuses the built-ins, runs the transforms (reusing an output marked
   `extensions.madeBy` with the same SQL + inputs; the first run loads DuckDB), swaps in the ids
   (`replacePointers`, `lib/workspace/file.ts`) and opens it like a loaded file. Changing the default
@@ -203,8 +209,29 @@ whatever they're actually asking about.
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
   Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
-  (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Run,
-  Edit, Delete.
+  (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Preview,
+  Run, Edit, Delete.
+- **List view** panels (Visualizations, Datasets, Transforms, Export) open collapsed; each panel's
+  ＋ button sits at its top.
+- **Graph view (DAG)** — the default view; a **List | Graph** switch above the panels changes it,
+  remembered per device (`powergis.controlsView`). `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
+  nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest
+  input, its output below it, every visualization in the bottom row), one barycenter pass orders each
+  row; `layoutDag` places them (automatic, nothing stored). Transforms show **not run yet** (no
+  output) or **needs re-run** (an input's `updatedAt` is newer than the output's). `DagView.vue`
+  draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
+  same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in
+  the lists (only new transforms / visualizations open straight into their editors).
+  **＋ Dataset**: the add-dataset form under the graph (the new dataset's node then opens);
+  **＋ Transform**: tap input datasets, Next → a new transform with those inputs; **＋ Visualization**:
+  tap a dataset → the add form. The graph is an interface to the same workspace operations, not a
+  separate model.
+- **One writer per dataset.** Each output writes a new dataset (made on Run) or an existing one that
+  no other output (of any transform) writes and that isn't one of its transform's inputs
+  (`checkTransform`).
+  Deleting a transform keeps its output dataset — it just can't be re-run until another transform
+  is set to write it. Transform menu: Preview (first rows, without opening the editor), Run, Edit,
+  Delete.
 - County join keys are 5-digit FIPS strings (`county_fips` / `fips`). Keep them strings: leading
   zeros matter.
 
@@ -236,7 +263,7 @@ src/
     geometry.ts            anchor points (centroids), bbox
     data/connectors.ts     connectors: how sources are read
     data/boundaryTables.ts us-atlas → us_counties / us_states rows (built-in boundary datasets)
-    workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts)
+    workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts), graph (dag.ts)
     dataset/               columns, aggregate, binding (+ wkt), query (server-side grouping), profile, visualization
     search.ts              ranked type-ahead search (optional typo-tolerant `fuzzy`)
     data/csv.ts            CSV → records
@@ -257,6 +284,7 @@ src/
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
     list/                  ObjectList.vue (cards + hold menu + reorder), useLongPress, useDragReorder
+    dag/DagView.vue        the workspace graph: datasets → transforms → outputs → visualizations
     FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
     dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows

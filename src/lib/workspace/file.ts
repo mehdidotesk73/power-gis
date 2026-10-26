@@ -7,7 +7,7 @@ import type { VisualizationSettings, VisualizationSpec } from '../dataset/visual
 import { settingsOf } from '../dataset/visualization'
 import { newId } from '../dataset/dataset'
 import { isSupportedBinding } from '../dataset/binding'
-import type { TransformSpec, WorkspaceDoc } from './workspace'
+import { normalizeTransform, type TransformSpec, type WorkspaceDoc } from './workspace'
 
 export const FILE_FORMAT = 'powergis-workspace'
 export const FILE_VERSION = 1
@@ -62,12 +62,16 @@ export function parseWorkspaceFile(text: string): Parsed {
       return { ok: false, error: 'A visualization in the file is incomplete or damaged.' }
     }
   }
-  for (const t of o.transforms ?? []) {
-    if (typeof t?.name !== 'string' || typeof t.sql !== 'string' || !Array.isArray(t.inputs) || !t.inputs.every((i) => typeof i?.datasetId === 'string' && typeof i.alias === 'string')) {
+  // Transforms: today's outputs list, or (older files) one `sql` + `outputId`.
+  type RawTransform = Omit<TransformSpec, 'id' | 'outputs'> & { outputs?: TransformSpec['outputs']; sql?: string; outputId?: string }
+  const raw = (o.transforms ?? []) as RawTransform[]
+  for (const t of raw) {
+    const outputsOk = Array.isArray(t?.outputs) ? t.outputs.every((x) => typeof x?.sql === 'string' && typeof x.name === 'string' && typeof x.key === 'string') : typeof t?.sql === 'string'
+    if (typeof t?.name !== 'string' || !outputsOk || !Array.isArray(t.inputs) || !t.inputs.every((i) => typeof i?.datasetId === 'string' && typeof i.alias === 'string')) {
       return { ok: false, error: 'A transform in the file is incomplete or damaged.' }
     }
   }
-  return { ok: true, file: o as WorkspaceFile }
+  return { ok: true, file: { ...(o as WorkspaceFile), transforms: raw.map((t) => normalizeTransform(t)) } }
 }
 
 /**
@@ -85,7 +89,7 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   // Transforms keep their output pointer only if that dataset is here; inputs must all be here.
   const transforms = (file.transforms ?? [])
     .filter((t) => t.inputs.every((i) => datasetIds.includes(i.datasetId)))
-    .map((t) => ({ ...t, id: newId(), ...(t.outputId && !inDatabase(t.outputId) ? { outputId: undefined } : {}) }))
+    .map((t) => ({ ...t, id: newId(), outputs: t.outputs.map((o) => (o.outputId && !inDatabase(o.outputId) ? { ...o, outputId: undefined } : o)) }))
   return { doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds, visualizations, transforms }, missing }
 }
 
@@ -108,7 +112,7 @@ export function parseDraft(text: string | null): Draft | null {
   try {
     const d = JSON.parse(text) as Draft
     if (!(d && typeof d.saved === 'string' && d.doc && Array.isArray(d.doc.datasetIds) && Array.isArray(d.doc.visualizations))) return null
-    return { ...d, doc: { ...d.doc, transforms: d.doc.transforms ?? [] } } // drafts from before transforms
+    return { ...d, doc: { ...d.doc, transforms: (d.doc.transforms ?? []).map((t) => normalizeTransform(t)) } } // older drafts: no transforms, or single-SQL ones
   } catch {
     return null
   }
@@ -117,8 +121,8 @@ export function parseDraft(text: string | null): Draft | null {
 // ── templates (the default workspace) ──────────────────────────────────────
 //
 // A template is a workspace file whose pointers aren't dataset ids yet:
-// `builtin:<table>` names a built-in table and `transform:<n>` the output of
-// the file's n-th transform. Opening one uploads (or reuses) the built-ins,
+// `builtin:<table>` names a built-in table and `transform:<n>` the first
+// output of the file's n-th transform (`transform:<n>.<m>` its m-th). Opening one uploads (or reuses) the built-ins,
 // runs the transforms in order, and swaps the real ids in.
 
 export const BUILTIN_REF = 'builtin:'
@@ -126,7 +130,7 @@ export const OUTPUT_REF = 'transform:'
 
 /** Every dataset pointer in a file. */
 function pointers(file: WorkspaceFile): string[] {
-  return [...file.datasetIds, ...file.visualizations.map((v) => v.datasetId), ...(file.transforms ?? []).flatMap((t) => [...t.inputs.map((i) => i.datasetId), ...(t.outputId ? [t.outputId] : [])])]
+  return [...file.datasetIds, ...file.visualizations.map((v) => v.datasetId), ...(file.transforms ?? []).flatMap((t) => [...t.inputs.map((i) => i.datasetId), ...t.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))])]
 }
 
 /** The built-in tables a template points at. */
@@ -139,7 +143,11 @@ export function replacePointers(file: WorkspaceFile, to: (pointer: string) => st
     ...file,
     datasetIds: file.datasetIds.map(r),
     visualizations: file.visualizations.map((v) => ({ ...v, datasetId: r(v.datasetId) })),
-    transforms: (file.transforms ?? []).map((t) => ({ ...t, inputs: t.inputs.map((i) => ({ ...i, datasetId: r(i.datasetId) })), ...(t.outputId ? { outputId: r(t.outputId) } : {}) })),
+    transforms: (file.transforms ?? []).map((t) => ({
+      ...t,
+      inputs: t.inputs.map((i) => ({ ...i, datasetId: r(i.datasetId) })),
+      outputs: t.outputs.map((o) => (o.outputId ? { ...o, outputId: r(o.outputId) } : o)),
+    })),
   }
 }
 

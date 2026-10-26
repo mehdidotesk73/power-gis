@@ -23,6 +23,7 @@ import FeatureRows from './dataset/FeatureRows.vue'
 import WorkspaceBar from './workspace/WorkspaceBar.vue'
 import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
+import DagView from './dag/DagView.vue'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
@@ -31,7 +32,8 @@ import { BUILTIN_TABLES } from '../shared/builtins'
 import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
-import { ROW_COUNT } from '../lib/dataset/dataset'
+import { newId, ROW_COUNT } from '../lib/dataset/dataset'
+import { buildDag, type DagNode } from '../lib/workspace/dag'
 import { defaultVisualization, makeVisualization, settingsOf, visualizationLayer, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
 import {
   addDataset,
@@ -46,6 +48,9 @@ import {
   addTransform as addTransform_,
   updateTransform as updateTransform_,
   removeTransform as removeTransform_,
+  aliasFor,
+  newOutput,
+  normalizeTransform,
   type TransformSpec,
   type OpContext,
   type OpResult,
@@ -214,12 +219,14 @@ async function firstVisualizations(ds: DatasetRecord): Promise<VisualizationSpec
 
 async function onAddDataset(datasetId: string) {
   importing.value = false
+  dagNewDataset.value = false
   const ds = await loadRecord(datasetId)
   if (!ds) return void logDebug(`dataset ${datasetId} not found in the database`, 'error')
   const first = await firstVisualizations(ds)
   if (!apply(addDataset(doc.value, ds.id, first))) return
   logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Add visualization'}`)
   if (first.length) setTimeout(() => zoomToViz(first[0].id), 300)
+  if (view.value === 'graph') openNode({ key: `ds:${ds.id}`, kind: 'dataset', id: ds.id })
 }
 
 function removeDataset(id: string) {
@@ -235,7 +242,9 @@ async function addVisualization(datasetId: string, binding: GeometryBinding, col
   const info = await describeBinding(datasetId, binding)
   if (typeof info === 'string') return void logDebug(info, 'error')
   const v = makeVisualization(info, datasetId, binding, column)
-  if (apply(addVisualization_(doc.value, v, 0, opCtx))) vizList.value?.edit(v.id)
+  if (!apply(addVisualization_(doc.value, v, 0, opCtx))) return
+  if (view.value === 'graph') openNode({ key: `viz:${v.id}`, kind: 'viz', id: v.id }, true)
+  else vizList.value?.edit(v.id)
 }
 
 const updateVisualization = (v: VisualizationSpec) => apply(updateVisualization_(doc.value, v, opCtx))
@@ -243,12 +252,73 @@ const removeVisualization = (id: string) => apply(removeVisualization_(doc.value
 const reorderVisualizations = (ids: string[]) => apply(reorderVisualizations_(doc.value, ids))
 const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids))
 
+// ── graph (DAG) view of the workspace ──────────────────────────────────────
+
+// Controls show as one graph (the default) or as lists; the choice is remembered per device.
+const VIEW = 'powergis.controlsView'
+const view = ref<'list' | 'graph'>(store.get(VIEW) === 'list' ? 'list' : 'graph')
+watch(view, (v) => {
+  store.set(VIEW, v)
+  closeNode()
+})
+const dag = computed(() => buildDag(doc.value, (id) => records.value.get(id)))
+/** The node open under the graph (by key, so it follows edits and disappears when deleted). */
+const dagKey = ref<string | null>(null)
+const dagNode = computed(() => dag.value.nodes.find((n) => n.key === dagKey.value) ?? null)
+/** ＋ Visualization: the dataset whose add form is open under the graph. */
+const dagNewViz = ref<string | null>(null)
+/** ＋ Dataset: the add-dataset form is open under the graph. */
+const dagNewDataset = ref(false)
+const dagViz = ref<InstanceType<typeof VisualizationList>>()
+const dagTr = ref<InstanceType<typeof TransformsPanel>>()
+
+/** Shows a node's card under the graph (hold it for options); `edit` opens its editor (new items). */
+async function openNode(n: Pick<DagNode, 'key' | 'kind' | 'id'> | null, edit = false) {
+  dagNewViz.value = null
+  dagNewDataset.value = false
+  dagKey.value = n?.key ?? null
+  if (!edit) return
+  await nextTick()
+  if (n?.kind === 'transform') dagTr.value?.edit(n.id)
+  else if (n?.kind === 'viz') dagViz.value?.edit(n.id)
+}
+function closeNode() {
+  dagKey.value = null
+  dagNewViz.value = null
+  dagNewDataset.value = false
+}
+function newDataset() {
+  closeNode()
+  dagNewDataset.value = true
+}
+async function newVizFor(datasetId: string) {
+  dagKey.value = null
+  dagNewDataset.value = false
+  dagNewViz.value = datasetId
+  await nextTick()
+  dagViz.value?.addFor(datasetId)
+}
+/** ＋ Transform: a new transform reading the picked datasets, open in its editor. */
+function newTransformFrom(datasetIds: string[]) {
+  const used = new Set<string>()
+  const inputs = datasetIds.map((datasetId) => {
+    const base = aliasFor(records.value.get(datasetId)?.name ?? 'input')
+    let alias = base
+    for (let i = 2; used.has(alias); i++) alias = `${base}_${i}`
+    used.add(alias)
+    return { datasetId, alias }
+  })
+  const also = inputs.length > 1 ? `\n-- also: ${inputs.slice(1).map((i) => i.alias).join(', ')}` : ''
+  const t: TransformSpec = { id: newId(), name: 'New transform', inputs, outputs: [newOutput('New transform', `SELECT *\nFROM ${inputs[0].alias}${also}`)] }
+  if (apply(addTransform_(doc.value, t))) openNode({ key: `tr:${t.id}`, kind: 'transform', id: t.id }, true)
+}
+
 // ── transforms ─────────────────────────────────────────────────────────────
 
 const runStatus = ref<Record<string, RunStatus>>({})
 const nameOf = (id: string) => records.value.get(id)?.name
 
-/** Runs a transform on the server; its output dataset joins the workspace (with a first visualization when it has geometry). */
+/** Runs a transform on the server (all its outputs together); new output datasets join the workspace (with a first visualization when they have geometry). */
 async function runTransform(id: string) {
   const t = doc.value.transforms.find((x) => x.id === id)
   if (!t) return
@@ -258,14 +328,21 @@ async function runTransform(id: string) {
     runStatus.value = { ...runStatus.value, [id]: { state: 'error', message: r.error.message } }
     return
   }
-  const { datasetId, rowCount } = r.data
-  forgetBindingInfo(datasetId)
-  const ds = await loadRecord(datasetId) // a new updatedAt: its visualizations re-query
+  const lines: string[] = []
+  for (const { datasetId, rowCount } of r.data.outputs) {
+    forgetBindingInfo(datasetId)
+    const ds = await loadRecord(datasetId) // a new updatedAt: its visualizations re-query
+    if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, await firstVisualizations(ds)))
+    lines.push(`${rowCount.toLocaleString()} rows → ${ds?.name ?? 'dataset'}`)
+  }
+  // Each output remembers the dataset it wrote.
   const now = doc.value.transforms.find((x) => x.id === id)
-  if (now && now.outputId !== datasetId) apply(updateTransform_(doc.value, { ...now, outputId: datasetId }))
-  if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, await firstVisualizations(ds)))
-  runStatus.value = { ...runStatus.value, [id]: { state: 'done', message: `${rowCount.toLocaleString()} rows → ${ds?.name ?? 'dataset'}` } }
-  logDebug(`transform "${t.name}": ${rowCount} rows → ${ds?.name}`)
+  if (now) {
+    const outputs = now.outputs.map((o) => ({ ...o, outputId: r.data.outputs.find((w) => w.key === o.key)?.datasetId ?? o.outputId }))
+    apply(updateTransform_(doc.value, { ...now, outputs }))
+  }
+  runStatus.value = { ...runStatus.value, [id]: { state: 'done', message: lines.join(' · ') } }
+  logDebug(`transform "${t.name}": ${lines.join(' · ')}`)
 }
 
 /** Fits the map to a visualization's features (those with rows). */
@@ -296,16 +373,23 @@ async function seedDefault() {
   }
   let file = replacePointers(parsed.file, (p) => ids.get(p))
   for (const [i, t] of (file.transforms ?? []).entries()) {
-    const made = JSON.stringify({ sql: t.sql, inputs: t.inputs })
-    let id = existing.find((d) => d.extensions?.madeBy === made)?.id
-    if (!id) {
+    // Each output's dataset is reused when an earlier run made it from the same SQL and inputs.
+    const made = t.outputs.map((o) => JSON.stringify({ sql: o.sql, inputs: t.inputs }))
+    const found = made.map((m) => existing.find((d) => d.extensions?.madeBy === m)?.id)
+    if (found.some((id) => !id)) {
       loadingMsg.value = `Running "${t.name}" (the first run loads the SQL engine)…`
-      const r = await call(`transform "${t.name}"`, request('runTransform', { transform: { ...t, id: `seed-${i}`, outputId: undefined } }))
+      const outputs = t.outputs.map((o, j) => ({ ...o, outputId: found[j] }))
+      const r = await call(`transform "${t.name}"`, request('runTransform', { transform: { ...t, id: `seed-${i}`, outputs } }))
       if (!r) throw new Error(`the default transform "${t.name}" failed`)
-      id = r.datasetId
-      await request('updateDataset', { id, extensions: { madeBy: made } })
+      for (const [j, o] of t.outputs.entries()) {
+        found[j] = r.outputs.find((w) => w.key === o.key)!.datasetId
+        await request('updateDataset', { id: found[j]!, extensions: { madeBy: made[j] } })
+      }
     }
-    ids.set(OUTPUT_REF + i, id)
+    found.forEach((id, j) => {
+      ids.set(`${OUTPUT_REF}${i}.${j}`, id!)
+      if (j === 0) ids.set(OUTPUT_REF + i, id!)
+    })
     file = replacePointers(file, (p) => ids.get(p))
   }
   for (const id of file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
@@ -334,9 +418,11 @@ async function open(w: WorkspaceRecord) {
   const transforms: TransformSpec[] = []
   for (const id of w.config.transformIds ?? []) {
     const t = await readDb.get('transforms', id)
-    if (t) transforms.push({ id: t.id, name: t.name, sql: t.sql, inputs: t.inputs, ...(t.outputId ? { outputId: t.outputId } : {}) })
+    // Records saved before multi-output transforms have one `sql` + `outputId`.
+    const old = t as typeof t & { sql?: string; outputId?: string }
+    if (t) transforms.push(normalizeTransform({ id: t.id, name: t.name, inputs: t.inputs, outputs: t.outputs, sql: old.sql, outputId: old.outputId }))
   }
-  for (const t of transforms) if (t.outputId) await loadRecord(t.outputId) // output names for the panel
+  for (const t of transforms) for (const o of t.outputs) if (o.outputId) await loadRecord(o.outputId) // output names for the panel
   doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms }
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations, ${transforms.length} transforms`)
 }
@@ -572,49 +658,107 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
       />
       <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
 
-      <details class="box" open>
-        <summary>Visualizations</summary>
-        <VisualizationList
-          ref="vizList"
-          :visualizations="visualizations"
-          :datasets="datasets"
-          :data-for="dataFor"
-          @add="addVisualization"
-          @update="updateVisualization"
-          @remove="removeVisualization"
-          @reorder="reorderVisualizations"
-          @zoom="zoomToViz"
-        />
-      </details>
+      <div class="view-switch" role="group" aria-label="Show as">
+        <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
+        <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
+      </div>
 
-      <details class="box" open>
-        <summary>Datasets</summary>
-        <DatasetList
-          :datasets="datasets"
-          :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
-          @remove="removeDataset"
-          @reorder="reorderDatasets"
-          @update="updateDataset"
-        />
-        <div class="import-wrap">
-          <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
-          <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
-        </div>
-      </details>
+      <template v-if="view === 'graph'">
+        <section class="box">
+          <DagView :dag="dag" :selected="dagKey" @select="openNode" @new-transform="newTransformFrom" @new-viz="newVizFor" @new-dataset="newDataset" />
+        </section>
+        <section v-if="dagNode || dagNewViz || dagNewDataset" class="box dag-detail">
+          <div class="dag-detail-head">
+            <strong>{{ dagNewDataset ? 'New dataset' : dagNewViz ? 'New visualization' : dagNode!.kind === 'dataset' ? 'Dataset' : dagNode!.kind === 'transform' ? 'Transform' : 'Visualization' }}</strong>
+            <button class="close" aria-label="Close" @click="closeNode">✕</button>
+          </div>
+          <AddDatasetPanel v-if="dagNewDataset" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="closeNode" />
+          <VisualizationList
+            v-else-if="dagNewViz || dagNode?.kind === 'viz'"
+            ref="dagViz"
+            compact
+            :visualizations="visualizations.filter((v) => v.id === dagNode?.id)"
+            :datasets="datasets"
+            :data-for="dataFor"
+            @add="addVisualization"
+            @update="updateVisualization"
+            @remove="removeVisualization"
+            @reorder="reorderVisualizations"
+            @zoom="zoomToViz"
+            @cancel-add="closeNode"
+          />
+          <DatasetList
+            v-else-if="dagNode?.kind === 'dataset'"
+            compact
+            :datasets="records.has(dagNode.id) ? [records.get(dagNode.id)!] : []"
+            :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
+            @remove="removeDataset"
+            @reorder="reorderDatasets"
+            @update="updateDataset"
+          />
+          <TransformsPanel
+            v-else-if="dagNode?.kind === 'transform'"
+            ref="dagTr"
+            compact
+            :transforms="doc.transforms.filter((t) => t.id === dagNode!.id)"
+            :all-transforms="doc.transforms"
+            :datasets="datasets"
+            :name-of="nameOf"
+            :status="runStatus"
+            @add="(t) => apply(addTransform_(doc, t))"
+            @update="(t) => apply(updateTransform_(doc, t))"
+            @remove="(id) => apply(removeTransform_(doc, id))"
+            @run="runTransform"
+          />
+        </section>
+      </template>
 
-      <details class="box" :open="doc.transforms.length > 0">
-        <summary>Transforms</summary>
-        <TransformsPanel
-          :transforms="doc.transforms"
-          :datasets="datasets"
-          :name-of="nameOf"
-          :status="runStatus"
-          @add="(t) => apply(addTransform_(doc, t))"
-          @update="(t) => apply(updateTransform_(doc, t))"
-          @remove="(id) => apply(removeTransform_(doc, id))"
-          @run="runTransform"
-        />
-      </details>
+      <template v-else>
+        <details class="box">
+          <summary>Visualizations</summary>
+          <VisualizationList
+            ref="vizList"
+            :visualizations="visualizations"
+            :datasets="datasets"
+            :data-for="dataFor"
+            @add="addVisualization"
+            @update="updateVisualization"
+            @remove="removeVisualization"
+            @reorder="reorderVisualizations"
+            @zoom="zoomToViz"
+          />
+        </details>
+
+        <details class="box">
+          <summary>Datasets</summary>
+          <div class="import-wrap">
+            <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
+            <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
+          </div>
+          <DatasetList
+            :datasets="datasets"
+            :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
+            @remove="removeDataset"
+            @reorder="reorderDatasets"
+            @update="updateDataset"
+          />
+        </details>
+
+        <details class="box">
+          <summary>Transforms</summary>
+          <TransformsPanel
+            :transforms="doc.transforms"
+            :datasets="datasets"
+            :name-of="nameOf"
+            :status="runStatus"
+            @add="(t) => apply(addTransform_(doc, t))"
+            @update="(t) => apply(updateTransform_(doc, t))"
+            @remove="(id) => apply(removeTransform_(doc, id))"
+            @run="runTransform"
+          />
+        </details>
+
+      </template>
 
       <details class="box">
         <summary>Export (ArcGIS)</summary>
@@ -682,12 +826,13 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 <style scoped>
 .page {
   display: grid;
-  grid-template-columns: 21rem 1fr;
+  grid-template-columns: 21rem minmax(0, 1fr);
   gap: 0.75rem;
   height: calc(100dvh - 9rem);
   min-height: 32rem;
 }
 .controls {
+  min-width: 0; /* a wide editor must not widen the column past the screen */
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -697,6 +842,44 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .map-wrap {
   min-height: 0;
+}
+.view-switch {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+.view-switch button {
+  flex: 1;
+  min-height: 2.2rem;
+  border: none;
+  border-radius: 0.35rem;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.view-switch button.on {
+  background: var(--bg-elev);
+  color: var(--text);
+  font-weight: 600;
+}
+.dag-detail {
+  display: grid;
+  gap: 0.4rem;
+}
+.dag-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.dag-detail-head .close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  min-width: 2.2rem;
+  min-height: 2.2rem;
 }
 .box {
   border: 1px solid var(--border);
@@ -711,7 +894,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   margin-bottom: 0.45rem;
 }
 .import-wrap {
-  margin-top: 0.6rem;
+  margin-bottom: 0.45rem; /* above the list, as the other panels' ＋ buttons */
 }
 .import-btn {
   width: 100%;
@@ -773,7 +956,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 @media (max-width: 48rem) {
   .page {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 70dvh auto;
     height: auto;
   }

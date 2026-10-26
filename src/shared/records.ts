@@ -51,11 +51,19 @@ export interface TransformInputRef {
   alias: string
 }
 
-/** A SQL query over input datasets; a missing output id means "make a new dataset" on the next run. */
-export interface TransformRecord extends BaseRecord {
+/** One of a transform's outputs: a SELECT over the inputs, written to `outputId` (or a new dataset named `name`). */
+export interface TransformOutputRef {
+  /** Stable within the transform (UI keys, run results). */
+  key: string
+  name: string
   sql: string
-  inputs: TransformInputRef[]
   outputId?: string
+}
+
+/** Inputs and outputs; every output is written on each Run. (Older records had one `sql` + `outputId`.) */
+export interface TransformRecord extends BaseRecord {
+  inputs: TransformInputRef[]
+  outputs: TransformOutputRef[]
 }
 
 /** A dataset pointer plus visualization settings (binding, column, aggregation, style). */

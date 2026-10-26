@@ -150,6 +150,13 @@ backend (Supabase + functions) is a refactor, not a rewrite.
 
 ### Transforms (SQL that makes datasets)
 
+**Shape:** inputs (`{datasetId, alias}`) and one or more outputs (`{key, name, sql, outputId?}`),
+each output its own SELECT over the inputs. `runTransform` runs every output's SQL first and writes
+nothing unless all succeed (an error names the failing output), then writes each into its
+`outputId`'s table or a new dataset named after the output, and returns each output's pointer.
+`previewTransform` takes one SQL. Single-SQL transforms saved before this (`sql` + `outputId`) are
+read as one output by `normalizeTransform` — in drafts, workspace files and transform records.
+
 A transform is one SELECT over input datasets, each called by an alias in the SQL; running it writes
 its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is the engine.
 
@@ -178,6 +185,33 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
   table's DuckDB error is replaced by one listing the inputs' aliases (`server/sql.ts`). A run adds the output dataset to the workspace with a first visualization when it has geometry.
   Visualization values are keyed by the dataset's `updatedAt`, so a re-run refreshes the map.
 - **Tests** run real DuckDB via `@duckdb/duckdb-wasm`'s Node build (`server/testEngine.ts`).
+
+### Graph view (DAG)
+
+The controls show the workspace as one graph (the default) or as lists (**List | Graph**,
+remembered per device in localStorage `powergis.controlsView`). `lib/workspace/dag.ts`: `buildDag(doc, dataset)` makes nodes for every dataset (the
+workspace's, plus transform inputs and outputs), transform and visualization, with edges input →
+transform → output → visualization. Rows: datasets no transform makes are row 0; a transform is one
+row below its deepest input and its output one below it; all visualizations share the bottom row.
+Each row is ordered by the mean position of its parents (one barycenter pass); row 0 keeps the
+workspace's dataset order. `layoutDag` gives pixel positions (rows centered; wider than the screen →
+it scrolls, opened centered). Nothing about the layout is stored. Transform state: **not run yet**
+(no output), **needs re-run** (an input's `updatedAt` is after the output's), else ready.
+
+`DagView.vue` draws nodes as buttons over one SVG of curved edges. Tapping a node shows its card
+under the graph using the list components filtered to that item (`compact` props hide their add
+buttons and hints); holding the card gives its menu, exactly as in the lists. Only a transform or
+visualization just created from the graph opens straight into its editor.
+
+Each dataset has at most one writer: each transform output writes a new dataset (made on Run) or
+an existing dataset that isn't one of its transform's inputs and that no other output writes
+(`checkTransform` in `workspace.ts`). Deleting a transform keeps its output dataset; that dataset
+just can't be re-run until another transform is pointed at it.
+**＋ Dataset** opens the add-dataset form under the graph and then the new dataset's card.
+**＋ Transform** enters pick mode (tap input datasets, Next) and adds a transform whose inputs are
+those datasets (aliases from their names, deduplicated), opened in its editor. **＋ Visualization**
+picks a dataset and opens the visualization add form for it. Everything goes through the same
+workspace operations as the lists.
 
 ### Find
 
