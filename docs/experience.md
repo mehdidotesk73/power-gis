@@ -337,6 +337,9 @@ Two additions from reviewing it here, beyond what the originating project report
   labels are repainted light with a dark halo.
 - **Added:** the graph pans and zooms instead of scrolling — drag; Shift + wheel / pinch; on phones
   hold-then-drag and two-finger pinch, so a one-finger swipe still scrolls the page.
+- **Fixed:** on iOS the map grew as you started scrolling, and only then did the page move: its
+  height was `70dvh`, which tracks Safari's collapsing address bar. Now `70svh` (small viewport,
+  stable). **Use `svh` for in-page heights on phones; `dvh` only for full-screen overlays.**
 - **Lesson:** a global form-control rule must sit in `:where(…)` — `input:not(…)` chains outrank
   scoped component rules and silently restyle every field.
 - **Lesson:** MapLibre only resizes with the window — a splitter or modal changes its container

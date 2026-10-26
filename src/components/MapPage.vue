@@ -913,7 +913,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 .page {
   display: grid;
   grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr);
-  height: calc(100dvh - 9rem);
+  height: calc(100svh - 9rem);
   min-height: 32rem;
 }
 .controls {
@@ -1160,7 +1160,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 @media (max-width: 48rem) {
   .page {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 70dvh auto;
+    /* svh, not dvh: the small viewport stays put while iOS Safari's bars collapse,
+       so the map doesn't grow under your finger as you scroll */
+    grid-template-rows: 70svh auto;
     gap: 0.75rem;
     height: auto;
   }
@@ -1183,7 +1185,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   }
   .map-wrap {
     order: 1;
-    height: 70dvh;
+    height: 70svh;
   }
 }
 </style>
