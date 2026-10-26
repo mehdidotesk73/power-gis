@@ -5,10 +5,12 @@
 // output dataset once it has run. Preview runs the SQL on the server and
 // shows the first rows without storing anything; Run stores the result as
 // the output dataset (a new one the first time). Edits are part of the
-// workspace draft, saved with Save.
+// workspace draft, saved with Save. Cards in an ObjectList: hold one
+// (right-click with a mouse) for Run, Edit and Delete.
 import { computed, nextTick, ref } from 'vue'
 import { request } from '../../client/api'
 import SearchBox from '../map/SearchBox.vue'
+import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
 import type { DatasetRecord } from '../../shared/records'
 import type { ColumnInfo } from '../../lib/dataset/columns'
 import type { DataRecord } from '../../lib/data/connectors'
@@ -49,6 +51,17 @@ function create() {
 }
 
 const patch = (t: TransformSpec, p: Partial<TransformSpec>) => emit('update', { ...t, ...p })
+
+const actions = (t: TransformSpec): ObjectAction[] => [
+  { id: 'run', icon: '▶', label: props.status[t.id]?.state === 'running' ? 'Running…' : 'Run', disabled: props.status[t.id]?.state === 'running' },
+  { id: 'edit', icon: '✎', label: editing.value === t.id ? 'Close edit' : 'Edit' },
+  { id: 'delete', icon: '✕', label: 'Delete', danger: true },
+]
+function onAction(id: string, t: TransformSpec) {
+  if (id === 'run') emit('run', t.id)
+  else if (id === 'edit') editing.value = editing.value === t.id ? null : t.id
+  else if (id === 'delete') emit('remove', t.id)
+}
 
 function setInput(t: TransformSpec, i: number, p: Partial<TransformSpec['inputs'][number]>) {
   const inputs = t.inputs.map((x, j) => (j === i ? { ...x, ...p } : x))
@@ -114,18 +127,21 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
       No transforms yet. A transform is a SQL query over your datasets — joins, filters, sums, or building a point from latitude and
       longitude — whose result becomes a new dataset.
     </p>
-    <ul class="list">
-      <li v-for="t in transforms" :key="t.id" class="tr">
-        <div class="head">
-          <div class="title">
-            <strong>{{ t.name }}</strong>
-            <span class="muted">{{ describe(t) }}</span>
-            <span v-if="status[t.id]?.state === 'running'" class="muted">Running…</span>
-            <span v-else-if="status[t.id]?.state === 'done'" class="ok">{{ message(t.id) }}</span>
-            <span v-else-if="status[t.id]?.state === 'error'" class="bad">{{ message(t.id) }}</span>
-          </div>
-          <button class="btn primary" :disabled="status[t.id]?.state === 'running'" @click="emit('run', t.id)">Run</button>
-          <button class="btn" :class="{ on: editing === t.id }" @click="editing = editing === t.id ? null : t.id">{{ editing === t.id ? 'Done' : 'Edit' }}</button>
+    <ObjectList
+      :items="transforms"
+      :item-key="(t) => t.id"
+      :item-label="(t) => t.name"
+      :actions="actions"
+      hint="Tap and hold a transform to run, edit or delete it."
+      @action="onAction"
+    >
+      <template #default="{ item: t }">
+        <div class="title">
+          <strong>{{ t.name }}</strong>
+          <span class="muted">{{ describe(t) }}</span>
+          <span v-if="status[t.id]?.state === 'running'" class="muted">Running…</span>
+          <span v-else-if="status[t.id]?.state === 'done'" class="ok">{{ message(t.id) }}</span>
+          <span v-else-if="status[t.id]?.state === 'error'" class="bad">{{ message(t.id) }}</span>
         </div>
 
         <div v-if="editing === t.id" class="ed">
@@ -178,7 +194,8 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
           </p>
           <div class="row end">
             <button class="btn" :disabled="previewing" @click="runPreview(t)">{{ previewing ? 'Previewing…' : 'Preview' }}</button>
-            <button class="btn danger" @click="emit('remove', t.id)">Remove</button>
+            <button class="btn primary" :disabled="status[t.id]?.state === 'running'" @click="emit('run', t.id)">Run</button>
+            <button class="btn" @click="editing = null">Done</button>
           </div>
 
           <p v-if="shown && 'error' in shown" class="bad">{{ shown.error }}</p>
@@ -200,8 +217,8 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
             </div>
           </div>
         </div>
-      </li>
-    </ul>
+      </template>
+    </ObjectList>
   </div>
 </template>
 
@@ -210,24 +227,6 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
   display: grid;
   gap: 0.45rem;
   font-size: 0.82rem;
-}
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.5rem;
-}
-.tr {
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  padding: 0.4rem 0.5rem;
-  min-width: 0;
-}
-.head {
-  display: flex;
-  gap: 0.3rem;
-  align-items: flex-start;
 }
 .title {
   flex: 1;

@@ -312,6 +312,20 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Object lists: hold menus for datasets, visualizations, transforms — 2026-10-26
+- **Added:** `components/list/ObjectList.vue` — a generic card list fed `items`, a card slot and
+  `actions(item)` for its tap-and-hold (right-click) menu; built-in Reorder (≡ handles, vertically
+  centered, until Done). Datasets, visualizations and transforms all use it.
+- **Changed:** no buttons on cards. Datasets: Preview / Edit / Copy id / Reorder / Remove.
+  Visualizations: Edit / Zoom to data / Reorder / Delete (swipe-to-delete removed; the visibility
+  checkbox stays). Transforms: Run / Edit / Delete. Zoom to data moved from datasets to visualizations.
+- **Fixed:** after a reorder, the moved card stayed highlighted on iOS — moving the row in the DOM
+  drops the handle's pointer capture, so the release was never heard. `useDragReorder` now also
+  listens on the window during a drag, and Done ends any drag.
+- **Lesson:** iOS Safari fires no `contextmenu` on a long press — a pointer-event timer
+  (`useLongPress`) with a 10 px move slop (so scrolling cancels) plus `-webkit-touch-callout: none`.
+- **Docs:** CLAUDE.md, help overview, system-design.
+
 ### Boundary datasets + data-agnostic default map — 2026-10-26
 - **Added:** built-in boundary datasets `us_counties` / `us_states` (region geometry from us-atlas);
   normalized EIA-861 tables (`utilities` identity, `utility_counties` links); the

@@ -1,7 +1,11 @@
 // Drag a row's ≡ handle to reorder a list, with pointer events (HTML5
 // drag-and-drop doesn't exist on iOS). Rows are the list element's direct
 // `li[data-id]` children; the handle needs `touch-action: none`.
-import { ref, type Ref } from 'vue'
+//
+// While a drag is on, moves and the release are also heard on the window:
+// moving a row in the DOM can drop the handle's pointer capture (iOS), and a
+// release nobody hears leaves the row stuck looking dragged.
+import { onBeforeUnmount, ref, type Ref } from 'vue'
 
 export function useDragReorder(listEl: Ref<HTMLElement | undefined>, ids: () => string[], onReorder: (ids: string[]) => void, onStart?: () => void) {
   const dragging = ref<string | null>(null)
@@ -9,9 +13,16 @@ export function useDragReorder(listEl: Ref<HTMLElement | undefined>, ids: () => 
 
   function onHandleDown(e: PointerEvent, id: string) {
     e.preventDefault()
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    try {
+      ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    } catch {
+      /* no capture (a pointer the browser doesn't know): the window listeners still follow it */
+    }
     dragging.value = id
     order = ids()
+    window.addEventListener('pointermove', onHandleMove)
+    window.addEventListener('pointerup', onHandleUp)
+    window.addEventListener('pointercancel', onHandleUp)
     onStart?.()
   }
   function onHandleMove(e: PointerEvent) {
@@ -31,6 +42,10 @@ export function useDragReorder(listEl: Ref<HTMLElement | undefined>, ids: () => 
   }
   function onHandleUp() {
     dragging.value = null
+    window.removeEventListener('pointermove', onHandleMove)
+    window.removeEventListener('pointerup', onHandleUp)
+    window.removeEventListener('pointercancel', onHandleUp)
   }
+  onBeforeUnmount(onHandleUp)
   return { dragging, onHandleDown, onHandleMove, onHandleUp }
 }
