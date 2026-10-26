@@ -115,7 +115,7 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   database read-only.
 - **Server** — `src/server/server.ts` (`createServer(db, env)`), run in a **Web Worker** by
   `worker.ts`. Requests (`src/shared/api.ts`): `init`, `uploadDataset` (CSV / GeoJSON-Esri file,
-  ArcGIS URL, built-in table → new data table + registry row), `addVectorColumn`, `updateDataset`,
+  ArcGIS URL, built-in table → new data table + registry row), `addColumn` (point from lat/lon or vector from east/north), `updateDataset`,
   `deleteDataset` (cleans up visualizations and workspace configs), `describeBinding` (features,
   unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
   `saveWorkspace` (upserts its visualization records, deletes dropped ones), `deleteWorkspace`.
