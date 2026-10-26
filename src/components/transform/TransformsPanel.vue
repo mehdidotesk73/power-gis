@@ -8,6 +8,7 @@
 // Edits are part of the workspace draft, saved with Save. Cards in an
 // ObjectList: hold one (right-click with a mouse) for Preview, Run, Edit and
 // Delete.
+import { vReveal } from '../reveal'
 import { nextTick, ref } from 'vue'
 import { request } from '../../client/api'
 import SearchBox from '../map/SearchBox.vue'
@@ -194,7 +195,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
           <span v-else-if="status[t.id]?.state === 'error'" class="bad">{{ message(t.id) }}</span>
         </div>
 
-        <div v-if="editing === t.id" class="ed">
+        <div v-if="editing === t.id" v-reveal class="ed">
           <label class="row">Name <input type="text" :value="t.name" @change="patch(t, { name: ($event.target as HTMLInputElement).value })" /></label>
 
           <div class="lbl">Inputs <span class="muted">(search by name or paste a dataset id; each is a table in the SQL by the name after "as")</span></div>

@@ -6,6 +6,7 @@
 // ＋ Visualization: tap the dataset to draw. ↓ / → flips the flow (top to
 // bottom, left to right), remembered per device.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { vReveal } from '../reveal'
 import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode } from '../../lib/workspace/dag'
 
 const props = defineProps<{ dag: Dag; selected: string | null }>()
@@ -97,7 +98,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 </script>
 
 <template>
-  <div class="dag">
+  <div v-reveal="mode" class="dag">
     <div v-if="!mode" class="bar">
       <button class="pill dataset" @click="emit('new-dataset')">＋ Dataset</button>
       <button class="pill transform" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>

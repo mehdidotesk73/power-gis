@@ -24,6 +24,7 @@ import WorkspaceBar from './workspace/WorkspaceBar.vue'
 import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import DagView from './dag/DagView.vue'
+import { vReveal } from './reveal'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
@@ -731,10 +732,11 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
       </div>
 
       <template v-if="view === 'graph'">
+        <div class="graph-wrap" :class="{ split: dagNode || dagNewViz || dagNewDataset }">
         <section class="box">
           <DagView :dag="dag" :selected="dagKey" @select="openNode" @new-transform="newTransformFrom" @new-viz="newVizFor" @new-dataset="newDataset" />
         </section>
-        <section v-if="dagNode || dagNewViz || dagNewDataset" class="box dag-detail">
+        <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
           <div class="dag-detail-head">
             <strong>{{ dagNewDataset ? 'New dataset' : dagNewViz ? 'New visualization' : dagNode!.kind === 'dataset' ? 'Dataset' : dagNode!.kind === 'transform' ? 'Transform' : 'Visualization' }}</strong>
             <button class="close" aria-label="Close" @click="closeNode">✕</button>
@@ -778,6 +780,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             @run="runTransform"
           />
         </section>
+        </div>
       </template>
 
       <template v-else>
@@ -799,7 +802,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         <details class="box">
           <summary>Datasets</summary>
           <div class="import-wrap">
-            <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
+            <AddDatasetPanel v-if="importing" v-reveal :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
             <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
           </div>
           <DatasetList
@@ -1001,6 +1004,34 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .pop :deep(.scroll) {
   max-height: 60dvh;
+}
+.graph-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+/* Popped out on a wide screen: the open item sits right of the graph, not under it. */
+@media (min-width: 56rem) {
+  .pop .graph-wrap.split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(22rem, 30rem);
+    align-items: start;
+  }
+  .pop .graph-wrap.split :deep(.scroll) {
+    max-height: calc(95dvh - 10rem);
+  }
+  .pop .graph-wrap.split .dag-detail {
+    position: sticky;
+    top: 0;
+    max-height: calc(95dvh - 6rem);
+    overflow: auto;
+  }
+  .pop .graph-wrap.split .dag-detail-head {
+    position: sticky;
+    top: -0.45rem;
+    z-index: 1;
+    background: var(--bg);
+  }
 }
 .view-row {
   display: flex;

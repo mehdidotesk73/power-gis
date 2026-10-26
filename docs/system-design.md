@@ -229,7 +229,13 @@ double-click resets), width as the `--panel-w` CSS variable on `.page`, remember
 container with a `ResizeObserver` (the window doesn't resize when the splitter moves). The
 workspace panels — from List | Graph to just before Export — can **pop out** (⤢) into a large modal
 (full screen on phones): one `<Teleport to="body" :disabled="!popped">` moves the same components, so
-open editors and selections survive; ✕, Esc or a backdrop tap brings them back.
+open editors and selections survive; ✕, Esc or a backdrop tap brings them back. Popped out on a wide
+screen, the open graph item sits right of the graph (`.graph-wrap.split`), not under it.
+
+**Flows bring their next step into view**: `v-reveal` (`components/reveal.ts`) scrolls an element
+into view when it appears or its value changes — just enough, or to its top when it's taller than the
+screen. On: the graph when a pick mode starts, the graph's detail section, the visualization add
+form, the transform editor and the list's add-dataset form.
 
 ### Find
 

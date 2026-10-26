@@ -3,6 +3,7 @@
 // ObjectList). Top of the list draws on top (within its geometry kind). The
 // checkbox shows / hides; hold a card (right-click with a mouse) for Edit,
 // Zoom to data, Reorder and Delete.
+import { vReveal } from '../reveal'
 import { computed, ref } from 'vue'
 import VisualizationEditor from './VisualizationEditor.vue'
 import BindingEditor from './BindingEditor.vue'
@@ -101,7 +102,7 @@ defineExpose({
 
 <template>
   <div class="viz">
-    <div v-if="adding" class="add-form">
+    <div v-if="adding" v-reveal class="add-form">
       <label class="row">
         Dataset
         <select :value="addDataset" @change="pickDataset(($event.target as HTMLSelectElement).value)">
@@ -110,12 +111,13 @@ defineExpose({
       </label>
       <BindingEditor v-if="addRecord && addBinding" :columns="addRecord.columns" :model-value="addBinding" :info="addInfo" :error="addError" @update:model-value="setAddBinding" />
       <label class="row">
-        Column
+        Value to show
         <select v-model="addColumn">
           <option :value="ROWS">Number of rows</option>
           <option v-for="c in addColumns" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }})</option>
         </select>
       </label>
+      <p class="hint">What colors each shape (a vector column draws arrows). Rows on the same shape are combined — count, sum, most common… — set in Edit.</p>
       <div class="row end">
         <button class="btn" @click="(adding = false), emit('cancel-add')">Cancel</button>
         <button class="btn primary" :disabled="!addInfo?.features" @click="confirmAdd">Add</button>
@@ -211,6 +213,11 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+.hint {
+  margin: -0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.74rem;
 }
 .row.end {
   justify-content: flex-end;

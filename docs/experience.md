@@ -322,6 +322,10 @@ Two additions from reviewing it here, beyond what the originating project report
   just before Export) into a large modal via a disabled-when-docked `Teleport`, so state survives.
 - **Changed:** Find is now a separate Search card reading "Search in [viz] in [All data / column]";
   ＋ Dataset / ＋ Transform / ＋ Visualization are pills in their node colors.
+- **Changed:** the visualization form says what each choice does — **Shapes** (geometry column),
+  **Name shapes by** (title only), **Value to show** (what colors it) — with a hint under each.
+- **Added:** in the pop-out, the open graph item sits right of the graph; new-item flows scroll each
+  step into view (`v-reveal`).
 - **Lesson:** MapLibre only resizes with the window — a splitter or modal changes its container
   without a window resize, so `MapView` watches the container with a `ResizeObserver`.
 - **Docs:** CLAUDE.md, system-design (Graph view, Side panel, Find), help overview, TODO.

@@ -185,6 +185,8 @@ whatever they're actually asking about.
 - **Side panel**: resizable on desktop (splitter, `--panel-w`, `powergis.panelWidth`; `MapView` resizes
   the map with a `ResizeObserver`). ⤢ pops the workspace panels (List | Graph through the last panel
   before Export) into a modal via `<Teleport :disabled="!popped">` — same components, state kept.
+  Popped out and wide, the open graph item sits beside the graph. **New-item flows scroll each step
+  into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
 - **Find** (`FindPanel.vue`, a separate card: "Search in [viz] in [All data / column]"): pick a visualization, then search — all data or one column — over its
   features' names and every text value in their rows (typo-tolerant). The server builds the index
   (`findIndex` request, `lib/dataset/query.ts`, cached with the grouping; columns with more than
