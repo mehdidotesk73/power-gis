@@ -171,7 +171,7 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   `us_counties` / `us_states` (`lib/data/boundaryTables.ts`: us-atlas TopoJSON → rows with `fips`,
   names and a region `geometry`; read by the worker's `readBuiltin`).
 - **Not dataset properties:** source and usage policy — they belong to the agent workflow's run
-  records (roadmap step 6).
+  records (roadmap step 5).
 
 ### Transforms (SQL that makes datasets)
 

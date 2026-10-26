@@ -91,14 +91,14 @@ One-time setup — tick these off as they're done:
 ### Roadmap (agreed order)
 
 Everything the UI can do must also be a plain, serializable operation with machine-readable
-results, because the agent workflow (step 6) drives the same operations as the UI.
+results, because the agent workflow (step 5) drives the same operations as the UI.
 
 1. ~~**Workspace document + operations + on-device persistence**~~ (done, see Done; derived datasets and tabs join the document in steps 2 and 5) — one serializable workspace
    (datasets, derived datasets, visualizations, tabs); a single operations layer (add dataset,
    add derived dataset, add/reorder visualization, …) used by both UI and agents. Datasets carry
    only **standard metadata** (name, description, created/updated, columns, profile) plus an
    open-ended extension slot for features to attach their own; **sources and usage policy are not
-   dataset properties** — they belong to the agent workflow's records (step 6). Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
+   dataset properties** — they belong to the agent workflow's records (step 5). Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
 1b. **Client / server boundary + database** (agreed 2026-10-25; done — see Done) —
    everything is client-side today, but the code is split as if it weren't, so moving to a real
    backend (Supabase) is a refactor, not a rewrite.
