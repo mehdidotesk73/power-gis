@@ -211,6 +211,8 @@ whatever they're actually asking about.
   Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
   (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Preview,
   Run, Edit, Delete.
+- **List view** panels (Visualizations, Datasets, Transforms, Export) open collapsed; each panel's
+  ＋ button sits at its top.
 - **Graph view (DAG)** — a **List | Graph** switch above the panels (remembered per device,
   `powergis.controlsView`). `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
   nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest

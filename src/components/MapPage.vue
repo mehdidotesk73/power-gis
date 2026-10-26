@@ -714,7 +714,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
       </template>
 
       <template v-else>
-        <details class="box" open>
+        <details class="box">
           <summary>Visualizations</summary>
           <VisualizationList
             ref="vizList"
@@ -729,8 +729,12 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           />
         </details>
 
-        <details class="box" open>
+        <details class="box">
           <summary>Datasets</summary>
+          <div class="import-wrap">
+            <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
+            <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
+          </div>
           <DatasetList
             :datasets="datasets"
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
@@ -738,13 +742,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             @reorder="reorderDatasets"
             @update="updateDataset"
           />
-          <div class="import-wrap">
-            <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
-            <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
-          </div>
         </details>
 
-        <details class="box" :open="doc.transforms.length > 0">
+        <details class="box">
           <summary>Transforms</summary>
           <TransformsPanel
             :transforms="doc.transforms"
@@ -894,7 +894,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   margin-bottom: 0.45rem;
 }
 .import-wrap {
-  margin-top: 0.6rem;
+  margin-bottom: 0.45rem; /* above the list, as the other panels' ＋ buttons */
 }
 .import-btn {
   width: 100%;
