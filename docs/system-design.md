@@ -188,8 +188,8 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
 
 ### Graph view (DAG)
 
-The controls show the workspace as lists or as one graph (**List | Graph**, per device in
-localStorage). `lib/workspace/dag.ts`: `buildDag(doc, dataset)` makes nodes for every dataset (the
+The controls show the workspace as one graph — the default every time the app opens — or as lists
+(**List | Graph**, for the session). `lib/workspace/dag.ts`: `buildDag(doc, dataset)` makes nodes for every dataset (the
 workspace's, plus transform inputs and outputs), transform and visualization, with edges input →
 transform → output → visualization. Rows: datasets no transform makes are row 0; a transform is one
 row below its deepest input and its output one below it; all visualizations share the bottom row.
