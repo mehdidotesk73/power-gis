@@ -174,7 +174,7 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
   saved by `saveWorkspace` (config `transformIds`) and in workspace files (fresh ids; transforms whose
   inputs are missing are dropped). `TransformsPanel.vue`: inputs (dataset — picked in a `SearchBox` matching name,
   typo-tolerant (`search(…, {fuzzy})`, edit distance 1–2), or id — **as** alias, with **Insert** at the SQL
-  cursor; renaming an alias renames its whole-word uses in the SQL), SQL, Preview, Run. A missing
+  cursor; renaming an alias renames its whole-word uses in the SQL), SQL, Preview, Run (cards in an `ObjectList`: hold for Run / Edit / Delete). A missing
   table's DuckDB error is replaced by one listing the inputs' aliases (`server/sql.ts`). A run adds the output dataset to the workspace with a first visualization when it has geometry.
   Visualization values are keyed by the dataset's `updatedAt`, so a re-run refreshes the map.
 - **Tests** run real DuckDB via `@duckdb/duckdb-wasm`'s Node build (`server/testEngine.ts`).

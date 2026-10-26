@@ -219,7 +219,7 @@ async function onAddDataset(datasetId: string) {
   const first = await firstVisualizations(ds)
   if (!apply(addDataset(doc.value, ds.id, first))) return
   logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Add visualization'}`)
-  if (first.length) setTimeout(() => zoomTo(ds.id), 300)
+  if (first.length) setTimeout(() => zoomToViz(first[0].id), 300)
 }
 
 function removeDataset(id: string) {
@@ -268,8 +268,9 @@ async function runTransform(id: string) {
   logDebug(`transform "${t.name}": ${rowCount} rows → ${ds?.name}`)
 }
 
-function zoomTo(datasetId: string) {
-  const r = rendered.value.find((x) => x.layer.datasetId === datasetId)
+/** Fits the map to a visualization's features (those with rows). */
+function zoomToViz(vizId: string) {
+  const r = renderedById.value.get(vizId)
   const b = r && focusBox(r.data.features.filter((f) => (f.properties[ROW_COUNT] as number) > 0).map((f) => f.geometry))
   if (b) mapView.value?.fitBounds(b, 10)
 }
@@ -582,6 +583,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           @update="updateVisualization"
           @remove="removeVisualization"
           @reorder="reorderVisualizations"
+          @zoom="zoomToViz"
         />
       </details>
 
@@ -590,7 +592,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         <DatasetList
           :datasets="datasets"
           :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
-          @zoom="zoomTo"
           @remove="removeDataset"
           @reorder="reorderDatasets"
           @update="updateDataset"

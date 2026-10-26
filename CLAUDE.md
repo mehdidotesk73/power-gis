@@ -191,14 +191,20 @@ whatever they're actually asking about.
   `extensions.madeBy` with the same SQL + inputs; the first run loads DuckDB), swaps in the ids
   (`replacePointers`, `lib/workspace/file.ts`) and opens it like a loaded file. Changing the default
   map = editing that file. Every dataset's click panel shows its rows (`FeatureRows`).
-- **Dataset cards** (`DatasetList.vue`): no buttons on the card — **tap and hold** (right-click with a
-  mouse; `useLongPress`, pointer events + timer since iOS fires no `contextmenu`) opens a menu:
-  Preview, Edit, Reorder, Copy id, Zoom to data, Remove from workspace. **Reorder** shows ≡ handles
-  on every card (vertically centered) until **Done**. Cards set `-webkit-touch-callout: none` /
-  `user-select: none` so iOS shows our menu, not its callout.
-- **Visualization list UI** (`VisualizationList.vue`; dataset reordering uses the same `useDragReorder`): drag the ≡ handle to reorder, swipe left to
-  reveal Delete — pointer events (not HTML5 drag-and-drop, which iOS lacks); the row uses
-  `touch-action: pan-y` so vertical scrolling stays native.
+- **Object lists** (`components/list/ObjectList.vue`, generic over the item type): datasets,
+  visualizations and transforms are cards in one widget, like an object table configuration — the
+  page passes `items`, `itemKey`, the card body (default slot) and `actions(item)` (the hold menu:
+  `{id, label, icon, danger, disabled}`), and handles `@action(id, item)`. No buttons on the cards:
+  **tap and hold** (right-click with a mouse; `useLongPress`, pointer events + timer since iOS fires
+  no `contextmenu`; moving > 10 px cancels) opens the menu. `reorderable` adds **Reorder** (before the
+  first danger action): ≡ handles on every card, vertically centered, until **Done**
+  (`useDragReorder`: pointer events, not HTML5 drag-and-drop which iOS lacks; moves and the release
+  are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
+  leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
+  textareas and tables inside stay selectable) and `touch-action: pan-y`.
+  Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
+  (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Run,
+  Edit, Delete.
 - County join keys are 5-digit FIPS strings (`county_fips` / `fips`). Keep them strings: leading
   zeros matter.
 
@@ -250,6 +256,7 @@ src/
       ScalarStyleEditor.vue, VectorStyleEditor.vue
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
+    list/                  ObjectList.vue (cards + hold menu + reorder), useLongPress, useDragReorder
     FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
     dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
