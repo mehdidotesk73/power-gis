@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { fromWorkspaceFile, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile } from './file'
+import { fromWorkspaceFile, parseDraft, parseWorkspaceFile, replacePointers, snapshot, templateBuiltins, toWorkspaceFile } from './file'
+import { readFileSync } from 'node:fs'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import type { WorkspaceDoc } from './workspace'
 
@@ -8,7 +9,7 @@ const viz = (id: string, datasetId: string): VisualizationSpec => ({
   id,
   name: `viz ${id}`,
   datasetId,
-  binding: { kind: 'boundary', column: 'fips', boundary: 'us-counties' },
+  binding: { kind: 'geometry', column: 'shape' },
   column: ROWS,
   aggregation: 'count',
   visible: true,
@@ -70,5 +71,27 @@ describe('workspace files', () => {
     expect(parseDraft(JSON.stringify(old))?.doc.transforms).toEqual([])
     const broken = { ...toWorkspaceFile(doc), transforms: [{ name: 'x', sql: 1, inputs: [] }] }
     expect(parseWorkspaceFile(JSON.stringify(broken))).toMatchObject({ ok: false, error: expect.stringContaining('transform') })
+  })
+})
+
+describe('the default workspace file (a template)', () => {
+  const parsed = parseWorkspaceFile(readFileSync('public/data/default.powergis.json', 'utf8'))
+
+  it('is a valid workspace file over built-ins and its transform output', () => {
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(templateBuiltins(parsed.file).sort()).toEqual(['us_counties', 'us_states', 'utilities', 'utility_counties', 'utility_states'])
+    expect(parsed.file.visualizations.every((v) => v.settings.binding.kind === 'geometry')).toBe(true)
+  })
+
+  it('swaps placeholders for dataset ids and opens like any file', () => {
+    if (!parsed.ok) throw new Error(parsed.error)
+    const ids: Record<string, string> = { 'transform:0': 'out' }
+    for (const t of templateBuiltins(parsed.file)) ids[`builtin:${t}`] = `id-${t}`
+    const file = replacePointers(parsed.file, (p) => ids[p])
+    expect(JSON.stringify(file)).not.toMatch(/"(builtin|transform):/)
+    const { doc, missing } = fromWorkspaceFile(file, { name: '', datasetIds: [], visualizations: [], transforms: [] }, () => true)
+    expect(missing).toEqual([])
+    expect(doc.transforms[0]).toMatchObject({ name: 'Utilities by county', outputId: 'out' })
+    expect(doc.visualizations.find((v) => v.name === 'Number of utilities')).toMatchObject({ datasetId: 'out', column: 'utility_id_eia', aggregation: 'count' })
   })
 })

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { LocalFileConnector, StaticFileConnector, requireColumns } from './connectors'
-import { utilityRowsFromRecords } from '../utilities'
 
 const CSV = 'utility_id_eia,utility_name,county_fips,short_form\n195,Alabama Power Co,1001,False\n'
 const file = (name: string, text = CSV) => ({ name, text: async () => text })
@@ -35,14 +34,7 @@ describe('LocalFileConnector', () => {
   })
 })
 
-describe('records → utility rows', () => {
-  it('accepts CSV strings and typed database values alike', () => {
-    const [fromCsv] = utilityRowsFromRecords([{ utility_id_eia: '195', county_fips: '1001', short_form: 'False', state_customers: '' }])
-    const [fromDb] = utilityRowsFromRecords([{ utility_id_eia: 195, county_fips: '01001', short_form: true, state_customers: 42 }])
-    expect(fromCsv).toMatchObject({ utility_id_eia: 195, county_fips: '01001', short_form: false, state_customers: null })
-    expect(fromDb).toMatchObject({ utility_id_eia: 195, county_fips: '01001', short_form: true, state_customers: 42 })
-  })
-
+describe('requireColumns', () => {
   it('names missing columns', () => {
     expect(() => requireColumns([{ utility_name: 'x' }], ['utility_id_eia', 'county_fips'], 'utility_counties')).toThrow(
       'missing columns: utility_id_eia, county_fips',

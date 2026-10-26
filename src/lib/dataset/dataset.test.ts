@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { aggregate, defaultAggregation } from './aggregate'
-import { boundaryKey, geometryFromValue, groupRows, guessBinding, isSupportedBinding, type BoundaryFeature } from './binding'
+import { geometryFromValue, groupRows, guessBinding, guessLabel, isSupportedBinding } from './binding'
 import { coerce, inferColumns, type ColumnType } from './columns'
 import { parseWkt } from './wkt'
 import { guessLatLon } from './dataset'
@@ -9,11 +9,6 @@ import { defaultVisualization, makeVisualization, retarget, visualizationLayer, 
 import { parseVector } from '../schema'
 
 const square = (x: number) => ({ type: 'Polygon' as const, coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 1], [x, 0]]] })
-const counties = new Map<string, BoundaryFeature>([
-  ['01001', { key: '01001', name: 'Autauga, AL', geometry: square(0) }],
-  ['01003', { key: '01003', name: 'Baldwin, AL', geometry: square(2) }],
-  ['51019', { key: '51019', name: 'Bedford, VA', geometry: square(4) }],
-])
 
 describe('columns', () => {
   it('infers types, keeping zero-padded codes as text', () => {
@@ -45,16 +40,6 @@ describe('aggregate', () => {
 })
 
 describe('bindings', () => {
-  it('normalizes region codes', () => {
-    expect(boundaryKey('us-counties', 1001)).toBe('01001')
-    expect(boundaryKey('us-counties', '1001.0')).toBe('01001')
-    expect(boundaryKey('us-counties', '51515')).toBe('51019') // retired → successor
-    expect(boundaryKey('us-counties', 'Autauga')).toBeNull()
-    expect(boundaryKey('us-states', 'tx')).toBe('48')
-    expect(boundaryKey('us-states', 'Texas')).toBe('48')
-    expect(boundaryKey('us-states', 6)).toBe('06')
-  })
-
   it('parses WKT and GeoJSON cells', () => {
     expect(parseWkt('POINT (-90 35)')).toEqual({ type: 'Point', coordinates: [-90, 35] })
     expect(parseWkt('LINESTRING Z (0 0 1, 1 1 2)')).toEqual({ type: 'LineString', coordinates: [[0, 0], [1, 1]] })
@@ -68,26 +53,28 @@ describe('bindings', () => {
   })
 
   it('groups rows per feature and counts misses', () => {
-    const recs = [{ f: '01001' }, { f: '1001' }, { f: '01003' }, { f: '99999' }, { f: '51515' }]
-    const r = groupRows(recs, { kind: 'boundary', column: 'f', boundary: 'us-counties' }, counties)
-    expect(r.groups.map((g) => [g.key, g.rows.length])).toEqual([['01001', 2], ['01003', 1], ['51019', 1]])
+    // A joined table: the same county shape on several rows (shared object or equal copy), named by a label column.
+    const a = square(0)
+    const recs = [{ g: a, n: 'Autauga' }, { g: a, n: 'Autauga' }, { g: square(0), n: 'Autauga' }, { g: square(2), n: '' }, { g: 'nope', n: 'x' }]
+    const r = groupRows(recs, { kind: 'geometry', column: 'g', label: 'n' })
+    expect(r.groups.map((g) => [g.key, g.label, g.rows.length])).toEqual([['f1', 'Autauga', 3], ['f2', null, 1]])
     expect(r.unmatched).toBe(1)
-    const all = groupRows(recs.slice(0, 1), { kind: 'boundary', column: 'f', boundary: 'us-counties', includeEmpty: true }, counties)
-    expect(all.groups).toHaveLength(3)
     const p = (x: number) => ({ type: 'Point', coordinates: [x, 0] })
     const pts = groupRows([{ g: p(1) }, { g: p(1) }, { g: p(2) }, { g: null }], { kind: 'geometry', column: 'g' })
     expect(pts.groups.map((x) => x.rows.length)).toEqual([2, 1]) // the same point is one feature
     expect(pts.unmatched).toBe(1)
   })
 
-  it('guesses a binding: a geometry column (regions first), else region codes — never lat/lon pairs', () => {
+  it('guesses a binding: a geometry column (regions first) and a name column — never lat/lon pairs or region codes', () => {
     const c = (name: string, type: ColumnType = 'string') => ({ name, type })
     expect(guessBinding([c('name'), c('Latitude', 'double'), c('Longitude', 'double')])).toBeNull()
-    expect(guessBinding([c('county_fips'), c('state')])).toMatchObject({ kind: 'boundary', column: 'county_fips', boundary: 'us-counties' })
-    expect(guessBinding([c('state'), c('value', 'double')])).toMatchObject({ boundary: 'us-states' })
+    expect(guessBinding([c('county_fips'), c('state')])).toBeNull()
     expect(guessBinding([c('site', 'point'), c('area', 'region'), c('fips')])).toEqual({ kind: 'geometry', column: 'area' })
-    expect(guessBinding([c('a'), c('b')])).toBeNull()
+    expect(guessBinding([c('geometry', 'region'), c('utility_name'), c('name')])).toEqual({ kind: 'geometry', column: 'geometry', label: 'name' })
+    expect(guessLabel([c('id', 'int'), c('plant_name'), c('county')])).toBe('plant_name')
+    expect(guessLabel([c('n', 'int')])).toBeUndefined()
     expect(isSupportedBinding({ kind: 'latlon', lat: 'a', lon: 'b' } as never)).toBe(false)
+    expect(isSupportedBinding({ kind: 'boundary', column: 'fips', boundary: 'us-counties' } as never)).toBe(false)
   })
 
   it('types geometry columns by kind and coerces their cells to GeoJSON', () => {
@@ -128,21 +115,22 @@ describe('vectors', () => {
 })
 
 describe('visualization queries', () => {
+  // As a join transform returns it: county shapes as GeoJSON text, repeated per utility.
+  const autauga = JSON.stringify(square(0))
   const records = [
-    { county_fips: '01001', utility: 'Alabama Power', type: 'IOU', customers: '100', flow: '[1, 0]' },
-    { county_fips: '01001', utility: 'Central Coop', type: 'Coop', customers: '50', flow: '[0, 1]' },
-    { county_fips: '01003', utility: 'Alabama Power', type: 'IOU', customers: '100', flow: '[2, 2]' },
+    { geometry: autauga, county: 'Autauga, AL', utility: 'Alabama Power', type: 'IOU', customers: '100', flow: '[1, 0]' },
+    { geometry: autauga, county: 'Autauga, AL', utility: 'Central Coop', type: 'Coop', customers: '50', flow: '[0, 1]' },
+    { geometry: JSON.stringify(square(2)), county: 'Baldwin, AL', utility: 'Alabama Power', type: 'IOU', customers: '100', flow: '[2, 2]' },
   ]
   const columns = inferColumns(records)
-  const binding = { kind: 'boundary' as const, column: 'county_fips', boundary: 'us-counties' as const }
-  const g = groupDataset(records, columns, binding, counties)
+  const binding = { kind: 'geometry' as const, column: 'geometry', label: 'county' }
+  const g = groupDataset(records, columns, binding)
   const shape = bindingInfo(g, columns, binding)
 
   it('describes the dataset under a binding', () => {
     expect(shape).toMatchObject({ maxRowsPerFeature: 2, features: 2, matchedRows: 3, unmatched: 0, geometryKind: 'region' })
-    expect(shape.columns.map((c) => c.name)).not.toContain('county_fips')
-    const empty = bindingInfo(groupDataset(records, columns, { ...binding, includeEmpty: true }, counties), columns, binding)
-    expect(empty.features).toBe(2) // empty regions don't count as matched features
+    expect(shape.columns.map((c) => c.name)).not.toContain('geometry')
+    expect(g.groups[0].rows[0].geometry).toBe(g.groups[0].rows[1].geometry) // repeated text parsed once
   })
 
   it('picks the visualization kind from the column type', () => {
@@ -153,19 +141,19 @@ describe('visualization queries', () => {
     expect((makeVisualization(shape, 'ds', binding, 'type') as { style: { color: { kind: string } } }).style.color.kind).toBe('categorical')
   })
 
-  it('computes one value per feature and attaches boundary polygons on the client side', () => {
-    const count = queryValues(g, columns, ROWS, 'count', false)
-    expect(count.features.map((f) => [f.key, f.value, f.geometry])).toEqual([['01001', 2, undefined], ['01003', 1, undefined]])
+  it('computes one value per feature, with its geometry', () => {
+    const count = queryValues(g, columns, ROWS, 'count')
+    expect(count.features.map((f) => [f.key, f.label, f.value, f.geometry])).toEqual([['f1', 'Autauga, AL', 2, square(0)], ['f2', 'Baldwin, AL', 1, square(2)]])
     const mean = makeVisualization(shape, 'ds', binding, 'customers', 'mean')
-    const layer = visualizationLayer(queryValues(g, columns, 'customers', 'mean', false), mean, 'Utilities', counties)
+    const layer = visualizationLayer(queryValues(g, columns, 'customers', 'mean'), mean, 'Utilities')
     expect(layer.id).toBe(mean.id)
     expect(layer.features[0].properties).toMatchObject({ [VALUE]: 75, _label: 'Autauga, AL', _rows: 2 })
     expect(layer.features[0].geometry).toEqual(square(0))
     expect(layer.fields[0]).toMatchObject({ name: VALUE, type: 'double' })
-    const flow = queryValues(g, columns, 'flow', 'sum', false)
+    const flow = queryValues(g, columns, 'flow', 'sum')
     expect(flow.features[0].value).toEqual({ u: 1, v: 1 })
     expect(flow.valueType).toBe('vector')
-    expect(queryValues(g, columns, 'type', 'mode', false).features[0].value).toBe('Coop') // mode tie → alphabetical
+    expect(queryValues(g, columns, 'type', 'mode').features[0].value).toBe('Coop') // mode tie → alphabetical
   })
 
   it('carries geometry for geometry-column bindings', () => {
@@ -176,7 +164,7 @@ describe('visualization queries', () => {
     ]
     const c = inferColumns(pts)
     expect(c.find((x) => x.name === 'loc')!.type).toBe('point')
-    const v = queryValues(groupDataset(pts, c, { kind: 'geometry', column: 'loc' }), c, 'mw', 'sum', true)
+    const v = queryValues(groupDataset(pts, c, { kind: 'geometry', column: 'loc' }), c, 'mw', 'sum')
     expect(v).toMatchObject({ geometryKind: 'point', unmatched: 1 })
     expect(v.features).toEqual([{ key: 'f1', label: 'f1', rows: 2, value: 12, geometry: { type: 'Point', coordinates: [-90, 35] } }])
     const shape = { columns: c.filter((x) => x.name !== 'loc'), maxRowsPerFeature: 1, geometryKind: 'point' as const }

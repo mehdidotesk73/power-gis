@@ -1,35 +1,24 @@
-// Geometry bindings: which column gives each row its map feature.
+// Geometry bindings: which geometry column (point / polyline / region,
+// lon/lat) gives each row its map feature, and optionally which column names
+// the feature. Region codes (county FIPS, state names…) aren't a binding:
+// join a boundary dataset onto them in a transform and draw its geometry.
 //
-//   geometry  a geometry column (point / polyline / region, lon/lat) → that feature
-//   boundary  a column of region codes joined onto built-in polygons
-//             (US counties by FIPS; US states by FIPS, abbreviation or name).
-//             A stopgap until transforms can join a boundary dataset instead.
-//
-// Rows with the same feature are grouped; aggregation happens later.
+// Rows with the same geometry are grouped onto one feature; aggregation
+// happens later.
 
-import type { Feature, Geometry } from 'geojson'
+import type { Geometry } from 'geojson'
 import type { DataRecord } from '../data/connectors'
 import { geometryKindOf, type GeometryKind } from '../schema'
-import { STATES } from '../states'
 import { isGeometryColumn, type ColumnInfo } from './columns'
 import { geometryFromValue } from './wkt'
 
 export { geometryFromValue }
 
-export const BOUNDARIES = {
-  'us-counties': 'US counties (5-digit FIPS)',
-  'us-states': 'US states (FIPS, abbreviation or name)',
-} as const
-export type BoundaryId = keyof typeof BOUNDARIES
-
-export type GeometryBinding =
-  | { kind: 'boundary'; column: string; boundary: BoundaryId; /** Also draw regions with no rows. */ includeEmpty?: boolean }
-  | { kind: 'geometry'; column: string }
-
-export interface BoundaryFeature {
-  key: string
-  name: string
-  geometry: Geometry
+export interface GeometryBinding {
+  kind: 'geometry'
+  column: string
+  /** Column whose value names each feature (tooltips, Find); absent → unnamed. */
+  label?: string
 }
 
 export interface FeatureGroup {
@@ -37,33 +26,6 @@ export interface FeatureGroup {
   label: string | null
   geometry: Geometry
   rows: DataRecord[]
-}
-
-// ── region codes ───────────────────────────────────────────────────────────
-
-/** Retired county codes still found in data → the county that replaced them. */
-export const COUNTY_SUCCESSORS: Record<string, string> = {
-  '51515': '51019', // Bedford city, VA → Bedford County (2013)
-  '46113': '46102', // Shannon County, SD → Oglala Lakota County (2015)
-  '02270': '02158', // Wade Hampton, AK → Kusilvak Census Area (2015)
-}
-
-const STATE_BY_ABBR = new Map(Object.entries(STATES).map(([fips, s]) => [s.abbr, fips]))
-const STATE_BY_NAME = new Map(Object.entries(STATES).map(([fips, s]) => [s.name.toLowerCase(), fips]))
-
-/** Normalize a raw code to the boundary set's key, or null if it can't be one. */
-export function boundaryKey(boundary: BoundaryId, raw: unknown): string | null {
-  if (raw === null || raw === undefined) return null
-  const s = String(raw).trim()
-  if (!s) return null
-  if (boundary === 'us-counties') {
-    const d = s.replace(/\.0+$/, '') // "1001.0" from spreadsheets
-    if (!/^\d{1,5}$/.test(d)) return null
-    const key = d.padStart(5, '0')
-    return COUNTY_SUCCESSORS[key] ?? key
-  }
-  if (/^\d{1,2}$/.test(s)) return s.padStart(2, '0')
-  return STATE_BY_ABBR.get(s.toUpperCase()) ?? STATE_BY_NAME.get(s.toLowerCase()) ?? null
 }
 
 // ── grouping ───────────────────────────────────────────────────────────────
@@ -76,48 +38,36 @@ export interface GroupResult {
   unmatchedSamples: string[]
 }
 
-export function groupRows(records: DataRecord[], binding: GeometryBinding, boundaries?: Map<string, BoundaryFeature>): GroupResult {
+export function groupRows(records: DataRecord[], binding: GeometryBinding): GroupResult {
   const byKey = new Map<string, FeatureGroup>()
   let unmatched = 0
   const unmatchedSamples: string[] = []
-  const miss = (raw: unknown) => {
-    unmatched++
-    if (unmatchedSamples.length < 8) unmatchedSamples.push(String(raw))
-  }
-
-  if (binding.kind === 'boundary') {
-    if (!boundaries) throw new Error('boundary polygons not loaded')
-    for (const r of records) {
-      const raw = r[binding.column]
-      const key = boundaryKey(binding.boundary, raw)
-      const b = key ? boundaries.get(key) : undefined
-      if (!b) {
-        miss(raw)
-        continue
-      }
-      let g = byKey.get(b.key)
-      if (!g) byKey.set(b.key, (g = { key: b.key, label: b.name, geometry: b.geometry, rows: [] }))
-      g.rows.push(r)
+  // Identical geometries (a county listed once per utility, a line per owner)
+  // share a feature. Rows often share the very same object, so its key is
+  // remembered by identity before falling back to comparing the text.
+  const idByText = new Map<string, string>()
+  const idByObject = new WeakMap<object, string>()
+  for (const r of records) {
+    const raw = r[binding.column]
+    const geom = geometryFromValue(raw)
+    if (!geom) {
+      unmatched++
+      if (unmatchedSamples.length < 8) unmatchedSamples.push(typeof raw === 'string' ? raw.slice(0, 40) : String(JSON.stringify(raw)).slice(0, 40))
+      continue
     }
-    if (binding.includeEmpty) {
-      for (const b of boundaries.values()) if (!byKey.has(b.key)) byKey.set(b.key, { key: b.key, label: b.name, geometry: b.geometry, rows: [] })
-    }
-  } else {
-    // Identical geometries (e.g. the same line listed per owner) share a feature.
-    const idByText = new Map<string, string>()
-    for (const r of records) {
-      const raw = r[binding.column]
-      const geom = geometryFromValue(raw)
-      if (!geom) {
-        miss(typeof raw === 'string' ? raw.slice(0, 40) : JSON.stringify(raw)?.slice(0, 40))
-        continue
-      }
+    let key = idByObject.get(geom)
+    if (!key) {
       const text = JSON.stringify(geom)
-      let key = idByText.get(text)
+      key = idByText.get(text)
       if (!key) idByText.set(text, (key = `f${idByText.size + 1}`))
-      let g = byKey.get(key)
-      if (!g) byKey.set(key, (g = { key, label: null, geometry: geom, rows: [] }))
-      g.rows.push(r)
+      idByObject.set(geom, key)
+    }
+    let g = byKey.get(key)
+    if (!g) byKey.set(key, (g = { key, label: null, geometry: geom, rows: [] }))
+    g.rows.push(r)
+    if (g.label === null && binding.label) {
+      const l = r[binding.label]
+      if (l !== null && l !== undefined && l !== '') g.label = String(l)
     }
   }
   return { groups: [...byKey.values()], unmatched, unmatchedSamples }
@@ -135,18 +85,24 @@ export function dominantKind(groups: FeatureGroup[]): GeometryKind {
 
 // ── guessing ───────────────────────────────────────────────────────────────
 
-const COUNTY_COL = /^(county_?fips|fips|geoid|county_?geoid|fips_?code|cnty_?fips|county_?id)$/i
-const STATE_COL = /^(state|state_?fips|state_?abbr|state_?code|st|state_?name|statefp)$/i
+const LABEL_COL = [/^name$/i, /^(label|title)$/i, /_name$|^name_/i, /^(county|state|city|place|region|area)$/i]
 
-/** A best guess at the binding: a geometry column (regions first), else region codes. */
+/** A column that likely names features: text, preferring "name", then other name-ish columns. */
+export function guessLabel(columns: ColumnInfo[]): string | undefined {
+  const text = columns.filter((c) => c.type === 'string')
+  for (const re of LABEL_COL) {
+    const c = text.find((x) => re.test(x.name))
+    if (c) return c.name
+  }
+  return undefined
+}
+
+/** A best guess at the binding: a geometry column (regions first) and a label column. */
 export function guessBinding(columns: ColumnInfo[]): GeometryBinding | null {
   const geom = ['region', 'polyline', 'point'].map((t) => columns.find((c) => c.type === t)).find(Boolean)
-  if (geom) return { kind: 'geometry', column: geom.name }
-  const county = columns.find((c) => COUNTY_COL.test(c.name))
-  if (county) return { kind: 'boundary', column: county.name, boundary: 'us-counties' }
-  const state = columns.find((c) => STATE_COL.test(c.name))
-  if (state) return { kind: 'boundary', column: state.name, boundary: 'us-states' }
-  return null
+  if (!geom) return null
+  const label = guessLabel(columns)
+  return { kind: 'geometry', column: geom.name, ...(label ? { label } : {}) }
 }
 
 /** Columns a binding consumes (not offered as data to visualize). */
@@ -154,22 +110,10 @@ export function bindingColumns(b: GeometryBinding): string[] {
   return [b.column]
 }
 
-/** Whether a saved binding is one this version understands (older ones had lat/lon pairs). */
+/** Whether a saved binding is one this version understands (older ones had lat/lon pairs or region codes). */
 export function isSupportedBinding(b: { kind?: string; column?: unknown } | undefined): b is GeometryBinding {
-  return (b?.kind === 'geometry' || b?.kind === 'boundary') && typeof b.column === 'string'
+  return b?.kind === 'geometry' && typeof b.column === 'string'
 }
 
 /** Geometry columns of a table: what a geometry binding can use. */
 export const geometryColumns = (columns: ColumnInfo[]) => columns.filter((c) => isGeometryColumn(c.type))
-
-/** Polygons from TopoJSON features with ids, keyed for a boundary set. */
-export function boundaryIndex(boundary: BoundaryId, features: Feature<Geometry, { name?: string }>[]): Map<string, BoundaryFeature> {
-  const out = new Map<string, BoundaryFeature>()
-  for (const f of features) {
-    const key = boundary === 'us-counties' ? String(f.id).padStart(5, '0') : String(f.id).padStart(2, '0')
-    const st = STATES[key.slice(0, 2)]
-    const name = boundary === 'us-counties' ? `${f.properties?.name ?? key}${st ? `, ${st.abbr}` : ''}` : (st?.name ?? f.properties?.name ?? key)
-    out.set(key, { key, name, geometry: f.geometry })
-  }
-  return out
-}

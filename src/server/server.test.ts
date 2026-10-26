@@ -2,22 +2,26 @@ import { describe, expect, it } from 'vitest'
 import { createServer } from './server'
 import { nodeDuckDb } from './testEngine'
 import { MemoryDatabase } from '../shared/database'
+import { readFileSync } from 'node:fs'
+import { countyRows, stateRows } from '../lib/data/boundaryTables'
+import { parseWorkspaceFile, replacePointers, templateBuiltins } from '../lib/workspace/file'
 import type { ApiResult } from '../shared/api'
-import type { BoundaryFeature } from '../lib/dataset/binding'
 import { defaultScalarStyle, settingsOf, makeVisualization, ROWS } from '../lib/dataset/visualization'
 
-const square = (x: number) => ({ type: 'Polygon' as const, coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 1], [x, 0]]] })
-const counties = new Map<string, BoundaryFeature>([
-  ['01001', { key: '01001', name: 'Autauga, AL', geometry: square(0) }],
-  ['01003', { key: '01003', name: 'Baldwin, AL', geometry: square(2) }],
-])
-const CSV = 'county_fips,utility,mw,flow,location\n01001,A,5,"[5, 1]",POINT (-86.6 32.5)\n01001,B,7,"[7, 1]",POINT (-86.6 32.5)\n01003,A,1,"[1, 1]",POINT (-87.7 30.7)\n99999,C,2,"[2, 1]",\n'
+const SQ0 = '"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))"'
+const SQ2 = '"POLYGON ((2 0, 3 0, 3 1, 2 1, 2 0))"'
+// A joined table: county shapes repeated per utility, plus a row with no shape.
+const CSV =
+  'county_fips,county,area,utility,mw,flow,location\n' +
+  `01001,Autauga,${SQ0},A,5,"[5, 1]",POINT (-86.6 32.5)\n` +
+  `01001,Autauga,${SQ0},B,7,"[7, 1]",POINT (-86.6 32.5)\n` +
+  `01003,Baldwin,${SQ2},A,1,"[1, 1]",POINT (-87.7 30.7)\n` +
+  '99999,Nowhere,,C,2,"[2, 1]",\n'
 const file = (name: string, text: string) => ({ name, text: async () => text }) as unknown as File
 
 function setup() {
   const db = new MemoryDatabase()
   const server = createServer(db, {
-    loadBoundaries: async () => counties,
     readBuiltin: async (table) => (table === 'utilities' ? [{ utility_id: 1, name: 'Alabama Power' }] : []),
     sql: nodeDuckDb,
   })
@@ -27,7 +31,7 @@ const data = <T,>(r: ApiResult<T>): T => {
   if (!r.ok) throw new Error(r.error.message)
   return r.data
 }
-const county = { kind: 'boundary' as const, column: 'county_fips', boundary: 'us-counties' as const }
+const county = { kind: 'geometry' as const, column: 'area', label: 'county' }
 
 describe('server', () => {
   it('uploads a file into its own data table and registers it', async () => {
@@ -37,7 +41,7 @@ describe('server', () => {
     const ds = (await db.get('datasets', datasetId))!
     expect(ds).toMatchObject({ name: 'plants', rowCount: 4, origin: 'Device · plants.csv', table: `ds_${datasetId.replace(/-/g, '')}` })
     expect(ds.columns.find((c) => c.name === 'county_fips')!.type).toBe('string') // zero-padded codes stay text
-    expect(ds.columns.map((c) => c.type)).toEqual(['string', 'string', 'int', 'vector', 'point'])
+    expect(ds.columns.map((c) => c.type)).toEqual(['string', 'string', 'region', 'string', 'int', 'vector', 'point'])
     expect(await db.readRows(ds.table)).toHaveLength(4)
     expect((await server.handle('uploadDataset', { source: { kind: 'csv', file: file('e.csv', 'a\n') } })).ok).toBe(false)
   })
@@ -46,18 +50,18 @@ describe('server', () => {
     const { server } = setup()
     const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
     const info = data(await server.handle('describeBinding', { datasetId, binding: county }))
-    expect(info).toMatchObject({ features: 2, matchedRows: 3, unmatched: 1, unmatchedSamples: ['99999'], maxRowsPerFeature: 2 })
-    expect(info.columns.map((c) => c.name)).not.toContain('county_fips')
+    expect(info).toMatchObject({ features: 2, matchedRows: 3, unmatched: 1, maxRowsPerFeature: 2 })
+    expect(info.columns.map((c) => c.name)).not.toContain('area')
     const sum = data(await server.handle('queryVisualization', { datasetId, binding: county, column: 'mw', aggregation: 'sum' }))
-    expect(sum.features.map((f) => [f.key, f.value, f.rows, f.geometry])).toEqual([['01001', 12, 2, undefined], ['01003', 1, 1, undefined]])
+    expect(sum.features.map((f) => [f.key, f.label, f.value, f.rows, f.geometry.type])).toEqual([['f1', 'Autauga', 12, 2, 'Polygon'], ['f2', 'Baldwin', 1, 1, 'Polygon']])
     const pts = data(await server.handle('queryVisualization', { datasetId, binding: { kind: 'geometry', column: 'location' }, column: ROWS, aggregation: 'count' }))
     expect(pts.features[0]).toMatchObject({ rows: 2, geometry: { type: 'Point', coordinates: [-86.6, 32.5] } })
     expect(pts).toMatchObject({ geometryKind: 'point', unmatched: 1 })
     const notGeom = await server.handle('describeBinding', { datasetId, binding: { kind: 'geometry', column: 'utility' } })
     expect(notGeom).toMatchObject({ ok: false, error: { message: expect.stringContaining('not a geometry column') } })
-    const rows = data(await server.handle('featureRows', { datasetId, binding: county, key: '01001' }))
+    const rows = data(await server.handle('featureRows', { datasetId, binding: county, key: 'f1' }))
     expect(rows.map((r) => r.utility)).toEqual(['A', 'B'])
-    const bad = await server.handle('queryVisualization', { datasetId, binding: { ...county, column: 'nope' }, column: 'mw', aggregation: 'sum' })
+    const bad = await server.handle('queryVisualization', { datasetId, binding: { ...county, label: 'nope' }, column: 'mw', aggregation: 'sum' })
     expect(bad).toMatchObject({ ok: false, error: { code: 'invalid' } })
   })
 
@@ -74,7 +78,7 @@ describe('server', () => {
     data(await server.handle('init', { baseUrl: '/' }))
     const a = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } })).datasetId
     const b = data(await server.handle('uploadDataset', { source: { kind: 'builtin', table: 'utilities' } })).datasetId
-    expect((await db.get('datasets', b))!.name).toBe('EIA-861 utility list (no geometry)')
+    expect((await db.get('datasets', b))!).toMatchObject({ name: 'EIA-861 utilities', origin: 'Built-in · utilities', extensions: { builtin: 'utilities' } })
     const shape = { columns: [], maxRowsPerFeature: 2, geometryKind: 'region' as const }
     const v1 = makeVisualization(shape, a, county, ROWS)
     const v2 = { ...makeVisualization(shape, a, county, ROWS), name: 'Second' }
@@ -167,14 +171,61 @@ describe('server', () => {
     const { entries } = data(await server.handle('findIndex', { datasetId, binding: county }))
     expect(entries).toEqual(
       expect.arrayContaining([
-        { column: '_label', value: 'Autauga, AL', features: 1 },
+        { column: '_label', value: 'Autauga', features: 1 },
         { column: 'utility', value: 'A', features: 2 }, // utility A serves both counties
         { column: 'utility', value: 'B', features: 1 },
       ]),
     )
-    expect(entries.some((e) => e.value === 'C')).toBe(false) // C's row matched no county
+    expect(entries.some((e) => e.value === 'C')).toBe(false) // C's row has no shape
+    expect(entries.some((e) => e.column === 'county')).toBe(false) // the label column is the feature names
     const a = data(await server.handle('findFeatures', { datasetId, binding: county, column: 'utility', value: 'A' }))
-    expect(a.keys.sort()).toEqual(['01001', '01003'])
+    expect(a.keys.sort()).toEqual(['f1', 'f2'])
     expect(data(await server.handle('findFeatures', { datasetId, binding: county, column: 'utility', value: 'nope' })).keys).toEqual([])
+  })
+})
+
+describe('built-in boundary datasets and the default join', () => {
+  it('turns us-atlas counties and states into tables with a region column', () => {
+    const counties = countyRows(JSON.parse(readFileSync('node_modules/us-atlas/counties-10m.json', 'utf8')))
+    const autauga = counties.find((r) => r.fips === '01001')!
+    expect(autauga).toMatchObject({ name: 'Autauga, AL', county: 'Autauga', state: 'AL', state_fips: '01' })
+    expect((autauga.geometry as { type: string }).type).toMatch(/Polygon/)
+    const states = stateRows(JSON.parse(readFileSync('node_modules/us-atlas/states-10m.json', 'utf8')))
+    expect(states.find((r) => r.fips === '48')).toMatchObject({ name: 'Texas', abbr: 'TX' })
+  })
+
+  it("runs the default workspace's join: counties × service territory × utilities × states", async () => {
+    const tables: Record<string, Record<string, unknown>[]> = {
+      us_counties: [
+        { fips: '01001', name: 'Autauga, AL', county: 'Autauga', state: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } },
+        { fips: '01003', name: 'Baldwin, AL', county: 'Baldwin', state: 'AL', geometry: { type: 'Polygon', coordinates: [[[2, 0], [3, 0], [3, 1], [2, 0]]] } },
+      ],
+      utility_counties: [
+        { utility_id_eia: '195', state: 'AL', county_fips: '01001', county: 'Autauga' },
+        { utility_id_eia: '3222', state: 'AL', county_fips: '01001', county: 'Autauga' },
+      ],
+      utilities: [
+        { utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned' },
+        { utility_id_eia: '3222', utility_name: 'Central Alabama Electric Coop', entity_type: 'Cooperative' },
+      ],
+      utility_states: [{ utility_id_eia: '195', state: 'AL', customers: '1557733' }],
+      us_states: [{ fips: '01', name: 'Alabama', abbr: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 1], [0, 0]]] } }],
+    }
+    const db = new MemoryDatabase()
+    const server = createServer(db, { readBuiltin: async (t) => tables[t], sql: nodeDuckDb })
+    const parsed = parseWorkspaceFile(readFileSync('public/data/default.powergis.json', 'utf8'))
+    if (!parsed.ok) throw new Error(parsed.error)
+    const ids: Record<string, string> = {}
+    for (const t of templateBuiltins(parsed.file)) ids[`builtin:${t}`] = data(await server.handle('uploadDataset', { source: { kind: 'builtin', table: t } })).datasetId
+    const t = replacePointers(parsed.file, (p) => ids[p]).transforms![0]
+    const out = data(await server.handle('runTransform', { transform: { ...t, id: 't', outputId: undefined } }))
+    expect(out.rowCount).toBe(3) // two utilities in Autauga, an empty row for Baldwin
+    const ds = (await db.get('datasets', out.datasetId))!
+    expect(ds.columns.find((c) => c.name === 'geometry')!.type).toBe('region')
+    const n = parsed.file.visualizations.find((v) => v.name === 'Number of utilities')!.settings
+    const values = data(await server.handle('queryVisualization', { datasetId: out.datasetId, binding: n.binding, column: n.column, aggregation: n.aggregation }))
+    expect(values.features.map((f) => [f.label, f.value])).toEqual([['Autauga, AL', 2], ['Baldwin, AL', 0]])
+    const coop = data(await server.handle('queryVisualization', { datasetId: out.datasetId, binding: n.binding, column: 'cooperative', aggregation: 'any' }))
+    expect(coop.features.map((f) => f.value)).toEqual([true, null])
   })
 })

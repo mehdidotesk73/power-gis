@@ -41,7 +41,7 @@ export interface DatasetRecord extends BaseRecord {
   description?: string
   /** What's in each column; computed whenever the data table is written. */
   profile?: DatasetProfile
-  /** Open slot for features to attach their own metadata (e.g. `preset`). */
+  /** Open slot for features to attach their own metadata (e.g. `builtin`, the table a built-in copy came from). */
   extensions?: Record<string, unknown>
 }
 

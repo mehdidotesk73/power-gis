@@ -136,13 +136,15 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   common kind; cells of another kind coerce to null). Geometry comes with the data — features get a
   typed geometry column, WKT / GeoJSON cells are typed — and nothing is derived at upload: building
   a point from latitude / longitude (or a vector from two columns) is a transform.
-- **Geometry binding is a visualization setting** — `{kind: 'geometry', column}` draws a geometry
-  column; rows with identical geometry become one feature. There are no lat/lon bindings: a
-  visualization always draws real features (older saved lat/lon visualizations are dropped on load
-  with a log line, `isSupportedBinding`). The stopgap `{kind: 'boundary'}` matches region codes to
-  built-in county / state polygons (static client files, `lib/dataset/boundaries.ts`, also loaded by
-  the server to match codes) until transforms can join a boundary dataset. For geometry bindings the
-  server sends the geometry; for boundary ones the client attaches it.
+- **Geometry binding is a visualization setting** — `{kind: 'geometry', column, label?}` draws a
+  geometry column; rows with identical geometry become one feature (`groupRows` keys a shared object
+  by identity, else by its JSON; `groupDataset` parses repeated GeoJSON text once), named by the first
+  non-empty `label` value. There are no lat/lon or region-code bindings: a visualization always draws
+  real features, and the server sends their geometry. Older saved visualizations of either kind are
+  dropped on load with a log line and a "Reset gets the default map" note (`isSupportedBinding`).
+- **Boundary datasets** — region codes become shapes by a join onto a boundary dataset: built-in
+  `us_counties` / `us_states` (`lib/data/boundaryTables.ts`: us-atlas TopoJSON → rows with `fips`,
+  names and a region `geometry`; read by the worker's `readBuiltin`).
 - **Not dataset properties:** source and usage policy — they belong to the agent workflow's run
   records (roadmap step 6).
 
@@ -185,8 +187,22 @@ of every text column in the rows behind features, with how many features have it
 distinct values are skipped). The index is cached beside the dataset + binding grouping. The client
 filters it by column (or All data) and searches it with `search(…, {fuzzy: true})`; picking an entry
 asks `findFeatures` for its feature keys, which the page highlights on every visualization drawing
-the same features (same dataset and binding) and zooms to (`focusBox`). Replaces the utility-only
-"Find a utility".
+the same features (same dataset and binding) and zooms to (`focusBox`). Until the user picks a
+visualization it follows the top visible one (they load one by one).
+
+### Default workspace
+
+The first visit (and ⋯ → Reset) opens `public/data/default.powergis.json`, a workspace file used as a
+template: dataset pointers are `builtin:<table>` or `transform:<n>` (the output of the file's n-th
+transform). `seedDefault` (`MapPage.vue`) uploads each built-in (or reuses a copy marked
+`extensions.builtin`), runs each transform in order (or reuses an output marked `extensions.madeBy`
+= its SQL + resolved inputs), swaps ids in with `replacePointers` and opens the result with
+`fromWorkspaceFile`, unsaved like any loaded file (the very first one is saved at once). Today's file:
+the three EIA-861 tables + `us_counties` + `us_states`; the transform **Utilities by county**
+(`counties LEFT JOIN territory LEFT JOIN utilities LEFT JOIN utility_states` — counties no utility
+reports keep one empty row, so they draw as 0); visualizations Number of utilities (count of
+`utility_id_eia`), Most common ownership, Co-op present (hatch) and State borders (`us_states`).
+The first run loads DuckDB (~6 s on a desktop); later visits reuse the stored output.
 
 ### Dataset profiles
 

@@ -1,0 +1,115 @@
+{
+  "format": "powergis-workspace",
+  "version": 1,
+  "exportedAt": "2026-10-26T00:00:00.000Z",
+  "name": "Electric utilities by county (EIA-861)",
+  "datasetIds": [
+    "transform:0",
+    "builtin:utilities",
+    "builtin:utility_counties",
+    "builtin:utility_states",
+    "builtin:us_counties",
+    "builtin:us_states"
+  ],
+  "visualizations": [
+    {
+      "name": "State borders",
+      "datasetId": "builtin:us_states",
+      "settings": {
+        "kind": "scalar",
+        "visible": false,
+        "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+        "column": "__rows",
+        "aggregation": "count",
+        "style": {
+          "color": { "kind": "constant", "color": "#000000" },
+          "opacity": { "kind": "constant", "value": 0 },
+          "pattern": { "kind": "none" },
+          "outline": { "color": "#334155", "width": 1.2, "opacity": 0.9 }
+        }
+      }
+    },
+    {
+      "name": "Co-op present (hatch)",
+      "datasetId": "transform:0",
+      "settings": {
+        "kind": "scalar",
+        "visible": false,
+        "binding": { "kind": "geometry", "column": "geometry", "label": "county" },
+        "column": "cooperative",
+        "aggregation": "any",
+        "style": {
+          "color": { "kind": "constant", "color": "#000000" },
+          "opacity": { "kind": "constant", "value": 0 },
+          "pattern": { "kind": "field", "field": "_value", "patterns": { "true": "hatch" }, "color": "#1b5e20", "opacity": 0.9 },
+          "outline": { "color": "#ffffff", "width": 0, "opacity": 0 }
+        }
+      }
+    },
+    {
+      "name": "Most common ownership",
+      "datasetId": "transform:0",
+      "settings": {
+        "kind": "scalar",
+        "visible": false,
+        "binding": { "kind": "geometry", "column": "geometry", "label": "county" },
+        "column": "entity_type",
+        "aggregation": "mode",
+        "style": {
+          "color": {
+            "kind": "categorical",
+            "field": "_value",
+            "colors": {
+              "Investor Owned": "#4e79a7",
+              "Cooperative": "#59a14f",
+              "Municipal": "#f28e2b",
+              "Political Subdivision": "#edc948",
+              "State": "#b07aa1",
+              "Federal": "#e15759",
+              "Municipal Mktg Authority": "#ff9da7",
+              "Community Choice Aggregator": "#76b7b2",
+              "Retail Power Marketer": "#9c755f",
+              "Wholesale Power Marketer": "#c9b18f",
+              "Transmission": "#8cd17d",
+              "Behind the Meter": "#d4a6c8",
+              "Unknown": "#bab0ac"
+            }
+          },
+          "opacity": { "kind": "constant", "value": 0.75 },
+          "pattern": { "kind": "none" },
+          "outline": { "color": "#ffffff", "width": 0.3, "opacity": 0.7 }
+        }
+      }
+    },
+    {
+      "name": "Number of utilities",
+      "datasetId": "transform:0",
+      "settings": {
+        "kind": "scalar",
+        "visible": true,
+        "binding": { "kind": "geometry", "column": "geometry", "label": "county" },
+        "column": "utility_id_eia",
+        "aggregation": "count",
+        "style": {
+          "color": { "kind": "colormap", "field": "_value", "colormap": "viridis", "domain": [0, 10] },
+          "opacity": { "kind": "constant", "value": 0.75 },
+          "pattern": { "kind": "none" },
+          "outline": { "color": "#ffffff", "width": 0.3, "opacity": 0.7 }
+        }
+      }
+    }
+  ],
+  "transforms": [
+    {
+      "name": "Utilities by county",
+      "sql": "-- One row per county and utility serving it; counties no utility reports keep one empty row.\nSELECT c.geometry, c.name AS county, c.fips AS county_fips,\n  u.utility_id_eia, u.utility_name, u.entity_type,\n  u.entity_type = 'Cooperative' AS cooperative,\n  s.customers AS state_customers\nFROM counties c\nLEFT JOIN territory t ON t.county_fips = c.fips\nLEFT JOIN utilities u ON u.utility_id_eia = t.utility_id_eia\nLEFT JOIN utility_states s ON s.utility_id_eia = t.utility_id_eia AND s.state = t.state\nORDER BY c.fips, u.utility_name",
+      "inputs": [
+        { "datasetId": "builtin:us_counties", "alias": "counties" },
+        { "datasetId": "builtin:utility_counties", "alias": "territory" },
+        { "datasetId": "builtin:utilities", "alias": "utilities" },
+        { "datasetId": "builtin:utility_states", "alias": "utility_states" }
+      ],
+      "outputId": "transform:0"
+    }
+  ]
+}

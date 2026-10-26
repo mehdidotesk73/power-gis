@@ -2826,7 +2826,7 @@ utility_id_eia,utility_name,entity_type,states,county_count,total_customers,tota
 20979,Village of Woodville - (OH),Unknown,OH,1,,,,2025
 21101,Village of Yellow Springs - (OH),Unknown,OH,1,,,,2025
 19869,Vinton Public Power Authority,Unknown,LA,1,,,,2025
-19876,Virginia Electric & Power Co,Investor Owned,NC;VA;WV,129,2809753,98687113,11298036900,2025
+19876,Virginia Electric & Power Co,Investor Owned,NC;VA;WV,128,2809753,98687113,11298036900,2025
 19882,Virginia Tech Electric Service,State,VA,1,6932,326020,51221800,2025
 19898,Volunteer Electric Coop,Cooperative,TN,15,129770,2659534,316199000,2025
 27000,WAPA-- Western Area Power Administration,Federal,AZ;CA;CO;IA;KS;MN;MO;MT;ND;NE;NM;NV;OR;SD;UT;WY,276,233,5062251,189423800,2025

@@ -4,9 +4,12 @@ Source: EIA-861 "Service Territory" + "Sales to Ultimate Customers", as
 published (cleaned, with county FIPS codes attached) by the Catalyst
 Cooperative PUDL project: https://catalyst.coop/pudl/
 
-Outputs (public/data/):
-  utility_counties.csv  one row per (utility, state, county) — the map layer
-  utilities.csv         one row per utility — the utility list
+Outputs (public/data/), normalized — join them in a transform:
+  utilities.csv         one row per utility (name, ownership, totals)
+  utility_states.csv    one row per (utility, state): customers, sales, revenue
+  utility_counties.csv  one row per (utility, county): the service-territory join table
+
+County polygons are a separate built-in dataset (us-atlas), joined on county_fips.
 
 Usage:  pip install pandas pyarrow && python scripts/build_utility_counties.py [year]
 """
@@ -20,6 +23,13 @@ import pandas as pd
 PUDL = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/stable"
 OUT = Path(__file__).resolve().parent.parent / "public" / "data"
 CACHE = Path(__file__).resolve().parent / ".cache"
+
+# Retired county FIPS codes still found in EIA-861 → their successors.
+COUNTY_SUCCESSORS = {
+    "51515": "51019",  # Bedford city, VA → Bedford County (2013)
+    "46113": "46102",  # Shannon County, SD → Oglala Lakota County (2015)
+    "02270": "02158",  # Wade Hampton, AK → Kusilvak Census Area (2015)
+}
 
 
 def table(name: str) -> pd.DataFrame:
@@ -59,31 +69,36 @@ def main() -> None:
 
     rows = (
         territory[["utility_id_eia", "utility_name_eia", "state", "county", "county_id_fips", "short_form"]]
-        .drop_duplicates(subset=["utility_id_eia", "county_id_fips"])
-        .merge(entity, on="utility_id_eia", how="left")
-        .merge(by_state, on=keys, how="left")
         .rename(columns={"utility_name_eia": "utility_name", "county_id_fips": "county_fips"})
+        .dropna(subset=["county_fips"])
     )
-    rows["entity_type"] = rows["entity_type"].fillna("Unknown")
+    # Retired county codes still reported → the county that replaced them.
+    rows["county_fips"] = rows["county_fips"].replace(COUNTY_SUCCESSORS)
+    rows = rows.drop_duplicates(subset=["utility_id_eia", "county_fips"])
     rows["short_form"] = rows["short_form"].fillna(False).astype(bool)
-    rows["report_year"] = year
-    n_counties = rows.groupby(keys)["county_fips"].transform("nunique")
-    rows["counties_in_state"] = n_counties
-    rows = rows.sort_values(["county_fips", "utility_name"])[
-        [
-            "utility_id_eia", "utility_name", "entity_type", "state", "county", "county_fips",
-            "counties_in_state", "state_customers", "state_sales_mwh", "state_revenue_usd",
-            "short_form", "report_year",
-        ]
-    ]
 
-    utilities = (
-        rows.groupby(["utility_id_eia", "utility_name", "entity_type"])
-        .agg(
-            states=("state", lambda s: ";".join(sorted(set(s)))),
-            county_count=("county_fips", "nunique"),
-        )
+    counties = rows.sort_values(["county_fips", "utility_id_eia"])[["utility_id_eia", "state", "county_fips", "county"]]
+
+    states = (
+        rows.groupby(keys)
+        .agg(county_count=("county_fips", "nunique"), short_form=("short_form", "max"))
         .reset_index()
+        .merge(by_state, on=keys, how="left")
+        .rename(columns=lambda c: c.replace("state_", ""))
+        .sort_values(keys)
+    )
+    states["report_year"] = year
+
+    names = rows.drop_duplicates("utility_id_eia")[["utility_id_eia", "utility_name"]]
+    utilities = (
+        names.merge(entity, on="utility_id_eia", how="left")
+        .merge(
+            rows.groupby("utility_id_eia").agg(
+                states=("state", lambda s: ";".join(sorted(set(s)))),
+                county_count=("county_fips", "nunique"),
+            ),
+            on="utility_id_eia",
+        )
         .merge(
             by_state.groupby("utility_id_eia")[["state_customers", "state_sales_mwh", "state_revenue_usd"]]
             .sum(min_count=1)
@@ -93,18 +108,17 @@ def main() -> None:
         )
         .sort_values("utility_name")
     )
+    utilities["entity_type"] = utilities["entity_type"].fillna("Unknown")
     utilities["report_year"] = year
 
     OUT.mkdir(parents=True, exist_ok=True)
-    int_cols = ["state_customers", "total_customers"]
-    for df in (rows, utilities):
-        for c in int_cols:
-            if c in df:
-                df[c] = df[c].astype("Int64")
-    rows.to_csv(OUT / "utility_counties.csv", index=False, float_format="%.0f")
+    for df, c in ((states, "customers"), (utilities, "total_customers")):
+        df[c] = df[c].astype("Int64")
     utilities.to_csv(OUT / "utilities.csv", index=False, float_format="%.0f")
-    print(f"{year}: {utilities.shape[0]} utilities, {rows.shape[0]} utility-county rows, "
-          f"{rows['county_fips'].nunique()} counties")
+    states.to_csv(OUT / "utility_states.csv", index=False, float_format="%.0f")
+    counties.to_csv(OUT / "utility_counties.csv", index=False)
+    print(f"{year}: {utilities.shape[0]} utilities, {states.shape[0]} utility-state rows, "
+          f"{counties.shape[0]} utility-county rows, {counties['county_fips'].nunique()} counties")
 
 
 if __name__ == "__main__":
