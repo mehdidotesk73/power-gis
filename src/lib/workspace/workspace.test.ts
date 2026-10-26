@@ -78,7 +78,7 @@ describe('workspace operations', () => {
   })
 
   it('adds, updates and removes transforms, validating inputs and table names', () => {
-    const t = { id: 't1', name: 'Pts', sql: 'SELECT * FROM a', inputs: [{ datasetId: 'a', alias: 'a' }] }
+    const t = { id: 't1', name: 'Pts', inputs: [{ datasetId: 'a', alias: 'a' }], outputs: [{ key: 'o1', name: 'Pts', sql: 'SELECT * FROM a' }] }
     const d = doc(addTransform(base, t))
     expect(d.transforms).toEqual([t])
     expect(addTransform(d, t)).toMatchObject({ ok: false, error: { code: 'duplicate' } })
@@ -86,7 +86,8 @@ describe('workspace operations', () => {
     expect(addTransform(base, { ...t, inputs: [{ datasetId: 'a', alias: '1x' }] })).toMatchObject({ ok: false, error: { message: expect.stringContaining('table name') } })
     expect(addTransform(base, { ...t, inputs: [{ datasetId: 'a', alias: 'x' }, { datasetId: 'b', alias: 'x' }] }).ok).toBe(false)
     expect(addTransform(base, { ...t, inputs: [] }).ok).toBe(false)
-    expect(doc(updateTransform(d, { ...t, outputId: 'b' })).transforms[0].outputId).toBe('b')
+    expect(doc(updateTransform(d, { ...t, outputs: [{ ...t.outputs[0], outputId: 'b' }] })).transforms[0].outputs[0].outputId).toBe('b')
+    expect(addTransform(base, { ...t, outputs: [] })).toMatchObject({ ok: false, error: { message: expect.stringContaining('output') } })
     // A dataset a transform reads can't leave the workspace until the transform stops using it.
     expect(removeDataset(d, 'a')).toMatchObject({ ok: false, error: { message: expect.stringContaining('Pts') } })
     expect(doc(removeTransform(d, 't1')).transforms).toEqual([])
@@ -95,13 +96,16 @@ describe('workspace operations', () => {
   })
 
   it('keeps a dataset with one writer: deleting a transform leaves its output, which a new transform can take over', () => {
-    const t = { id: 't1', name: 'Pts', sql: 'SELECT * FROM a', inputs: [{ datasetId: 'a', alias: 'a' }], outputId: 'b' }
+    const out = (outputId?: string, key = 'o1') => ({ key, name: 'Pts', sql: 'SELECT * FROM a', ...(outputId ? { outputId } : {}) })
+    const t = { id: 't1', name: 'Pts', inputs: [{ datasetId: 'a', alias: 'a' }], outputs: [out('b')] }
     const d = doc(addTransform(base, t))
     expect(addTransform(d, { ...t, id: 't2', name: 'Other' })).toMatchObject({ ok: false, error: { message: expect.stringContaining('already written by transform "Pts"') } })
-    expect(addTransform(base, { ...t, outputId: 'a' })).toMatchObject({ ok: false, error: { message: expect.stringContaining('its own inputs') } })
+    expect(addTransform(base, { ...t, outputs: [out('a')] })).toMatchObject({ ok: false, error: { message: expect.stringContaining('its own inputs') } })
+    expect(addTransform(base, { ...t, outputs: [out('b'), out('b', 'o2')] })).toMatchObject({ ok: false, error: { message: expect.stringContaining('same dataset') } })
+    expect(doc(addTransform(base, { ...t, outputs: [out('b'), out(undefined, 'o2')] })).transforms[0].outputs).toHaveLength(2)
     const gone = doc(removeTransform(d, 't1'))
     expect(gone.datasetIds).toContain('b') // downstream stays
-    expect(doc(addTransform(gone, { ...t, id: 't2', name: 'Relinked' })).transforms[0].outputId).toBe('b')
+    expect(doc(addTransform(gone, { ...t, id: 't2', name: 'Relinked' })).transforms[0].outputs[0].outputId).toBe('b')
   })
 
   it('renames the workspace', () => {

@@ -127,32 +127,52 @@ describe('server', () => {
     const bad = await server.handle('previewTransform', { sql: 'SELECT nope FROM plants', inputs })
     expect(bad).toMatchObject({ ok: false, error: { code: 'invalid', message: expect.stringContaining('nope') } })
 
-    const tr = { id: crypto.randomUUID(), name: 'Plant points', sql: 'SELECT name, point(lat, lon) AS location, mw FROM plants WHERE lat IS NOT NULL', inputs }
+    const pointsSql = 'SELECT name, point(lat, lon) AS location, mw FROM plants WHERE lat IS NOT NULL'
+    const tr = { id: crypto.randomUUID(), name: 'Plant points', inputs, outputs: [{ key: 'o1', name: 'Plant points', sql: pointsSql }] }
     data(await server.handle('saveWorkspace', { name: 'W', config: { datasetIds: [src] }, visualizations: [], transforms: [tr] }))
-    const first = data(await server.handle('runTransform', { transform: tr }))
-    expect(first).toMatchObject({ rowCount: 2, created: true })
+    const [first] = data(await server.handle('runTransform', { transform: tr })).outputs
+    expect(first).toMatchObject({ key: 'o1', rowCount: 2, created: true })
     const out = (await db.get('datasets', first.datasetId))!
     expect(out).toMatchObject({ name: 'Plant points', origin: 'Transform · Plant points', rowCount: 2 })
     expect(out.columns).toEqual([{ name: 'name', type: 'string' }, { name: 'location', type: 'point' }, { name: 'mw', type: 'int' }])
-    expect((await db.get('transforms', tr.id))!.outputId).toBe(first.datasetId) // the saved transform remembers its output
+    expect((await db.get('transforms', tr.id))!.outputs[0].outputId).toBe(first.datasetId) // the saved transform remembers its output
 
     // Visualize the output's point column.
     const pts = data(await server.handle('queryVisualization', { datasetId: first.datasetId, binding: { kind: 'geometry', column: 'location' }, column: 'mw', aggregation: 'sum' }))
     expect(pts.features.map((f) => f.value)).toEqual([500, 1200])
 
     // Re-running with the output id overwrites that dataset; cached values are recomputed.
-    const again = data(await server.handle('runTransform', { transform: { ...tr, sql: 'SELECT name, point(lat, lon) AS location, mw * 2 AS mw FROM plants WHERE lat IS NOT NULL', outputId: first.datasetId } }))
-    expect(again).toEqual({ datasetId: first.datasetId, rowCount: 2, created: false })
+    const doubled = { key: 'o1', name: 'Plant points', sql: pointsSql.replace('mw FROM', 'mw * 2 AS mw FROM'), outputId: first.datasetId }
+    const again = data(await server.handle('runTransform', { transform: { ...tr, outputs: [doubled] } }))
+    expect(again.outputs).toEqual([{ key: 'o1', datasetId: first.datasetId, rowCount: 2, created: false }])
     const pts2 = data(await server.handle('queryVisualization', { datasetId: first.datasetId, binding: { kind: 'geometry', column: 'location' }, column: 'mw', aggregation: 'sum' }))
     expect(pts2.features.map((f) => f.value)).toEqual([1000, 2400])
 
     // Deleting the output: the transform makes a new one next time. Dropping the transform from the workspace deletes it.
     data(await server.handle('deleteDataset', { id: first.datasetId }))
-    expect((await db.get('transforms', tr.id))!.outputId).toBeUndefined()
+    expect((await db.get('transforms', tr.id))!.outputs[0].outputId).toBeUndefined()
     const w = (await db.list('workspaces'))[0]
     data(await server.handle('saveWorkspace', { id: w.id, name: 'W', config: { datasetIds: [src] }, visualizations: [], transforms: [] }))
     expect(await db.get('transforms', tr.id)).toBeUndefined()
     expect(await server.handle('runTransform', { transform: { ...tr, inputs: [] } })).toMatchObject({ ok: false, error: { message: expect.stringContaining('input') } })
+  })
+
+  it('runs every output of a transform, and writes none when one fails', async () => {
+    const { db, server } = setup()
+    const src = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', 'name,mw\nA,5\nB,7\n') } })).datasetId
+    const inputs = [{ datasetId: src, alias: 'p' }]
+    const outputs = [
+      { key: 'big', name: 'Big plants', sql: 'SELECT * FROM p WHERE mw > 6' },
+      { key: 'total', name: 'Total', sql: 'SELECT sum(mw) AS mw FROM p' },
+    ]
+    const r = data(await server.handle('runTransform', { transform: { id: 't', name: 'Split', inputs, outputs } }))
+    expect(r.outputs.map((o) => [o.key, o.rowCount, o.created])).toEqual([['big', 1, true], ['total', 1, true]])
+    expect((await db.get('datasets', r.outputs[0].datasetId))!.name).toBe('Big plants')
+    expect(await db.readRows((await db.get('datasets', r.outputs[1].datasetId))!.table)).toEqual([{ mw: 12 }])
+    const count = (await db.list('datasets')).length
+    const bad = await server.handle('runTransform', { transform: { id: 't', name: 'Split', inputs, outputs: [outputs[0], { ...outputs[1], sql: 'SELECT nope FROM p' }] } })
+    expect(bad).toMatchObject({ ok: false, error: { message: expect.stringContaining('Total:') } })
+    expect((await db.list('datasets')).length).toBe(count) // nothing written
   })
 
   it('profiles a dataset that was stored without one', async () => {
@@ -217,7 +237,7 @@ describe('built-in boundary datasets and the default join', () => {
     const ids: Record<string, string> = {}
     for (const t of templateBuiltins(parsed.file)) ids[`builtin:${t}`] = data(await server.handle('uploadDataset', { source: { kind: 'builtin', table: t } })).datasetId
     const t = replacePointers(parsed.file, (p) => ids[p]).transforms![0]
-    const out = data(await server.handle('runTransform', { transform: { ...t, id: 't', outputId: undefined } }))
+    const [out] = data(await server.handle('runTransform', { transform: { ...t, id: 't', outputs: t.outputs.map((o) => ({ ...o, outputId: undefined })) } })).outputs
     expect(out.rowCount).toBe(3) // two utilities in Autauga, an empty row for Baldwin
     const ds = (await db.get('datasets', out.datasetId))!
     expect(ds.columns.find((c) => c.name === 'geometry')!.type).toBe('region')

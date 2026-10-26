@@ -169,10 +169,15 @@ whatever they're actually asking about.
   (`server/duckdb.ts`; the ~34 MB eh wasm is kept out of the PWA precache). `server/sql.ts` loads
   each input dataset as a table named by its alias (INSERT … VALUES — no file registration, which hangs
   the Node build), runs one SELECT, and types the result again (GeoJSON text → geometry, `{u, v}` →
-  vector). Helpers in SQL: `point(lat, lon)`, `vector(u, v)`. Requests: `previewTransform` (first rows,
-  nothing stored), `runTransform` (writes `outputId`'s table or a new dataset; returns the pointer).
-  Transforms are part of the workspace draft (`TransformSpec`, ops `addTransform` / `updateTransform`
-  / `removeTransform`) and saved with it. Inputs are `{datasetId, alias}` pairs: the dataset is picked
+  vector). Helpers in SQL: `point(lat, lon)`, `vector(u, v)`. A transform is **inputs + outputs**:
+  `TransformSpec {id, name, inputs, outputs: {key, name, sql, outputId?}[]}` — one SELECT per output.
+  Requests: `previewTransform` (one SQL's first rows, nothing stored), `runTransform` (runs every
+  output's SQL, then — only if all succeed — writes each into its `outputId` or a new dataset named
+  after the output; returns `{outputs: [{key, datasetId, rowCount, created}]}`). Older single-SQL
+  transforms (`sql` + `outputId`) are read through `normalizeTransform` (drafts, files, records).
+  Transforms are part of the workspace draft (ops `addTransform` / `updateTransform` /
+  `removeTransform`) and saved with it. The editor sets inputs and outputs first, then one SQL per
+  output with its own Preview; Run writes them all. Inputs are `{datasetId, alias}` pairs: the dataset is picked
   in a search box (name, typo-tolerant, or a pasted id — a dataset's hold menu → Copy id); the alias is the
   table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
   table's error lists the aliases). Tests run real DuckDB through its Node build
@@ -186,7 +191,8 @@ whatever they're actually asking about.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).
 - **Default workspace** (`public/data/default.powergis.json`): a workspace file whose pointers are
-  placeholders — `builtin:<table>` and `transform:<n>` (the n-th transform's output). `seedDefault`
+  placeholders — `builtin:<table>` and `transform:<n>` (the n-th transform's first output;
+  `transform:<n>.<m>` its m-th). `seedDefault`
   (`MapPage.vue`) uploads or reuses the built-ins, runs the transforms (reusing an output marked
   `extensions.madeBy` with the same SQL + inputs; the first run loads DuckDB), swaps in the ids
   (`replacePointers`, `lib/workspace/file.ts`) and opens it like a loaded file. Changing the default
@@ -217,8 +223,9 @@ whatever they're actually asking about.
   **＋ Transform**: tap input datasets, Next → a new transform with those inputs; **＋ Visualization**:
   tap a dataset → the add form. The graph is an interface to the same workspace operations, not a
   separate model.
-- **One writer per dataset.** A transform's **Writes to** picks a new dataset (made on Run) or an
-  existing one no other transform writes and that isn't one of its inputs (`checkTransform`).
+- **One writer per dataset.** Each output writes a new dataset (made on Run) or an existing one that
+  no other output (of any transform) writes and that isn't one of its transform's inputs
+  (`checkTransform`).
   Deleting a transform keeps its output dataset — it just can't be re-run until another transform
   is set to write it. Transform menu: Preview (first rows, without opening the editor), Run, Edit,
   Delete.

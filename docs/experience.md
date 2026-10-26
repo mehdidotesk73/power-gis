@@ -322,6 +322,10 @@ Two additions from reviewing it here, beyond what the originating project report
   open only for new items. One writer per dataset: a transform's Writes to (new / an unclaimed
   dataset); deleting a transform keeps its output, re-linkable by another transform. Transform menu
   gained Preview.
+- **Changed:** transforms are inputs + outputs (one SQL per output; Run writes all, or none if one
+  fails). Old single-SQL transforms are read through `normalizeTransform`.
+- **Fixed:** the transform editor could widen the whole controls column past a phone's screen (a
+  grid's auto column grows to its widest child) — `minmax(0, 1fr)` on the page grid and the editor.
 - **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
 
 ### Object lists: hold menus for datasets, visualizations, transforms — 2026-10-26

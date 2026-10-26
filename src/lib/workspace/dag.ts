@@ -64,19 +64,23 @@ export function buildDag(doc: WorkspaceDoc, dataset: (id: string) => DagDataset 
   for (const id of doc.datasetIds) addDataset(id)
   for (const t of doc.transforms) {
     for (const i of t.inputs) addDataset(i.datasetId)
-    if (t.outputId) {
-      addDataset(t.outputId)
-      madeBy.set(t.outputId, t.id)
+    for (const o of t.outputs) {
+      if (!o.outputId) continue
+      addDataset(o.outputId)
+      madeBy.set(o.outputId, t.id)
     }
   }
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
   for (const t of doc.transforms) {
-    const out = t.outputId ? dataset(t.outputId) : undefined
+    // Not run: an output has never been written. Stale: an input changed after the oldest output.
+    const outs = t.outputs.map((o) => (o.outputId ? dataset(o.outputId) : undefined))
     const newest = Math.max(...t.inputs.map((i) => Date.parse(dataset(i.datasetId)?.updatedAt ?? '') || 0))
-    const state: DagNode['state'] = !out ? 'not-run' : newest > (Date.parse(out.updatedAt) || 0) ? 'stale' : 'ready'
-    const detail = state === 'not-run' ? 'not run yet' : state === 'stale' ? 'needs re-run' : `${t.inputs.length} input${t.inputs.length === 1 ? '' : 's'}`
+    const oldest = Math.min(...outs.map((d) => Date.parse(d?.updatedAt ?? '') || 0))
+    const state: DagNode['state'] = outs.some((d) => !d) ? 'not-run' : newest > oldest ? 'stale' : 'ready'
+    const detail = state === 'not-run' ? 'not run yet' : state === 'stale' ? 'needs re-run' : `${plural(t.inputs.length, 'input')} → ${plural(t.outputs.length, 'output')}`
     nodes.set(trKey(t.id), { key: trKey(t.id), kind: 'transform', id: t.id, label: t.name, detail, state, row: 0, order: 0 })
     for (const i of t.inputs) edges.push({ from: dsKey(i.datasetId), to: trKey(t.id) })
-    if (t.outputId) edges.push({ from: trKey(t.id), to: dsKey(t.outputId) })
+    for (const o of t.outputs) if (o.outputId) edges.push({ from: trKey(t.id), to: dsKey(o.outputId) })
   }
 
   // Rows by depth (a transform reading its own output can't loop forever).

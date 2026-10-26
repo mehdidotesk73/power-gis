@@ -6,6 +6,7 @@
 // never live here — datasets are tables in the database.
 
 import type { VisualizationSpec } from '../dataset/visualization'
+import { newId } from '../dataset/dataset'
 
 export interface WorkspaceDoc {
   /** Server id once saved. */
@@ -17,13 +18,36 @@ export interface WorkspaceDoc {
   transforms: TransformSpec[]
 }
 
-/** A SQL query over input datasets (each called by an alias in the SQL); running it writes `outputId`, or a new dataset. */
+/**
+ * SQL over input datasets (each called by an alias in the SQL). One or more
+ * outputs, each its own SELECT; Run writes them all together — each into its
+ * `outputId`, or a new dataset named after the output.
+ */
 export interface TransformSpec {
   id: string
   name: string
-  sql: string
   inputs: { datasetId: string; alias: string }[]
+  outputs: TransformOutput[]
+}
+export interface TransformOutput {
+  /** Stable within the transform. */
+  key: string
+  name: string
+  sql: string
   outputId?: string
+}
+
+/** A new output (key, name, SQL). */
+export const newOutput = (name: string, sql: string, outputId?: string): TransformOutput => ({ key: newId().slice(0, 8), name, sql, ...(outputId ? { outputId } : {}) })
+
+/**
+ * A transform in today's shape from anything stored: older ones had a single
+ * `sql` + `outputId`, which become their one output.
+ */
+export function normalizeTransform<T extends { name: string; inputs: TransformSpec['inputs'] }>(t: T & { outputs?: TransformOutput[]; sql?: string; outputId?: string }): Omit<T, 'sql' | 'outputId'> & { outputs: TransformOutput[] } {
+  const { sql, outputId, ...rest } = t
+  if (Array.isArray(t.outputs)) return { ...rest, outputs: t.outputs }
+  return { ...rest, outputs: [{ key: 'o1', name: t.name, sql: sql ?? '', ...(outputId ? { outputId } : {}) }] }
 }
 
 export interface OpError {
@@ -135,9 +159,13 @@ function checkTransform(doc: WorkspaceDoc, t: TransformSpec): OpError | null {
   const aliases = t.inputs.map((i) => i.alias)
   const dup = aliases.find((a, i) => aliases.indexOf(a) !== i)
   if (dup) return { code: 'invalid', message: `Two inputs are both called "${dup}"` }
-  if (t.outputId) {
-    if (t.inputs.some((i) => i.datasetId === t.outputId)) return { code: 'invalid', message: "A transform can't write one of its own inputs" }
-    const other = doc.transforms.find((x) => x.id !== t.id && x.outputId === t.outputId)
+  if (!t.outputs.length) return { code: 'invalid', message: 'A transform needs at least one output' }
+  // Each dataset has one writer: one output of one transform, never one of its own inputs.
+  const written = t.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))
+  if (written.some((id, i) => written.indexOf(id) !== i)) return { code: 'invalid', message: 'Two outputs write the same dataset' }
+  for (const id of written) {
+    if (t.inputs.some((i) => i.datasetId === id)) return { code: 'invalid', message: "A transform can't write one of its own inputs" }
+    const other = doc.transforms.find((x) => x.id !== t.id && x.outputs.some((o) => o.outputId === id))
     if (other) return { code: 'invalid', message: `That dataset is already written by transform "${other.name}"` }
   }
   return null

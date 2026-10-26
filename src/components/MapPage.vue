@@ -49,6 +49,8 @@ import {
   updateTransform as updateTransform_,
   removeTransform as removeTransform_,
   aliasFor,
+  newOutput,
+  normalizeTransform,
   type TransformSpec,
   type OpContext,
   type OpResult,
@@ -296,7 +298,7 @@ function newTransformFrom(datasetIds: string[]) {
     return { datasetId, alias }
   })
   const also = inputs.length > 1 ? `\n-- also: ${inputs.slice(1).map((i) => i.alias).join(', ')}` : ''
-  const t: TransformSpec = { id: newId(), name: 'New transform', sql: `SELECT *\nFROM ${inputs[0].alias}${also}`, inputs }
+  const t: TransformSpec = { id: newId(), name: 'New transform', inputs, outputs: [newOutput('New transform', `SELECT *\nFROM ${inputs[0].alias}${also}`)] }
   if (apply(addTransform_(doc.value, t))) openNode({ key: `tr:${t.id}`, kind: 'transform', id: t.id }, true)
 }
 
@@ -305,7 +307,7 @@ function newTransformFrom(datasetIds: string[]) {
 const runStatus = ref<Record<string, RunStatus>>({})
 const nameOf = (id: string) => records.value.get(id)?.name
 
-/** Runs a transform on the server; its output dataset joins the workspace (with a first visualization when it has geometry). */
+/** Runs a transform on the server (all its outputs together); new output datasets join the workspace (with a first visualization when they have geometry). */
 async function runTransform(id: string) {
   const t = doc.value.transforms.find((x) => x.id === id)
   if (!t) return
@@ -315,14 +317,21 @@ async function runTransform(id: string) {
     runStatus.value = { ...runStatus.value, [id]: { state: 'error', message: r.error.message } }
     return
   }
-  const { datasetId, rowCount } = r.data
-  forgetBindingInfo(datasetId)
-  const ds = await loadRecord(datasetId) // a new updatedAt: its visualizations re-query
+  const lines: string[] = []
+  for (const { datasetId, rowCount } of r.data.outputs) {
+    forgetBindingInfo(datasetId)
+    const ds = await loadRecord(datasetId) // a new updatedAt: its visualizations re-query
+    if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, await firstVisualizations(ds)))
+    lines.push(`${rowCount.toLocaleString()} rows → ${ds?.name ?? 'dataset'}`)
+  }
+  // Each output remembers the dataset it wrote.
   const now = doc.value.transforms.find((x) => x.id === id)
-  if (now && now.outputId !== datasetId) apply(updateTransform_(doc.value, { ...now, outputId: datasetId }))
-  if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, await firstVisualizations(ds)))
-  runStatus.value = { ...runStatus.value, [id]: { state: 'done', message: `${rowCount.toLocaleString()} rows → ${ds?.name ?? 'dataset'}` } }
-  logDebug(`transform "${t.name}": ${rowCount} rows → ${ds?.name}`)
+  if (now) {
+    const outputs = now.outputs.map((o) => ({ ...o, outputId: r.data.outputs.find((w) => w.key === o.key)?.datasetId ?? o.outputId }))
+    apply(updateTransform_(doc.value, { ...now, outputs }))
+  }
+  runStatus.value = { ...runStatus.value, [id]: { state: 'done', message: lines.join(' · ') } }
+  logDebug(`transform "${t.name}": ${lines.join(' · ')}`)
 }
 
 /** Fits the map to a visualization's features (those with rows). */
@@ -353,16 +362,23 @@ async function seedDefault() {
   }
   let file = replacePointers(parsed.file, (p) => ids.get(p))
   for (const [i, t] of (file.transforms ?? []).entries()) {
-    const made = JSON.stringify({ sql: t.sql, inputs: t.inputs })
-    let id = existing.find((d) => d.extensions?.madeBy === made)?.id
-    if (!id) {
+    // Each output's dataset is reused when an earlier run made it from the same SQL and inputs.
+    const made = t.outputs.map((o) => JSON.stringify({ sql: o.sql, inputs: t.inputs }))
+    const found = made.map((m) => existing.find((d) => d.extensions?.madeBy === m)?.id)
+    if (found.some((id) => !id)) {
       loadingMsg.value = `Running "${t.name}" (the first run loads the SQL engine)…`
-      const r = await call(`transform "${t.name}"`, request('runTransform', { transform: { ...t, id: `seed-${i}`, outputId: undefined } }))
+      const outputs = t.outputs.map((o, j) => ({ ...o, outputId: found[j] }))
+      const r = await call(`transform "${t.name}"`, request('runTransform', { transform: { ...t, id: `seed-${i}`, outputs } }))
       if (!r) throw new Error(`the default transform "${t.name}" failed`)
-      id = r.datasetId
-      await request('updateDataset', { id, extensions: { madeBy: made } })
+      for (const [j, o] of t.outputs.entries()) {
+        found[j] = r.outputs.find((w) => w.key === o.key)!.datasetId
+        await request('updateDataset', { id: found[j]!, extensions: { madeBy: made[j] } })
+      }
     }
-    ids.set(OUTPUT_REF + i, id)
+    found.forEach((id, j) => {
+      ids.set(`${OUTPUT_REF}${i}.${j}`, id!)
+      if (j === 0) ids.set(OUTPUT_REF + i, id!)
+    })
     file = replacePointers(file, (p) => ids.get(p))
   }
   for (const id of file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
@@ -391,9 +407,11 @@ async function open(w: WorkspaceRecord) {
   const transforms: TransformSpec[] = []
   for (const id of w.config.transformIds ?? []) {
     const t = await readDb.get('transforms', id)
-    if (t) transforms.push({ id: t.id, name: t.name, sql: t.sql, inputs: t.inputs, ...(t.outputId ? { outputId: t.outputId } : {}) })
+    // Records saved before multi-output transforms have one `sql` + `outputId`.
+    const old = t as typeof t & { sql?: string; outputId?: string }
+    if (t) transforms.push(normalizeTransform({ id: t.id, name: t.name, inputs: t.inputs, outputs: t.outputs, sql: old.sql, outputId: old.outputId }))
   }
-  for (const t of transforms) if (t.outputId) await loadRecord(t.outputId) // output names for the panel
+  for (const t of transforms) for (const o of t.outputs) if (o.outputId) await loadRecord(o.outputId) // output names for the panel
   doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms }
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations, ${transforms.length} transforms`)
 }
@@ -800,12 +818,13 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 <style scoped>
 .page {
   display: grid;
-  grid-template-columns: 21rem 1fr;
+  grid-template-columns: 21rem minmax(0, 1fr);
   gap: 0.75rem;
   height: calc(100dvh - 9rem);
   min-height: 32rem;
 }
 .controls {
+  min-width: 0; /* a wide editor must not widen the column past the screen */
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -929,7 +948,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 @media (max-width: 48rem) {
   .page {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 70dvh auto;
     height: auto;
   }

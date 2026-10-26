@@ -150,6 +150,13 @@ backend (Supabase + functions) is a refactor, not a rewrite.
 
 ### Transforms (SQL that makes datasets)
 
+**Shape:** inputs (`{datasetId, alias}`) and one or more outputs (`{key, name, sql, outputId?}`),
+each output its own SELECT over the inputs. `runTransform` runs every output's SQL first and writes
+nothing unless all succeed (an error names the failing output), then writes each into its
+`outputId`'s table or a new dataset named after the output, and returns each output's pointer.
+`previewTransform` takes one SQL. Single-SQL transforms saved before this (`sql` + `outputId`) are
+read as one output by `normalizeTransform` — in drafts, workspace files and transform records.
+
 A transform is one SELECT over input datasets, each called by an alias in the SQL; running it writes
 its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is the engine.
 
@@ -196,8 +203,8 @@ under the graph using the list components filtered to that item (`compact` props
 buttons and hints); holding the card gives its menu, exactly as in the lists. Only a transform or
 visualization just created from the graph opens straight into its editor.
 
-Each dataset has at most one writer: a transform's **Writes to** is a new dataset (made on Run) or
-an existing dataset that isn't one of its inputs and that no other transform writes
+Each dataset has at most one writer: each transform output writes a new dataset (made on Run) or
+an existing dataset that isn't one of its transform's inputs and that no other output writes
 (`checkTransform` in `workspace.ts`). Deleting a transform keeps its output dataset; that dataset
 just can't be re-run until another transform is pointed at it.
 **＋ Transform** enters pick mode (tap input datasets, Next) and adds a transform whose inputs are

@@ -21,8 +21,8 @@ const doc: WorkspaceDoc = {
   datasetIds: ['a', 'b'],
   visualizations: [viz('v1', 'a'), viz('v2', 'b')],
   transforms: [
-    { id: 't1', name: 'Points', sql: 'SELECT * FROM a', inputs: [{ datasetId: 'a', alias: 'a' }], outputId: 'b' },
-    { id: 't2', name: 'Join', sql: 'SELECT * FROM a JOIN b USING (k)', inputs: [{ datasetId: 'a', alias: 'a' }, { datasetId: 'b', alias: 'b' }] },
+    { id: 't1', name: 'Points', inputs: [{ datasetId: 'a', alias: 'a' }], outputs: [{ key: 'o1', name: 'Points', sql: 'SELECT * FROM a', outputId: 'b' }] },
+    { id: 't2', name: 'Join', inputs: [{ datasetId: 'a', alias: 'a' }, { datasetId: 'b', alias: 'b' }], outputs: [{ key: 'o1', name: 'Join', sql: 'SELECT * FROM a JOIN b USING (k)' }] },
   ],
 }
 
@@ -54,10 +54,16 @@ describe('workspace files', () => {
     expect(d.visualizations[0].id).not.toBe('v1') // fresh ids: never collide with another workspace's records
     // Transforms need all their inputs here; an output pointer to a missing dataset is dropped.
     expect(d.transforms).toHaveLength(1)
-    expect(d.transforms[0]).toMatchObject({ name: 'Points', inputs: [{ datasetId: 'a', alias: 'a' }], outputId: undefined })
+    expect(d.transforms[0]).toMatchObject({ name: 'Points', inputs: [{ datasetId: 'a', alias: 'a' }], outputs: [{ key: 'o1', outputId: undefined }] })
     expect(d.transforms[0].id).not.toBe('t1')
     const all = fromWorkspaceFile(file, doc, () => true).doc
-    expect(all.transforms.map((t) => [t.name, t.outputId])).toEqual([['Points', 'b'], ['Join', undefined]])
+    expect(all.transforms.map((t) => [t.name, t.outputs[0].outputId])).toEqual([['Points', 'b'], ['Join', undefined]])
+
+    // Files from before multi-output transforms: one sql + outputId becomes one output.
+    const legacy = { ...toWorkspaceFile(doc), transforms: [{ name: 'Old', sql: 'SELECT 1', inputs: [{ datasetId: 'a', alias: 'a' }], outputId: 'b' }] }
+    const parsedLegacy = parseWorkspaceFile(JSON.stringify(legacy))
+    if (!parsedLegacy.ok) throw new Error(parsedLegacy.error)
+    expect(parsedLegacy.file.transforms![0]).toEqual({ name: 'Old', inputs: [{ datasetId: 'a', alias: 'a' }], outputs: [{ key: 'o1', name: 'Old', sql: 'SELECT 1', outputId: 'b' }] })
   })
 
   it('tells drafts apart from the saved state', () => {
@@ -91,7 +97,7 @@ describe('the default workspace file (a template)', () => {
     expect(JSON.stringify(file)).not.toMatch(/"(builtin|transform):/)
     const { doc, missing } = fromWorkspaceFile(file, { name: '', datasetIds: [], visualizations: [], transforms: [] }, () => true)
     expect(missing).toEqual([])
-    expect(doc.transforms[0]).toMatchObject({ name: 'Utilities by county', outputId: 'out' })
+    expect(doc.transforms[0]).toMatchObject({ name: 'Utilities by county', outputs: [{ outputId: 'out' }] })
     expect(doc.visualizations.find((v) => v.name === 'Number of utilities')).toMatchObject({ datasetId: 'out', column: 'utility_id_eia', aggregation: 'count' })
   })
 })

@@ -9,7 +9,7 @@ import type { Aggregation } from '../lib/dataset/aggregate'
 import type { GeometryBinding } from '../lib/dataset/binding'
 import type { BindingInfo, FindEntry, VizValues } from '../lib/dataset/query'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
-import type { TransformInputRef, WorkspaceConfig } from './records'
+import type { TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
 
@@ -30,10 +30,9 @@ export type UploadSource =
 export interface TransformInput {
   id: string
   name: string
-  sql: string
   inputs: TransformInputRef[]
-  /** The dataset its last run wrote; absent → the next run makes a new one. */
-  outputId?: string
+  /** Each written on Run: into its `outputId`, or a new dataset (whose id it then gets). */
+  outputs: TransformOutputRef[]
 }
 
 export interface VisualizationInput {
@@ -58,8 +57,8 @@ export interface Api {
   queryVisualization: [{ datasetId: string; binding: GeometryBinding; column: string; aggregation: Aggregation }, VizValues]
   /** Runs a transform's SQL without storing anything: the first rows, the columns and the full count. */
   previewTransform: [{ sql: string; inputs: TransformInputRef[]; limit?: number }, { columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }]
-  /** Runs a transform and stores the result: into `outputId`'s table, or a new dataset. Returns the output pointer. */
-  runTransform: [{ transform: TransformInput }, { datasetId: string; rowCount: number; created: boolean }]
+  /** Runs every output's SQL, then (only if all succeed) stores each: into its `outputId`'s table, or a new dataset. Returns the pointers. */
+  runTransform: [{ transform: TransformInput }, { outputs: { key: string; datasetId: string; rowCount: number; created: boolean }[] }]
   /** A dataset's profile (computed and stored if the record has none yet). */
   profileDataset: [{ datasetId: string }, DatasetProfile]
   /** Every searchable value of a visualization's features: their names and the text in their rows. */

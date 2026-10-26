@@ -1,27 +1,29 @@
 <script setup lang="ts">
-// Transforms: SQL that makes datasets from datasets. Each has inputs (a
-// dataset "as" the table name the SQL calls it — Insert puts that name into
-// the SQL at the cursor; renaming it renames it in the SQL), one SELECT query, and an
-// output dataset once it has run. Preview runs the SQL on the server and
-// shows the first rows without storing anything; Run stores the result as
-// the output dataset (a new one the first time). Edits are part of the
-// workspace draft, saved with Save. Cards in an ObjectList: hold one
-// (right-click with a mouse) for Run, Edit and Delete.
-import { computed, nextTick, ref } from 'vue'
+// Transforms: SQL that makes datasets from datasets. The editor sets the
+// inputs (a dataset "as" the table name the SQL calls it — Insert puts that
+// name into the SQL being edited; renaming it renames it in every output's
+// SQL) and the outputs (each a new dataset made on Run, or an existing one no
+// other transform writes) first; below, one SELECT per output, each with its
+// own Preview (first rows, nothing stored). Run writes every output together.
+// Edits are part of the workspace draft, saved with Save. Cards in an
+// ObjectList: hold one (right-click with a mouse) for Preview, Run, Edit and
+// Delete.
+import { nextTick, ref } from 'vue'
 import { request } from '../../client/api'
 import SearchBox from '../map/SearchBox.vue'
+import PreviewTable from './PreviewTable.vue'
 import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
 import type { DatasetRecord } from '../../shared/records'
 import type { ColumnInfo } from '../../lib/dataset/columns'
 import type { DataRecord } from '../../lib/data/connectors'
-import { aliasFor, type TransformSpec } from '../../lib/workspace/workspace'
+import { aliasFor, newOutput, type TransformOutput, type TransformSpec } from '../../lib/workspace/workspace'
 import { newId } from '../../lib/dataset/dataset'
 
 export type RunStatus = { state: 'running' } | { state: 'done'; message: string } | { state: 'error'; message: string }
 
 const props = defineProps<{
   transforms: TransformSpec[]
-  /** The workspace's datasets: possible inputs. */
+  /** The workspace's datasets: possible inputs and outputs. */
   datasets: DatasetRecord[]
   /** Any dataset's name by id (outputs may not be in the workspace). */
   nameOf: (id: string) => string | undefined
@@ -48,16 +50,17 @@ function create() {
   const d = props.datasets[0]
   if (!d) return
   const alias = aliasFor(d.name)
-  const t: TransformSpec = { id: newId(), name: 'New transform', sql: `SELECT *\nFROM ${alias}`, inputs: [{ datasetId: d.id, alias }] }
+  const t: TransformSpec = { id: newId(), name: 'New transform', inputs: [{ datasetId: d.id, alias }], outputs: [newOutput('New transform', `SELECT *\nFROM ${alias}`)] }
   emit('add', t)
   editing.value = t.id
-  preview.value = null
 }
 
 const patch = (t: TransformSpec, p: Partial<TransformSpec>) => emit('update', { ...t, ...p })
+const patchOutput = (t: TransformSpec, key: string, p: Partial<TransformOutput>) =>
+  patch(t, { outputs: t.outputs.map((o) => (o.key === key ? { ...o, ...p } : { ...o, sql: currentSql(t, o) })) })
 
 const actions = (t: TransformSpec): ObjectAction[] => [
-  { id: 'preview', icon: '▤', label: preview.value?.id === t.id ? 'Hide preview' : previewing.value ? 'Previewing…' : 'Preview', disabled: previewing.value },
+  { id: 'preview', icon: '▤', label: hasPreview(t) ? 'Hide preview' : previewing.value ? 'Previewing…' : 'Preview', disabled: previewing.value },
   { id: 'run', icon: '▶', label: props.status[t.id]?.state === 'running' ? 'Running…' : 'Run', disabled: props.status[t.id]?.state === 'running' },
   { id: 'edit', icon: '✎', label: editing.value === t.id ? 'Close edit' : 'Edit' },
   { id: 'delete', icon: '✕', label: 'Delete', danger: true },
@@ -69,32 +72,66 @@ function onAction(id: string, t: TransformSpec) {
   else if (id === 'delete') emit('remove', t.id)
 }
 
+// ── inputs ─────────────────────────────────────────────────────────────────
+
 function setInput(t: TransformSpec, i: number, p: Partial<TransformSpec['inputs'][number]>) {
   const inputs = t.inputs.map((x, j) => (j === i ? { ...x, ...p } : x))
   // A dataset picked for an input gets its default table name.
   if (p.datasetId) inputs[i].alias = aliasFor(props.datasets.find((d) => d.id === p.datasetId)?.name ?? 'input')
-  // Renaming a table renames it in the SQL too (whole words only), so the two can't drift apart.
+  // Renaming a table renames it in every output's SQL too (whole words only), so they can't drift apart.
   const before = t.inputs[i].alias
   const after = inputs[i].alias
-  const sql = currentSql(t)
-  patch(t, { inputs, sql: after && before !== after ? sql.replace(new RegExp(`\\b${escapeRe(before)}\\b`, 'g'), after) : sql })
+  const rename = (sql: string) => (after && before !== after ? sql.replace(new RegExp(`\\b${escapeRe(before)}\\b`, 'g'), after) : sql)
+  patch(t, { inputs, outputs: t.outputs.map((o) => ({ ...o, sql: rename(currentSql(t, o)) })) })
 }
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+function addInput(t: TransformSpec) {
+  const used = new Set(t.inputs.map((i) => i.datasetId))
+  const d = props.datasets.find((x) => !used.has(x.id)) ?? props.datasets[0]
+  if (d) patch(t, { inputs: [...t.inputs, { datasetId: d.id, alias: aliasFor(d.name) }] })
+}
 
-// ── insert a table name into the SQL at the cursor ─────────────────────────
+// ── outputs ────────────────────────────────────────────────────────────────
 
-// A function ref: inside v-for a string ref would collect an array. Only the open editor has a textarea.
-const sqlEl = ref<HTMLTextAreaElement>()
-/** The SQL as typed (the textarea commits on blur, so read it directly while editing). */
-const currentSql = (t: TransformSpec) => (editing.value === t.id && sqlEl.value ? sqlEl.value.value : t.sql)
+/** Datasets an output may write: not an input, not another output's (of this or any transform). */
+function outputChoices(t: TransformSpec, o: TransformOutput) {
+  const taken = new Set(
+    (props.allTransforms ?? props.transforms)
+      .flatMap((x) => x.outputs.filter((y) => !(x.id === t.id && y.key === o.key)))
+      .flatMap((y) => (y.outputId ? [y.outputId] : [])),
+  )
+  const inputs = new Set(t.inputs.map((i) => i.datasetId))
+  return props.datasets.filter((d) => !taken.has(d.id) && !inputs.has(d.id))
+}
+function addOutput(t: TransformSpec) {
+  const first = t.inputs[0]?.alias ?? 'input'
+  patch(t, { outputs: [...t.outputs.map((o) => ({ ...o, sql: currentSql(t, o) })), newOutput(`${t.name} ${t.outputs.length + 1}`, `SELECT *\nFROM ${first}`)] })
+}
+function removeOutput(t: TransformSpec, key: string) {
+  patch(t, { outputs: t.outputs.filter((o) => o.key !== key).map((o) => ({ ...o, sql: currentSql(t, o) })) })
+}
+
+// ── SQL editors (one per output) ───────────────────────────────────────────
+
+const sk = (t: TransformSpec, o: TransformOutput) => `${t.id}:${o.key}`
+// Function refs: inside v-for a string ref would collect an array.
+const sqlEls = new Map<string, HTMLTextAreaElement>()
+const setSqlEl = (key: string, el: unknown) => (el ? sqlEls.set(key, el as HTMLTextAreaElement) : sqlEls.delete(key))
+/** The output whose SQL was edited last: where Insert puts a table name. */
+const activeSql = ref<string | null>(null)
+/** The SQL as typed (a textarea commits on blur, so read it directly while editing). */
+const currentSql = (t: TransformSpec, o: TransformOutput) => sqlEls.get(sk(t, o))?.value ?? o.sql
+
 async function insert(t: TransformSpec, alias: string) {
-  const el = sqlEl.value
-  const text = currentSql(t)
+  const o = t.outputs.find((x) => sk(t, x) === activeSql.value) ?? t.outputs[0]
+  if (!o) return
+  const el = sqlEls.get(sk(t, o))
+  const text = currentSql(t, o)
   const start = el?.selectionStart ?? text.length
   const end = el?.selectionEnd ?? start
   const before = text.slice(0, start)
   const pad = before && !/\s$/.test(before) ? ' ' : ''
-  patch(t, { sql: `${before}${pad}${alias}${text.slice(end)}` })
+  patchOutput(t, o.key, { sql: `${before}${pad}${alias}${text.slice(end)}` })
   await nextTick()
   if (el) {
     const at = start + pad.length + alias.length
@@ -102,58 +139,50 @@ async function insert(t: TransformSpec, alias: string) {
     el.setSelectionRange(at, at)
   }
 }
-function addInput(t: TransformSpec) {
-  const used = new Set(t.inputs.map((i) => i.datasetId))
-  const d = props.datasets.find((x) => !used.has(x.id)) ?? props.datasets[0]
-  if (d) patch(t, { inputs: [...t.inputs, { datasetId: d.id, alias: aliasFor(d.name) }] })
-}
 
 const nameIn = (id: string) => props.datasets.find((d) => d.id === id)?.name ?? props.nameOf(id) ?? 'missing dataset'
-const describe = (t: TransformSpec) =>
-  `${t.inputs.map((i) => i.alias).join(', ')} → ${t.outputId ? (props.nameOf(t.outputId) ?? 'missing dataset') : 'new dataset'}`
+const outName = (o: TransformOutput) => (o.outputId ? nameIn(o.outputId) : `${o.name || 'new dataset'} (new)`)
+const describe = (t: TransformSpec) => `${t.inputs.map((i) => i.alias).join(', ')} → ${t.outputs.map(outName).join(', ')}`
 
-// ── preview ────────────────────────────────────────────────────────────────
+// ── preview (per output) ───────────────────────────────────────────────────
 
-const preview = ref<{ id: string; columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number } | { id: string; error: string } | null>(null)
+type Preview = { columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number } | { error: string }
+const previews = ref<Record<string, Preview>>({})
 const previewing = ref(false)
-async function runPreview(t: TransformSpec) {
+async function previewOutput(t: TransformSpec, o: TransformOutput) {
   previewing.value = true
-  const r = await request('previewTransform', { sql: currentSql(t), inputs: t.inputs, limit: 20 })
+  const r = await request('previewTransform', { sql: currentSql(t, o), inputs: t.inputs, limit: 20 })
   previewing.value = false
-  preview.value = r.ok ? { id: t.id, ...r.data } : { id: t.id, error: r.error.message }
+  previews.value = { ...previews.value, [sk(t, o)]: r.ok ? r.data : { error: r.error.message } }
 }
-const shown = computed(() => preview.value)
-function togglePreview(t: TransformSpec) {
-  if (preview.value?.id === t.id) preview.value = null
-  else runPreview(t)
+const hasPreview = (t: TransformSpec) => t.outputs.some((o) => previews.value[sk(t, o)])
+function clearPreviews(t: TransformSpec) {
+  const next = { ...previews.value }
+  for (const o of t.outputs) delete next[sk(t, o)]
+  previews.value = next
+}
+/** The card's Preview: every output's first rows, or hide them. */
+async function togglePreview(t: TransformSpec) {
+  if (hasPreview(t)) return clearPreviews(t)
+  for (const o of t.outputs) await previewOutput(t, o)
 }
 
-// ── output: where Run writes ───────────────────────────────────────────────
-
-/** Datasets this transform may write: not its own inputs, not another transform's output. */
-function outputChoices(t: TransformSpec) {
-  const taken = new Set((props.allTransforms ?? props.transforms).filter((x) => x.id !== t.id && x.outputId).map((x) => x.outputId!))
-  const inputs = new Set(t.inputs.map((i) => i.datasetId))
-  return props.datasets.filter((d) => !taken.has(d.id) && !inputs.has(d.id))
-}
 defineExpose({ edit: (id: string) => (editing.value = id) })
-
-const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 60)
 </script>
 
 <template>
   <div class="transforms">
     <button v-if="!compact" class="add-btn" :disabled="!datasets.length" @click="create">＋ New transform</button>
     <p v-if="!transforms.length && !compact" class="muted">
-      No transforms yet. A transform is a SQL query over your datasets — joins, filters, sums, or building a point from latitude and
-      longitude — whose result becomes a new dataset.
+      No transforms yet. A transform is SQL over your datasets — joins, filters, sums, or building a point from latitude and longitude —
+      whose results become datasets.
     </p>
     <ObjectList
       :items="transforms"
       :item-key="(t) => t.id"
       :item-label="(t) => t.name"
       :actions="actions"
-      :hint="compact ? '' : 'Tap and hold a transform to run, edit or delete it.'"
+      :hint="compact ? '' : 'Tap and hold a transform to preview, run, edit or delete it.'"
       @action="onAction"
     >
       <template #default="{ item: t }">
@@ -192,61 +221,67 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
               spellcheck="false"
               @change="setInput(t, i, { alias: ($event.target as HTMLInputElement).value.trim() })"
             />
-            <button class="btn" title="Insert this table name into the SQL at the cursor" @click="insert(t, inp.alias)">Insert</button>
+            <button class="btn" title="Insert this table name into the SQL you're editing" @click="insert(t, inp.alias)">Insert</button>
             <button v-if="t.inputs.length > 1" class="icon" aria-label="Remove input" @click="patch(t, { inputs: t.inputs.filter((_, j) => j !== i) })">✕</button>
           </div>
           <button class="btn link" @click="addInput(t)">＋ Add an input</button>
 
-          <label class="row">
-            Writes to
-            <select :value="t.outputId ?? ''" @change="patch(t, { outputId: ($event.target as HTMLSelectElement).value || undefined })">
-              <option value="">A new dataset (made on Run)</option>
-              <option v-for="d in outputChoices(t)" :key="d.id" :value="d.id">{{ d.name }}</option>
+          <div class="lbl">Outputs <span class="muted">(each has its own SQL below; Run writes them all)</span></div>
+          <div v-for="o in t.outputs" :key="o.key" class="output">
+            <input
+              type="text"
+              :value="o.name"
+              :disabled="!!o.outputId"
+              :placeholder="o.outputId ? '' : 'New dataset name'"
+              aria-label="Output name"
+              @change="patchOutput(t, o.key, { name: ($event.target as HTMLInputElement).value })"
+            />
+            <select :value="o.outputId ?? ''" aria-label="Writes to" @change="patchOutput(t, o.key, { outputId: ($event.target as HTMLSelectElement).value || undefined })">
+              <option value="">New dataset</option>
+              <option v-for="d in outputChoices(t, o)" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
-          </label>
-          <p v-if="t.outputId" class="muted">Run replaces this dataset's rows. Pick a dataset whose transform was deleted to make it updatable again.</p>
+            <button v-if="t.outputs.length > 1" class="icon" aria-label="Remove output" @click="removeOutput(t, o.key)">✕</button>
+          </div>
+          <p class="muted">An existing dataset's rows are replaced on Run — pick one whose transform was deleted to make it updatable again.</p>
+          <button class="btn link" @click="addOutput(t)">＋ Add an output</button>
 
-          <label class="lbl" :for="`sql-${t.id}`">SQL <span class="muted">(one SELECT; DuckDB)</span></label>
-          <textarea
-            :id="`sql-${t.id}`"
-            :ref="(el) => (sqlEl = (el as HTMLTextAreaElement) ?? undefined)"
-            class="sql"
-            rows="6"
-            :value="t.sql"
-            autocapitalize="off"
-            autocorrect="off"
-            spellcheck="false"
-            @change="patch(t, { sql: ($event.target as HTMLTextAreaElement).value })"
-          />
+          <section v-for="o in t.outputs" :key="o.key" class="out-sql">
+            <label class="lbl" :for="`sql-${sk(t, o)}`">SQL → {{ outName(o) }} <span class="muted">(one SELECT; DuckDB)</span></label>
+            <textarea
+              :id="`sql-${sk(t, o)}`"
+              :ref="(el) => setSqlEl(sk(t, o), el)"
+              class="sql"
+              rows="6"
+              :value="o.sql"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+              @focus="activeSql = sk(t, o)"
+              @change="patchOutput(t, o.key, { sql: ($event.target as HTMLTextAreaElement).value })"
+            />
+            <div class="row end">
+              <button class="btn" :disabled="previewing" @click="previews[sk(t, o)] ? clearPreviews(t) : previewOutput(t, o)">
+                {{ previews[sk(t, o)] ? 'Hide preview' : previewing ? 'Previewing…' : 'Preview' }}
+              </button>
+            </div>
+            <PreviewTable v-if="previews[sk(t, o)]" :preview="previews[sk(t, o)]" />
+          </section>
           <p class="muted">
             Helpers: <code>point(lat, lon)</code> makes a point · <code>vector(east, north)</code> makes a vector. Geometry columns are GeoJSON
             text in SQL.
           </p>
           <div class="row end">
-            <button class="btn" :disabled="previewing" @click="runPreview(t)">{{ previewing ? 'Previewing…' : 'Preview' }}</button>
-            <button class="btn primary" :disabled="status[t.id]?.state === 'running'" @click="emit('run', t.id)">Run</button>
+            <button class="btn primary" :disabled="status[t.id]?.state === 'running'" @click="emit('run', t.id)">
+              Run{{ t.outputs.length > 1 ? ` (${t.outputs.length} outputs)` : '' }}
+            </button>
             <button class="btn" @click="editing = null">Done</button>
           </div>
+        </div>
 
-        </div>
-        <p v-if="shown?.id === t.id && 'error' in shown" class="bad">{{ shown.error }}</p>
-        <div v-else-if="shown?.id === t.id && 'rows' in shown" class="preview">
-          <p class="muted">{{ shown.rowCount.toLocaleString() }} rows · first {{ shown.rows.length }}</p>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th v-for="c in shown.columns" :key="c.name">{{ c.name }}<br /><span class="muted">{{ c.type }}</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(r, i) in shown.rows" :key="i">
-                  <td v-for="c in shown.columns" :key="c.name">{{ cell(r[c.name]) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <!-- Previews from the card's menu, while not editing -->
+        <template v-else>
+          <PreviewTable v-for="o in t.outputs.filter((x) => previews[sk(t, x)])" :key="o.key" :preview="previews[sk(t, o)]" :label="outName(o)" />
+        </template>
       </template>
     </ObjectList>
   </div>
@@ -264,6 +299,7 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
   min-width: 0;
 }
 .ed {
+  grid-template-columns: minmax(0, 1fr); /* never wider than the card */
   display: grid;
   gap: 0.4rem;
   margin-top: 0.45rem;
@@ -310,6 +346,31 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 16px;
 }
+.output {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.output input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem;
+  font-size: 16px;
+}
+.output select {
+  flex: 1;
+  min-width: 0;
+  max-width: 11rem;
+  padding: 0.3rem;
+  font-size: 0.85rem;
+}
+.out-sql {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.3rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--border);
+}
 .as {
   color: var(--text-muted);
 }
@@ -326,33 +387,6 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
 }
 code {
   font-size: 0.72rem;
-}
-.preview {
-  display: grid;
-  gap: 0.25rem;
-  min-width: 0;
-}
-.scroll {
-  overflow: auto;
-  max-height: 16rem;
-  border: 1px solid var(--border);
-  border-radius: 0.3rem;
-}
-table {
-  border-collapse: collapse;
-  font-size: 0.72rem;
-}
-th,
-td {
-  padding: 0.2rem 0.4rem;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  white-space: nowrap;
-}
-th {
-  position: sticky;
-  top: 0;
-  background: var(--bg-elev);
 }
 .muted {
   color: var(--text-muted);

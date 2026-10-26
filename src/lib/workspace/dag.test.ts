@@ -24,13 +24,13 @@ const doc: WorkspaceDoc = {
     {
       id: 't',
       name: 'Utilities by county',
-      sql: 'SELECT …',
+
       inputs: [
         { datasetId: 'counties', alias: 'counties' },
         { datasetId: 'links', alias: 'links' },
         { datasetId: 'utilities', alias: 'utilities' },
       ],
-      outputId: 'out',
+      outputs: [{ key: 'o1', name: 'Utilities by county', sql: 'SELECT …', outputId: 'out' }],
     },
   ],
 }
@@ -67,7 +67,7 @@ describe('workspace DAG', () => {
   })
 
   it('marks transforms never run, and ones whose inputs changed since', () => {
-    const fresh = { ...doc, transforms: [{ ...doc.transforms[0], outputId: undefined }] }
+    const fresh = { ...doc, transforms: [{ ...doc.transforms[0], outputs: [{ ...doc.transforms[0].outputs[0], outputId: undefined }] }] }
     expect(buildDag(fresh, (id) => records[id]).nodes.find((n) => n.key === 'tr:t')).toMatchObject({ state: 'not-run', detail: 'not run yet' })
     const changed: Record<string, DagDataset> = { ...records, links: at('2026-10-03T00:00:00Z') }
     expect(buildDag(doc, (id) => changed[id]).nodes.find((n) => n.key === 'tr:t')).toMatchObject({ state: 'stale', detail: 'needs re-run' })
