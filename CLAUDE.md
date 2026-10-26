@@ -30,7 +30,7 @@ cleanly with ArcGIS (Esri JSON FeatureSets, GeoJSON, CSV, FeatureServer REST).
 
 UI structure — one page, the **Map**:
 
-- **Controls** (left sidebar on desktop, below the map on phones): utility search, layer toggles,
+- **Controls** (left sidebar on desktop, below the map on phones): Find (any visualization's features), layer toggles,
   view presets, style editors (scalar + vector), ArcGIS import/export.
 - **Map** (MapLibre GL) with:
   - **Scalar layers** — color (constant / colormap / categorical), transparency (fixed / by
@@ -164,12 +164,16 @@ whatever they're actually asking about.
   table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
   table's error lists the aliases). Tests run real DuckDB through its Node build
   (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
+- **Find** (`FindPanel.vue`): pick a visualization, then search — all data or one column — over its
+  features' names and every text value in their rows (typo-tolerant). The server builds the index
+  (`findIndex` request, `lib/dataset/query.ts`, cached with the grouping; columns with more than
+  20k distinct values are left out); `findFeatures` returns the matching features' keys, which the
+  page highlights (on every visualization drawing the same features) and zooms to.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).
 - **Presets:** the built-in EIA-861 dataset is a normal dataset with preset visualizations
-  (`utilityStyles.ts`) plus extras keyed by `preset: 'utilities'` — the county dashboard and
-  utility search. Other datasets get the generic rows table in their click panel.
+  (`utilityStyles.ts`) plus an extra keyed by `preset: 'utilities'` — the county dashboard. Other datasets get the generic rows table in their click panel.
 - **Visualization list UI** (`VisualizationList.vue`; `DatasetList.vue` reorders the same way via `useDragReorder`): drag the ≡ handle to reorder, swipe left to
   reveal Delete — pointer events (not HTML5 drag-and-drop, which iOS lacks); the row uses
   `touch-action: pan-y` so vertical scrolling stays native.
@@ -224,6 +228,7 @@ src/
       ScalarStyleEditor.vue, VectorStyleEditor.vue
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
+    FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
     dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset

@@ -177,6 +177,17 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
   Visualization values are keyed by the dataset's `updatedAt`, so a re-run refreshes the map.
 - **Tests** run real DuckDB via `@duckdb/duckdb-wasm`'s Node build (`server/testEngine.ts`).
 
+### Find
+
+`FindPanel.vue` searches one visualization's features. The server indexes them (`findIndex`,
+`lib/dataset/query.ts` `findIndex(grouped, columns)`): every feature label, and every distinct value
+of every text column in the rows behind features, with how many features have it (columns over 20k
+distinct values are skipped). The index is cached beside the dataset + binding grouping. The client
+filters it by column (or All data) and searches it with `search(…, {fuzzy: true})`; picking an entry
+asks `findFeatures` for its feature keys, which the page highlights on every visualization drawing
+the same features (same dataset and binding) and zooms to (`focusBox`). Replaces the utility-only
+"Find a utility".
+
 ### Dataset profiles
 
 `lib/dataset/profile.ts` `profileRows(rows, columns)`: per column filled count, distinct count (capped

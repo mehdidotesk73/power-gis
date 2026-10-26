@@ -14,7 +14,7 @@ import { fetchArcGISLayer, importJSON } from '../lib/arcgis'
 import type { BoundaryFeature, BoundaryId, GeometryBinding } from '../lib/dataset/binding'
 import { inferColumns, isGeometryColumn, type ColumnInfo } from '../lib/dataset/columns'
 import { newId } from '../lib/dataset/dataset'
-import { bindingInfo, groupDataset, queryValues, type Grouped } from '../lib/dataset/query'
+import { bindingInfo, findIndex, groupDataset, queryValues, type FindIndex, type Grouped } from '../lib/dataset/query'
 import { profileRows } from '../lib/dataset/profile'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
@@ -48,7 +48,7 @@ export function createServer(db: Database, env: ServerEnv) {
 
   // Grouping a table onto features is the expensive part; visualizations of
   // the same dataset and binding share it. Dropped whenever a dataset changes.
-  const groupedCache = new Map<string, Promise<{ g: Grouped; columns: ColumnInfo[] }>>()
+  const groupedCache = new Map<string, Promise<{ g: Grouped; columns: ColumnInfo[]; find?: FindIndex }>>()
   const forget = (datasetId: string) => {
     for (const k of groupedCache.keys()) if (k.startsWith(`${datasetId}|`)) groupedCache.delete(k)
   }
@@ -236,6 +236,18 @@ export function createServer(db: Database, env: ServerEnv) {
       const { g, columns } = await grouped(datasetId, binding)
       if (column !== '__rows' && !columns.some((c) => c.name === column)) fail('invalid', `Dataset has no column "${column}"`)
       return queryValues(g, columns, column, aggregation, binding.kind !== 'boundary')
+    },
+
+    async findIndex({ datasetId, binding }) {
+      const entry = await grouped(datasetId, binding)
+      entry.find ??= findIndex(entry.g, entry.columns)
+      return { entries: entry.find.entries }
+    },
+
+    async findFeatures({ datasetId, binding, column, value }) {
+      const entry = await grouped(datasetId, binding)
+      entry.find ??= findIndex(entry.g, entry.columns)
+      return { keys: entry.find.keys.get(`${column}\u0000${value}`) ?? [] }
     },
 
     async featureRows({ datasetId, binding, key }) {

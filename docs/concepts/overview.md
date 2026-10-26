@@ -8,7 +8,7 @@ A map of every electric utility operating in the US and the counties each one se
 
 ## How do I use it?
 
-- **Find a utility** — type part of a name and pick it from the suggestions. Its whole service territory gets a dark outline and the map zooms to it.
+- **Find** — pick a visualization, then type: it searches the features' names and every text value in the rows behind them (all data, or one column you pick), and small typos are fine. Picking a match outlines every feature that has it and zooms to them — e.g. on the utilities map, a utility's name shows its whole service territory. ✕ clears it.
 - **Tap a county** — a panel opens with the number of utilities, the ownership mix, and each utility's name, ownership type and customer count. Tap **Territory** next to a utility to outline everywhere it operates.
 - **Hover** (on a computer) — a small card shows the county and its largest utilities.
 - **Datasets** — tables of data. **＋ Add dataset** takes a built-in table, a CSV from your device, a GeoJSON / Esri JSON file, or an ArcGIS link, and stores it as a table in the database (on this device for now). **Saved** lists tables already in the database, to add back or delete. ✕ takes a dataset out of the workspace; the table stays in the database.

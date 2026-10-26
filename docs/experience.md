@@ -316,6 +316,9 @@ Two additions from reviewing it here, beyond what the originating project report
 - **Added:** Insert button and alias rename-in-SQL for transform inputs; readable missing-table
   errors; dataset row preview (▤); copy dataset id (⧉); searchable input picker (name, typo-tolerant
   fuzzy search, or id).
+- **Removed:** "Find a utility" (utility-specific) — replaced by **Find**, which searches any
+  visualization's feature names and row values (all data or one column) and highlights + zooms like
+  the old search did.
 - **Changed:** `point(lat, lon)` — latitude first (was `point(lon, lat)`); transforms written
   with the old order now put points in the wrong place and need their arguments swapped.
 - **What didn't work:** naming SQL tables by dataset id (`ds_<uuid>`, inputs as bare ids) — built

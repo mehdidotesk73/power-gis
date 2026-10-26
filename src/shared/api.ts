@@ -7,7 +7,7 @@
 import type { DataRecord } from '../lib/data/connectors'
 import type { Aggregation } from '../lib/dataset/aggregate'
 import type { GeometryBinding } from '../lib/dataset/binding'
-import type { BindingInfo, VizValues } from '../lib/dataset/query'
+import type { BindingInfo, FindEntry, VizValues } from '../lib/dataset/query'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
 import type { TransformInputRef, WorkspaceConfig } from './records'
 import type { ColumnInfo } from '../lib/dataset/columns'
@@ -62,6 +62,10 @@ export interface Api {
   runTransform: [{ transform: TransformInput }, { datasetId: string; rowCount: number; created: boolean }]
   /** A dataset's profile (computed and stored if the record has none yet). */
   profileDataset: [{ datasetId: string }, DatasetProfile]
+  /** Every searchable value of a visualization's features: their names and the text in their rows. */
+  findIndex: [{ datasetId: string; binding: GeometryBinding }, { entries: FindEntry[] }]
+  /** The features that have a value (from `findIndex`). */
+  findFeatures: [{ datasetId: string; binding: GeometryBinding; column: string; value: string }, { keys: string[] }]
   /** The rows behind one feature (click panel). */
   featureRows: [{ datasetId: string; binding: GeometryBinding; key: string }, DataRecord[]]
   /** Creates or updates a workspace with its visualizations and transforms; ones it no longer lists are deleted (output datasets stay). */

@@ -160,4 +160,21 @@ describe('server', () => {
     expect(p.rowCount).toBe(4)
     expect((await db.get('datasets', datasetId))!.profile).toEqual(p)
   })
+
+  it('finds features by name or by a text value in their rows', async () => {
+    const { server } = setup()
+    const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
+    const { entries } = data(await server.handle('findIndex', { datasetId, binding: county }))
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        { column: '_label', value: 'Autauga, AL', features: 1 },
+        { column: 'utility', value: 'A', features: 2 }, // utility A serves both counties
+        { column: 'utility', value: 'B', features: 1 },
+      ]),
+    )
+    expect(entries.some((e) => e.value === 'C')).toBe(false) // C's row matched no county
+    const a = data(await server.handle('findFeatures', { datasetId, binding: county, column: 'utility', value: 'A' }))
+    expect(a.keys.sort()).toEqual(['01001', '01003'])
+    expect(data(await server.handle('findFeatures', { datasetId, binding: county, column: 'utility', value: 'nope' })).keys).toEqual([])
+  })
 })

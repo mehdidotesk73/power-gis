@@ -52,7 +52,8 @@ Track feature development, improvements, and known issues here. Move completed w
   alias into the SQL at the cursor; renaming an alias renames it in the SQL; "no such table" errors
   list the usable tables. ▤ on a dataset previews its first 20 rows (read from the database); ⧉
   copies its id. Input datasets are picked in a search box (name with typo tolerance, or id).
-  `point(lat, lon)` (was lon, lat).
+  `point(lat, lon)` (was lon, lat). **Find** replaces "Find a utility": any visualization, all data or
+  one column, typo-tolerant, server-built index (`findIndex` / `findFeatures`), highlight + zoom.
 
 ## Next (Current Sprint)
 
