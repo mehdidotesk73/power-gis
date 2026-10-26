@@ -64,6 +64,9 @@ Track feature development, improvements, and known issues here. Move completed w
   open it under the graph; ＋ Transform (tap inputs) and ＋ Visualization (tap a dataset); transforms
   marked not run yet / needs re-run. Transforms have several outputs (one SQL each, per-output
   Preview, one Run writes all; nothing written if any fails); one writer per dataset.
+- **Graph layout + panel UI** — crossing-minimizing DAG layout (virtual points for row-skipping
+  arrows, barycenter sweeps + swaps), ↓ / → direction toggle, resizable desktop side panel, ⤢ pop-out
+  of the workspace panels into a modal, Search card ("Search in [viz] in [column]"), pill ＋ buttons.
 
 ## Next (Current Sprint)
 

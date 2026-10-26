@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDag, layoutDag, NODE_W, type DagDataset } from './dag'
+import { buildDag, edgePath, layoutDag, NODE_H, NODE_W, type DagDataset } from './dag'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import type { WorkspaceDoc } from './workspace'
 
@@ -50,9 +50,9 @@ describe('workspace DAG', () => {
     expect([row('ds:counties'), row('tr:t'), row('ds:out'), row('viz:count'), row('viz:borders')]).toEqual([0, 1, 2, 3, 3])
     expect(row('ds:states')).toBe(0)
     expect(dag.rows).toBe(4)
-    expect(dag.edges).toContainEqual({ from: 'ds:links', to: 'tr:t' })
-    expect(dag.edges).toContainEqual({ from: 'tr:t', to: 'ds:out' })
-    expect(dag.edges).toContainEqual({ from: 'ds:states', to: 'viz:borders' })
+    expect(dag.edges).toContainEqual(expect.objectContaining({ from: 'ds:links', to: 'tr:t' }))
+    expect(dag.edges).toContainEqual(expect.objectContaining({ from: 'tr:t', to: 'ds:out' }))
+    expect(dag.edges).toContainEqual(expect.objectContaining({ from: 'ds:states', to: 'viz:borders' }))
     expect(dag.nodes.find((n) => n.key === 'tr:t')!.state).toBe('ready')
     expect(dag.nodes.find((n) => n.key === 'viz:borders')!.muted).toBe(true)
   })
@@ -80,11 +80,48 @@ describe('workspace DAG', () => {
 
   it('lays rows out centered, widest row setting the width', () => {
     const dag = buildDag(doc, (id) => records[id])
-    const l = layoutDag(dag, 300)
+    const l = layoutDag(dag)
     expect(l.width).toBeGreaterThanOrEqual(4 * NODE_W) // four datasets in row 0
     const ys = [...new Set([...l.at.values()].map((p) => p.y))]
     expect(ys).toHaveLength(4)
-    const out = l.at.get('ds:out')!
-    expect(Math.round(out.x + NODE_W / 2)).toBe(Math.round(l.width / 2)) // alone in its row: centered
+  })
+
+  it('lays rows out as columns when horizontal', () => {
+    const dag = buildDag(doc, (id) => records[id])
+    const v = layoutDag(dag, 'vertical')
+    const h = layoutDag(dag, 'horizontal')
+    expect(h.height).toBeGreaterThanOrEqual(4 * NODE_H)
+    expect(new Set([...h.at.values()].map((p) => p.x)).size).toBe(4) // one x per row
+    expect(h.at.get('tr:t')!.x).toBeGreaterThan(h.at.get('ds:counties')!.x)
+    expect(v.at.get('tr:t')!.y).toBeGreaterThan(v.at.get('ds:counties')!.y)
+    expect(edgePath(h, { from: 'ds:links', to: 'tr:t' })).toMatch(/^M /)
+  })
+
+  it('routes arrows that skip rows through points of their own, and avoids crossings', () => {
+    // a → t → o; a and b also feed v directly (skipping rows), c feeds t.
+    const d: WorkspaceDoc = {
+      name: 'x',
+      datasetIds: ['b', 'a', 'c', 'o'],
+      visualizations: [viz('vb', 'b'), viz('va', 'a'), viz('vo', 'o')],
+      transforms: [{ id: 't', name: 't', inputs: [{ datasetId: 'c', alias: 'c' }, { datasetId: 'a', alias: 'a' }], outputs: [{ key: 'k', name: 'o', sql: '', outputId: 'o' }] }],
+    }
+    const recs = (id: string): DagDataset => ({ name: id, rowCount: 1, updatedAt: '2026-01-01T00:00:00Z' })
+    const dag = buildDag(d, recs)
+    const skip = dag.edges.find((e) => e.from === 'ds:a' && e.to === 'viz:va')!
+    expect(skip.via).toHaveLength(2) // passes rows 1 and 2
+    const pos = new Map(dag.layers.flatMap((l) => l.map((k, i) => [k, i] as const)))
+    const down = new Map<string, string[]>()
+    for (const e of dag.edges) {
+      const chain = [e.from, ...(e.via ?? []), e.to]
+      for (let i = 0; i + 1 < chain.length; i++) down.set(chain[i], [...(down.get(chain[i]) ?? []), chain[i + 1]])
+    }
+    let crossings = 0
+    for (const layer of dag.layers) {
+      const links = layer.flatMap((a) => (down.get(a) ?? []).map((b) => [pos.get(a)!, pos.get(b)!]))
+      for (let i = 0; i < links.length; i++) for (let j = i + 1; j < links.length; j++) if ((links[i][0] - links[j][0]) * (links[i][1] - links[j][1]) < 0) crossings++
+    }
+    expect(crossings).toBe(0)
+    const l = layoutDag(dag)
+    expect(edgePath(l, skip)!.split(' C ')).toHaveLength(4) // three curves: through two points
   })
 })

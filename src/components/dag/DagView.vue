@@ -3,9 +3,10 @@
 // visualizations, laid out automatically (lib/workspace/dag.ts). Tap a node
 // to select it (the page opens it below the graph). ＋ Dataset: the page opens
 // the add form below. ＋ Transform: tap the input datasets, then Next.
-// ＋ Visualization: tap the dataset to draw.
+// ＋ Visualization: tap the dataset to draw. ↓ / → flips the flow (top to
+// bottom, left to right), remembered per device.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { layoutDag, NODE_H, NODE_W, type Dag, type DagNode } from '../../lib/workspace/dag'
+import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode } from '../../lib/workspace/dag'
 
 const props = defineProps<{ dag: Dag; selected: string | null }>()
 const emit = defineEmits<{
@@ -15,31 +16,44 @@ const emit = defineEmits<{
   (e: 'new-dataset'): void
 }>()
 
-const layout = computed(() => layoutDag(props.dag))
+const DIRECTION = 'powergis.dagDirection'
+function readDirection(): DagDirection {
+  try {
+    return localStorage.getItem(DIRECTION) === 'horizontal' ? 'horizontal' : 'vertical'
+  } catch {
+    return 'vertical'
+  }
+}
+const direction = ref<DagDirection>(readDirection())
+function flip() {
+  direction.value = direction.value === 'vertical' ? 'horizontal' : 'vertical'
+  try {
+    localStorage.setItem(DIRECTION, direction.value)
+  } catch {
+    /* per-device convenience only */
+  }
+}
 
-// Wider than the screen: open scrolled to the middle (the inputs of most graphs sit there).
+const layout = computed(() => layoutDag(props.dag, direction.value))
+
+// Wider than the screen: open scrolled to the middle of the cross axis (the inputs of most graphs sit there).
 const scroller = ref<HTMLElement>()
 function center() {
   const el = scroller.value
-  if (el) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2
+  if (!el) return
+  if (direction.value === 'vertical') el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2
+  else el.scrollTop = (el.scrollHeight - el.clientHeight) / 2
 }
 onMounted(center)
-watch(() => layout.value.width, () => nextTick(center))
-const byKey = computed(() => new Map(props.dag.nodes.map((n) => [n.key, n])))
+watch(() => [layout.value.width, layout.value.height, direction.value], () => nextTick(center))
 
-/** One curve per edge, from the parent's bottom middle to the child's top middle. */
+/** One curve per edge, through the points its layout gave it (lib/workspace/dag.ts edgePath). */
 const paths = computed(() =>
   props.dag.edges.flatMap((e) => {
-    const a = layout.value.at.get(e.from)
-    const b = layout.value.at.get(e.to)
-    if (!a || !b) return []
-    const x1 = a.x + NODE_W / 2
-    const y1 = a.y + NODE_H
-    const x2 = b.x + NODE_W / 2
-    const y2 = b.y - 3 // room for the arrowhead
-    const mid = (y1 + y2) / 2
+    const d = edgePath(layout.value, e)
+    if (!d) return []
     const lit = props.selected !== null && (e.from === props.selected || e.to === props.selected)
-    return [{ key: `${e.from}>${e.to}`, d: `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`, lit }]
+    return [{ key: `${e.from}>${e.to}`, d, lit }]
   }),
 )
 
@@ -85,9 +99,17 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 <template>
   <div class="dag">
     <div v-if="!mode" class="bar">
-      <button class="btn" @click="emit('new-dataset')">＋ Dataset</button>
-      <button class="btn primary" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
-      <button class="btn" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
+      <button class="pill dataset" @click="emit('new-dataset')">＋ Dataset</button>
+      <button class="pill transform" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
+      <button class="pill viz" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
+      <button
+        class="flip"
+        :title="direction === 'vertical' ? 'Flowing down — switch to left to right' : 'Flowing right — switch to top to bottom'"
+        :aria-label="direction === 'vertical' ? 'Lay out left to right' : 'Lay out top to bottom'"
+        @click="flip"
+      >
+        {{ direction === 'vertical' ? '↓' : '→' }}
+      </button>
     </div>
     <div v-else class="banner">
       <span v-if="mode === 'transform'">Tap the datasets this transform reads{{ picked.length ? ` · ${picked.length} picked` : '' }}.</span>
@@ -141,8 +163,39 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 .bar {
   flex-wrap: wrap;
 }
-.bar .btn {
-  flex: 1 1 auto;
+.pill {
+  min-height: 2rem;
+  padding: 0.25rem 0.8rem;
+  border: 1px solid var(--pill);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pill) 14%, var(--bg-elev));
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pill:disabled {
+  opacity: 0.45;
+}
+.pill.dataset {
+  --pill: #4c8dff;
+}
+.pill.transform {
+  --pill: #e0962a;
+}
+.pill.viz {
+  --pill: #3faf62;
+}
+.flip {
+  margin-left: auto;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1;
 }
 .banner {
   justify-content: space-between;

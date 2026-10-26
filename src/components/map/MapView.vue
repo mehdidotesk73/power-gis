@@ -63,6 +63,7 @@ function applyOrder() {
 }
 provide(MAP_KEY, ctx)
 
+let resizer: ResizeObserver | null = null
 onMounted(() => {
   const m = new MlMap({
     container: el.value!,
@@ -94,12 +95,19 @@ onMounted(() => {
       m.setStyle(BLANK, { diff: false })
     }
   })
+  // The container changes size without the window doing so (the side panel's
+  // splitter, the controls popping out): keep the canvas matched to it.
+  resizer = new ResizeObserver(() => m.resize())
+  resizer.observe(el.value!)
   m.on('click', (e) => {
     const layers = [...ctx.interactive].filter((id) => m.getLayer(id))
     if (!layers.length || !m.queryRenderedFeatures(e.point, { layers }).length) emit('background-click')
   })
 })
-onBeforeUnmount(() => map.value?.remove())
+onBeforeUnmount(() => {
+  resizer?.disconnect()
+  map.value?.remove()
+})
 
 defineExpose({
   fitBounds(b: BBox, maxZoom = 8) {

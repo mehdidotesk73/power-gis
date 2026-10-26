@@ -193,9 +193,17 @@ remembered per device in localStorage `powergis.controlsView`). `lib/workspace/d
 workspace's, plus transform inputs and outputs), transform and visualization, with edges input →
 transform → output → visualization. Rows: datasets no transform makes are row 0; a transform is one
 row below its deepest input and its output one below it; all visualizations share the bottom row.
-Each row is ordered by the mean position of its parents (one barycenter pass); row 0 keeps the
-workspace's dataset order. `layoutDag` gives pixel positions (rows centered; wider than the screen →
-it scrolls, opened centered). Nothing about the layout is stored. Transform state: **not run yet**
+Rows are ordered to minimize arrow crossings (`orderLayers`, the layered / Sugiyama recipe): an
+edge that skips rows gets a virtual point (`v:<edge>:<row>`, listed in `edge.via` and `dag.layers`)
+in each row it passes, so it takes a lane there instead of cutting across nodes; then up to 12
+alternating down / up barycenter sweeps, each followed by adjacent swaps that lower crossings, keep
+the ordering with the fewest crossings (row 0 starts in the workspace's dataset order).
+`layoutDag(dag, direction)` gives pixel positions, `'vertical'` (rows top to bottom) or
+`'horizontal'` (rows as columns, left to right); each row is centered on the widest, virtual points
+take a narrow lane. `edgePath` draws an edge out of the parent's far side, through its points, into
+the child's near side. Wider than the screen → it scrolls, opened centered on the cross axis. The
+direction toggle (↓ / →) is remembered per device (`powergis.dagDirection`); nothing else about the
+layout is stored. Transform state: **not run yet**
 (no output), **needs re-run** (an input's `updatedAt` is after the output's), else ready.
 
 `DagView.vue` draws nodes as buttons over one SVG of curved edges. Tapping a node shows its card
@@ -213,9 +221,20 @@ those datasets (aliases from their names, deduplicated), opened in its editor. *
 picks a dataset and opens the visualization add form for it. Everything goes through the same
 workspace operations as the lists.
 
+### Side panel
+
+On desktop the controls column is resizable: a splitter between it and the map (drag, arrow keys,
+double-click resets), width as the `--panel-w` CSS variable on `.page`, remembered per device
+(`powergis.panelWidth`, 256 px to 70% of the window). `MapView` keeps the canvas matched to its
+container with a `ResizeObserver` (the window doesn't resize when the splitter moves). The
+workspace panels — from List | Graph to just before Export — can **pop out** (⤢) into a large modal
+(full screen on phones): one `<Teleport to="body" :disabled="!popped">` moves the same components, so
+open editors and selections survive; ✕, Esc or a backdrop tap brings them back.
+
 ### Find
 
-`FindPanel.vue` searches one visualization's features. The server indexes them (`findIndex`,
+`FindPanel.vue` (its own card above the workspace panels: "Search in [visualization] in [All data /
+column]", then the search box) searches one visualization's features. The server indexes them (`findIndex`,
 `lib/dataset/query.ts` `findIndex(grouped, columns)`): every feature label, and every distinct value
 of every text column in the rows behind features, with how many features have it (columns over 20k
 distinct values are skipped). The index is cached beside the dataset + binding grouping. The client

@@ -88,26 +88,25 @@ function clear() {
 </script>
 
 <template>
-  <div class="find">
-    <div class="top">
-      <span class="lbl">Find</span>
-      <select v-model="vizId" aria-label="Visualization to search" @change="picked = true" :disabled="!visualizations.length">
+  <section class="find" aria-label="Search">
+    <div class="sentence">
+      <span class="lbl">Search in</span>
+      <select v-model="vizId" class="viz" aria-label="Visualization to search" @change="picked = true" :disabled="!visualizations.length">
+        <option v-if="!visualizations.length" value="">no visualization</option>
         <option v-for="x in visualizations" :key="x.viz.id" :value="x.viz.id">{{ x.label }}</option>
       </select>
-    </div>
-    <label class="in">
-      in
-      <select v-model="column" aria-label="Column to search" :disabled="!entries.length">
+      <span class="lbl">in</span>
+      <select v-model="column" class="col" aria-label="Column to search" :disabled="!entries.length">
         <option :value="ALL">All data</option>
         <option v-for="c in columns" :key="c" :value="c">{{ c === LABEL_COLUMN ? 'Feature names' : columnName(c) }}</option>
       </select>
-    </label>
+    </div>
     <SearchBox
       ref="box"
       :items="shown"
       :text="(e) => e.value"
       :detail="detail"
-      :placeholder="loading ? 'Indexing…' : 'Search names and values (typos OK)'"
+      :placeholder="loading ? 'Indexing…' : 'Search (typos OK)'"
       fuzzy
       @pick="pick"
     />
@@ -119,35 +118,45 @@ function clear() {
       </div>
       <button aria-label="Clear" @click="clear">✕</button>
     </div>
-  </div>
+  </section>
 </template>
 
 <style scoped>
+/* Its own card, set apart from the workspace panels below. */
 .find {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.45rem;
+  padding: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 45%, var(--border));
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--accent-blue) 7%, var(--bg));
 }
-.top {
+.sentence {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem 0.4rem;
 }
 .lbl {
+  font-size: 0.82rem;
   font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 select {
-  flex: 1;
   min-width: 0;
-  width: 0;
-  padding: 0.3rem;
-  font-size: 16px;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 16px; /* iOS zooms into smaller fields */
 }
-.in {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--text-muted);
-  font-size: 0.85rem;
+select.viz {
+  flex: 1 1 9rem;
+}
+select.col {
+  flex: 1 1 6rem;
 }
 .err {
   margin: 0;
@@ -162,6 +171,7 @@ select {
   padding: 0.45rem 0.55rem;
   border: 1px solid var(--accent-blue);
   border-radius: 0.4rem;
+  background: var(--bg);
 }
 .chip button {
   background: none;

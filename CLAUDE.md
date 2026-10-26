@@ -182,7 +182,10 @@ whatever they're actually asking about.
   table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
   table's error lists the aliases). Tests run real DuckDB through its Node build
   (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
-- **Find** (`FindPanel.vue`): pick a visualization, then search — all data or one column — over its
+- **Side panel**: resizable on desktop (splitter, `--panel-w`, `powergis.panelWidth`; `MapView` resizes
+  the map with a `ResizeObserver`). ⤢ pops the workspace panels (List | Graph through the last panel
+  before Export) into a modal via `<Teleport :disabled="!popped">` — same components, state kept.
+- **Find** (`FindPanel.vue`, a separate card: "Search in [viz] in [All data / column]"): pick a visualization, then search — all data or one column — over its
   features' names and every text value in their rows (typo-tolerant). The server builds the index
   (`findIndex` request, `lib/dataset/query.ts`, cached with the grouping; columns with more than
   20k distinct values are left out); `findFeatures` returns the matching features' keys, which the
@@ -216,8 +219,10 @@ whatever they're actually asking about.
 - **Graph view (DAG)** — the default view; a **List | Graph** switch above the panels changes it,
   remembered per device (`powergis.controlsView`). `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
   nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest
-  input, its output below it, every visualization in the bottom row), one barycenter pass orders each
-  row; `layoutDag` places them (automatic, nothing stored). Transforms show **not run yet** (no
+  input, its output below it, every visualization in the bottom row); `orderLayers` minimizes arrow
+  crossings (virtual points for row-skipping edges, `edge.via`; barycenter sweeps + swaps);
+  `layoutDag(dag, 'vertical' | 'horizontal')` places them and `edgePath` draws edges (automatic;
+  only the ↓ / → direction is remembered per device, `powergis.dagDirection`). Transforms show **not run yet** (no
   output) or **needs re-run** (an input's `updatedAt` is newer than the output's). `DagView.vue`
   draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
   same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in

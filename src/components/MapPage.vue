@@ -8,7 +8,7 @@
 // visualization list draws on top. The starting workspace comes from a
 // workspace file (public/data/default.powergis.json): built-in datasets, a
 // join transform and its visualizations — nothing here knows what they hold.
-import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import MapView from './map/MapView.vue'
 import ScalarLayer from './map/ScalarLayer'
 import VectorLayer from './map/VectorLayer'
@@ -251,6 +251,61 @@ const updateVisualization = (v: VisualizationSpec) => apply(updateVisualization_
 const removeVisualization = (id: string) => apply(removeVisualization_(doc.value, id))
 const reorderVisualizations = (ids: string[]) => apply(reorderVisualizations_(doc.value, ids))
 const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids))
+
+// ── side panel: width (desktop) and popping out ────────────────────────────
+
+// Drag the splitter between the controls and the map; the width is remembered per device.
+const PANEL_W = 'powergis.panelWidth'
+const panelMin = 256
+const panelMax = () => Math.max(panelMin, Math.round(window.innerWidth * 0.7))
+const clampPanel = (w: number) => Math.min(panelMax(), Math.max(panelMin, Math.round(w)))
+const panelWidth = ref(clampPanel(Number(store.get(PANEL_W)) || 336))
+let dragFrom: { x: number; w: number } | null = null
+function splitStart(e: PointerEvent) {
+  dragFrom = { x: e.clientX, w: panelWidth.value }
+  try {
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  } catch {
+    /* the window listeners below still hear it */
+  }
+  window.addEventListener('pointermove', splitMove)
+  window.addEventListener('pointerup', splitEnd, { once: true })
+  window.addEventListener('pointercancel', splitEnd, { once: true })
+}
+function splitMove(e: PointerEvent) {
+  if (dragFrom) panelWidth.value = clampPanel(dragFrom.w + e.clientX - dragFrom.x)
+}
+function splitEnd() {
+  dragFrom = null
+  window.removeEventListener('pointermove', splitMove)
+  window.removeEventListener('pointerup', splitEnd)
+  window.removeEventListener('pointercancel', splitEnd)
+  store.set(PANEL_W, String(panelWidth.value))
+}
+function splitKey(e: KeyboardEvent) {
+  const step = e.shiftKey ? 64 : 16
+  if (e.key === 'ArrowLeft') panelWidth.value = clampPanel(panelWidth.value - step)
+  else if (e.key === 'ArrowRight') panelWidth.value = clampPanel(panelWidth.value + step)
+  else return
+  e.preventDefault()
+  store.set(PANEL_W, String(panelWidth.value))
+}
+function splitReset() {
+  panelWidth.value = 336
+  store.set(PANEL_W, null)
+}
+
+// The workspace panels (List / Graph and what's under them) can pop out into a
+// large modal. One Teleport moves the same components, so nothing is lost.
+const popped = ref(false)
+function onEsc(e: KeyboardEvent) {
+  if (e.key === 'Escape' && popped.value) popped.value = false
+}
+onMounted(() => window.addEventListener('keydown', onEsc))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onEsc)
+  splitEnd()
+})
 
 // ── graph (DAG) view of the workspace ──────────────────────────────────────
 
@@ -642,7 +697,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 </script>
 
 <template>
-  <div class="page">
+  <div class="page" :style="{ '--panel-w': `${panelWidth}px` }">
     <section class="controls">
       <WorkspaceBar
         :name="doc.name"
@@ -658,9 +713,21 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
       />
       <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
 
-      <div class="view-switch" role="group" aria-label="Show as">
-        <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
-        <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
+      <div v-if="popped" class="popped-note">
+        <span>Workspace panels are open in a window.</span>
+        <button @click="popped = false">Bring back</button>
+      </div>
+      <Teleport to="body" :disabled="!popped">
+      <div :class="popped ? 'pop-backdrop' : 'panels'" @click.self="popped = false">
+      <div :class="popped ? 'pop' : 'panels'" :role="popped ? 'dialog' : undefined" :aria-modal="popped || undefined" aria-label="Workspace">
+      <div class="view-row">
+        <div class="view-switch" role="group" aria-label="Show as">
+          <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
+          <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
+        </div>
+        <button class="pop-btn" :aria-label="popped ? 'Close window' : 'Open in a window'" :title="popped ? 'Close (Esc)' : 'Open in a window'" @click="popped = !popped">
+          {{ popped ? '✕' : '⤢' }}
+        </button>
       </div>
 
       <template v-if="view === 'graph'">
@@ -759,6 +826,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         </details>
 
       </template>
+      </div>
+      </div>
+      </Teleport>
 
       <details class="box">
         <summary>Export (ArcGIS)</summary>
@@ -778,6 +848,19 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         </p>
       </details>
     </section>
+
+    <div
+      class="splitter"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the side panel"
+      :aria-valuenow="panelWidth"
+      tabindex="0"
+      title="Drag to resize · double-click to reset"
+      @pointerdown.prevent="splitStart"
+      @keydown="splitKey"
+      @dblclick="splitReset"
+    />
 
     <section class="map-wrap">
       <MapView ref="mapView" @background-click="selected = null">
@@ -826,8 +909,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 <style scoped>
 .page {
   display: grid;
-  grid-template-columns: 21rem minmax(0, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr);
   height: calc(100dvh - 9rem);
   min-height: 32rem;
 }
@@ -842,6 +924,95 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .map-wrap {
   min-height: 0;
+}
+.splitter {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+.splitter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter:active::after {
+  background: var(--accent-blue);
+}
+.panels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.popped-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.popped-note button,
+.pop-btn {
+  min-height: 2.2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg-elev);
+  color: var(--text);
+}
+.popped-note button {
+  padding: 0 0.7rem;
+}
+.pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 2.5vh 3vw;
+  background: rgb(0 0 0 / 0.45);
+}
+.pop {
+  box-sizing: border-box;
+  width: min(72rem, 100%);
+  max-height: 95dvh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+}
+.pop :deep(.scroll) {
+  max-height: 60dvh;
+}
+.view-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+}
+.view-row .view-switch {
+  flex: 1;
+}
+.pop-btn {
+  width: 2.6rem;
+  font-size: 1.05rem;
 }
 .view-switch {
   display: flex;
@@ -958,7 +1129,21 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   .page {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 70dvh auto;
+    gap: 0.75rem;
     height: auto;
+  }
+  .splitter {
+    display: none;
+  }
+  .pop-backdrop {
+    padding: 0;
+  }
+  .pop {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    padding: 0.7rem 0.75rem calc(0.7rem + env(safe-area-inset-bottom));
   }
   .controls {
     order: 2;

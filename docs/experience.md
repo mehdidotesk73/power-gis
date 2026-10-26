@@ -312,6 +312,20 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Graph layout + panel UI — 2026-10-26
+- **Changed:** the DAG ordering minimizes arrow crossings — edges that skip rows get virtual points
+  (their own lane in each row, drawn through), then alternating barycenter sweeps with neighbour
+  swaps keep the fewest-crossings order. The default map's state-borders arrow no longer crosses the
+  others.
+- **Added:** ↓ / → flips the graph between top-to-bottom and left-to-right (per device); a desktop
+  splitter makes the side panel resizable (per device); ⤢ pops the workspace panels (List | Graph to
+  just before Export) into a large modal via a disabled-when-docked `Teleport`, so state survives.
+- **Changed:** Find is now a separate Search card reading "Search in [viz] in [All data / column]";
+  ＋ Dataset / ＋ Transform / ＋ Visualization are pills in their node colors.
+- **Lesson:** MapLibre only resizes with the window — a splitter or modal changes its container
+  without a window resize, so `MapView` watches the container with a `ResizeObserver`.
+- **Docs:** CLAUDE.md, system-design (Graph view, Side panel, Find), help overview, TODO.
+
 ### Graph view (DAG) — 2026-10-26
 - **Added:** List | Graph switch. The graph (`lib/workspace/dag.ts`, `components/dag/DagView.vue`)
   shows datasets → transforms → outputs → visualizations, laid out automatically (rows by depth,
