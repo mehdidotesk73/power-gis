@@ -35,7 +35,7 @@ describe('sql transforms (DuckDB)', () => {
   const sql = createSqlRunner(nodeDuckDb)
 
   it('builds points and vectors with the helpers, typed on the way out', async () => {
-    const r = await sql.run('SELECT name, point(lon, lat) AS location, vector(mw, 0) AS output, mw * 2 AS mw2, built FROM plants ORDER BY name', [plants])
+    const r = await sql.run('SELECT name, point(lat, lon) AS location, vector(mw, 0) AS output, mw * 2 AS mw2, built FROM plants ORDER BY name', [plants])
     expect(r.columns).toEqual([
       { name: 'name', type: 'string' },
       { name: 'location', type: 'point' },

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The workspace's datasets: tables in the database, by pointer. Drag ≡ to
-// reorder; ▤ previews the first rows; ✎ renames or describes (a server request) and shows the
+// reorder; ⧉ copies the dataset id (paste it into a transform's input search); ▤ previews the first rows; ✎ renames or describes (a server request) and shows the
 // profile. ✕ takes a dataset out of the workspace — the
 // table stays in the database. (Visualizations are added from the
 // Visualizations panel; how rows map to features is part of each one.)
@@ -26,6 +26,25 @@ const { dragging, onHandleDown, onHandleMove, onHandleUp } = useDragReorder(
   (ids) => emit('reorder', ids),
 )
 const editing = ref<string | null>(null)
+
+// ── copy a dataset id ──────────────────────────────────────────────────────
+
+const copied = ref<string | null>(null)
+async function copyId(id: string) {
+  try {
+    await navigator.clipboard.writeText(id)
+  } catch {
+    // No clipboard API (or no permission): select the text for a manual copy.
+    const ta = document.createElement('textarea')
+    ta.value = id
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+  }
+  copied.value = id
+  setTimeout(() => copied.value === id && (copied.value = null), 1500)
+}
 
 // ── preview: the first rows, read straight from the database ──────────────
 
@@ -79,6 +98,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
           <span v-if="ds.description" class="desc">{{ ds.description }}</span>
           <span class="muted">{{ stats(ds) }} · {{ ds.origin }}</span>
         </div>
+        <button class="icon" :class="{ on: copied === ds.id }" :title="`Copy dataset id (${ds.id})`" @click="copyId(ds.id)">{{ copied === ds.id ? '✓' : '⧉' }}</button>
         <button class="icon" :class="{ on: previewing === ds.id }" title="Preview the first rows" @click="togglePreview(ds)">▤</button>
         <button class="icon" :class="{ on: editing === ds.id }" title="Rename / describe" @click="editing = editing === ds.id ? null : ds.id">✎</button>
         <button class="icon" title="Zoom to data" @click="emit('zoom', ds.id)">⤢</button>
@@ -117,6 +137,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
             </table>
           </div>
         </div>
+        <span class="muted">Id <code class="id">{{ ds.id }}</code></span>
         <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
       </div>
       <div v-if="previewing === ds.id" class="preview">
@@ -188,6 +209,11 @@ th {
   position: sticky;
   top: 0;
   background: var(--bg-elev);
+}
+.id {
+  font-size: 0.7rem;
+  word-break: break-all;
+  user-select: all;
 }
 .preview {
   display: grid;

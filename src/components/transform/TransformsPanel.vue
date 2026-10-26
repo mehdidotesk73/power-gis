@@ -8,6 +8,7 @@
 // workspace draft, saved with Save.
 import { computed, nextTick, ref } from 'vue'
 import { request } from '../../client/api'
+import SearchBox from '../map/SearchBox.vue'
 import type { DatasetRecord } from '../../shared/records'
 import type { ColumnInfo } from '../../lib/dataset/columns'
 import type { DataRecord } from '../../lib/data/connectors'
@@ -88,6 +89,7 @@ function addInput(t: TransformSpec) {
   if (d) patch(t, { inputs: [...t.inputs, { datasetId: d.id, alias: aliasFor(d.name) }] })
 }
 
+const nameIn = (id: string) => props.datasets.find((d) => d.id === id)?.name ?? props.nameOf(id) ?? 'missing dataset'
 const describe = (t: TransformSpec) =>
   `${t.inputs.map((i) => i.alias).join(', ')} → ${t.outputId ? (props.nameOf(t.outputId) ?? 'missing dataset') : 'new dataset'}`
 
@@ -129,11 +131,20 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
         <div v-if="editing === t.id" class="ed">
           <label class="row">Name <input type="text" :value="t.name" @change="patch(t, { name: ($event.target as HTMLInputElement).value })" /></label>
 
-          <div class="lbl">Inputs <span class="muted">(each dataset is a table in the SQL, by the name after "as")</span></div>
+          <div class="lbl">Inputs <span class="muted">(search by name or paste a dataset id; each is a table in the SQL by the name after "as")</span></div>
           <div v-for="(inp, i) in t.inputs" :key="i" class="input">
-            <select :value="inp.datasetId" aria-label="Input dataset" @change="setInput(t, i, { datasetId: ($event.target as HTMLSelectElement).value })">
-              <option v-for="d in datasets" :key="d.id" :value="d.id">{{ d.name }}</option>
-            </select>
+            <SearchBox
+              class="pick"
+              :items="datasets"
+              :text="(d) => d.name"
+              :match="(d) => `${d.name} ${d.id} ${d.id.replace(/-/g, '')}`"
+              :detail="(d) => d.id"
+              :value="nameIn(inp.datasetId)"
+              placeholder="Dataset name or id"
+              fuzzy
+              all-when-empty
+              @pick="(d) => setInput(t, i, { datasetId: d.id })"
+            />
             <span class="as">as</span>
             <input
               type="text"
@@ -162,7 +173,7 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
             @change="patch(t, { sql: ($event.target as HTMLTextAreaElement).value })"
           />
           <p class="muted">
-            Helpers: <code>point(lon, lat)</code> makes a point · <code>vector(east, north)</code> makes a vector. Geometry columns are GeoJSON
+            Helpers: <code>point(lat, lon)</code> makes a point · <code>vector(east, north)</code> makes a vector. Geometry columns are GeoJSON
             text in SQL.
           </p>
           <div class="row end">
@@ -258,11 +269,9 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
   flex-wrap: wrap;
   align-items: center;
 }
-.input select {
+.input .pick {
   flex: 1 1 100%; /* its own line on phones; the table name and Insert go below */
   min-width: 0;
-  padding: 0.25rem;
-  font-size: 16px;
 }
 .input input {
   flex: 1;

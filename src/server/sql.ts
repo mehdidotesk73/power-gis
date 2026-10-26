@@ -6,7 +6,7 @@
 //   int → BIGINT, double → DOUBLE, boolean → BOOLEAN, string → VARCHAR,
 //   datetime → TIMESTAMP (ISO text back), vector → STRUCT(u, v),
 //   point / polyline / region → VARCHAR holding GeoJSON (typed again on the way out).
-// Helpers available in SQL: point(lon, lat) → a point geometry; vector(u, v) → a vector.
+// Helpers available in SQL: point(lat, lon) → a point geometry; vector(u, v) → a vector.
 //
 // The engine is anything that runs SQL and returns rows — DuckDB-WASM in the
 // browser (duckdb.ts), its Node build in tests.
@@ -78,7 +78,8 @@ function literal(v: unknown, type: ColumnType): string {
 }
 
 const MACROS = [
-  `CREATE OR REPLACE MACRO point(lon, lat) AS CASE WHEN lon IS NULL OR lat IS NULL THEN NULL ELSE '{"type":"Point","coordinates":[' || CAST(lon AS DOUBLE) || ',' || CAST(lat AS DOUBLE) || ']}' END`,
+  // Latitude first, as people say coordinates; GeoJSON stores longitude first.
+  `CREATE OR REPLACE MACRO point(lat, lon) AS CASE WHEN lon IS NULL OR lat IS NULL THEN NULL ELSE '{"type":"Point","coordinates":[' || CAST(lon AS DOUBLE) || ',' || CAST(lat AS DOUBLE) || ']}' END`,
   `CREATE OR REPLACE MACRO vector(u, v) AS CASE WHEN u IS NULL OR v IS NULL THEN NULL ELSE {'u': CAST(u AS DOUBLE), 'v': CAST(v AS DOUBLE)} END`,
 ]
 

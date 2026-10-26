@@ -42,7 +42,7 @@ Track feature development, improvements, and known issues here. Move completed w
   lat/lon → point and u/v → vector are transforms, step 2). Region-code binding kept as a stopgap
   until boundary datasets + joins.
 - **Transforms + profiles (roadmap step 2)** — DuckDB-WASM in the server worker, lazy-loaded
-  (`server/duckdb.ts`, `server/sql.ts` `createSqlRunner`; `point(lon, lat)` / `vector(u, v)`
+  (`server/duckdb.ts`, `server/sql.ts` `createSqlRunner`; `point(lat, lon)` / `vector(u, v)`
   helpers); `previewTransform` / `runTransform` (output pointer: overwrite or new dataset);
   transforms in the workspace draft + saveWorkspace + files (`TransformSpec`, `addTransform` …);
   `TransformsPanel` (inputs with aliases, SQL, Preview, Run). Dataset profiles
@@ -50,7 +50,9 @@ Track feature development, improvements, and known issues here. Move completed w
   DuckDB (Node build).
 - **Transform inputs + dataset preview** — inputs read "dataset **as** alias"; **Insert** puts the
   alias into the SQL at the cursor; renaming an alias renames it in the SQL; "no such table" errors
-  list the usable tables. ▤ on a dataset previews its first 20 rows (read from the database).
+  list the usable tables. ▤ on a dataset previews its first 20 rows (read from the database); ⧉
+  copies its id. Input datasets are picked in a search box (name with typo tolerance, or id).
+  `point(lat, lon)` (was lon, lat).
 
 ## Next (Current Sprint)
 

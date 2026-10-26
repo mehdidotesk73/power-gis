@@ -116,14 +116,14 @@ describe('server', () => {
     expect((await db.get('datasets', src))!.profile).toMatchObject({ rowCount: 3, columns: expect.arrayContaining([expect.objectContaining({ name: 'lat', filled: 2 })]) })
     const inputs = [{ datasetId: src, alias: 'plants' }]
 
-    const preview = data(await server.handle('previewTransform', { sql: 'SELECT name, point(lon, lat) AS location, mw FROM plants', inputs, limit: 2 }))
+    const preview = data(await server.handle('previewTransform', { sql: 'SELECT name, point(lat, lon) AS location, mw FROM plants', inputs, limit: 2 }))
     expect(preview).toMatchObject({ rowCount: 3, rows: expect.any(Array) })
     expect(preview.rows).toHaveLength(2)
     expect(preview.columns.map((c) => c.type)).toEqual(['string', 'point', 'int'])
     const bad = await server.handle('previewTransform', { sql: 'SELECT nope FROM plants', inputs })
     expect(bad).toMatchObject({ ok: false, error: { code: 'invalid', message: expect.stringContaining('nope') } })
 
-    const tr = { id: crypto.randomUUID(), name: 'Plant points', sql: 'SELECT name, point(lon, lat) AS location, mw FROM plants WHERE lat IS NOT NULL', inputs }
+    const tr = { id: crypto.randomUUID(), name: 'Plant points', sql: 'SELECT name, point(lat, lon) AS location, mw FROM plants WHERE lat IS NOT NULL', inputs }
     data(await server.handle('saveWorkspace', { name: 'W', config: { datasetIds: [src] }, visualizations: [], transforms: [tr] }))
     const first = data(await server.handle('runTransform', { transform: tr }))
     expect(first).toMatchObject({ rowCount: 2, created: true })
@@ -137,7 +137,7 @@ describe('server', () => {
     expect(pts.features.map((f) => f.value)).toEqual([500, 1200])
 
     // Re-running with the output id overwrites that dataset; cached values are recomputed.
-    const again = data(await server.handle('runTransform', { transform: { ...tr, sql: 'SELECT name, point(lon, lat) AS location, mw * 2 AS mw FROM plants WHERE lat IS NOT NULL', outputId: first.datasetId } }))
+    const again = data(await server.handle('runTransform', { transform: { ...tr, sql: 'SELECT name, point(lat, lon) AS location, mw * 2 AS mw FROM plants WHERE lat IS NOT NULL', outputId: first.datasetId } }))
     expect(again).toEqual({ datasetId: first.datasetId, rowCount: 2, created: false })
     const pts2 = data(await server.handle('queryVisualization', { datasetId: first.datasetId, binding: { kind: 'geometry', column: 'location' }, column: 'mw', aggregation: 'sum' }))
     expect(pts2.features.map((f) => f.value)).toEqual([1000, 2400])

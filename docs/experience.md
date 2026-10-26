@@ -314,7 +314,10 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Transform inputs + dataset preview — 2026-10-26
 - **Added:** Insert button and alias rename-in-SQL for transform inputs; readable missing-table
-  errors; dataset row preview (▤).
+  errors; dataset row preview (▤); copy dataset id (⧉); searchable input picker (name, typo-tolerant
+  fuzzy search, or id).
+- **Changed:** `point(lat, lon)` — latitude first (was `point(lon, lat)`); transforms written
+  with the old order now put points in the wrong place and need their arguments swapped.
 - **What didn't work:** naming SQL tables by dataset id (`ds_<uuid>`, inputs as bare ids) — built
   and dropped in favour of the `{datasetId, alias}` pairs, which read better in SQL. Also: a string
   `ref` on an element inside `v-for` is an array, so the SQL textarea uses a function ref.
