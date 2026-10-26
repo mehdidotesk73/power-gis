@@ -2,7 +2,7 @@
 // The map canvas. Layer widgets (ScalarLayer, VectorLayer) go in the default
 // slot and render once the basemap has loaded. Overlays (tooltip, legend,
 // panels) go in the `overlay` slot, positioned over the map.
-import { MAP_BG } from '../../lib/mapTheme'
+import { LABEL_HALO, LABEL_TEXT, MAP_BG } from '../../lib/mapTheme'
 import { Map as MlMap, NavigationControl, setWorkerUrl, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre looks for its worker beside its own module, which doesn't exist once
@@ -81,9 +81,24 @@ onMounted(() => {
   // Start fitted to the lower 48 so phones see both coasts.
   m.fitBounds([-124.8, 24.4, -66.9, 49.4], { padding: 12, animate: false })
   m.on('load', () => {
-    // Invisible marker layers; each data layer is inserted just under its kind's marker.
-    const labels = m.getStyle().layers.find((l) => l.type === 'symbol')?.id
+    // Invisible marker layers; each data layer is inserted just under its kind's
+    // marker. They go above every basemap fill and line (roads, borders) and
+    // under the run of label layers at the top — some styles put a few water
+    // labels early, so "the first symbol layer" would sink data under the roads.
+    const layers = m.getStyle().layers
+    let lastBase = layers.length - 1
+    while (lastBase >= 0 && layers[lastBase].type === 'symbol') lastBase--
+    const labels = layers[lastBase + 1]?.id
     for (const kind of DRAW_ORDER) m.addLayer({ id: slotId(kind), type: 'background', layout: { visibility: 'none' } }, labels)
+    // Labels sit on top of the data, so they must read over any fill colour:
+    // light text in a dark halo.
+    for (const l of layers) {
+      if (l.type !== 'symbol' || !l.layout?.['text-field']) continue
+      m.setPaintProperty(l.id, 'text-color', LABEL_TEXT)
+      m.setPaintProperty(l.id, 'text-halo-color', LABEL_HALO)
+      m.setPaintProperty(l.id, 'text-halo-width', 1.6)
+      m.setPaintProperty(l.id, 'text-halo-blur', 0.4)
+    }
     map.value = m
   })
   // If a basemap style can't load, try the next one, then a plain background,

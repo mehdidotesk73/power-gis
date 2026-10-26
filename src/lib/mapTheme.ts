@@ -10,3 +10,6 @@ export const PATTERN_INK = '#e7eaf3'
 export const ARROW = '#e7eaf3'
 /** Background when the basemap can't load. */
 export const MAP_BG = '#0e131d'
+/** Basemap labels (drawn above the data): light text in a dark halo, legible over any fill. */
+export const LABEL_TEXT = '#e7eaf3'
+export const LABEL_HALO = 'rgba(11, 15, 24, 0.9)'

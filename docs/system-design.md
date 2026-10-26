@@ -83,7 +83,9 @@ attribution controls are themed there too. The map can't read CSS variables, so 
 `lib/mapTheme.ts`: Search matches **orchid** `#f0a3e4` (in neither viridis nor the categorical
 palettes), the hovered / tapped feature white, default pattern ink and arrows light. New shapes get
 thin dark seams (`#0b0f18`) between them. Basemap: OpenFreeMap **dark**, else CARTO **Dark Matter**,
-else a plain `#0e131d` background (`MapView` tries them in order). Mobile-safe padding with
+else a plain `#0e131d` background (`MapView` tries them in order). Data draws above every basemap
+fill and line (roads, borders) and under the trailing run of label layers, whose text `MapView`
+repaints light in a dark halo (`LABEL_TEXT` / `LABEL_HALO`) so it reads over any fill. Mobile-safe padding with
 `safe-area-inset` for notch/bottom-bar devices.
 
 ## §3 — Data Layer (api/)

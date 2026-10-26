@@ -331,6 +331,10 @@ Two additions from reviewing it here, beyond what the originating project report
   (stale transforms get a ↻ badge), orchid Search matches, dark basemap (OpenFreeMap dark → CARTO
   Dark Matter → plain). Colour literals replaced by tokens (`vars.css`) and `lib/mapTheme.ts`.
 - **Fixed:** the Search card overflowed the desktop side panel (its grid column needed `minmax(0, 1fr)`).
+- **Fixed:** labels over the data were dark-on-pale and muddy, and roads cut across the data: the
+  dark style puts some water labels before its roads, so slotting data under "the first symbol
+  layer" sank it below the roads. Data now goes under the trailing run of label layers, and those
+  labels are repainted light with a dark halo.
 - **Lesson:** a global form-control rule must sit in `:where(…)` — `input:not(…)` chains outrank
   scoped component rules and silently restyle every field.
 - **Lesson:** MapLibre only resizes with the window — a splitter or modal changes its container

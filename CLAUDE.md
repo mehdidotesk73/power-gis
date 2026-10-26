@@ -193,8 +193,9 @@ whatever they're actually asking about.
   20k distinct values are left out); `findFeatures` returns the matching features' keys, which the
   page highlights (on every visualization drawing the same features) and zooms to.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
-- **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
-  basemap's labels (invisible slot layers added in `MapView`).
+- **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
+  basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
+  the trailing run of symbol layers; labels repainted light with a dark halo).
 - **Default workspace** (`public/data/default.powergis.json`): a workspace file whose pointers are
   placeholders — `builtin:<table>` and `transform:<n>` (the n-th transform's first output;
   `transform:<n>.<m>` its m-th). `seedDefault`
