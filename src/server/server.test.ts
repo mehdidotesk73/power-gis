@@ -194,21 +194,20 @@ describe('built-in boundary datasets and the default join', () => {
     expect(states.find((r) => r.fips === '48')).toMatchObject({ name: 'Texas', abbr: 'TX' })
   })
 
-  it("runs the default workspace's join: counties × service territory × utilities × states", async () => {
+  it("runs the default workspace's join (counties × links × utilities), and other views of the same three tables", async () => {
     const tables: Record<string, Record<string, unknown>[]> = {
       us_counties: [
         { fips: '01001', name: 'Autauga, AL', county: 'Autauga', state: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } },
         { fips: '01003', name: 'Baldwin, AL', county: 'Baldwin', state: 'AL', geometry: { type: 'Polygon', coordinates: [[[2, 0], [3, 0], [3, 1], [2, 0]]] } },
       ],
       utility_counties: [
-        { utility_id_eia: '195', state: 'AL', county_fips: '01001', county: 'Autauga' },
-        { utility_id_eia: '3222', state: 'AL', county_fips: '01001', county: 'Autauga' },
+        { utility_id_eia: '195', county_fips: '01001' },
+        { utility_id_eia: '3222', county_fips: '01001' },
       ],
       utilities: [
-        { utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned' },
-        { utility_id_eia: '3222', utility_name: 'Central Alabama Electric Coop', entity_type: 'Cooperative' },
+        { utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned', customers: '1557733' },
+        { utility_id_eia: '3222', utility_name: 'Central Alabama Electric Coop', entity_type: 'Cooperative', customers: '48071' },
       ],
-      utility_states: [{ utility_id_eia: '195', state: 'AL', customers: '1557733' }],
       us_states: [{ fips: '01', name: 'Alabama', abbr: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 1], [0, 0]]] } }],
     }
     const db = new MemoryDatabase()
@@ -227,5 +226,15 @@ describe('built-in boundary datasets and the default join', () => {
     expect(values.features.map((f) => [f.label, f.value])).toEqual([['Autauga, AL', 2], ['Baldwin, AL', 0]])
     const coop = data(await server.handle('queryVisualization', { datasetId: out.datasetId, binding: n.binding, column: 'cooperative', aggregation: 'any' }))
     expect(coop.features.map((f) => f.value)).toEqual([true, null])
+
+    // Utilities by state is an aggregation over the same three tables.
+    const inputs = t.inputs
+    const byState = data(
+      await server.handle('previewTransform', {
+        sql: 'SELECT c.state, count(DISTINCT l.utility_id_eia) AS utilities FROM counties c JOIN links l ON l.county_fips = c.fips GROUP BY c.state',
+        inputs,
+      }),
+    )
+    expect(byState.rows).toEqual([{ state: 'AL', utilities: 2 }])
   })
 })

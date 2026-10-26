@@ -6,7 +6,7 @@ PowerGIS shows power-sector data on a map of the United States.
 
 A map of every electric utility operating in the US and the counties each one serves, from the federal EIA Form 861 survey (report year 2025). Each county is colored by what's there — how many utilities serve it, or what kind of ownership is most common — and you can tap any county to see the utilities serving it.
 
-The default map is built the same way you'd build your own: three EIA tables (utilities; utilities by state; and which utility serves which county), the US counties and states shapes, and one transform that joins them (**Transforms → Utilities by county**). The first visit takes a few seconds while it runs.
+The default map is built the same way you'd build your own, from three tables: **EIA-861 utilities** (one row per utility: name, ownership type, customers, sales and revenue), **US counties** (names, codes and shapes), and **EIA-861 utility ↔ county links** (which utility serves which county). One transform joins them (**Transforms → Utilities by county**); the first visit takes a few seconds while it runs. Other views are transforms over the same tables — a utility's service territory, or utilities per state with `GROUP BY`.
 
 ## How do I use it?
 
@@ -34,9 +34,9 @@ The default map is built the same way you'd build your own: three EIA tables (ut
 
 A: The number of utilities that report delivering electricity to customers in that county on EIA Form 861. A county commonly has several — say an investor-owned utility in town and an electric cooperative in the countryside.
 
-**Q: Why are customer numbers "state-wide"?**
+**Q: Why are customer numbers not per county?**
 
-A: EIA reports customers and sales per utility per state, not per county, so the number shown is the utility's total in that state.
+A: EIA reports customers, sales and revenue per utility per state, never per county. The utilities table holds each utility's total across all its states, so a county's rows show each utility's whole customer count.
 
 **Q: Why is my change not showing?**
 

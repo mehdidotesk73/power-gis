@@ -119,7 +119,7 @@ export function createServer(db: Database, env: ServerEnv) {
       }
       case 'builtin': {
         const b = builtinTable(source.table) ?? fail('not_found', `No built-in table "${source.table}"`)
-        return { rows: await env.readBuiltin(b.table, baseUrl), origin: `Built-in · ${b.table}`, name: b.label, description: b.description, extensions: { builtin: b.table } }
+        return { rows: await env.readBuiltin(b.table, baseUrl), origin: `Built-in · ${b.table}`, name: b.label, description: b.description, extensions: { builtin: b.table, version: b.version } }
       }
     }
   }

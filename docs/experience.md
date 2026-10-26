@@ -314,14 +314,18 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Boundary datasets + data-agnostic default map — 2026-10-26
 - **Added:** built-in boundary datasets `us_counties` / `us_states` (region geometry from us-atlas);
-  normalized EIA-861 tables (`utilities`, `utility_states`, `utility_counties` join table); the
+  normalized EIA-861 tables (`utilities` with business totals, `utility_counties` links); the
   default workspace file `public/data/default.powergis.json` (placeholders `builtin:<table>` /
   `transform:<n>`, resolved by `seedDefault`); a feature-name column in the geometry binding (`label`).
 - **Removed:** the region-code binding (`kind: 'boundary'`, `includeEmpty`, client boundary loader),
   `UtilityCountyDashboard`, `utilityStyles`, `lib/utilities.ts` (ownership flags, typed rows), the
   `preset: 'utilities'` extension. Old saved visualizations of the removed kind are dropped on open
   with a note pointing at ⋯ → Reset. Clicking a county now shows the generic rows table.
-- **Fixed:** `counties_in_state` was per utility, not per state — now `utility_states.county_count`.
+- **Fixed:** the misleading `counties_in_state` column is gone (count links in a transform instead).
+  Per-state customers / sales / revenue were dropped too: only totals per utility are kept, since
+  nothing per county can come from them.
+- **Lesson:** a stored copy of a built-in must carry a version, or a device keeps feeding the old
+  columns to a new default transform (`extensions.version`).
   `checkSelect` counted semicolons inside comments and strings as statement breaks; a trailing
   `-- comment` swallowed the `)` of the preview wrapper.
 - **Lesson:** a join copies a county's shape onto every utility row; grouping stays cheap by

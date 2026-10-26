@@ -276,7 +276,7 @@ function zoomTo(datasetId: string) {
 
 /**
  * The starting workspace, from the default workspace file: its built-in
- * datasets are uploaded (or existing copies reused), its transforms run in
+ * datasets are uploaded (or current copies reused), its transforms run in
  * order (or an earlier output of the same SQL over the same inputs reused),
  * then it opens like any loaded file.
  */
@@ -287,7 +287,8 @@ async function seedDefault() {
   const existing = await readDb.list('datasets')
   const ids = new Map<string, string>()
   for (const table of templateBuiltins(parsed.file)) {
-    const have = existing.find((d) => d.extensions?.builtin === table)
+    const version = BUILTIN_TABLES.find((b) => b.table === table)?.version
+    const have = existing.find((d) => d.extensions?.builtin === table && d.extensions?.version === version)
     const id = have?.id ?? (await call(`load built-in ${table}`, request('uploadDataset', { source: { kind: 'builtin', table } })))?.datasetId
     if (!id) throw new Error(`could not load the built-in table "${table}"`)
     ids.set(BUILTIN_REF + table, id)

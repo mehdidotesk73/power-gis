@@ -5,9 +5,11 @@ published (cleaned, with county FIPS codes attached) by the Catalyst
 Cooperative PUDL project: https://catalyst.coop/pudl/
 
 Outputs (public/data/), normalized — join them in a transform:
-  utilities.csv         one row per utility (name, ownership, totals)
-  utility_states.csv    one row per (utility, state): customers, sales, revenue
-  utility_counties.csv  one row per (utility, county): the service-territory join table
+  utilities.csv         one row per utility: EIA id, name, ownership type, business totals
+  utility_counties.csv  one row per (utility, county): the service-territory links
+
+EIA reports customers / sales / revenue per utility per state, never per
+county; utilities.csv carries each utility's totals across its states.
 
 County polygons are a separate built-in dataset (us-atlas), joined on county_fips.
 
@@ -67,58 +69,38 @@ def main() -> None:
         .rename("entity_type")
     )
 
-    rows = (
-        territory[["utility_id_eia", "utility_name_eia", "state", "county", "county_id_fips", "short_form"]]
-        .rename(columns={"utility_name_eia": "utility_name", "county_id_fips": "county_fips"})
+    links = (
+        territory[["utility_id_eia", "county_id_fips"]]
+        .rename(columns={"county_id_fips": "county_fips"})
         .dropna(subset=["county_fips"])
     )
     # Retired county codes still reported → the county that replaced them.
-    rows["county_fips"] = rows["county_fips"].replace(COUNTY_SUCCESSORS)
-    rows = rows.drop_duplicates(subset=["utility_id_eia", "county_fips"])
-    rows["short_form"] = rows["short_form"].fillna(False).astype(bool)
+    links["county_fips"] = links["county_fips"].replace(COUNTY_SUCCESSORS)
+    links = links.drop_duplicates().sort_values(["county_fips", "utility_id_eia"])
 
-    counties = rows.sort_values(["county_fips", "utility_id_eia"])[["utility_id_eia", "state", "county_fips", "county"]]
-
-    states = (
-        rows.groupby(keys)
-        .agg(county_count=("county_fips", "nunique"), short_form=("short_form", "max"))
-        .reset_index()
-        .merge(by_state, on=keys, how="left")
+    names = territory.drop_duplicates("utility_id_eia")[["utility_id_eia", "utility_name_eia"]].rename(columns={"utility_name_eia": "utility_name"})
+    short = territory.groupby("utility_id_eia")["short_form"].agg(lambda s: bool(s.fillna(False).astype(bool).any())).rename("short_form")
+    totals = (
+        by_state.groupby("utility_id_eia")[["state_customers", "state_sales_mwh", "state_revenue_usd"]]
+        .sum(min_count=1)
         .rename(columns=lambda c: c.replace("state_", ""))
-        .sort_values(keys)
     )
-    states["report_year"] = year
-
-    names = rows.drop_duplicates("utility_id_eia")[["utility_id_eia", "utility_name"]]
     utilities = (
-        names.merge(entity, on="utility_id_eia", how="left")
-        .merge(
-            rows.groupby("utility_id_eia").agg(
-                states=("state", lambda s: ";".join(sorted(set(s)))),
-                county_count=("county_fips", "nunique"),
-            ),
-            on="utility_id_eia",
-        )
-        .merge(
-            by_state.groupby("utility_id_eia")[["state_customers", "state_sales_mwh", "state_revenue_usd"]]
-            .sum(min_count=1)
-            .rename(columns=lambda c: c.replace("state_", "total_")),
-            on="utility_id_eia",
-            how="left",
-        )
+        names[names["utility_id_eia"].isin(links["utility_id_eia"])]
+        .merge(entity, on="utility_id_eia", how="left")
+        .merge(totals, on="utility_id_eia", how="left")
+        .merge(short, on="utility_id_eia", how="left")
         .sort_values("utility_name")
     )
     utilities["entity_type"] = utilities["entity_type"].fillna("Unknown")
+    utilities["customers"] = utilities["customers"].astype("Int64")
     utilities["report_year"] = year
 
     OUT.mkdir(parents=True, exist_ok=True)
-    for df, c in ((states, "customers"), (utilities, "total_customers")):
-        df[c] = df[c].astype("Int64")
     utilities.to_csv(OUT / "utilities.csv", index=False, float_format="%.0f")
-    states.to_csv(OUT / "utility_states.csv", index=False, float_format="%.0f")
-    counties.to_csv(OUT / "utility_counties.csv", index=False)
-    print(f"{year}: {utilities.shape[0]} utilities, {states.shape[0]} utility-state rows, "
-          f"{counties.shape[0]} utility-county rows, {counties['county_fips'].nunique()} counties")
+    links.to_csv(OUT / "utility_counties.csv", index=False)
+    print(f"{year}: {utilities.shape[0]} utilities, {links.shape[0]} utility-county links, "
+          f"{links['county_fips'].nunique()} counties")
 
 
 if __name__ == "__main__":

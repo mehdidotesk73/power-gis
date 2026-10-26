@@ -96,9 +96,11 @@ whatever they're actually asking about.
 ## Data
 
 - `scripts/build_utility_counties.py [year]` regenerates the normalized EIA-861 tables from PUDL:
-  `public/data/utilities.csv` (one row per utility), `utility_states.csv` (utility × state: customers,
-  sales, revenue, county count) and `utility_counties.csv` (the service-territory join table: utility ×
-  county FIPS; retired FIPS codes mapped to their successors). It needs `pandas` + `pyarrow`;
+  `public/data/utilities.csv` (one row per utility: id, name, ownership type, customers / sales /
+  revenue totals across its states — EIA reports them per state, never per county) and
+  `utility_counties.csv` (the many-to-many links: `utility_id_eia`, `county_fips`; retired FIPS codes
+  mapped to their successors). Everything else (service territories, utilities per county or per
+  state) is a transform over these two plus `us_counties`. It needs `pandas` + `pyarrow`;
   downloads are cached in `scripts/.cache/` (git-ignored).
 - **Boundary datasets**: built-in `us_counties` (`fips`, `name` "Autauga, AL", `county`, `state`,
   `state_fips`, `geometry`) and `us_states` (`fips`, `name`, `abbr`, `geometry`), made from the `us-atlas`
@@ -106,7 +108,8 @@ whatever they're actually asking about.
   dataset are joined onto them in a transform — there is no region-code binding. EIA-861 still
   reports Connecticut's eight legacy counties, which match us-atlas.
 - **Built-ins** (`shared/builtins.ts`): uploading one stores a copy marked `extensions.builtin =
-  <table>`. **Data-agnostic code**: nothing outside the data files and the default workspace file
+  <table>` and `extensions.version`; **bump `version` when a built-in's columns or contents change**,
+  or devices keep reusing their old copy for the default map. **Data-agnostic code**: nothing outside the data files and the default workspace file
   knows what a utility or a county is.
 - **Client / server boundary** (everything runs in the browser today, but split as if it didn't):
   - **Server** (`src/server/`): a **Web Worker** (`worker.ts`) running `createServer` (`server.ts`).
@@ -247,7 +250,7 @@ src/
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
-public/data/               utilities.csv, utility_states.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
+public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
 scripts/                   data build scripts
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)

@@ -7,7 +7,6 @@
     "transform:0",
     "builtin:utilities",
     "builtin:utility_counties",
-    "builtin:utility_states",
     "builtin:us_counties",
     "builtin:us_states"
   ],
@@ -18,14 +17,30 @@
       "settings": {
         "kind": "scalar",
         "visible": false,
-        "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+        "binding": {
+          "kind": "geometry",
+          "column": "geometry",
+          "label": "name"
+        },
         "column": "__rows",
         "aggregation": "count",
         "style": {
-          "color": { "kind": "constant", "color": "#000000" },
-          "opacity": { "kind": "constant", "value": 0 },
-          "pattern": { "kind": "none" },
-          "outline": { "color": "#334155", "width": 1.2, "opacity": 0.9 }
+          "color": {
+            "kind": "constant",
+            "color": "#000000"
+          },
+          "opacity": {
+            "kind": "constant",
+            "value": 0
+          },
+          "pattern": {
+            "kind": "none"
+          },
+          "outline": {
+            "color": "#334155",
+            "width": 1.2,
+            "opacity": 0.9
+          }
         }
       }
     },
@@ -35,14 +50,36 @@
       "settings": {
         "kind": "scalar",
         "visible": false,
-        "binding": { "kind": "geometry", "column": "geometry", "label": "county" },
+        "binding": {
+          "kind": "geometry",
+          "column": "geometry",
+          "label": "county"
+        },
         "column": "cooperative",
         "aggregation": "any",
         "style": {
-          "color": { "kind": "constant", "color": "#000000" },
-          "opacity": { "kind": "constant", "value": 0 },
-          "pattern": { "kind": "field", "field": "_value", "patterns": { "true": "hatch" }, "color": "#1b5e20", "opacity": 0.9 },
-          "outline": { "color": "#ffffff", "width": 0, "opacity": 0 }
+          "color": {
+            "kind": "constant",
+            "color": "#000000"
+          },
+          "opacity": {
+            "kind": "constant",
+            "value": 0
+          },
+          "pattern": {
+            "kind": "field",
+            "field": "_value",
+            "patterns": {
+              "true": "hatch"
+            },
+            "color": "#1b5e20",
+            "opacity": 0.9
+          },
+          "outline": {
+            "color": "#ffffff",
+            "width": 0,
+            "opacity": 0
+          }
         }
       }
     },
@@ -52,7 +89,11 @@
       "settings": {
         "kind": "scalar",
         "visible": false,
-        "binding": { "kind": "geometry", "column": "geometry", "label": "county" },
+        "binding": {
+          "kind": "geometry",
+          "column": "geometry",
+          "label": "county"
+        },
         "column": "entity_type",
         "aggregation": "mode",
         "style": {
@@ -75,9 +116,18 @@
               "Unknown": "#bab0ac"
             }
           },
-          "opacity": { "kind": "constant", "value": 0.75 },
-          "pattern": { "kind": "none" },
-          "outline": { "color": "#ffffff", "width": 0.3, "opacity": 0.7 }
+          "opacity": {
+            "kind": "constant",
+            "value": 0.75
+          },
+          "pattern": {
+            "kind": "none"
+          },
+          "outline": {
+            "color": "#ffffff",
+            "width": 0.3,
+            "opacity": 0.7
+          }
         }
       }
     },
@@ -87,14 +137,35 @@
       "settings": {
         "kind": "scalar",
         "visible": true,
-        "binding": { "kind": "geometry", "column": "geometry", "label": "county" },
+        "binding": {
+          "kind": "geometry",
+          "column": "geometry",
+          "label": "county"
+        },
         "column": "utility_id_eia",
         "aggregation": "count",
         "style": {
-          "color": { "kind": "colormap", "field": "_value", "colormap": "viridis", "domain": [0, 10] },
-          "opacity": { "kind": "constant", "value": 0.75 },
-          "pattern": { "kind": "none" },
-          "outline": { "color": "#ffffff", "width": 0.3, "opacity": 0.7 }
+          "color": {
+            "kind": "colormap",
+            "field": "_value",
+            "colormap": "viridis",
+            "domain": [
+              0,
+              10
+            ]
+          },
+          "opacity": {
+            "kind": "constant",
+            "value": 0.75
+          },
+          "pattern": {
+            "kind": "none"
+          },
+          "outline": {
+            "color": "#ffffff",
+            "width": 0.3,
+            "opacity": 0.7
+          }
         }
       }
     }
@@ -102,12 +173,20 @@
   "transforms": [
     {
       "name": "Utilities by county",
-      "sql": "-- One row per county and utility serving it; counties no utility reports keep one empty row.\nSELECT c.geometry, c.name AS county, c.fips AS county_fips,\n  u.utility_id_eia, u.utility_name, u.entity_type,\n  u.entity_type = 'Cooperative' AS cooperative,\n  s.customers AS state_customers\nFROM counties c\nLEFT JOIN territory t ON t.county_fips = c.fips\nLEFT JOIN utilities u ON u.utility_id_eia = t.utility_id_eia\nLEFT JOIN utility_states s ON s.utility_id_eia = t.utility_id_eia AND s.state = t.state\nORDER BY c.fips, u.utility_name",
+      "sql": "-- Each county with the utilities serving it (one row per link); counties no utility reports keep one empty row.\nSELECT c.geometry, c.name AS county, c.fips AS county_fips, c.state,\n  u.utility_id_eia, u.utility_name, u.entity_type,\n  u.entity_type = 'Cooperative' AS cooperative,\n  u.customers AS utility_customers\nFROM counties c\nLEFT JOIN links l ON l.county_fips = c.fips\nLEFT JOIN utilities u ON u.utility_id_eia = l.utility_id_eia\nORDER BY c.fips, u.utility_name",
       "inputs": [
-        { "datasetId": "builtin:us_counties", "alias": "counties" },
-        { "datasetId": "builtin:utility_counties", "alias": "territory" },
-        { "datasetId": "builtin:utilities", "alias": "utilities" },
-        { "datasetId": "builtin:utility_states", "alias": "utility_states" }
+        {
+          "datasetId": "builtin:us_counties",
+          "alias": "counties"
+        },
+        {
+          "datasetId": "builtin:utility_counties",
+          "alias": "links"
+        },
+        {
+          "datasetId": "builtin:utilities",
+          "alias": "utilities"
+        }
       ],
       "outputId": "transform:0"
     }
