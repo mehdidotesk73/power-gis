@@ -118,7 +118,8 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   ArcGIS URL, built-in table → new data table + registry row), `updateDataset`,
   `deleteDataset` (cleans up visualizations and workspace configs), `describeBinding` (features,
   unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
-  `saveWorkspace` (upserts its visualization records, deletes dropped ones), `deleteWorkspace`.
+  `previewTransform`, `runTransform`, `profileDataset`,
+  `saveWorkspace` (upserts its visualization and transform records, deletes dropped ones), `deleteWorkspace`.
   Every answer is an `ApiResult`; errors carry `not_found` / `invalid` / `failed` / `unsupported`.
   Grouping a table onto features (`lib/dataset/query.ts`) is cached per dataset + binding and
   dropped when the dataset changes.
@@ -134,7 +135,7 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   GeoJSON geometries in lon/lat, inferred from GeoJSON or WKT cells (a mixed column takes its most
   common kind; cells of another kind coerce to null). Geometry comes with the data — features get a
   typed geometry column, WKT / GeoJSON cells are typed — and nothing is derived at upload: building
-  a point from latitude / longitude (or a vector from two columns) is a transform (step 2).
+  a point from latitude / longitude (or a vector from two columns) is a transform.
 - **Geometry binding is a visualization setting** — `{kind: 'geometry', column}` draws a geometry
   column; rows with identical geometry become one feature. There are no lat/lon bindings: a
   visualization always draws real features (older saved lat/lon visualizations are dropped on load
@@ -144,6 +145,42 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   server sends the geometry; for boundary ones the client attaches it.
 - **Not dataset properties:** source and usage policy — they belong to the agent workflow's run
   records (roadmap step 6).
+
+### Transforms (SQL that makes datasets)
+
+A transform is one SELECT over input datasets, each called by an alias in the SQL; running it writes
+its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is the engine.
+
+- **Engine** — `server/duckdb.ts` opens DuckDB (exception-handling build only; iOS Safari 15.2+) in its
+  own worker, started from the server worker, on the first transform request (`env.sql` in
+  `worker.ts` is a dynamic import — hence `worker.format: 'es'` in `vite.config.ts`). The ~34 MB wasm
+  (7.7 MB gzipped) is excluded from the PWA precache (`globIgnores: ['**/duckdb-*']`).
+- **Runner** — `server/sql.ts` `createSqlRunner(engine)`: loads each input as a table named by its
+  alias, typed from our columns (int → BIGINT, double → DOUBLE, boolean, datetime → TIMESTAMP, string
+  → VARCHAR, vector → STRUCT(u, v), geometry → VARCHAR GeoJSON), with `INSERT … VALUES` batches (no
+  `registerFileText` + `read_json`: that hangs DuckDB's Node build). Loaded tables are reused while
+  the dataset's `updatedAt` is unchanged. One SELECT / WITH statement only (`checkSelect`). Helper
+  macros: `point(lon, lat)` → GeoJSON point text, `vector(u, v)` → `{u, v}`. Results are normalized
+  (BigInt → number, timestamps → ISO text) and typed with `inferColumns`, so GeoJSON text becomes a
+  geometry column and `{u, v}` a vector column; all-null columns fall back to DuckDB's type.
+- **Requests** — `previewTransform` (first rows + columns + full count; nothing stored),
+  `runTransform` (writes the output table, profile and record; updates a saved transform's
+  `outputId`). SQL errors come back as `invalid` with DuckDB's message. Deleting an output dataset
+  clears transforms' `outputId` (next run makes a new one).
+- **Client** — transforms live in the workspace draft (`TransformSpec`; ops `addTransform`,
+  `updateTransform`, `removeTransform`; `removeDataset` refuses while a transform reads the dataset),
+  saved by `saveWorkspace` (config `transformIds`) and in workspace files (fresh ids; transforms whose
+  inputs are missing are dropped). `TransformsPanel.vue`: inputs (dataset + alias), SQL, Preview,
+  Run. A run adds the output dataset to the workspace with a first visualization when it has geometry.
+  Visualization values are keyed by the dataset's `updatedAt`, so a re-run refreshes the map.
+- **Tests** run real DuckDB via `@duckdb/duckdb-wasm`'s Node build (`server/testEngine.ts`).
+
+### Dataset profiles
+
+`lib/dataset/profile.ts` `profileRows(rows, columns)`: per column filled count, distinct count (capped
+at 100k), min / max for numbers and datetimes; overall completeness. Stored on the dataset record
+whenever its table is written (upload, transform run); `profileDataset` computes it for older
+records. Shown in the dataset editor (✎).
 
 ### Workspace (`lib/workspace/`)
 

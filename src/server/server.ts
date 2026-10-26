@@ -7,7 +7,7 @@
 import type { ApiError, ApiResult, Payload, RequestType, Response, UploadSource } from '../shared/api'
 import { BUILTIN_TABLES } from '../shared/builtins'
 import type { Database } from '../shared/database'
-import { dataTableName, type DatasetRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
+import { dataTableName, type DatasetRecord, type TransformInputRef, type TransformRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
 import { featureTable, type DataRecord } from '../lib/data/connectors'
 import { parseCsv } from '../lib/data/csv'
 import { fetchArcGISLayer, importJSON } from '../lib/arcgis'
@@ -15,12 +15,16 @@ import type { BoundaryFeature, BoundaryId, GeometryBinding } from '../lib/datase
 import { inferColumns, isGeometryColumn, type ColumnInfo } from '../lib/dataset/columns'
 import { newId } from '../lib/dataset/dataset'
 import { bindingInfo, groupDataset, queryValues, type Grouped } from '../lib/dataset/query'
+import { profileRows } from '../lib/dataset/profile'
+import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
 export interface ServerEnv {
   loadBoundaries(id: BoundaryId): Promise<Map<string, BoundaryFeature>>
   /** A built-in table's rows (already prepared, e.g. ownership flags added). */
   readBuiltin(table: string, baseUrl: string): Promise<DataRecord[]>
   fetchImpl?: typeof fetch
+  /** Opens the SQL engine (DuckDB) on first use. Without one, transforms are unsupported. */
+  sql?: () => Promise<SqlEngine>
 }
 
 class Failure extends Error {
@@ -47,6 +51,34 @@ export function createServer(db: Database, env: ServerEnv) {
   const groupedCache = new Map<string, Promise<{ g: Grouped; columns: ColumnInfo[] }>>()
   const forget = (datasetId: string) => {
     for (const k of groupedCache.keys()) if (k.startsWith(`${datasetId}|`)) groupedCache.delete(k)
+  }
+
+  const sql = env.sql ? createSqlRunner(env.sql) : null
+
+  /** A transform's inputs as SQL tables (loaded only when their data changed). */
+  async function sqlInputs(inputs: TransformInputRef[]): Promise<SqlInput[]> {
+    if (!inputs.length) fail('invalid', 'A transform needs at least one input dataset')
+    return Promise.all(
+      inputs.map(async (i) => {
+        const ds = await dataset(i.datasetId)
+        return {
+          alias: i.alias,
+          version: `${ds.id}|${ds.updatedAt}`,
+          columns: ds.columns,
+          rows: async () => (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`),
+        }
+      }),
+    )
+  }
+  async function runSql(query: string, inputs: TransformInputRef[], limit?: number) {
+    if (!sql) fail('unsupported', 'SQL transforms are not available here')
+    const tables = await sqlInputs(inputs)
+    try {
+      return await sql!.run(query, tables, limit)
+    } catch (e) {
+      // SQL mistakes (and DuckDB's own messages) come back as readable errors.
+      return fail('invalid', (e as Error).message)
+    }
   }
 
   async function dataset(id: string): Promise<DatasetRecord> {
@@ -118,6 +150,7 @@ export function createServer(db: Database, env: ServerEnv) {
         table: dataTableName(id),
         columns,
         rowCount: rows.length,
+        profile: profileRows(rows, columns),
         origin: src.origin,
         createdAt: t,
         updatedAt: t,
@@ -149,11 +182,48 @@ export function createServer(db: Database, env: ServerEnv) {
       for (const v of await db.list('visualizations')) if (v.datasetId === id) (gone.add(v.id), await db.delete('visualizations', v.id))
       for (const w of await db.list('workspaces')) {
         if (!w.config.datasetIds.includes(id)) continue
-        const config = { datasetIds: w.config.datasetIds.filter((d) => d !== id), visualizationIds: w.config.visualizationIds.filter((v) => !gone.has(v)) }
+        const config = { ...w.config, datasetIds: w.config.datasetIds.filter((d) => d !== id), visualizationIds: w.config.visualizationIds.filter((v) => !gone.has(v)) }
         await db.put('workspaces', { ...w, config, updatedAt: now() })
       }
+      // A transform that wrote this dataset makes a new one on its next run.
+      for (const tr of await db.list('transforms')) if (tr.outputId === id) await db.put('transforms', { ...tr, outputId: undefined, updatedAt: now() })
       forget(id)
       return { datasetId: id }
+    },
+
+    async previewTransform({ sql: query, inputs, limit }) {
+      return runSql(query, inputs, limit ?? 20)
+    },
+
+    async runTransform({ transform }) {
+      if (!transform.name.trim()) fail('invalid', 'A transform needs a name')
+      const out = await runSql(transform.sql, transform.inputs)
+      const t = now()
+      const existing = transform.outputId ? await db.get('datasets', transform.outputId) : undefined
+      const id = existing?.id ?? newId()
+      const record: DatasetRecord = {
+        ...(existing ?? { id, table: dataTableName(id), origin: `Transform · ${transform.name.trim()}`, name: transform.name.trim(), createdAt: t }),
+        columns: out.columns,
+        rowCount: out.rows.length,
+        profile: profileRows(out.rows, out.columns),
+        updatedAt: t,
+      }
+      await db.writeRows(record.table, out.rows)
+      await db.put('datasets', record)
+      forget(id)
+      // A saved transform remembers where its output went.
+      const saved = await db.get('transforms', transform.id)
+      if (saved && saved.outputId !== id) await db.put('transforms', { ...saved, outputId: id, updatedAt: t })
+      return { datasetId: id, rowCount: out.rows.length, created: !existing }
+    },
+
+    async profileDataset({ datasetId }) {
+      const ds = await dataset(datasetId)
+      if (ds.profile) return ds.profile
+      const rows = (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`)
+      const profile = profileRows(rows, ds.columns)
+      await db.put('datasets', { ...ds, profile })
+      return profile
     },
 
     async describeBinding({ datasetId, binding }) {
@@ -172,7 +242,7 @@ export function createServer(db: Database, env: ServerEnv) {
       return g.groups.find((x) => x.key === key)?.rows ?? []
     },
 
-    async saveWorkspace({ id, name, config, visualizations }) {
+    async saveWorkspace({ id, name, config, visualizations, transforms = [] }) {
       if (!name.trim()) fail('invalid', 'A workspace needs a name')
       const existing = id ? await db.get('workspaces', id) : undefined
       if (id && !existing) fail('not_found', `No workspace "${id}"`)
@@ -187,11 +257,27 @@ export function createServer(db: Database, env: ServerEnv) {
       }
       const keep = new Set(visualizations.map((v) => v.id))
       for (const old of existing?.config.visualizationIds ?? []) if (!keep.has(old)) await db.delete('visualizations', old)
+      for (const tr of transforms) {
+        if (!tr.name.trim()) fail('invalid', 'A transform needs a name')
+        const old = await db.get('transforms', tr.id)
+        const record: TransformRecord = {
+          id: tr.id,
+          name: tr.name.trim(),
+          sql: tr.sql,
+          inputs: tr.inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })),
+          ...(tr.outputId ? { outputId: tr.outputId } : {}),
+          createdAt: old?.createdAt ?? t,
+          updatedAt: t,
+        }
+        await db.put('transforms', record)
+      }
+      const keepT = new Set(transforms.map((x) => x.id))
+      for (const old of existing?.config.transformIds ?? []) if (!keepT.has(old)) await db.delete('transforms', old)
       const record: WorkspaceRecord = {
         id: existing?.id ?? newId(),
         name: name.trim(),
         ownerId: existing?.ownerId ?? userId ?? fail('invalid', 'Call init first'),
-        config: { datasetIds: [...config.datasetIds], visualizationIds: visualizations.map((v) => v.id) },
+        config: { datasetIds: [...config.datasetIds], visualizationIds: visualizations.map((v) => v.id), transformIds: transforms.map((x) => x.id) },
         createdAt: existing?.createdAt ?? t,
         updatedAt: t,
       }
@@ -202,6 +288,7 @@ export function createServer(db: Database, env: ServerEnv) {
     async deleteWorkspace({ id }) {
       const w = (await db.get('workspaces', id)) ?? fail('not_found', `No workspace "${id}"`)
       for (const v of w.config.visualizationIds) await db.delete('visualizations', v)
+      for (const x of w.config.transformIds ?? []) await db.delete('transforms', x)
       await db.delete('workspaces', id)
       return { workspaceId: id }
     },

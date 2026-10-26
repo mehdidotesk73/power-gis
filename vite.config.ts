@@ -34,6 +34,8 @@ function emitVersionJson(): Plugin {
 }
 
 export default defineConfig({
+  // The server worker loads DuckDB on demand (a code-split dynamic import), which needs ES-module workers.
+  worker: { format: 'es' },
   plugins: [
     vue(),
     emitVersionJson(),
@@ -67,6 +69,8 @@ export default defineConfig({
       },
       workbox: {
         cleanupOutdatedCaches: true,
+        // DuckDB (~34 MB wasm + its worker) loads on demand, not into the offline cache.
+        globIgnores: ['**/duckdb-*'],
       },
     }),
   ],

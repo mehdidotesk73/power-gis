@@ -9,7 +9,9 @@ import type { Aggregation } from '../lib/dataset/aggregate'
 import type { GeometryBinding } from '../lib/dataset/binding'
 import type { BindingInfo, VizValues } from '../lib/dataset/query'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
-import type { WorkspaceConfig } from './records'
+import type { TransformInputRef, WorkspaceConfig } from './records'
+import type { ColumnInfo } from '../lib/dataset/columns'
+import type { DatasetProfile } from '../lib/dataset/profile'
 
 export interface ApiError {
   code: 'not_found' | 'invalid' | 'failed' | 'unsupported'
@@ -23,6 +25,16 @@ export type UploadSource =
   | { kind: 'json'; file: File } // GeoJSON or Esri JSON
   | { kind: 'arcgis'; url: string }
   | { kind: 'builtin'; table: string }
+
+/** A transform as the client holds it (saved with the workspace; runnable any time). */
+export interface TransformInput {
+  id: string
+  name: string
+  sql: string
+  inputs: TransformInputRef[]
+  /** The dataset its last run wrote; absent → the next run makes a new one. */
+  outputId?: string
+}
 
 export interface VisualizationInput {
   id: string
@@ -44,10 +56,19 @@ export interface Api {
   describeBinding: [{ datasetId: string; binding: GeometryBinding }, BindingInfo]
   /** One value per feature for a visualization. */
   queryVisualization: [{ datasetId: string; binding: GeometryBinding; column: string; aggregation: Aggregation }, VizValues]
+  /** Runs a transform's SQL without storing anything: the first rows, the columns and the full count. */
+  previewTransform: [{ sql: string; inputs: TransformInputRef[]; limit?: number }, { columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }]
+  /** Runs a transform and stores the result: into `outputId`'s table, or a new dataset. Returns the output pointer. */
+  runTransform: [{ transform: TransformInput }, { datasetId: string; rowCount: number; created: boolean }]
+  /** A dataset's profile (computed and stored if the record has none yet). */
+  profileDataset: [{ datasetId: string }, DatasetProfile]
   /** The rows behind one feature (click panel). */
   featureRows: [{ datasetId: string; binding: GeometryBinding; key: string }, DataRecord[]]
-  /** Creates or updates a workspace with its visualizations; visualizations it no longer lists are deleted. */
-  saveWorkspace: [{ id?: string; name: string; config: Omit<WorkspaceConfig, 'visualizationIds'>; visualizations: VisualizationInput[] }, { workspaceId: string }]
+  /** Creates or updates a workspace with its visualizations and transforms; ones it no longer lists are deleted (output datasets stay). */
+  saveWorkspace: [
+    { id?: string; name: string; config: Pick<WorkspaceConfig, 'datasetIds'>; visualizations: VisualizationInput[]; transforms?: TransformInput[] },
+    { workspaceId: string },
+  ]
   deleteWorkspace: [{ id: string }, { workspaceId: string }]
 }
 export type RequestType = keyof Api

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createServer } from './server'
+import { nodeDuckDb } from './testEngine'
 import { MemoryDatabase } from '../shared/database'
 import type { ApiResult } from '../shared/api'
 import type { BoundaryFeature } from '../lib/dataset/binding'
@@ -18,6 +19,7 @@ function setup() {
   const server = createServer(db, {
     loadBoundaries: async () => counties,
     readBuiltin: async (table) => (table === 'utilities' ? [{ utility_id: 1, name: 'Alabama Power' }] : []),
+    sql: nodeDuckDb,
   })
   return { db, server }
 }
@@ -79,7 +81,7 @@ describe('server', () => {
     const viz = (v: typeof v1) => ({ id: v.id, name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })
     const { workspaceId } = data(await server.handle('saveWorkspace', { name: 'Mine', config: { datasetIds: [a, b] }, visualizations: [viz(v1), viz(v2)] }))
     const w = (await db.get('workspaces', workspaceId))!
-    expect(w.config).toEqual({ datasetIds: [a, b], visualizationIds: [v1.id, v2.id] })
+    expect(w.config).toEqual({ datasetIds: [a, b], visualizationIds: [v1.id, v2.id], transformIds: [] })
     expect(JSON.stringify(w)).not.toContain('Alabama') // pointers, never rows
     expect((await db.get('visualizations', v1.id))!.settings).toMatchObject({ binding: county, column: ROWS })
 
@@ -92,7 +94,7 @@ describe('server', () => {
 
     data(await server.handle('deleteDataset', { id: a }))
     expect(await db.get('visualizations', v2.id)).toBeUndefined()
-    expect((await db.get('workspaces', workspaceId))!.config).toEqual({ datasetIds: [b], visualizationIds: [] })
+    expect((await db.get('workspaces', workspaceId))!.config).toEqual({ datasetIds: [b], visualizationIds: [], transformIds: [] })
     expect(await db.readRows(`ds_${a.replace(/-/g, '')}`)).toBeUndefined()
   })
 
@@ -104,5 +106,58 @@ describe('server', () => {
     expect(await server.handle('updateDataset', { id: 'zz' })).toMatchObject({ ok: false, error: { code: 'not_found' } })
     expect(await server.handle('nope' as never, {} as never)).toMatchObject({ ok: false, error: { code: 'unsupported' } })
     expect(defaultScalarStyle('int', 'region').color.kind).toBe('colormap')
+  })
+
+  it('runs transforms: a new output, then the same output again, as pointers', async () => {
+    const { db, server } = setup()
+    data(await server.handle('init', { baseUrl: '/' }))
+    const PLANTS = 'name,lat,lon,mw\nA,35.1,-90,500\nB,40.7,-74,1200\nC,,-90,300\n'
+    const src = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('plants.csv', PLANTS) } })).datasetId
+    expect((await db.get('datasets', src))!.profile).toMatchObject({ rowCount: 3, columns: expect.arrayContaining([expect.objectContaining({ name: 'lat', filled: 2 })]) })
+    const inputs = [{ datasetId: src, alias: 'plants' }]
+
+    const preview = data(await server.handle('previewTransform', { sql: 'SELECT name, point(lon, lat) AS location, mw FROM plants', inputs, limit: 2 }))
+    expect(preview).toMatchObject({ rowCount: 3, rows: expect.any(Array) })
+    expect(preview.rows).toHaveLength(2)
+    expect(preview.columns.map((c) => c.type)).toEqual(['string', 'point', 'int'])
+    const bad = await server.handle('previewTransform', { sql: 'SELECT nope FROM plants', inputs })
+    expect(bad).toMatchObject({ ok: false, error: { code: 'invalid', message: expect.stringContaining('nope') } })
+
+    const tr = { id: crypto.randomUUID(), name: 'Plant points', sql: 'SELECT name, point(lon, lat) AS location, mw FROM plants WHERE lat IS NOT NULL', inputs }
+    data(await server.handle('saveWorkspace', { name: 'W', config: { datasetIds: [src] }, visualizations: [], transforms: [tr] }))
+    const first = data(await server.handle('runTransform', { transform: tr }))
+    expect(first).toMatchObject({ rowCount: 2, created: true })
+    const out = (await db.get('datasets', first.datasetId))!
+    expect(out).toMatchObject({ name: 'Plant points', origin: 'Transform · Plant points', rowCount: 2 })
+    expect(out.columns).toEqual([{ name: 'name', type: 'string' }, { name: 'location', type: 'point' }, { name: 'mw', type: 'int' }])
+    expect((await db.get('transforms', tr.id))!.outputId).toBe(first.datasetId) // the saved transform remembers its output
+
+    // Visualize the output's point column.
+    const pts = data(await server.handle('queryVisualization', { datasetId: first.datasetId, binding: { kind: 'geometry', column: 'location' }, column: 'mw', aggregation: 'sum' }))
+    expect(pts.features.map((f) => f.value)).toEqual([500, 1200])
+
+    // Re-running with the output id overwrites that dataset; cached values are recomputed.
+    const again = data(await server.handle('runTransform', { transform: { ...tr, sql: 'SELECT name, point(lon, lat) AS location, mw * 2 AS mw FROM plants WHERE lat IS NOT NULL', outputId: first.datasetId } }))
+    expect(again).toEqual({ datasetId: first.datasetId, rowCount: 2, created: false })
+    const pts2 = data(await server.handle('queryVisualization', { datasetId: first.datasetId, binding: { kind: 'geometry', column: 'location' }, column: 'mw', aggregation: 'sum' }))
+    expect(pts2.features.map((f) => f.value)).toEqual([1000, 2400])
+
+    // Deleting the output: the transform makes a new one next time. Dropping the transform from the workspace deletes it.
+    data(await server.handle('deleteDataset', { id: first.datasetId }))
+    expect((await db.get('transforms', tr.id))!.outputId).toBeUndefined()
+    const w = (await db.list('workspaces'))[0]
+    data(await server.handle('saveWorkspace', { id: w.id, name: 'W', config: { datasetIds: [src] }, visualizations: [], transforms: [] }))
+    expect(await db.get('transforms', tr.id)).toBeUndefined()
+    expect(await server.handle('runTransform', { transform: { ...tr, inputs: [] } })).toMatchObject({ ok: false, error: { message: expect.stringContaining('input') } })
+  })
+
+  it('profiles a dataset that was stored without one', async () => {
+    const { db, server } = setup()
+    const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
+    const ds = (await db.get('datasets', datasetId))!
+    await db.put('datasets', { ...ds, profile: undefined })
+    const p = data(await server.handle('profileDataset', { datasetId }))
+    expect(p.rowCount).toBe(4)
+    expect((await db.get('datasets', datasetId))!.profile).toEqual(p)
   })
 })

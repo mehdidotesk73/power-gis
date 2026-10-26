@@ -9,6 +9,10 @@ import {
   reorderDatasets,
   reorderVisualizations,
   updateVisualization,
+  addTransform,
+  updateTransform,
+  removeTransform,
+  aliasFor,
   type OpResult,
   type WorkspaceDoc,
 } from './workspace'
@@ -71,6 +75,23 @@ describe('workspace operations', () => {
     expect(doc(updateVisualization(base, { ...viz('a1', 'a'), visible: false })).visualizations[1].visible).toBe(false)
     expect(updateVisualization(base, viz('zz', 'a')).ok).toBe(false)
     expect(doc(removeVisualization(base, 'a1')).visualizations.map((v) => v.id)).toEqual(['b1', 'a2'])
+  })
+
+  it('adds, updates and removes transforms, validating inputs and table names', () => {
+    const t = { id: 't1', name: 'Pts', sql: 'SELECT * FROM a', inputs: [{ datasetId: 'a', alias: 'a' }] }
+    const d = doc(addTransform(base, t))
+    expect(d.transforms).toEqual([t])
+    expect(addTransform(d, t)).toMatchObject({ ok: false, error: { code: 'duplicate' } })
+    expect(addTransform(base, { ...t, inputs: [{ datasetId: 'zz', alias: 'z' }] })).toMatchObject({ ok: false, error: { code: 'not_found' } })
+    expect(addTransform(base, { ...t, inputs: [{ datasetId: 'a', alias: '1x' }] })).toMatchObject({ ok: false, error: { message: expect.stringContaining('table name') } })
+    expect(addTransform(base, { ...t, inputs: [{ datasetId: 'a', alias: 'x' }, { datasetId: 'b', alias: 'x' }] }).ok).toBe(false)
+    expect(addTransform(base, { ...t, inputs: [] }).ok).toBe(false)
+    expect(doc(updateTransform(d, { ...t, outputId: 'b' })).transforms[0].outputId).toBe('b')
+    // A dataset a transform reads can't leave the workspace until the transform stops using it.
+    expect(removeDataset(d, 'a')).toMatchObject({ ok: false, error: { message: expect.stringContaining('Pts') } })
+    expect(doc(removeTransform(d, 't1')).transforms).toEqual([])
+    expect(aliasFor('Electric utilities by county (EIA-861)')).toBe('electric_utilities_by_county_eia_861')
+    expect(aliasFor('2025 plants')).toBe('t_2025_plants')
   })
 
   it('renames the workspace', () => {

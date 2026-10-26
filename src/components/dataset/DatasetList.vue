@@ -23,6 +23,10 @@ const { dragging, onHandleDown, onHandleMove, onHandleUp } = useDragReorder(
 )
 const editing = ref<string | null>(null)
 const stats = (d: DatasetRecord) => `${plural(d.rowCount, 'row')} · ${plural(d.columns.length, 'column')}`
+const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : '—')
+/** Numbers compact, datetimes as dates. */
+const short = (v: unknown) =>
+  typeof v === 'number' ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(v ?? '').replace(/T00:00:00(\.000)?Z$/, '').slice(0, 19)
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 </script>
 
@@ -64,6 +68,25 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
             @change="emit('update', ds.id, { description: ($event.target as HTMLTextAreaElement).value })"
           />
         </label>
+        <div v-if="ds.profile" class="profile">
+          <div class="lbl">Profile · {{ Math.round(ds.profile.completeness * 100) }}% of cells filled</div>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr><th>Column</th><th>Type</th><th>Filled</th><th>Distinct</th><th>Range</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in ds.profile.columns" :key="c.name">
+                  <td>{{ c.name }}</td>
+                  <td>{{ c.type }}</td>
+                  <td>{{ pct(c.filled, ds.profile.rowCount) }}</td>
+                  <td>{{ c.distinct.toLocaleString() }}</td>
+                  <td>{{ c.min === undefined ? '' : `${short(c.min)} – ${short(c.max)}` }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
         <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
       </div>
       <p class="muted uses">Used by {{ plural(vizCount(ds.id), 'visualization') }}</p>
@@ -83,6 +106,38 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
   border: 1px solid var(--border);
   border-radius: 0.4rem;
   padding: 0.4rem 0.5rem;
+}
+.profile {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.lbl {
+  font-weight: 600;
+  font-size: 0.76rem;
+}
+.scroll {
+  overflow: auto;
+  max-height: 14rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+}
+table {
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  width: 100%;
+}
+th,
+td {
+  padding: 0.15rem 0.35rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-elev);
 }
 .ds.dragging {
   opacity: 0.7;

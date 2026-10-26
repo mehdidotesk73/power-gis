@@ -112,8 +112,8 @@ whatever they're actually asking about.
 - **Database** (IndexedDB `powergis-db` on this device; Supabase later). Base tables, every row with a
   uuid `id` + editable `name`, no access control yet: `users`, `workspaces` (config of **pointers**:
   `datasetIds`, ordered `visualizationIds`), `datasets` (registry: data table name, columns, row
-  count, origin, description, `extensions`), `transforms` (SQL + input/output ids — table only, runs
-  in step 2), `visualizations` (dataset id + settings). **Each dataset is its own data table**
+  count, origin, description, `extensions`), `transforms` (SQL, inputs `{datasetId, alias}`, output
+  id), `visualizations` (dataset id + settings). **Each dataset is its own data table**
   (`ds_<uuid>`). Datasets carry standard metadata only — **source and usage policy are not dataset
   properties**.
 - **Concepts — keep the names straight:**
@@ -139,7 +139,7 @@ whatever they're actually asking about.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
   column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
   Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells (combining two numeric
-  columns into one is a transform's job, step 2). They aggregate component-wise (sum / mean).
+  columns into one is a transform's job: `vector(u, v)`). They aggregate component-wise (sum / mean).
   ArcGIS has no vector type, so exports split them into `<name>_u` / `<name>_v` Double fields;
   our schema sidecar rebuilds them on re-import.
 - **Categorical colors** (`lib/palettes.ts`): every value gets a color — no category cap. Palettes
@@ -151,7 +151,16 @@ whatever they're actually asking about.
   holding GeoJSON geometries in lon/lat (WGS84); cells may arrive as GeoJSON or WKT and are coerced.
   Geometry comes with the data: GeoJSON / Esri / ArcGIS features get a typed geometry column, and
   CSV cells in WKT or GeoJSON are typed too. A table with only latitude / longitude columns has no
-  geometry until a transform builds a point column (step 2) — nothing is derived at upload.
+  geometry until a transform builds a point column (`point(lon, lat)`) — nothing is derived at upload.
+- **Transforms** (SQL that makes datasets): DuckDB-WASM runs in the server worker, loaded on first use
+  (`server/duckdb.ts`; the ~34 MB eh wasm is kept out of the PWA precache). `server/sql.ts` loads
+  each input dataset as a table named by its alias (INSERT … VALUES — no file registration, which hangs
+  the Node build), runs one SELECT, and types the result again (GeoJSON text → geometry, `{u, v}` →
+  vector). Helpers in SQL: `point(lon, lat)`, `vector(u, v)`. Requests: `previewTransform` (first rows,
+  nothing stored), `runTransform` (writes `outputId`'s table or a new dataset; returns the pointer).
+  Transforms are part of the workspace draft (`TransformSpec`, ops `addTransform` / `updateTransform`
+  / `removeTransform`) and saved with it. Tests run real DuckDB through its Node build
+  (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).
@@ -193,12 +202,12 @@ src/
     utilities.ts           EIA-861 typed rows + utility list (search)
     data/connectors.ts     connectors: how sources are read
     workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts)
-    dataset/               columns, aggregate, binding (+ wkt), boundaries (loader), query (server-side grouping), visualization
+    dataset/               columns, aggregate, binding (+ wkt), boundaries (loader), query (server-side grouping), profile, visualization
     search.ts              ranked type-ahead search
     data/csv.ts            CSV → records
     demo.ts                synthetic vector field for exercising the arrow widget
   shared/                  client ↔ server contract: api, records (tables), database, idb, builtins
-  server/                  the server (Web Worker today): server.ts handlers, worker.ts entry
+  server/                  the server (Web Worker today): server.ts handlers, worker.ts entry, sql.ts + duckdb.ts (transforms)
   client/                  api.ts (requests to the server), db.ts (read-only database)
   components/
     map/                   reusable map widgets
@@ -215,6 +224,7 @@ src/
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
     dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
+    transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     UtilityCountyDashboard.vue  custom dashboard for a county
     utilityStyles.ts       view presets + ownership colors
     HelpModal.vue          renders docs/concepts/*.md into the Help modal

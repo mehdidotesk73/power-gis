@@ -41,6 +41,13 @@ Track feature development, improvements, and known issues here. Move completed w
   `isSupportedBinding` drops old ones). Geometry comes with the data (nothing derived at upload;
   lat/lon → point and u/v → vector are transforms, step 2). Region-code binding kept as a stopgap
   until boundary datasets + joins.
+- **Transforms + profiles (roadmap step 2)** — DuckDB-WASM in the server worker, lazy-loaded
+  (`server/duckdb.ts`, `server/sql.ts` `createSqlRunner`; `point(lon, lat)` / `vector(u, v)`
+  helpers); `previewTransform` / `runTransform` (output pointer: overwrite or new dataset);
+  transforms in the workspace draft + saveWorkspace + files (`TransformSpec`, `addTransform` …);
+  `TransformsPanel` (inputs with aliases, SQL, Preview, Run). Dataset profiles
+  (`lib/dataset/profile.ts`) stored on every write, shown in the dataset editor. Tests on real
+  DuckDB (Node build).
 
 ## Next (Current Sprint)
 
@@ -93,7 +100,7 @@ results, because the agent workflow (step 6) drives the same operations as the U
    - Built-in EIA data is loaded into the database once, as an ordinary dataset.
 1c. ~~**Geometry columns**~~ (done, see Done) — visualizations draw real features: a point /
    polyline / region column (lon/lat), from the data or a transform.
-2. **DuckDB-WASM + derived datasets + dataset profiles** — DuckDB (lazy-loaded) for SQL; a derived
+2. ~~**DuckDB-WASM + derived datasets + dataset profiles**~~ (done, see Done; key coverage in profiles still open) — DuckDB (lazy-loaded) for SQL; a derived
    dataset is a SQL query over datasets (e.g. lat + lon → point, east + north → vector), whose geometry columns visualizations draw (this also covers
    visualizations sourced from several datasets: join, then visualize). A **profile** for every
    dataset (row count, columns/types, nulls, completeness, key coverage) — the metadata agents

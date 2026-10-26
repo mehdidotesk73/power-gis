@@ -7,7 +7,7 @@ import type { VisualizationSettings, VisualizationSpec } from '../dataset/visual
 import { settingsOf } from '../dataset/visualization'
 import { newId } from '../dataset/dataset'
 import { isSupportedBinding } from '../dataset/binding'
-import type { WorkspaceDoc } from './workspace'
+import type { TransformSpec, WorkspaceDoc } from './workspace'
 
 export const FILE_FORMAT = 'powergis-workspace'
 export const FILE_VERSION = 1
@@ -22,6 +22,8 @@ export interface WorkspaceFile {
   datasetIds: string[]
   /** Top of the list first. */
   visualizations: { name: string; datasetId: string; settings: VisualizationSettings }[]
+  /** Optional (files from before transforms have none). */
+  transforms?: Omit<TransformSpec, 'id'>[]
 }
 
 export function toWorkspaceFile(doc: WorkspaceDoc): WorkspaceFile {
@@ -33,6 +35,7 @@ export function toWorkspaceFile(doc: WorkspaceDoc): WorkspaceFile {
     name: doc.name,
     datasetIds: [...doc.datasetIds],
     visualizations: doc.visualizations.map((v) => ({ name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
+    transforms: doc.transforms.map(({ id: _id, ...t }) => t),
   }
 }
 
@@ -59,6 +62,11 @@ export function parseWorkspaceFile(text: string): Parsed {
       return { ok: false, error: 'A visualization in the file is incomplete or damaged.' }
     }
   }
+  for (const t of o.transforms ?? []) {
+    if (typeof t?.name !== 'string' || typeof t.sql !== 'string' || !Array.isArray(t.inputs) || !t.inputs.every((i) => typeof i?.datasetId === 'string' && typeof i.alias === 'string')) {
+      return { ok: false, error: 'A transform in the file is incomplete or damaged.' }
+    }
+  }
   return { ok: true, file: o as WorkspaceFile }
 }
 
@@ -74,14 +82,18 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   const visualizations = file.visualizations
     .filter((v) => datasetIds.includes(v.datasetId) && isSupportedBinding(v.settings.binding)) // older files had lat/lon pairs
     .map((v) => ({ ...v.settings, id: newId(), name: v.name, datasetId: v.datasetId }) as VisualizationSpec)
-  return { doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds, visualizations }, missing }
+  // Transforms keep their output pointer only if that dataset is here; inputs must all be here.
+  const transforms = (file.transforms ?? [])
+    .filter((t) => t.inputs.every((i) => datasetIds.includes(i.datasetId)))
+    .map((t) => ({ ...t, id: newId(), ...(t.outputId && !inDatabase(t.outputId) ? { outputId: undefined } : {}) }))
+  return { doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds, visualizations, transforms }, missing }
 }
 
 // ── drafts ─────────────────────────────────────────────────────────────────
 
 /** Stable text of what Save would store — equal text means nothing to save. */
 export function snapshot(doc: WorkspaceDoc): string {
-  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations })
+  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms })
 }
 
 /** Unsaved edits kept on the device between visits. */
@@ -95,7 +107,8 @@ export function parseDraft(text: string | null): Draft | null {
   if (!text) return null
   try {
     const d = JSON.parse(text) as Draft
-    return d && typeof d.saved === 'string' && d.doc && Array.isArray(d.doc.datasetIds) && Array.isArray(d.doc.visualizations) ? d : null
+    if (!(d && typeof d.saved === 'string' && d.doc && Array.isArray(d.doc.datasetIds) && Array.isArray(d.doc.visualizations))) return null
+    return { ...d, doc: { ...d.doc, transforms: d.doc.transforms ?? [] } } // drafts from before transforms
   } catch {
     return null
   }

@@ -312,6 +312,16 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Transforms + profiles — 2026-10-26
+- **Added:** SQL transforms on DuckDB-WASM (preview, run, saved with the workspace and in files);
+  `point(lon, lat)` / `vector(u, v)` helpers; dataset profiles on every write.
+- **Changed:** workers build as ES modules (`worker.format: 'es'`), needed for the on-demand DuckDB
+  import; visualization values are keyed by the dataset's `updatedAt`.
+- **What didn't work:** loading inputs with `registerFileText` + `read_json` hung DuckDB's Node build
+  (tests), so inputs load with `INSERT … VALUES` batches everywhere. A dev-tagged DuckDB release is
+  `latest` on npm; pinned the stable 1.32.0 instead.
+- **Docs:** CLAUDE.md, system-design §4 (transforms, profiles), help overview, TODO.
+
 ### Geometry columns — 2026-10-26
 - **Added:** point / polyline / region column types; the demo vector field carries a point column.
 - **Removed:** lat/lon visualization bindings — saved ones are dropped with a log line; the
