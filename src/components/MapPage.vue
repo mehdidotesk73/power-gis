@@ -22,6 +22,7 @@ import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
 import UtilityCountyDashboard from './UtilityCountyDashboard.vue'
 import WorkspaceBar from './workspace/WorkspaceBar.vue'
+import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { UTILITY_NAME, utilityVisualizations } from './utilityStyles'
@@ -45,6 +46,10 @@ import {
   reorderDatasets as reorderDatasets_,
   reorderVisualizations as reorderVisualizations_,
   updateVisualization as updateVisualization_,
+  addTransform as addTransform_,
+  updateTransform as updateTransform_,
+  removeTransform as removeTransform_,
+  type TransformSpec,
   type OpContext,
   type OpResult,
   type WorkspaceDoc,
@@ -97,9 +102,16 @@ async function loadRecord(id: string): Promise<DatasetRecord | undefined> {
   const r = await readDb.get('datasets', id)
   if (r) {
     records.value = new Map(records.value).set(id, r)
+    // Datasets stored before profiles existed get one (once; the server keeps it).
+    if (!r.profile) void backfillProfile(id)
     if (r.extensions?.preset === 'utilities') void loadUtilities(r)
   }
   return r
+}
+async function backfillProfile(id: string) {
+  if (!(await request('profileDataset', { datasetId: id })).ok) return
+  const x = await readDb.get('datasets', id)
+  if (x) records.value = new Map(records.value).set(id, x)
 }
 async function loadUtilities(r: DatasetRecord) {
   const rows = await readDb.readRows(r.table)
@@ -150,6 +162,7 @@ async function save() {
       name: d.name,
       config: { datasetIds: d.datasetIds },
       visualizations: d.visualizations.map((v) => ({ id: v.id, name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
+      transforms: d.transforms,
     }),
   )
   saving.value = false
@@ -239,6 +252,31 @@ const removeVisualization = (id: string) => apply(removeVisualization_(doc.value
 const reorderVisualizations = (ids: string[]) => apply(reorderVisualizations_(doc.value, ids))
 const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids))
 
+// ── transforms ─────────────────────────────────────────────────────────────
+
+const runStatus = ref<Record<string, RunStatus>>({})
+const nameOf = (id: string) => records.value.get(id)?.name
+
+/** Runs a transform on the server; its output dataset joins the workspace (with a first visualization when it has geometry). */
+async function runTransform(id: string) {
+  const t = doc.value.transforms.find((x) => x.id === id)
+  if (!t) return
+  runStatus.value = { ...runStatus.value, [id]: { state: 'running' } }
+  const r = await request('runTransform', { transform: t })
+  if (!r.ok) {
+    runStatus.value = { ...runStatus.value, [id]: { state: 'error', message: r.error.message } }
+    return
+  }
+  const { datasetId, rowCount } = r.data
+  forgetBindingInfo(datasetId)
+  const ds = await loadRecord(datasetId) // a new updatedAt: its visualizations re-query
+  const now = doc.value.transforms.find((x) => x.id === id)
+  if (now && now.outputId !== datasetId) apply(updateTransform_(doc.value, { ...now, outputId: datasetId }))
+  if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, await firstVisualizations(ds)))
+  runStatus.value = { ...runStatus.value, [id]: { state: 'done', message: `${rowCount.toLocaleString()} rows → ${ds?.name ?? 'dataset'}` } }
+  logDebug(`transform "${t.name}": ${rowCount} rows → ${ds?.name}`)
+}
+
 function zoomTo(datasetId: string) {
   const r = rendered.value.find((x) => x.layer.datasetId === datasetId)
   const b = r && focusBox(r.data.features.filter((f) => (f.properties[ROW_COUNT] as number) > 0).map((f) => f.geometry))
@@ -268,8 +306,14 @@ async function open(w: WorkspaceRecord) {
     if (!isSupportedBinding(v.settings.binding)) logDebug(`"${v.name}" used a lat/lon pair — add a point column to its dataset and visualize that`, 'warn')
     else vizs.push({ ...v.settings, id: v.id, name: v.name, datasetId: v.datasetId } as VisualizationSpec)
   }
-  doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs }
-  logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations`)
+  const transforms: TransformSpec[] = []
+  for (const id of w.config.transformIds ?? []) {
+    const t = await readDb.get('transforms', id)
+    if (t) transforms.push({ id: t.id, name: t.name, sql: t.sql, inputs: t.inputs, ...(t.outputId ? { outputId: t.outputId } : {}) })
+  }
+  for (const t of transforms) if (t.outputId) await loadRecord(t.outputId) // output names for the panel
+  doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms }
+  logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations, ${transforms.length} transforms`)
 }
 
 /** Replaces the working copy with the default map (unsaved until Save). Datasets stay in the database. */
@@ -317,8 +361,9 @@ onMounted(async () => {
 const valuesCache = new Map<string, Promise<LayerData | null>>()
 const layers = shallowRef(new Map<string, { key: string; data: LayerData; byKey: Map<string, LayerFeature> }>())
 
-const queryKey = (v: VisualizationSpec) => `${v.datasetId}|${JSON.stringify(v.binding)}|${v.column}|${v.aggregation}`
-const layerKey = (v: VisualizationSpec) => `${queryKey(v)}|${v.name}|${records.value.get(v.datasetId)?.name}|${records.value.get(v.datasetId)?.updatedAt}`
+// Keyed by the dataset's updatedAt too: a transform re-run rewrites the table.
+const queryKey = (v: VisualizationSpec) => `${v.datasetId}|${records.value.get(v.datasetId)?.updatedAt}|${JSON.stringify(v.binding)}|${v.column}|${v.aggregation}`
+const layerKey = (v: VisualizationSpec) => `${queryKey(v)}|${v.name}|${records.value.get(v.datasetId)?.name}`
 
 function fetchLayer(v: VisualizationSpec): Promise<LayerData | null> {
   const k = queryKey(v)
@@ -549,6 +594,20 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
           <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
         </div>
+      </details>
+
+      <details class="box" :open="doc.transforms.length > 0">
+        <summary>Transforms</summary>
+        <TransformsPanel
+          :transforms="doc.transforms"
+          :datasets="datasets"
+          :name-of="nameOf"
+          :status="runStatus"
+          @add="(t) => apply(addTransform_(doc, t))"
+          @update="(t) => apply(updateTransform_(doc, t))"
+          @remove="(id) => apply(removeTransform_(doc, id))"
+          @run="runTransform"
+        />
       </details>
 
       <details class="box">

@@ -14,7 +14,16 @@ const viz = (id: string, datasetId: string): VisualizationSpec => ({
   visible: true,
   style: defaultScalarStyle('int', 'region'),
 })
-const doc: WorkspaceDoc = { id: 'w1', name: 'Grid', datasetIds: ['a', 'b'], visualizations: [viz('v1', 'a'), viz('v2', 'b')] }
+const doc: WorkspaceDoc = {
+  id: 'w1',
+  name: 'Grid',
+  datasetIds: ['a', 'b'],
+  visualizations: [viz('v1', 'a'), viz('v2', 'b')],
+  transforms: [
+    { id: 't1', name: 'Points', sql: 'SELECT * FROM a', inputs: [{ datasetId: 'a', alias: 'a' }], outputId: 'b' },
+    { id: 't2', name: 'Join', sql: 'SELECT * FROM a JOIN b USING (k)', inputs: [{ datasetId: 'a', alias: 'a' }, { datasetId: 'b', alias: 'b' }] },
+  ],
+}
 
 describe('workspace files', () => {
   it('round-trips pointers and settings, never rows', () => {
@@ -36,12 +45,18 @@ describe('workspace files', () => {
 
   it('loads into the current workspace, dropping datasets the database lacks', () => {
     const file = toWorkspaceFile(doc)
-    const { doc: d, missing } = fromWorkspaceFile(file, { id: 'w9', name: 'Other', datasetIds: [], visualizations: [] }, (id) => id === 'a')
+    const { doc: d, missing } = fromWorkspaceFile(file, { id: 'w9', name: 'Other', datasetIds: [], visualizations: [], transforms: [] }, (id) => id === 'a')
     expect(missing).toEqual(['b'])
     expect(d).toMatchObject({ id: 'w9', name: 'Grid', datasetIds: ['a'] })
     expect(d.visualizations).toHaveLength(1)
     expect(d.visualizations[0]).toMatchObject({ name: 'viz v1', datasetId: 'a', column: ROWS })
     expect(d.visualizations[0].id).not.toBe('v1') // fresh ids: never collide with another workspace's records
+    // Transforms need all their inputs here; an output pointer to a missing dataset is dropped.
+    expect(d.transforms).toHaveLength(1)
+    expect(d.transforms[0]).toMatchObject({ name: 'Points', inputs: [{ datasetId: 'a', alias: 'a' }], outputId: undefined })
+    expect(d.transforms[0].id).not.toBe('t1')
+    const all = fromWorkspaceFile(file, doc, () => true).doc
+    expect(all.transforms.map((t) => [t.name, t.outputId])).toEqual([['Points', 'b'], ['Join', undefined]])
   })
 
   it('tells drafts apart from the saved state', () => {
@@ -51,5 +66,9 @@ describe('workspace files', () => {
     expect(parseDraft('nope')).toBeNull()
     expect(parseDraft(null)).toBeNull()
     expect(parseDraft('{"doc":{}}')).toBeNull()
+    const old = { doc: { name: 'x', datasetIds: [], visualizations: [] }, saved: '' } // a draft from before transforms
+    expect(parseDraft(JSON.stringify(old))?.doc.transforms).toEqual([])
+    const broken = { ...toWorkspaceFile(doc), transforms: [{ name: 'x', sql: 1, inputs: [] }] }
+    expect(parseWorkspaceFile(JSON.stringify(broken))).toMatchObject({ ok: false, error: expect.stringContaining('transform') })
   })
 })

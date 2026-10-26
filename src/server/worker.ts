@@ -11,6 +11,8 @@ import type { RequestMessage, ResponseMessage } from '../shared/api'
 
 const server = createServer(new IndexedDbDatabase(), {
   loadBoundaries,
+  // DuckDB (and its ~34 MB of wasm) loads only when a transform first runs.
+  sql: () => import('./duckdb').then((m) => m.openDuckDb()),
   async readBuiltin(table, baseUrl) {
     if (table === 'demo_vectors') return demoVectorRows()
     const rows = await new StaticFileConnector([UTILITY_TABLE, 'utilities'], baseUrl).readTable(table)
