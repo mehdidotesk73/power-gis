@@ -86,7 +86,7 @@ function setLabel(label: string) {
   color: var(--text-muted);
 }
 .ok {
-  color: #2e7d32;
+  color: var(--ok);
 }
 .bad {
   color: var(--danger);

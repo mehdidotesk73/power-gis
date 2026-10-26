@@ -37,7 +37,7 @@
             "kind": "none"
           },
           "outline": {
-            "color": "#334155",
+            "color": "#c3cbdc",
             "width": 1.2,
             "opacity": 0.9
           }
@@ -72,7 +72,7 @@
             "patterns": {
               "true": "hatch"
             },
-            "color": "#1b5e20",
+            "color": "#e7eaf3",
             "opacity": 0.9
           },
           "outline": {
@@ -124,9 +124,9 @@
             "kind": "none"
           },
           "outline": {
-            "color": "#ffffff",
+            "color": "#0b0f18",
             "width": 0.3,
-            "opacity": 0.7
+            "opacity": 0.6
           }
         }
       }
@@ -162,9 +162,9 @@
             "kind": "none"
           },
           "outline": {
-            "color": "#ffffff",
+            "color": "#0b0f18",
             "width": 0.3,
-            "opacity": 0.7
+            "opacity": 0.6
           }
         }
       }

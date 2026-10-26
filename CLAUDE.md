@@ -88,7 +88,7 @@ whatever they're actually asking about.
 - **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, one job named `build`), and the
   branch ruleset requires it to pass before merge. Tests stay inside that one job — never a separate
   job, since the ruleset only watches `build`.
-- **External data dependencies:** the basemap (OpenFreeMap Positron vector tiles, free, no key; the map falls back to a plain background if they fail), and — only when
+- **External data dependencies:** the basemap (dark vector tiles, free, no key: OpenFreeMap dark, else CARTO Dark Matter, else a plain background), and — only when
   rebuilding the CSV — the PUDL mirror of EIA-861 on S3. The app's own data is static in `public/`.
   From this sandbox eia.gov and census.gov are blocked; the PUDL S3 bucket is reachable. You cannot
   see the rendered map here unless you drive a headless browser; lean on the user's screenshots.
@@ -325,6 +325,10 @@ package-lock.json              committed — CI runs `npm ci` and needs it
   `u` = east component, `v` = north component.
 - **ArcGIS type mapping** is in `src/lib/arcgis.ts`'s header comment. Composite types travel as JSON
   strings in Esri fields; our full schema rides along under the `x-powergis` key.
+- **Dark only, colours by job** (`src/styles/vars.css`, table in `docs/system-design.md` §2): blue =
+  interaction only; violet = datasets, orange = transforms, green = visualizations / success; amber =
+  needs attention, always with a mark (↻, ●, ⚠); red = errors. Components use tokens, never literals;
+  map colours (MapLibre can't read CSS variables) live in `lib/mapTheme.ts` (orchid Search matches).
 - **Mobile-first:** the user is on a phone. Keep controls tappable; hover is only a bonus
   (tooltips are suppressed on touch devices, tap opens the panel).
 

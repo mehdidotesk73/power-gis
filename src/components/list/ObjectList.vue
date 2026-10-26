@@ -213,7 +213,7 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
   border: 1px solid var(--accent-blue);
   border-radius: 0.3rem;
   background: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 0.8rem;
 }
 .menu {
@@ -226,7 +226,7 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 0.45rem;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 .menu button {

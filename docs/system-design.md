@@ -61,7 +61,30 @@ This is the shell that wraps every page/tab. It provides version checking, updat
 
 ### Styling
 
-Uses CSS custom properties (`--bg-elev`, `--text`, `--border`, etc.) for theming. Dark/light mode via `prefers-color-scheme` media query. Mobile-safe padding with `safe-area-inset` for notch/bottom-bar devices.
+**Dark only** (`color-scheme: dark`; no light theme). Every colour is a token in `src/styles/vars.css`,
+and components use tokens, never literals:
+
+| Token | Value | Job |
+|---|---|---|
+| `--bg` / `--bg-elev` / `--bg-elev-2` / `--bg-input` | `#0b0f18` / `#141b2a` / `#1b2334` / `#1f2940` | page + graph canvas / panels / buttons, cards, menus / inputs |
+| `--border` / `--border-strong` | `#28324a` / `#36425f` | edges / button edges, arrows |
+| `--text` / `--text-muted` | `#e7eaf3` / `#8b94ac` | text / hints, counts |
+| `--accent-blue` | `#4f8ef7` | **interaction only**: focus, hover, primary buttons, links, selected arrows |
+| `--kind-dataset` (violet) | `#9b6dff` | datasets: graph nodes, ＋ Dataset |
+| `--kind-transform` (orange) | `#f7931a` | transforms: graph nodes, ＋ Transform |
+| `--kind-viz` / `--ok` (green) | `#3ad29f` | visualizations; success messages |
+| `--warn` (amber) | `#fbbf24` | needs attention — **always with a mark** (↻ needs-re-run badge, ●, ⚠), since orange is a neighbouring hue |
+| `--danger` / `--danger-bg` | `#f87171` / `#3a1d24` | errors, Delete |
+| `--overlay-bg`, `--backdrop`, `--shadow` | | map cards (legend, tooltip, panel), modal backdrops, shadows |
+
+The page background adds two faint glows (blue top-left, violet top-right). Form controls get the
+theme from a zero-specificity `:where(…)` rule, so component styles always win; MapLibre's zoom and
+attribution controls are themed there too. The map can't read CSS variables, so its colours live in
+`lib/mapTheme.ts`: Search matches **orchid** `#f0a3e4` (in neither viridis nor the categorical
+palettes), the hovered / tapped feature white, default pattern ink and arrows light. New shapes get
+thin dark seams (`#0b0f18`) between them. Basemap: OpenFreeMap **dark**, else CARTO **Dark Matter**,
+else a plain `#0e131d` background (`MapView` tries them in order). Mobile-safe padding with
+`safe-area-inset` for notch/bottom-bar devices.
 
 ## §3 — Data Layer (api/)
 

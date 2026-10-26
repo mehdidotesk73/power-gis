@@ -91,7 +91,6 @@ function tap(n: DagNode) {
 const kindLabel = (n: DagNode) => (n.kind === 'dataset' ? 'Dataset' : n.kind === 'transform' ? 'Transform' : 'Viz')
 function tag(n: DagNode): string {
   if (mode.value === 'transform' && pickNo(n)) return `✓ Input ${pickNo(n)}`
-  if (n.kind === 'transform' && n.state === 'stale') return 'Transform ↻'
   return kindLabel(n)
 }
 const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
@@ -127,8 +126,9 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
         <svg class="edges" :width="layout.width" :height="layout.height" aria-hidden="true">
           <defs>
             <marker id="dag-head" orient="auto" markerWidth="6" markerHeight="6" refX="3" refY="3"><path d="M0 0 L6 3 L0 6 Z" fill="currentColor" /></marker>
+            <marker id="dag-head-lit" orient="auto" markerWidth="6" markerHeight="6" refX="3" refY="3"><path d="M0 0 L6 3 L0 6 Z" style="fill: var(--accent-blue)" /></marker>
           </defs>
-          <path v-for="p in paths" :key="p.key" :d="p.d" :class="{ lit: p.lit }" marker-end="url(#dag-head)" />
+          <path v-for="p in paths" :key="p.key" :d="p.d" :class="{ lit: p.lit }" :marker-end="p.lit ? 'url(#dag-head-lit)' : 'url(#dag-head)'" />
         </svg>
         <button
           v-for="n in dag.nodes"
@@ -140,6 +140,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
           :title="`${kindLabel(n)}: ${n.label} — ${n.detail}`"
           @click="tap(n)"
         >
+          <span v-if="n.kind === 'transform' && n.state === 'stale'" class="badge" aria-label="Needs re-run">↻</span>
           <span class="tag">{{ tag(n) }}</span>
           <span class="label">{{ n.label }}</span>
           <span class="detail">{{ n.detail }}</span>
@@ -179,13 +180,13 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   opacity: 0.45;
 }
 .pill.dataset {
-  --pill: #4c8dff;
+  --pill: var(--kind-dataset);
 }
 .pill.transform {
-  --pill: #e0962a;
+  --pill: var(--kind-transform);
 }
 .pill.viz {
-  --pill: #3faf62;
+  --pill: var(--kind-viz);
 }
 .flip {
   margin-left: auto;
@@ -223,7 +224,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 .btn.primary {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -233,6 +234,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   max-height: 70vh;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
+  background: var(--bg);
   -webkit-overflow-scrolling: touch;
 }
 .canvas {
@@ -243,13 +245,12 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   position: absolute;
   inset: 0;
   overflow: visible;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--border-strong));
 }
 .edges path {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
-  opacity: 0.6;
 }
 .edges path.lit {
   stroke: var(--accent-blue);
@@ -275,19 +276,19 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 }
 /* Kinds differ in label as well as color. */
 .node.dataset {
-  border-color: #4c8dff;
-  background: color-mix(in srgb, #4c8dff 14%, var(--bg));
+  border-color: var(--kind-dataset);
+  background: color-mix(in srgb, var(--kind-dataset) 14%, var(--bg));
 }
 .node.transform {
-  border-color: #e0962a;
-  background: color-mix(in srgb, #e0962a 16%, var(--bg));
+  border-color: var(--kind-transform);
+  background: color-mix(in srgb, var(--kind-transform) 14%, var(--bg));
 }
 .node.transform.not-run {
   border-style: dashed;
 }
 .node.viz {
-  border-color: #3faf62;
-  background: color-mix(in srgb, #3faf62 14%, var(--bg));
+  border-color: var(--kind-viz);
+  background: color-mix(in srgb, var(--kind-viz) 14%, var(--bg));
 }
 .node.viz.muted {
   opacity: 0.6;
@@ -327,9 +328,25 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   text-overflow: ellipsis;
   max-width: 100%;
 }
-.node.stale .detail,
-.node.stale .tag {
-  color: #e0962a;
+.node.stale .detail {
+  color: var(--text);
+  font-weight: 650;
+}
+/* Needs re-run: an amber ↻ on the node's corner (attention = amber + a mark, never hue alone). */
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--warn);
+  color: var(--on-amber);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
 }
 .muted {
   color: var(--text-muted);

@@ -383,7 +383,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
   padding: 0.35rem;
   border: 1px solid var(--border);
   border-radius: 0.3rem;
-  background: var(--bg);
+  background: var(--bg-input);
   color: var(--text);
 }
 code {
@@ -395,7 +395,7 @@ code {
   margin: 0;
 }
 .ok {
-  color: #2e7d32;
+  color: var(--ok);
   font-size: 0.74rem;
 }
 .bad {
@@ -418,7 +418,7 @@ code {
 .btn.primary {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn.primary:disabled {
   opacity: 0.5;

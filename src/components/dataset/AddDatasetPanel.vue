@@ -134,7 +134,7 @@ async function deleteStored(d: DatasetRecord) {
 .seg button.on {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 .row {
   display: flex;
@@ -177,7 +177,7 @@ form.row input {
 .btn.primary {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn.primary:disabled {
   opacity: 0.5;
@@ -237,7 +237,7 @@ form.row input {
   margin: 0;
 }
 .ok {
-  color: #2e7d32;
+  color: var(--ok);
 }
 .bad,
 .error {

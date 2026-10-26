@@ -95,7 +95,7 @@ const pick = (what: 'download' | 'reset') => {
   border: 1px solid var(--accent-blue);
   border-radius: 0.35rem;
   background: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   font-size: 0.85rem;
 }
@@ -119,7 +119,7 @@ const pick = (what: 'download' | 'reset') => {
   font-size: 0.74rem;
 }
 .dot {
-  color: #b26a00;
+  color: var(--warn);
 }
 .muted {
   color: var(--text-muted);

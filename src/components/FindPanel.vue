@@ -125,6 +125,7 @@ function clear() {
 /* Its own card, set apart from the workspace panels below. */
 .find {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* never wider than the side panel */
   gap: 0.45rem;
   padding: 0.6rem;
   border: 1px solid color-mix(in srgb, var(--accent-blue) 45%, var(--border));

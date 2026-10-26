@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Edits a ScalarStyle for a layer: color (constant / colormap / categorical),
 // opacity (constant / by field) and pattern (none / constant / by field).
+import { PATTERN_INK } from '../../lib/mapTheme'
 import { computed } from 'vue'
 import { COLORMAPS, cssGradient, type ColormapName } from '../../lib/colormaps'
 import { distinctValues, fieldLabel, isNumericType, type LayerData } from '../../lib/schema'
@@ -178,7 +179,7 @@ function setPatternFor(value: string, p: PatternKind | '') {
       </template>
       <label v-if="pattern.kind !== 'none'" class="row">
         Pattern color
-        <input type="color" :value="pattern.color ?? '#222222'" @input="update({ pattern: { ...pattern, color: ($event.target as HTMLInputElement).value } })" />
+        <input type="color" :value="pattern.color ?? PATTERN_INK" @input="update({ pattern: { ...pattern, color: ($event.target as HTMLInputElement).value } })" />
       </label>
     </fieldset>
   </div>
@@ -226,7 +227,7 @@ legend {
 .seg button.on {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 .row {
   display: flex;

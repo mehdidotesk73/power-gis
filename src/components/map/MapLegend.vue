@@ -53,7 +53,7 @@ const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 600)
   max-width: 14rem;
   max-height: calc(100% - 3rem);
   overflow: auto;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  background: var(--overlay-bg);
   border: 1px solid var(--border);
   border-radius: 0.4rem;
   padding: 0.35rem 0.55rem 0.45rem;
@@ -110,7 +110,7 @@ const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 600)
   width: 0.85rem;
   height: 0.85rem;
   border-radius: 0.15rem;
-  border: 1px solid rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-strong);
   flex: none;
 }
 .lg-source {

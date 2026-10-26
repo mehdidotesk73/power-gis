@@ -2,6 +2,7 @@
 // The map canvas. Layer widgets (ScalarLayer, VectorLayer) go in the default
 // slot and render once the basemap has loaded. Overlays (tooltip, legend,
 // panels) go in the `overlay` slot, positioned over the map.
+import { MAP_BG } from '../../lib/mapTheme'
 import { Map as MlMap, NavigationControl, setWorkerUrl, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre looks for its worker beside its own module, which doesn't exist once
@@ -17,16 +18,17 @@ const props = withDefaults(
     center?: [number, number]
     zoom?: number
     /** 'light' = OpenFreeMap Positron vector tiles (free, no API key); 'none' = plain background. */
-    basemap?: 'light' | 'none'
+    basemap?: 'dark' | 'none'
   }>(),
-  { center: () => [-96.5, 38.5], zoom: 3.2, basemap: 'light' },
+  { center: () => [-96.5, 38.5], zoom: 3.2, basemap: 'dark' },
 )
 const emit = defineEmits<{ (e: 'background-click'): void }>()
 
 setWorkerUrl(workerUrl)
 
-const BASEMAP_URL = 'https://tiles.openfreemap.org/styles/positron'
-const BLANK: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#f4f3ef' } }] }
+// Dark basemaps, tried in order (free, no key); if neither loads, a plain background.
+const BASEMAPS = ['https://tiles.openfreemap.org/styles/dark', 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json']
+const BLANK: StyleSpecification = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': MAP_BG } }] }
 
 const el = ref<HTMLDivElement>()
 const map = shallowRef<MlMap | null>(null)
@@ -67,7 +69,7 @@ let resizer: ResizeObserver | null = null
 onMounted(() => {
   const m = new MlMap({
     container: el.value!,
-    style: props.basemap === 'light' ? BASEMAP_URL : BLANK,
+    style: props.basemap === 'dark' ? BASEMAPS[0] : BLANK,
     center: props.center,
     zoom: props.zoom,
     attributionControl: { compact: true },
@@ -84,16 +86,15 @@ onMounted(() => {
     for (const kind of DRAW_ORDER) m.addLayer({ id: slotId(kind), type: 'background', layout: { visibility: 'none' } }, labels)
     map.value = m
   })
-  // If the basemap style itself can't load, fall back to a plain background
+  // If a basemap style can't load, try the next one, then a plain background,
   // so the data layers still render.
-  let fellBack = false
+  let next = props.basemap === 'dark' ? 1 : BASEMAPS.length + 1
   m.on('error', (e) => {
     logDebug(`map: ${e.error?.message ?? 'error'}`, 'warn')
-    if (!map.value && !fellBack && !m.isStyleLoaded()) {
-      fellBack = true
-      logDebug('basemap unavailable — showing data on a plain background', 'warn')
-      m.setStyle(BLANK, { diff: false })
-    }
+    if (map.value || m.isStyleLoaded() || next > BASEMAPS.length) return
+    const style = BASEMAPS[next++]
+    logDebug(style ? `basemap unavailable — trying ${new URL(style).host}` : 'basemap unavailable — showing data on a plain background', 'warn')
+    m.setStyle(style ?? BLANK, { diff: false })
   })
   // The container changes size without the window doing so (the side panel's
   // splitter, the controls popping out): keep the canvas matched to it.

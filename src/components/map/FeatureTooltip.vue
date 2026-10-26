@@ -30,11 +30,11 @@ const style = computed(() => ({
   z-index: 6;
   pointer-events: none;
   max-width: 17rem;
-  background: var(--bg);
+  background: var(--overlay-bg);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 0.4rem;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow);
   padding: 0.4rem 0.55rem;
   font-size: 0.78rem;
   line-height: 1.35;

@@ -72,7 +72,7 @@ export default defineComponent({
       map.setLayoutProperty(arrows, 'icon-allow-overlap', props.allowOverlap)
       map.setPaintProperty(arrows, 'icon-color', colorExpression(s.color, feats) as never)
       map.setPaintProperty(arrows, 'icon-opacity', opacityExpression(s.opacity, feats) as never)
-      map.setPaintProperty(arrows, 'icon-halo-color', 'rgba(255,255,255,0.85)')
+      map.setPaintProperty(arrows, 'icon-halo-color', 'rgba(11,15,24,0.85)')
       map.setPaintProperty(arrows, 'icon-halo-width', ['case', ['boolean', ['feature-state', 'hover'], false], 3, 1] as never)
     }
     apply()

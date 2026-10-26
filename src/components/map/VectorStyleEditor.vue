@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Edits a VectorStyle: arrow color (single / colormap by magnitude), size
 // range and opacity.
+import { ARROW } from '../../lib/mapTheme'
 import { COLORMAPS, cssGradient, type ColormapName } from '../../lib/colormaps'
 import { MAGNITUDE_FIELD, type VectorStyle } from '../../lib/style'
 
@@ -12,7 +13,7 @@ function update(patch: Partial<VectorStyle>) {
   emit('update:modelValue', { ...props.modelValue, ...patch })
 }
 function setColormap(name: string) {
-  if (name === '') update({ color: { kind: 'constant', color: '#1f2937' } })
+  if (name === '') update({ color: { kind: 'constant', color: ARROW } })
   else update({ color: { kind: 'colormap', field: MAGNITUDE_FIELD, colormap: name as ColormapName } })
 }
 </script>

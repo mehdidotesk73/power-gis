@@ -243,7 +243,7 @@ th {
 .warn {
   margin: 0.25rem 0 0;
   font-size: 0.72rem;
-  color: #b26a00;
+  color: var(--danger);
 }
 .close {
   justify-self: end;

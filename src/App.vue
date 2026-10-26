@@ -215,7 +215,7 @@ const helpDoc = ref('default')
 .update-btn:hover {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .update-pop {
@@ -232,7 +232,7 @@ const helpDoc = ref('default')
   background: var(--bg-elev);
   border: 1px solid var(--accent-blue);
   border-radius: 0.4rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow);
 }
 
 .up-line {
@@ -307,7 +307,7 @@ const helpDoc = ref('default')
   padding: 0 0.25rem;
   border-radius: 999px;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 0.65rem;
   line-height: 1.05rem;
   text-align: center;
@@ -354,8 +354,8 @@ const helpDoc = ref('default')
   list-style: none;
   padding: 0.5rem;
   margin: 0.4rem 0 0;
-  background: #060912;
-  color: #cdd3e0;
+  background: var(--bg);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 0.4rem;
   font-family: ui-monospace, monospace;
@@ -370,6 +370,6 @@ const helpDoc = ref('default')
 }
 
 .debug-log .warn {
-  color: #ff9800;
+  color: var(--warn);
 }
 </style>

@@ -84,7 +84,8 @@ export function visualizationLayer(values: VizValues, spec: VisualizationSpec, d
 
 // ── defaults ───────────────────────────────────────────────────────────────
 
-const OUTLINE = { color: '#ffffff', width: 0.3, opacity: 0.7 }
+// Thin dark seams between filled shapes, so neighbours separate on the dark basemap.
+const OUTLINE = { color: '#0b0f18', width: 0.3, opacity: 0.6 }
 
 /** A scalar style suited to a value type: colormap for numbers, categories otherwise. */
 export function defaultScalarStyle(type: ColumnType, geometry: GeometryKind, field = VALUE): ScalarStyle {

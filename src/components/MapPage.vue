@@ -984,7 +984,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   display: grid;
   place-items: center;
   padding: 2.5vh 3vw;
-  background: rgb(0 0 0 / 0.45);
+  background: var(--backdrop);
 }
 .pop {
   box-sizing: border-box;
@@ -1000,7 +1000,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   background: var(--bg);
   color: var(--text);
   font-size: 0.85rem;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+  box-shadow: var(--shadow);
 }
 .pop :deep(.scroll) {
   max-height: 60dvh;
@@ -1030,7 +1030,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
     position: sticky;
     top: -0.45rem;
     z-index: 1;
-    background: var(--bg);
+    background: var(--bg-elev);
   }
 }
 .view-row {
@@ -1085,6 +1085,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .box {
   border: 1px solid var(--border);
+  background: var(--bg-elev);
   border-radius: 0.45rem;
   padding: 0.45rem 0.6rem;
 }
@@ -1146,7 +1147,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   top: 0.6rem;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--bg);
+  background: var(--overlay-bg);
   border: 1px solid var(--border);
   border-radius: 0.4rem;
   padding: 0.35rem 0.7rem;

@@ -326,6 +326,13 @@ Two additions from reviewing it here, beyond what the originating project report
   **Name shapes by** (title only), **Value to show** (what colors it) — with a hint under each.
 - **Added:** in the pop-out, the open graph item sits right of the graph; new-item flows scroll each
   step into view (`v-reveal`).
+- **Changed:** **dark only**, from bitcoin-explorer's palette: slate surfaces, blue for interaction
+  only, violet datasets / orange transforms / green visualizations, amber attention with a mark
+  (stale transforms get a ↻ badge), orchid Search matches, dark basemap (OpenFreeMap dark → CARTO
+  Dark Matter → plain). Colour literals replaced by tokens (`vars.css`) and `lib/mapTheme.ts`.
+- **Fixed:** the Search card overflowed the desktop side panel (its grid column needed `minmax(0, 1fr)`).
+- **Lesson:** a global form-control rule must sit in `:where(…)` — `input:not(…)` chains outrank
+  scoped component rules and silently restyle every field.
 - **Lesson:** MapLibre only resizes with the window — a splitter or modal changes its container
   without a window resize, so `MapView` watches the container with a `ResizeObserver`.
 - **Docs:** CLAUDE.md, system-design (Graph view, Side panel, Find), help overview, TODO.

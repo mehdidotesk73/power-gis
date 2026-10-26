@@ -240,6 +240,6 @@ defineExpose({
 .btn.primary {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 </style>
