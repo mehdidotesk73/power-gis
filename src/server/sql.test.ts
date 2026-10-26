@@ -68,6 +68,9 @@ describe('sql transforms (DuckDB)', () => {
     // Semicolons and quotes inside comments and strings don't count.
     expect(checkSelect("-- one row; per county\nSELECT 'a;b' AS x /* don't; */ ; -- done")).toBe("-- one row; per county\nSELECT 'a;b' AS x /* don't; */  -- done")
     await expect(sql.run('SELECT mw FROM plants -- trailing comment', [plants], 1)).resolves.toMatchObject({ rowCount: 3 })
+    // sum() of integers is a HUGEINT, decimals keep their scale: both come back as plain numbers.
+    const nums = await sql.run("SELECT sum(x) AS s, 12.345::DECIMAL(10,3) AS d, -0.5::DECIMAL(4,1) AS n FROM (VALUES (1::BIGINT), (-5::BIGINT)) t(x)", [plants])
+    expect(nums.rows).toEqual([{ s: -4, d: 12.345, n: -0.5 }])
   })
 
   it('profiles a table', async () => {

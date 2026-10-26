@@ -87,6 +87,10 @@ const MACROS = [
 function plain(v: unknown, type: string): unknown {
   if (v === null || v === undefined) return null
   if (typeof v === 'bigint') return Number(v)
+  // DECIMAL / HUGEINT (e.g. sum() of a BIGINT) arrive as Arrow big numbers whose text is the
+  // unscaled integer; the type ("Decimal[38e0]", "Decimal[10e+3]") carries the scale.
+  const dec = /^Decimal\[\d+e([+-]?\d+)\]/.exec(type)
+  if (dec && typeof v === 'object') return Number(String(v)) / 10 ** Number(dec[1])
   if (/^(Timestamp|Date)/.test(type) && (typeof v === 'number' || v instanceof Date)) return new Date(v as number).toISOString()
   if (Array.isArray(v)) return v.map((x) => plain(x, ''))
   if (typeof v === 'object') return Object.fromEntries(Object.entries(v as object).map(([k, x]) => [k, plain(x, '')]))

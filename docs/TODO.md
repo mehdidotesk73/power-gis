@@ -55,7 +55,7 @@ Track feature development, improvements, and known issues here. Move completed w
   `point(lat, lon)` (was lon, lat). **Find** replaces "Find a utility": any visualization, all data or
   one column, typo-tolerant, server-built index (`findIndex` / `findFeatures`), highlight + zoom.
 - **Normalized EIA data + boundary datasets, data-agnostic (roadmap step 3)** — EIA-861 as
-  `utilities` (with business totals) and `utility_counties` (links); built-in `us_counties` / `us_states`
+  `utilities`, `utility_sales` (per state) and `utility_counties` (links); built-in `us_counties` / `us_states`
   boundary datasets; the default map is `public/data/default.powergis.json` (built-ins + the
   **Utilities by county** join transform + visualizations). Region-code binding, the county dashboard,
   utility presets and ownership flags deleted; geometry bindings name features by a `label` column.

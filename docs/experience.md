@@ -314,7 +314,7 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Boundary datasets + data-agnostic default map — 2026-10-26
 - **Added:** built-in boundary datasets `us_counties` / `us_states` (region geometry from us-atlas);
-  normalized EIA-861 tables (`utilities` with business totals, `utility_counties` links); the
+  normalized EIA-861 tables (`utilities`, `utility_sales` per state, `utility_counties` links); the
   default workspace file `public/data/default.powergis.json` (placeholders `builtin:<table>` /
   `transform:<n>`, resolved by `seedDefault`); a feature-name column in the geometry binding (`label`).
 - **Removed:** the region-code binding (`kind: 'boundary'`, `includeEmpty`, client boundary loader),
@@ -322,12 +322,14 @@ Two additions from reviewing it here, beyond what the originating project report
   `preset: 'utilities'` extension. Old saved visualizations of the removed kind are dropped on open
   with a note pointing at ⋯ → Reset. Clicking a county now shows the generic rows table.
 - **Fixed:** the misleading `counties_in_state` column is gone (count links in a transform instead).
-  Per-state customers / sales / revenue were dropped too: only totals per utility are kept, since
-  nothing per county can come from them.
+  Customers / sales / revenue live in their own table at EIA's grain (utility × state); totals are a
+  `GROUP BY`.
 - **Lesson:** a stored copy of a built-in must carry a version, or a device keeps feeding the old
   columns to a new default transform (`extensions.version`).
   `checkSelect` counted semicolons inside comments and strings as statement breaks; a trailing
   `-- comment` swallowed the `)` of the preview wrapper.
+  `sum()` of integers (DuckDB HUGEINT) and DECIMAL results came back as raw Arrow big numbers —
+  now plain numbers, scaled from the type (`plain()` in `server/sql.ts`).
 - **Lesson:** a join copies a county's shape onto every utility row; grouping stays cheap by
   parsing repeated GeoJSON text once and keying shared geometry objects by identity.
 - **Cost:** the first visit loads DuckDB (~8 MB gzipped) to run the default join (~6 s on a desktop);

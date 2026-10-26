@@ -5,11 +5,10 @@ published (cleaned, with county FIPS codes attached) by the Catalyst
 Cooperative PUDL project: https://catalyst.coop/pudl/
 
 Outputs (public/data/), normalized — join them in a transform:
-  utilities.csv         one row per utility: EIA id, name, ownership type, business totals
+  utilities.csv         one row per utility: EIA id, name, ownership type, short-form filer
+  utility_sales.csv     one row per (utility, state): customers, sales, revenue — EIA's own
+                        grain (never per county); totals are a GROUP BY
   utility_counties.csv  one row per (utility, county): the service-territory links
-
-EIA reports customers / sales / revenue per utility per state, never per
-county; utilities.csv carries each utility's totals across its states.
 
 County polygons are a separate built-in dataset (us-atlas), joined on county_fips.
 
@@ -80,26 +79,24 @@ def main() -> None:
 
     names = territory.drop_duplicates("utility_id_eia")[["utility_id_eia", "utility_name_eia"]].rename(columns={"utility_name_eia": "utility_name"})
     short = territory.groupby("utility_id_eia")["short_form"].agg(lambda s: bool(s.fillna(False).astype(bool).any())).rename("short_form")
-    totals = (
-        by_state.groupby("utility_id_eia")[["state_customers", "state_sales_mwh", "state_revenue_usd"]]
-        .sum(min_count=1)
-        .rename(columns=lambda c: c.replace("state_", ""))
-    )
     utilities = (
         names[names["utility_id_eia"].isin(links["utility_id_eia"])]
         .merge(entity, on="utility_id_eia", how="left")
-        .merge(totals, on="utility_id_eia", how="left")
         .merge(short, on="utility_id_eia", how="left")
         .sort_values("utility_name")
     )
     utilities["entity_type"] = utilities["entity_type"].fillna("Unknown")
-    utilities["customers"] = utilities["customers"].astype("Int64")
-    utilities["report_year"] = year
+
+    sales_out = by_state.rename(columns=lambda c: c.replace("state_", "") if c != "state" else c)
+    sales_out = sales_out[sales_out["utility_id_eia"].isin(utilities["utility_id_eia"])].sort_values(keys)
+    sales_out["customers"] = sales_out["customers"].astype("Int64")
+    sales_out["report_year"] = year
 
     OUT.mkdir(parents=True, exist_ok=True)
-    utilities.to_csv(OUT / "utilities.csv", index=False, float_format="%.0f")
+    utilities.to_csv(OUT / "utilities.csv", index=False)
+    sales_out.to_csv(OUT / "utility_sales.csv", index=False, float_format="%.0f")
     links.to_csv(OUT / "utility_counties.csv", index=False)
-    print(f"{year}: {utilities.shape[0]} utilities, {links.shape[0]} utility-county links, "
+    print(f"{year}: {utilities.shape[0]} utilities, {sales_out.shape[0]} utility-state sales rows, {links.shape[0]} utility-county links, "
           f"{links['county_fips'].nunique()} counties")
 
 

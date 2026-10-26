@@ -194,7 +194,7 @@ describe('built-in boundary datasets and the default join', () => {
     expect(states.find((r) => r.fips === '48')).toMatchObject({ name: 'Texas', abbr: 'TX' })
   })
 
-  it("runs the default workspace's join (counties × links × utilities), and other views of the same three tables", async () => {
+  it("runs the default workspace's join (counties × links × utilities × sales), and other views of the same tables", async () => {
     const tables: Record<string, Record<string, unknown>[]> = {
       us_counties: [
         { fips: '01001', name: 'Autauga, AL', county: 'Autauga', state: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } },
@@ -205,8 +205,12 @@ describe('built-in boundary datasets and the default join', () => {
         { utility_id_eia: '3222', county_fips: '01001' },
       ],
       utilities: [
-        { utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned', customers: '1557733' },
-        { utility_id_eia: '3222', utility_name: 'Central Alabama Electric Coop', entity_type: 'Cooperative', customers: '48071' },
+        { utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned' },
+        { utility_id_eia: '3222', utility_name: 'Central Alabama Electric Coop', entity_type: 'Cooperative' },
+      ],
+      utility_sales: [
+        { utility_id_eia: '195', state: 'AL', customers: '1557733', sales_mwh: '52177426' },
+        { utility_id_eia: '195', state: 'GA', customers: '10', sales_mwh: '5' },
       ],
       us_states: [{ fips: '01', name: 'Alabama', abbr: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 1], [0, 0]]] } }],
     }
@@ -226,6 +230,8 @@ describe('built-in boundary datasets and the default join', () => {
     expect(values.features.map((f) => [f.label, f.value])).toEqual([['Autauga, AL', 2], ['Baldwin, AL', 0]])
     const coop = data(await server.handle('queryVisualization', { datasetId: out.datasetId, binding: n.binding, column: 'cooperative', aggregation: 'any' }))
     expect(coop.features.map((f) => f.value)).toEqual([true, null])
+    const rows = data(await server.handle('featureRows', { datasetId: out.datasetId, binding: n.binding, key: values.features[0].key }))
+    expect(rows.map((r) => [r.utility_name, r.state_customers])).toEqual([['Alabama Power Co', 1557733], ['Central Alabama Electric Coop', null]]) // AL's customers, not GA's
 
     // Utilities by state is an aggregation over the same three tables.
     const inputs = t.inputs
@@ -236,5 +242,8 @@ describe('built-in boundary datasets and the default join', () => {
       }),
     )
     expect(byState.rows).toEqual([{ state: 'AL', utilities: 2 }])
+    // A utility's totals are a GROUP BY over its states.
+    const totals = data(await server.handle('previewTransform', { sql: 'SELECT utility_id_eia, sum(customers) AS customers FROM sales GROUP BY 1', inputs }))
+    expect(totals.rows).toEqual([{ utility_id_eia: 195, customers: 1557743 }])
   })
 })

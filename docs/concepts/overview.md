@@ -6,7 +6,7 @@ PowerGIS shows power-sector data on a map of the United States.
 
 A map of every electric utility operating in the US and the counties each one serves, from the federal EIA Form 861 survey (report year 2025). Each county is colored by what's there — how many utilities serve it, or what kind of ownership is most common — and you can tap any county to see the utilities serving it.
 
-The default map is built the same way you'd build your own, from three tables: **EIA-861 utilities** (one row per utility: name, ownership type, customers, sales and revenue), **US counties** (names, codes and shapes), and **EIA-861 utility ↔ county links** (which utility serves which county). One transform joins them (**Transforms → Utilities by county**); the first visit takes a few seconds while it runs. Other views are transforms over the same tables — a utility's service territory, or utilities per state with `GROUP BY`.
+The default map is built the same way you'd build your own, from four tables: **EIA-861 utilities** (one row per utility: name, ownership type), **EIA-861 customers, sales & revenue** (one row per utility per state), **EIA-861 utility ↔ county links** (which utility serves which county) and **US counties** (names, codes and shapes). One transform joins them (**Transforms → Utilities by county**); the first visit takes a few seconds while it runs. Other views are transforms over the same tables — a utility's service territory, its totals, or utilities per state with `GROUP BY`.
 
 ## How do I use it?
 
@@ -36,7 +36,7 @@ A: The number of utilities that report delivering electricity to customers in th
 
 **Q: Why are customer numbers not per county?**
 
-A: EIA reports customers, sales and revenue per utility per state, never per county. The utilities table holds each utility's total across all its states, so a county's rows show each utility's whole customer count.
+A: EIA reports customers, sales and revenue per utility per state, never per county. A county's rows show each utility's customers in that county's whole state. Utilities that file EIA's short form report none.
 
 **Q: Why is my change not showing?**
 
