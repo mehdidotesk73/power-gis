@@ -56,10 +56,10 @@ const fields = computed(() => props.layer.fields.filter((f) => !props.hideFields
   width: min(24rem, calc(100% - 1rem));
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--overlay-bg);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow);
 }
 .fp-head {
   display: flex;

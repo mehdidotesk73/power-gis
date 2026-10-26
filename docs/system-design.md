@@ -61,7 +61,32 @@ This is the shell that wraps every page/tab. It provides version checking, updat
 
 ### Styling
 
-Uses CSS custom properties (`--bg-elev`, `--text`, `--border`, etc.) for theming. Dark/light mode via `prefers-color-scheme` media query. Mobile-safe padding with `safe-area-inset` for notch/bottom-bar devices.
+**Dark only** (`color-scheme: dark`; no light theme). Every colour is a token in `src/styles/vars.css`,
+and components use tokens, never literals:
+
+| Token | Value | Job |
+|---|---|---|
+| `--bg` / `--bg-elev` / `--bg-elev-2` / `--bg-input` | `#0b0f18` / `#141b2a` / `#1b2334` / `#1f2940` | page + graph canvas / panels / buttons, cards, menus / inputs |
+| `--border` / `--border-strong` | `#28324a` / `#36425f` | edges / button edges, arrows |
+| `--text` / `--text-muted` | `#e7eaf3` / `#8b94ac` | text / hints, counts |
+| `--accent-blue` | `#4f8ef7` | **interaction only**: focus, hover, primary buttons, links, selected arrows |
+| `--kind-dataset` (violet) | `#9b6dff` | datasets: graph nodes, ＋ Dataset |
+| `--kind-transform` (orange) | `#f7931a` | transforms: graph nodes, ＋ Transform |
+| `--kind-viz` / `--ok` (green) | `#3ad29f` | visualizations; success messages |
+| `--warn` (amber) | `#fbbf24` | needs attention — **always with a mark** (↻ needs-re-run badge, ●, ⚠), since orange is a neighbouring hue |
+| `--danger` / `--danger-bg` | `#f87171` / `#3a1d24` | errors, Delete |
+| `--overlay-bg`, `--backdrop`, `--shadow` | | map cards (legend, tooltip, panel), modal backdrops, shadows |
+
+The page background adds two faint glows (blue top-left, violet top-right). Form controls get the
+theme from a zero-specificity `:where(…)` rule, so component styles always win; MapLibre's zoom and
+attribution controls are themed there too. The map can't read CSS variables, so its colours live in
+`lib/mapTheme.ts`: Search matches **orchid** `#f0a3e4` (in neither viridis nor the categorical
+palettes), the hovered / tapped feature white, default pattern ink and arrows light. New shapes get
+thin dark seams (`#0b0f18`) between them. Basemap: OpenFreeMap **dark**, else CARTO **Dark Matter**,
+else a plain `#0e131d` background (`MapView` tries them in order). Data draws above every basemap
+fill and line (roads, borders) and under the trailing run of label layers, whose text `MapView`
+repaints light in a dark halo (`LABEL_TEXT` / `LABEL_HALO`) so it reads over any fill. Mobile-safe padding with
+`safe-area-inset` for notch/bottom-bar devices.
 
 ## §3 — Data Layer (api/)
 
@@ -193,9 +218,23 @@ remembered per device in localStorage `powergis.controlsView`). `lib/workspace/d
 workspace's, plus transform inputs and outputs), transform and visualization, with edges input →
 transform → output → visualization. Rows: datasets no transform makes are row 0; a transform is one
 row below its deepest input and its output one below it; all visualizations share the bottom row.
-Each row is ordered by the mean position of its parents (one barycenter pass); row 0 keeps the
-workspace's dataset order. `layoutDag` gives pixel positions (rows centered; wider than the screen →
-it scrolls, opened centered). Nothing about the layout is stored. Transform state: **not run yet**
+Rows are ordered to minimize arrow crossings (`orderLayers`, the layered / Sugiyama recipe): an
+edge that skips rows gets a virtual point (`v:<edge>:<row>`, listed in `edge.via` and `dag.layers`)
+in each row it passes, so it takes a lane there instead of cutting across nodes; then up to 12
+alternating down / up barycenter sweeps, each followed by adjacent swaps that lower crossings, keep
+the ordering with the fewest crossings (row 0 starts in the workspace's dataset order).
+`layoutDag(dag, direction)` gives pixel positions, `'vertical'` (rows top to bottom) or
+`'horizontal'` (rows as columns, left to right); each row is centered on the widest, virtual points
+take a narrow lane. `edgePath` draws an edge out of the parent's far side, through its points, into
+the child's near side. The graph **pans and zooms** in a fixed viewport (`components/dag/usePanZoom.ts`,
+maths in `lib/panZoom.ts`): mouse drag pans; Shift + wheel zooms, as does a trackpad pinch (Ctrl +
+wheel, or Safari's gesture events); on touch, one finger still scrolls the page, touch-and-hold
+(0.35 s, still) then drag pans, and two fingers pinch. A drag or pinch swallows the click after it, so
+it never taps a node. It opens fitted (never above 1:1), refits when the layout or the viewport's
+width changes (splitter, pop-out), and keeps part of the graph on screen; ＋ / − / ⤢ buttons sit in
+its corner. The
+direction toggle (↓ / →) is remembered per device (`powergis.dagDirection`); nothing else about the
+layout is stored. Transform state: **not run yet**
 (no output), **needs re-run** (an input's `updatedAt` is after the output's), else ready.
 
 `DagView.vue` draws nodes as buttons over one SVG of curved edges. Tapping a node shows its card
@@ -213,9 +252,26 @@ those datasets (aliases from their names, deduplicated), opened in its editor. *
 picks a dataset and opens the visualization add form for it. Everything goes through the same
 workspace operations as the lists.
 
+### Side panel
+
+On desktop the controls column is resizable: a splitter between it and the map (drag, arrow keys,
+double-click resets), width as the `--panel-w` CSS variable on `.page`, remembered per device
+(`powergis.panelWidth`, 256 px to 70% of the window). `MapView` keeps the canvas matched to its
+container with a `ResizeObserver` (the window doesn't resize when the splitter moves). The
+workspace panels — from List | Graph to just before Export — can **pop out** (⤢) into a large modal
+(full screen on phones): one `<Teleport to="body" :disabled="!popped">` moves the same components, so
+open editors and selections survive; ✕, Esc or a backdrop tap brings them back. Popped out on a wide
+screen, the open graph item sits right of the graph (`.graph-wrap.split`), not under it.
+
+**Flows bring their next step into view**: `v-reveal` (`components/reveal.ts`) scrolls an element
+into view when it appears or its value changes — just enough, or to its top when it's taller than the
+screen. On: the graph when a pick mode starts, the graph's detail section, the visualization add
+form, the transform editor and the list's add-dataset form.
+
 ### Find
 
-`FindPanel.vue` searches one visualization's features. The server indexes them (`findIndex`,
+`FindPanel.vue` (its own card above the workspace panels: "Search in [visualization] in [All data /
+column]", then the search box) searches one visualization's features. The server indexes them (`findIndex`,
 `lib/dataset/query.ts` `findIndex(grouped, columns)`): every feature label, and every distinct value
 of every text column in the rows behind features, with how many features have it (columns over 20k
 distinct values are skipped). The index is cached beside the dataset + binding grouping. The client
@@ -226,7 +282,7 @@ visualization it follows the top visible one (they load one by one).
 
 ### Default workspace
 
-The first visit (and ⋯ → Reset) opens `public/data/default.powergis.json`, a workspace file used as a
+The first visit (and Workspace → Reset) opens `public/data/default.powergis.json`, a workspace file used as a
 template: dataset pointers are `builtin:<table>` or `transform:<n>` (the output of the file's n-th
 transform). `seedDefault` (`MapPage.vue`) uploads each built-in (or reuses a copy marked
 `extensions.builtin` with the built-in's current `extensions.version`), runs each transform in order (or reuses an output marked `extensions.madeBy`

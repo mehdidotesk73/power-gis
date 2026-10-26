@@ -43,7 +43,7 @@ function setBinding(binding: GeometryBinding) {
       <BindingEditor :columns="dataset.columns" :model-value="layer.binding" :info="info" :error="error" @update:model-value="setBinding" />
     </details>
     <label class="row">
-      Column
+      Value to show
       <select :value="layer.column" @change="setColumn(($event.target as HTMLSelectElement).value, layer.aggregation)">
         <option :value="ROWS">Number of rows</option>
         <option v-for="c in columns" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }})</option>

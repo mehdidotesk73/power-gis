@@ -6,6 +6,7 @@
 // Vectors encode as arrows: direction from the vector, size from magnitude,
 // plus the same color and opacity encodings.
 
+import { PATTERN_INK } from './mapTheme'
 import { colormapStops, cssGradient, type ColormapName } from './colormaps'
 import { paletteColors, type PaletteName } from './palettes'
 import { distinctValues, numericValues, parseVector, type LayerFeature } from './schema'
@@ -220,7 +221,7 @@ export function colorLegend(enc: ColorEncoding, features: LayerFeature[], title:
 
 export function patternLegend(enc: PatternEncoding, title: string): LegendEntry | null {
   if (enc.kind !== 'field') return null
-  const color = enc.color ?? '#222222'
+  const color = enc.color ?? PATTERN_INK
   return {
     kind: 'swatches',
     title,

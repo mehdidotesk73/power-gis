@@ -1,55 +1,55 @@
-/* CSS Custom Properties for theming */
+/* PowerGIS theme: dark only. Deep slate surfaces stepping lighter as they
+   rise, and accents with one job each (see docs/system-design.md §2):
+   blue = interaction, violet = datasets, orange = transforms, green =
+   visualizations + success, amber = needs attention (always with a ↻ / ⚠
+   mark too), orchid = Search matches on the map, red = errors / destructive.
+   Components use these tokens, never colour literals. */
 
 :root {
-  /* Light mode (default) */
-  --bg: #ffffff;
-  --bg-elev: #f5f5f5;
-  --bg-elev-2: #eeeeee;
-  --text: #1a1a1a;
-  --text-muted: #666666;
-  --border: #d0d0d0;
-  --accent-blue: #0066cc;
-  --danger: #d32f2f;
+  /* surfaces */
+  --bg: #0b0f18;
+  --bg-elev: #141b2a;
+  --bg-elev-2: #1b2334;
+  --bg-input: #1f2940;
+  --border: #28324a;
+  --border-strong: #36425f;
+  --text: #e7eaf3;
+  --text-muted: #8b94ac;
+  --on-accent: #ffffff; /* text on a solid blue / red */
+  --on-amber: #1d1405; /* text on a solid amber badge */
+
+  /* accents */
+  --accent-blue: #4f8ef7;
+  --accent-violet: #9b6dff;
+  --accent-orange: #f7931a;
+  --accent-green: #3ad29f;
+  --accent-amber: #fbbf24;
+  --accent-orchid: #f0a3e4;
+  --danger: #f87171;
+  --danger-bg: #3a1d24;
+
+  /* roles */
+  --kind-dataset: var(--accent-violet);
+  --kind-transform: var(--accent-orange);
+  --kind-viz: var(--accent-green);
+  --ok: var(--accent-green);
+  --warn: var(--accent-amber);
+
+  /* floating cards over the map, menus, modals */
+  --overlay-bg: rgba(20, 27, 42, 0.95);
+  --backdrop: rgba(4, 7, 14, 0.66);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --radius: 0.55rem;
 
   /* Typography */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     sans-serif;
   font-size: 16px;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Dark mode */
-    --bg: #1a1a1a;
-    --bg-elev: #2d2d2d;
-    --bg-elev-2: #3a3a3a;
-    --text: #ffffff;
-    --text-muted: #aaaaaa;
-    --border: #444444;
-  }
-}
-
-/* Light mode override (if user explicitly sets it) */
-:root[data-theme='light'] {
-  --bg: #ffffff;
-  --bg-elev: #f5f5f5;
-  --bg-elev-2: #eeeeee;
-  --text: #1a1a1a;
-  --text-muted: #666666;
-  --border: #d0d0d0;
-}
-
-/* Dark mode override (if user explicitly sets it) */
-:root[data-theme='dark'] {
-  --bg: #1a1a1a;
-  --bg-elev: #2d2d2d;
-  --bg-elev-2: #3a3a3a;
-  --text: #ffffff;
-  --text-muted: #aaaaaa;
-  --border: #444444;
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Global styles */
@@ -61,8 +61,43 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
   color: var(--text);
+}
+
+body {
+  min-height: 100svh;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(79, 142, 247, 0.08), transparent 60%),
+    radial-gradient(1000px 500px at 110% 0%, rgba(155, 109, 255, 0.08), transparent 55%), var(--bg);
+}
+
+/* Form controls inherit the theme everywhere; components may refine them
+   (:where keeps these at zero specificity, so any component rule wins). */
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea) {
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+}
+
+:where(input, select, textarea):focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+:where(input[type='checkbox'], input[type='radio'], input[type='range']) {
+  accent-color: var(--accent-blue);
+}
+
+select option {
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+::placeholder {
+  color: var(--text-muted);
+  opacity: 0.8;
 }
 
 button {
@@ -90,4 +125,60 @@ a:hover {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* MapLibre's own controls (zoom buttons, attribution), on the dark theme. */
+.maplibregl-ctrl-group:not(:empty) {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) brightness(0.9);
+}
+.maplibregl-ctrl-group button:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent-blue) 25%, var(--bg-elev-2));
+}
+.maplibregl-ctrl.maplibregl-ctrl-attrib {
+  background: var(--overlay-bg);
+  color: var(--text-muted);
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--text-muted);
+}
+.maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}
+
+/* Compact "add" pills, coloured by the kind they add (as bitcoin-explorer's
+   .toggle): thin border, 12% tint, text in the kind's colour. Used by the
+   graph's toolbar and the list panels alike. */
+.kind-pill {
+  padding: 0.12rem 0.5rem;
+  border: 1px solid var(--pill, var(--accent-blue));
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--pill, var(--accent-blue)) 12%, transparent);
+  color: var(--pill, var(--accent-blue));
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.kind-pill:not(:disabled):hover {
+  background: color-mix(in srgb, var(--pill, var(--accent-blue)) 24%, transparent);
+}
+.kind-pill:disabled {
+  opacity: 0.45;
+}
+.kind-pill.k-dataset {
+  --pill: var(--kind-dataset);
+}
+.kind-pill.k-transform {
+  --pill: var(--kind-transform);
+}
+.kind-pill.k-viz {
+  --pill: var(--kind-viz);
 }

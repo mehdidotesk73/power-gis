@@ -3,6 +3,7 @@
 // ObjectList). Top of the list draws on top (within its geometry kind). The
 // checkbox shows / hides; hold a card (right-click with a mouse) for Edit,
 // Zoom to data, Reorder and Delete.
+import { vReveal } from '../reveal'
 import { computed, ref } from 'vue'
 import VisualizationEditor from './VisualizationEditor.vue'
 import BindingEditor from './BindingEditor.vue'
@@ -101,7 +102,7 @@ defineExpose({
 
 <template>
   <div class="viz">
-    <div v-if="adding" class="add-form">
+    <div v-if="adding" v-reveal class="add-form">
       <label class="row">
         Dataset
         <select :value="addDataset" @change="pickDataset(($event.target as HTMLSelectElement).value)">
@@ -110,18 +111,19 @@ defineExpose({
       </label>
       <BindingEditor v-if="addRecord && addBinding" :columns="addRecord.columns" :model-value="addBinding" :info="addInfo" :error="addError" @update:model-value="setAddBinding" />
       <label class="row">
-        Column
+        Value to show
         <select v-model="addColumn">
           <option :value="ROWS">Number of rows</option>
           <option v-for="c in addColumns" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }})</option>
         </select>
       </label>
+      <p class="hint">What colors each shape (a vector column draws arrows). Rows on the same shape are combined — count, sum, most common… — set in Edit.</p>
       <div class="row end">
         <button class="btn" @click="(adding = false), emit('cancel-add')">Cancel</button>
         <button class="btn primary" :disabled="!addInfo?.features" @click="confirmAdd">Add</button>
       </div>
     </div>
-    <button v-else-if="!compact" class="add-btn" :disabled="!datasets.length" @click="openAdd">＋ Add visualization</button>
+    <button v-else-if="!compact" class="kind-pill k-viz add-pill" :disabled="!datasets.length" @click="openAdd">＋ Visualization</button>
 
     <p v-if="!visualizations.length && !compact" class="muted">No visualizations yet.</p>
     <ObjectList
@@ -186,18 +188,6 @@ defineExpose({
   font-size: 0.72rem;
   margin: 0;
 }
-.add-btn {
-  width: 100%;
-  padding: 0.45rem;
-  border: 1px dashed var(--accent-blue);
-  border-radius: 0.4rem;
-  background: none;
-  color: var(--accent-blue);
-  font-size: 0.85rem;
-}
-.add-btn:disabled {
-  opacity: 0.5;
-}
 .add-form {
   display: grid;
   gap: 0.4rem;
@@ -211,6 +201,11 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+.hint {
+  margin: -0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.74rem;
 }
 .row.end {
   justify-content: flex-end;
@@ -233,6 +228,10 @@ defineExpose({
 .btn.primary {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
+}
+.add-pill {
+  justify-self: start;
+  margin-bottom: 0.45rem;
 }
 </style>

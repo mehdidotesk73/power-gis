@@ -4,6 +4,7 @@
 //   point    → circle (color + opacity, radius = style.size)
 // Emits `hover` (HoverInfo | null) and `select` (feature id) for panels.
 
+import { HIGHLIGHT, PATTERN_INK, SELECTED } from '../../lib/mapTheme'
 import { defineComponent, onBeforeUnmount, watch, type PropType } from 'vue'
 import type { GeoJSONSource, Map as MlMap } from 'maplibre-gl'
 import { bindInteraction, setVisibility, useMap, type HoverInfo } from './mapContext'
@@ -57,7 +58,7 @@ export default defineComponent({
         type: 'line',
         source: src,
         filter: ['in', ['get', props.layer.idField], ['literal', []]],
-        paint: { 'line-color': '#111', 'line-width': 2.2 },
+        paint: { 'line-color': HIGHLIGHT, 'line-width': 2.5 },
       },
       before,
     )
@@ -72,7 +73,7 @@ export default defineComponent({
       if (geom === 'region') {
         set(main, 'fill-color', color)
         set(main, 'fill-opacity', opacity)
-        set(outline, 'line-color', ['case', hoverOrSelected, '#000', ol.color])
+        set(outline, 'line-color', ['case', hoverOrSelected, SELECTED, ol.color])
         set(outline, 'line-width', ['case', hoverOrSelected, 2, ol.width])
         set(outline, 'line-opacity', ['case', hoverOrSelected, 1, ol.opacity ?? 1])
       } else if (geom === 'polyline') {
@@ -94,7 +95,7 @@ export default defineComponent({
       if (geom !== 'region') return // patterns are a region encoding
       const p = props.styleSpec.pattern
       if (p.kind === 'none') return
-      const color = p.color ?? '#222222'
+      const color = p.color ?? PATTERN_INK
       patternGroups(p).forEach((g, i) => {
         const lid = `${id}-pattern-${i}`
         map.addLayer(

@@ -4,8 +4,8 @@
 //
 // Rows: a dataset no transform makes is row 0; a transform sits one row below
 // its deepest input, its output one row below it; every visualization goes in
-// the bottom row. Within a row nodes are ordered by the mean position of what
-// feeds them (one barycenter pass), which keeps most arrows from crossing.
+// the bottom row. Within a row nodes are ordered to keep arrows from crossing
+// (orderLayers); positions come from layoutDag, top to bottom or left to right.
 
 import type { WorkspaceDoc } from './workspace'
 
@@ -32,12 +32,16 @@ export interface DagNode {
 export interface DagEdge {
   from: string
   to: string
+  /** Virtual points (one per row it skips) the arrow passes through; set by buildDag. */
+  via?: string[]
 }
 
 export interface Dag {
   nodes: DagNode[]
   edges: DagEdge[]
   rows: number
+  /** Each row's keys in order, virtual points (`v:…`) included. */
+  layers: string[][]
 }
 
 /** What the graph needs to know about a dataset record. */
@@ -112,50 +116,184 @@ export function buildDag(doc: WorkspaceDoc, dataset: (id: string) => DagDataset 
     edges.push({ from: dsKey(v.datasetId), to: vizKey(v.id) })
   }
 
-  // Order within rows: row 0 as the workspace lists datasets; below, by the
-  // mean position of each node's parents (ties keep document order).
+  // Order within rows: fewest arrow crossings (see orderLayers). Row 0 starts in the workspace's order.
   const rows = dataRows + (doc.visualizations.length ? 1 : 0)
-  const parents = new Map<string, string[]>()
-  for (const e of edges) parents.set(e.to, [...(parents.get(e.to) ?? []), e.from])
   const all = [...nodes.values()]
-  for (let r = 0; r < rows; r++) {
-    const inRow = all.filter((n) => n.row === r)
-    const score = (n: DagNode, i: number) => {
-      const ps = (parents.get(n.key) ?? []).map((p) => nodes.get(p)!).filter((p) => p.row < r)
-      return ps.length ? ps.reduce((s, p) => s + p.order, 0) / ps.length : r === 0 ? i : Number.MAX_SAFE_INTEGER
-    }
-    inRow
-      .map((n, i) => ({ n, s: score(n, i), i }))
-      .sort((a, b) => a.s - b.s || a.i - b.i)
-      .forEach(({ n }, i) => (n.order = i))
+  const layers = orderLayers(all, edges, rows)
+  layers.forEach((layer) => layer.forEach((key, i) => nodes.get(key) && (nodes.get(key)!.order = i)))
+  return { nodes: all, edges, rows, layers }
+}
+
+// ── ordering: fewer crossings ──────────────────────────────────────────────
+//
+// The layered ("Sugiyama") recipe: an arrow that skips rows gets a virtual
+// point in every row it passes, so it takes a slot there (and is drawn
+// through it) instead of cutting across nodes. Then rows are re-ordered by
+// the mean position of their neighbours above, then below, a few times over,
+// with a pass that swaps neighbours when that removes crossings; the order
+// with the fewest crossings wins.
+
+/** A virtual point's key: edge index + row. */
+export const isVirtual = (key: string) => key.startsWith('v:')
+
+function orderLayers(nodes: DagNode[], edges: DagEdge[], rows: number): string[][] {
+  const layers: string[][] = Array.from({ length: rows }, () => [])
+  for (const n of nodes) layers[n.row]?.push(n.key) // insertion order: row 0 = workspace order
+  const rowOf = new Map(nodes.map((n) => [n.key, n.row]))
+  const up = new Map<string, string[]>()
+  const down = new Map<string, string[]>()
+  const link = (a: string, b: string) => {
+    down.set(a, [...(down.get(a) ?? []), b])
+    up.set(b, [...(up.get(b) ?? []), a])
   }
-  return { nodes: all, edges, rows }
+  edges.forEach((e, i) => {
+    const a = rowOf.get(e.from)
+    const b = rowOf.get(e.to)
+    e.via = []
+    if (a === undefined || b === undefined || b <= a) return // a loop back (a transform reading its own output): drawn, not ordered
+    let prev = e.from
+    for (let r = a + 1; r < b; r++) {
+      const v = `v:${i}:${r}`
+      layers[r].push(v)
+      e.via.push(v)
+      link(prev, v)
+      prev = v
+    }
+    link(prev, e.to)
+  })
+
+  const pos = () => new Map(layers.flatMap((l) => l.map((k, i) => [k, i] as const)))
+  /** Crossings between row r and r + 1: pairs of links whose ends are in opposite orders. */
+  const crossingsAt = (r: number, at: Map<string, number>) => {
+    const links = layers[r].flatMap((a) => (down.get(a) ?? []).map((b) => [at.get(a)!, at.get(b)!] as const))
+    let c = 0
+    for (let i = 0; i < links.length; i++) for (let j = i + 1; j < links.length; j++) if ((links[i][0] - links[j][0]) * (links[i][1] - links[j][1]) < 0) c++
+    return c
+  }
+  const crossings = () => {
+    const at = pos()
+    let c = 0
+    for (let r = 0; r + 1 < rows; r++) c += crossingsAt(r, at)
+    return c
+  }
+  /** Re-orders a row by the mean position of its neighbours in the next row (nodes with none stay put). */
+  const sortBy = (r: number, neighbours: Map<string, string[]>) => {
+    const at = pos()
+    const score = (k: string, i: number) => {
+      const ns = neighbours.get(k) ?? []
+      return ns.length ? ns.reduce((s, n) => s + at.get(n)!, 0) / ns.length : i
+    }
+    layers[r] = layers[r]
+      .map((k, i) => ({ k, s: score(k, i), i }))
+      .sort((x, y) => x.s - y.s || x.i - y.i)
+      .map((x) => x.k)
+  }
+  /** Swaps neighbours in a row while that lowers the crossings around it. */
+  const transpose = () => {
+    for (let r = 0; r < rows; r++) {
+      let better = true
+      while (better) {
+        better = false
+        for (let i = 0; i + 1 < layers[r].length; i++) {
+          const local = () => {
+            const at = pos()
+            return (r > 0 ? crossingsAt(r - 1, at) : 0) + (r + 1 < rows ? crossingsAt(r, at) : 0)
+          }
+          const before = local()
+          ;[layers[r][i], layers[r][i + 1]] = [layers[r][i + 1], layers[r][i]]
+          if (local() < before) better = true
+          else [layers[r][i], layers[r][i + 1]] = [layers[r][i + 1], layers[r][i]]
+        }
+      }
+    }
+  }
+
+  let best = layers.map((l) => [...l])
+  let bestC = crossings()
+  for (let pass = 0; pass < 12 && bestC > 0; pass++) {
+    if (pass % 2 === 0) for (let r = 1; r < rows; r++) sortBy(r, up)
+    else for (let r = rows - 2; r >= 0; r--) sortBy(r, down)
+    transpose()
+    const c = crossings()
+    if (c < bestC) {
+      best = layers.map((l) => [...l])
+      bestC = c
+    }
+  }
+  return best
 }
 
 // ── layout ─────────────────────────────────────────────────────────────────
 
+/** Top to bottom (rows are rows) or left to right (rows are columns). */
+export type DagDirection = 'vertical' | 'horizontal'
+
 export interface DagLayout {
   width: number
   height: number
+  direction: DagDirection
   /** Node key → top-left corner. */
   at: Map<string, { x: number; y: number }>
+  /** Virtual point key → the point an arrow passes through. */
+  points: Map<string, { x: number; y: number }>
 }
 
 export const NODE_W = 96
 export const NODE_H = 76
-const GAP_X = 12
-const GAP_Y = 44
+/** Room a passing arrow takes in a row. */
+const LANE = 20
+const GAP_CROSS = 12
+const GAP_ALONG = { vertical: 44, horizontal: 56 }
 const PAD = 8
 
-/** Pixel positions: rows top to bottom, each row centered in the widest one (or `minWidth`). */
-export function layoutDag(dag: Dag, minWidth = 0): DagLayout {
-  const counts = Array.from({ length: dag.rows }, (_, r) => dag.nodes.filter((n) => n.row === r).length)
-  const rowWidth = (n: number) => n * NODE_W + Math.max(0, n - 1) * GAP_X
-  const width = Math.max(minWidth, ...counts.map(rowWidth).map((w) => w + PAD * 2))
+/** Pixel positions: each row (column, left to right) centered on the widest. */
+export function layoutDag(dag: Dag, direction: DagDirection = 'vertical'): DagLayout {
+  const v = direction === 'vertical'
+  const along = v ? NODE_H : NODE_W // a row's depth
+  const cross = (key: string) => (isVirtual(key) ? LANE : v ? NODE_W : NODE_H)
+  const span = (layer: string[]) => layer.reduce((s, k) => s + cross(k), 0) + Math.max(0, layer.length - 1) * GAP_CROSS
+  const widest = Math.max(0, ...dag.layers.map(span))
   const at = new Map<string, { x: number; y: number }>()
-  for (const n of dag.nodes) {
-    const left = (width - rowWidth(counts[n.row])) / 2
-    at.set(n.key, { x: Math.round(left + n.order * (NODE_W + GAP_X)), y: PAD + n.row * (NODE_H + GAP_Y) })
+  const points = new Map<string, { x: number; y: number }>()
+  dag.layers.forEach((layer, r) => {
+    let c = PAD + (widest - span(layer)) / 2
+    const a = PAD + r * (along + GAP_ALONG[direction])
+    for (const key of layer) {
+      const size = cross(key)
+      if (isVirtual(key)) points.set(key, v ? { x: Math.round(c + size / 2), y: a + along / 2 } : { x: a + along / 2, y: Math.round(c + size / 2) })
+      else at.set(key, v ? { x: Math.round(c), y: a } : { x: a, y: Math.round(c) })
+      c += size + GAP_CROSS
+    }
+  })
+  const depth = dag.rows ? PAD * 2 + dag.rows * along + (dag.rows - 1) * GAP_ALONG[direction] : 0
+  const breadth = widest + PAD * 2
+  return { width: v ? breadth : depth, height: v ? depth : breadth, direction, at, points }
+}
+
+/**
+ * An arrow's SVG path: out of the parent's far side (bottom, or right), through
+ * its virtual points, into the child's near side (top, or left) — smooth
+ * curves that leave and enter along the flow. `gap` leaves room for the head.
+ */
+export function edgePath(layout: DagLayout, e: DagEdge, gap = 3): string | null {
+  const a = layout.at.get(e.from)
+  const b = layout.at.get(e.to)
+  if (!a || !b) return null
+  const v = layout.direction === 'vertical'
+  const start = v ? { x: a.x + NODE_W / 2, y: a.y + NODE_H } : { x: a.x + NODE_W, y: a.y + NODE_H / 2 }
+  const end = v ? { x: b.x + NODE_W / 2, y: b.y - gap } : { x: b.x - gap, y: b.y + NODE_H / 2 }
+  const pts = [start, ...(e.via ?? []).flatMap((k) => layout.points.get(k) ?? []), end]
+  let d = `M ${start.x} ${start.y}`
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i - 1]
+    const q = pts[i]
+    if (v) {
+      const m = (p.y + q.y) / 2
+      d += ` C ${p.x} ${m}, ${q.x} ${m}, ${q.x} ${q.y}`
+    } else {
+      const m = (p.x + q.x) / 2
+      d += ` C ${m} ${p.y}, ${m} ${q.y}, ${q.x} ${q.y}`
+    }
   }
-  return { width, height: dag.rows ? PAD * 2 + dag.rows * NODE_H + (dag.rows - 1) * GAP_Y : 0, at }
+  return d
 }

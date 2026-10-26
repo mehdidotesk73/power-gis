@@ -48,8 +48,8 @@ export default defineConfig({
         name: 'PowerGIS',
         short_name: 'PowerGIS',
         description: 'US electric utility service territories and power data on a map',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#0b0f18',
+        background_color: '#0b0f18',
         display: 'standalone',
         orientation: 'portrait-primary',
         icons: [

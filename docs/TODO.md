@@ -64,6 +64,15 @@ Track feature development, improvements, and known issues here. Move completed w
   open it under the graph; ＋ Transform (tap inputs) and ＋ Visualization (tap a dataset); transforms
   marked not run yet / needs re-run. Transforms have several outputs (one SQL each, per-output
   Preview, one Run writes all; nothing written if any fails); one writer per dataset.
+- **Graph layout + panel UI** — crossing-minimizing DAG layout (virtual points for row-skipping
+  arrows, barycenter sweeps + swaps), ↓ / → direction toggle, resizable desktop side panel, ⤢ pop-out
+  of the workspace panels into a modal (open item beside the graph), Search card ("Search in [viz] in
+  [column]"), compact pill ＋ buttons (as bitcoin-explorer's toggles), flows scroll each step into view, clearer visualization-form labels.
+- **Dark theme** — dark only; colour tokens by job (blue interaction, violet datasets, orange
+  transforms, green visualizations, amber attention + mark, orchid Search matches); dark basemap.
+- **Workspace in the header** — Workspace button (amber ● when unsaved) with a drop-down panel; list
+  panels ordered Visualizations / Transforms / Datasets with the same ＋ pills.
+- **Graph pan / zoom** — drag, Shift + wheel, trackpad pinch; phones: hold then drag, pinch.
 
 ## Next (Current Sprint)
 

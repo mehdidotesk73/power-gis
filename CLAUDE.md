@@ -30,7 +30,7 @@ cleanly with ArcGIS (Esri JSON FeatureSets, GeoJSON, CSV, FeatureServer REST).
 
 UI structure — one page, the **Map**:
 
-- **Controls** (left sidebar on desktop, below the map on phones): workspace bar, Find (any visualization's features),
+- **Controls** (left sidebar on desktop, below the map on phones; the Workspace button sits in the header): Find (any visualization's features),
   visualizations, datasets, transforms, style editors (scalar + vector), ArcGIS import/export.
 - **Map** (MapLibre GL) with:
   - **Scalar layers** — color (constant / colormap / categorical), transparency (fixed / by
@@ -88,7 +88,7 @@ whatever they're actually asking about.
 - **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, one job named `build`), and the
   branch ruleset requires it to pass before merge. Tests stay inside that one job — never a separate
   job, since the ruleset only watches `build`.
-- **External data dependencies:** the basemap (OpenFreeMap Positron vector tiles, free, no key; the map falls back to a plain background if they fail), and — only when
+- **External data dependencies:** the basemap (dark vector tiles, free, no key: OpenFreeMap dark, else CARTO Dark Matter, else a plain background), and — only when
   rebuilding the CSV — the PUDL mirror of EIA-861 on S3. The app's own data is static in `public/`.
   From this sandbox eia.gov and census.gov are blocked; the PUDL S3 bucket is reachable. You cannot
   see the rendered map here unless you drive a headless browser; lean on the user's screenshots.
@@ -145,7 +145,9 @@ whatever they're actually asking about.
   ordered visualizations); **every edit is an operation** returning `{ok, doc}` or
   `{ok:false, error}` — the UI uses them and agents will too. **Explicit Save**: edits are a
   draft (localStorage `powergis.draft`, restored on reload, "Unsaved changes" + Discard in
-  `WorkspaceBar`) until Save sends `saveWorkspace`. **Workspace files** (`lib/workspace/file.ts`):
+  `WorkspaceBar` — the **Workspace** button in the header, teleported there from `MapPage` into
+  `#header-workspace`; amber with a ● while unsaved; it drops down the name, counts, Save / Discard and
+  the file actions) until Save sends `saveWorkspace`. **Workspace files** (`lib/workspace/file.ts`):
   download / load a `.powergis.json` of pointers + settings, never rows; loading replaces the
   working copy (fresh visualization ids, datasets missing from the database dropped and reported).
   Details: `docs/system-design.md` §4.
@@ -182,14 +184,20 @@ whatever they're actually asking about.
   table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
   table's error lists the aliases). Tests run real DuckDB through its Node build
   (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
-- **Find** (`FindPanel.vue`): pick a visualization, then search — all data or one column — over its
+- **Side panel**: resizable on desktop (splitter, `--panel-w`, `powergis.panelWidth`; `MapView` resizes
+  the map with a `ResizeObserver`). ⤢ pops the workspace panels (List | Graph through the last panel
+  before Export) into a modal via `<Teleport :disabled="!popped">` — same components, state kept.
+  Popped out and wide, the open graph item sits beside the graph. **New-item flows scroll each step
+  into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
+- **Find** (`FindPanel.vue`, a separate card: "Search in [viz] in [All data / column]"): pick a visualization, then search — all data or one column — over its
   features' names and every text value in their rows (typo-tolerant). The server builds the index
   (`findIndex` request, `lib/dataset/query.ts`, cached with the grouping; columns with more than
   20k distinct values are left out); `findFeatures` returns the matching features' keys, which the
   page highlights (on every visualization drawing the same features) and zooms to.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
-- **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
-  basemap's labels (invisible slot layers added in `MapView`).
+- **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
+  basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
+  the trailing run of symbol layers; labels repainted light with a dark halo).
 - **Default workspace** (`public/data/default.powergis.json`): a workspace file whose pointers are
   placeholders — `builtin:<table>` and `transform:<n>` (the n-th transform's first output;
   `transform:<n>.<m>` its m-th). `seedDefault`
@@ -211,13 +219,18 @@ whatever they're actually asking about.
   Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
   (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Preview,
   Run, Edit, Delete.
-- **List view** panels (Visualizations, Datasets, Transforms, Export) open collapsed; each panel's
-  ＋ button sits at its top.
+- **List view** panels (Visualizations, Transforms, Datasets, then Export) open collapsed; each
+  panel's ＋ button sits at its top. All ＋ buttons (graph and lists) are the global `.kind-pill`
+  (`k-dataset` / `k-transform` / `k-viz`, in `vars.css`).
 - **Graph view (DAG)** — the default view; a **List | Graph** switch above the panels changes it,
   remembered per device (`powergis.controlsView`). `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
   nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest
-  input, its output below it, every visualization in the bottom row), one barycenter pass orders each
-  row; `layoutDag` places them (automatic, nothing stored). Transforms show **not run yet** (no
+  input, its output below it, every visualization in the bottom row); `orderLayers` minimizes arrow
+  crossings (virtual points for row-skipping edges, `edge.via`; barycenter sweeps + swaps);
+  `layoutDag(dag, 'vertical' | 'horizontal')` places them and `edgePath` draws edges (automatic;
+  only the ↓ / → direction is remembered per device, `powergis.dagDirection`). The graph **pans and
+  zooms** (`dag/usePanZoom.ts` + `lib/panZoom.ts`): drag; Shift + wheel or pinch; on phones
+  touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. Transforms show **not run yet** (no
   output) or **needs re-run** (an input's `updatedAt` is newer than the output's). `DagView.vue`
   draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
   same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in
@@ -318,6 +331,10 @@ package-lock.json              committed — CI runs `npm ci` and needs it
   `u` = east component, `v` = north component.
 - **ArcGIS type mapping** is in `src/lib/arcgis.ts`'s header comment. Composite types travel as JSON
   strings in Esri fields; our full schema rides along under the `x-powergis` key.
+- **Dark only, colours by job** (`src/styles/vars.css`, table in `docs/system-design.md` §2): blue =
+  interaction only; violet = datasets, orange = transforms, green = visualizations / success; amber =
+  needs attention, always with a mark (↻, ●, ⚠); red = errors. Components use tokens, never literals;
+  map colours (MapLibre can't read CSS variables) live in `lib/mapTheme.ts` (orchid Search matches).
 - **Mobile-first:** the user is on a phone. Keep controls tappable; hover is only a bonus
   (tooltips are suppressed on touch devices, tap opens the panel).
 

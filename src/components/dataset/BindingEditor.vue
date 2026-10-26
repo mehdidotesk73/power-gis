@@ -25,18 +25,20 @@ function setLabel(label: string) {
     <div class="lbl">Draw on</div>
     <template v-if="geoms.length">
       <label class="row">
-        Geometry
+        Shapes
         <select :value="modelValue.column" @change="emit('update:modelValue', { ...modelValue, column: value($event) })">
           <option v-for="c in geoms" :key="c.name" :value="c.name">{{ c.name }} ({{ c.type }})</option>
         </select>
       </label>
+      <p class="small muted hint">The geometry column: each distinct shape is one feature on the map; rows with the same shape share it.</p>
       <label class="row">
-        Feature names
+        Name shapes by
         <select :value="modelValue.label ?? ''" @change="setLabel(value($event))">
           <option value="">(none)</option>
           <option v-for="c in labels" :key="c.name" :value="c.name">{{ c.name }}</option>
         </select>
       </label>
+      <p class="small muted hint">Only a title for each shape — in the hover card, the tap panel and Search. It doesn't change the colors.</p>
     </template>
     <p v-else class="small muted">
       This dataset has no geometry column, so it can't be drawn. Make one with a transform: <code>point(lat, lon)</code> for coordinates, or a join onto
@@ -73,6 +75,9 @@ function setLabel(label: string) {
   padding: 0.3rem;
   font-size: 0.85rem;
 }
+.hint {
+  margin-top: -0.2rem;
+}
 .small {
   margin: 0;
   font-size: 0.74rem;
@@ -81,7 +86,7 @@ function setLabel(label: string) {
   color: var(--text-muted);
 }
 .ok {
-  color: #2e7d32;
+  color: var(--ok);
 }
 .bad {
   color: var(--danger);

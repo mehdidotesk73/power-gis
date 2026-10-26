@@ -8,6 +8,7 @@
 // Edits are part of the workspace draft, saved with Save. Cards in an
 // ObjectList: hold one (right-click with a mouse) for Preview, Run, Edit and
 // Delete.
+import { vReveal } from '../reveal'
 import { nextTick, ref } from 'vue'
 import { request } from '../../client/api'
 import SearchBox from '../map/SearchBox.vue'
@@ -172,7 +173,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
 
 <template>
   <div class="transforms">
-    <button v-if="!compact" class="add-btn" :disabled="!datasets.length" @click="create">＋ New transform</button>
+    <button v-if="!compact" class="kind-pill k-transform add-pill" :disabled="!datasets.length" @click="create">＋ Transform</button>
     <p v-if="!transforms.length && !compact" class="muted">
       No transforms yet. A transform is SQL over your datasets — joins, filters, sums, or building a point from latitude and longitude —
       whose results become datasets.
@@ -194,7 +195,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
           <span v-else-if="status[t.id]?.state === 'error'" class="bad">{{ message(t.id) }}</span>
         </div>
 
-        <div v-if="editing === t.id" class="ed">
+        <div v-if="editing === t.id" v-reveal class="ed">
           <label class="row">Name <input type="text" :value="t.name" @change="patch(t, { name: ($event.target as HTMLInputElement).value })" /></label>
 
           <div class="lbl">Inputs <span class="muted">(search by name or paste a dataset id; each is a table in the SQL by the name after "as")</span></div>
@@ -382,7 +383,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
   padding: 0.35rem;
   border: 1px solid var(--border);
   border-radius: 0.3rem;
-  background: var(--bg);
+  background: var(--bg-input);
   color: var(--text);
 }
 code {
@@ -394,7 +395,7 @@ code {
   margin: 0;
 }
 .ok {
-  color: #2e7d32;
+  color: var(--ok);
   font-size: 0.74rem;
 }
 .bad {
@@ -417,7 +418,7 @@ code {
 .btn.primary {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn.primary:disabled {
   opacity: 0.5;
@@ -437,16 +438,8 @@ code {
   border: none;
   color: var(--text-muted);
 }
-.add-btn {
-  width: 100%;
-  padding: 0.45rem;
-  border: 1px dashed var(--accent-blue);
-  border-radius: 0.4rem;
-  background: none;
-  color: var(--accent-blue);
-  font-size: 0.85rem;
-}
-.add-btn:disabled {
-  opacity: 0.5;
+.add-pill {
+  justify-self: start;
+  margin-bottom: 0.45rem;
 }
 </style>

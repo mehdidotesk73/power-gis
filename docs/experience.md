@@ -312,6 +312,49 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Graph layout + panel UI — 2026-10-26
+- **Changed:** the DAG ordering minimizes arrow crossings — edges that skip rows get virtual points
+  (their own lane in each row, drawn through), then alternating barycenter sweeps with neighbour
+  swaps keep the fewest-crossings order. The default map's state-borders arrow no longer crosses the
+  others.
+- **Added:** ↓ / → flips the graph between top-to-bottom and left-to-right (per device); a desktop
+  splitter makes the side panel resizable (per device); ⤢ pops the workspace panels (List | Graph to
+  just before Export) into a large modal via a disabled-when-docked `Teleport`, so state survives.
+- **Changed:** Find is now a separate Search card reading "Search in [viz] in [All data / column]";
+  ＋ Dataset / ＋ Transform / ＋ Visualization are pills in their node colors.
+- **Changed:** the visualization form says what each choice does — **Shapes** (geometry column),
+  **Name shapes by** (title only), **Value to show** (what colors it) — with a hint under each.
+- **Added:** in the pop-out, the open graph item sits right of the graph; new-item flows scroll each
+  step into view (`v-reveal`).
+- **Changed:** **dark only**, from bitcoin-explorer's palette: slate surfaces, blue for interaction
+  only, violet datasets / orange transforms / green visualizations, amber attention with a mark
+  (stale transforms get a ↻ badge), orchid Search matches, dark basemap (OpenFreeMap dark → CARTO
+  Dark Matter → plain). Colour literals replaced by tokens (`vars.css`) and `lib/mapTheme.ts`.
+- **Fixed:** the Search card overflowed the desktop side panel (its grid column needed `minmax(0, 1fr)`).
+- **Fixed:** labels over the data were dark-on-pale and muddy, and roads cut across the data: the
+  dark style puts some water labels before its roads, so slotting data under "the first symbol
+  layer" sank it below the roads. Data now goes under the trailing run of label layers, and those
+  labels are repainted light with a dark halo.
+- **Added:** the graph pans and zooms instead of scrolling — drag; Shift + wheel / pinch; on phones
+  hold-then-drag and two-finger pinch, so a one-finger swipe still scrolls the page.
+- **Changed:** the default workspace is named **PowerGIS** (was "Electric utilities by county
+  (EIA-861)"); saved workspaces keep their names.
+- **Changed:** the workspace bar left the side panel: a **Workspace** button in the header (amber ●
+  while unsaved) drops down the name, counts, Save / Discard and file actions (a sheet on phones).
+  `<Teleport defer>` puts it in the header (the target is rendered by App in the same pass).
+- **Changed:** list panels in the graph's order of attention — Visualizations, Transforms, Datasets —
+  with the same compact ＋ pills as the graph (global `.kind-pill`).
+- **Changed:** ＋ Dataset / ＋ Transform / ＋ Visualization are compact pills like bitcoin-explorer's
+  `.toggle`: thin kind-coloured border, 12% tint, kind-coloured 0.68rem text, 1rem radius.
+- **Fixed:** on iOS the map grew as you started scrolling, and only then did the page move: its
+  height was `70dvh`, which tracks Safari's collapsing address bar. Now `70svh` (small viewport,
+  stable). **Use `svh` for in-page heights on phones; `dvh` only for full-screen overlays.**
+- **Lesson:** a global form-control rule must sit in `:where(…)` — `input:not(…)` chains outrank
+  scoped component rules and silently restyle every field.
+- **Lesson:** MapLibre only resizes with the window — a splitter or modal changes its container
+  without a window resize, so `MapView` watches the container with a `ResizeObserver`.
+- **Docs:** CLAUDE.md, system-design (Graph view, Side panel, Find), help overview, TODO.
+
 ### Graph view (DAG) — 2026-10-26
 - **Added:** List | Graph switch. The graph (`lib/workspace/dag.ts`, `components/dag/DagView.vue`)
   shows datasets → transforms → outputs → visualizations, laid out automatically (rows by depth,

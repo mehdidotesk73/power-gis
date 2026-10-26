@@ -107,7 +107,7 @@ input {
   font-size: 1rem; /* ≥16px stops iOS zooming on focus */
   border: 1px solid var(--border);
   border-radius: 0.4rem;
-  background: var(--bg);
+  background: var(--bg-input);
   color: var(--text);
 }
 .sb-results {
@@ -121,10 +121,10 @@ input {
   list-style: none;
   max-height: 18rem;
   overflow: auto;
-  background: var(--bg);
+  background: var(--bg-elev-2);
   border: 1px solid var(--border);
   border-radius: 0.4rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow);
 }
 .sb-results li {
   display: grid;
@@ -133,7 +133,7 @@ input {
 }
 .sb-results li.active,
 .sb-results li:hover {
-  background: var(--bg-elev-2);
+  background: color-mix(in srgb, var(--accent-blue) 18%, var(--bg-elev-2));
 }
 .sb-main {
   font-size: 0.9rem;

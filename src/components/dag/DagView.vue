@@ -3,9 +3,13 @@
 // visualizations, laid out automatically (lib/workspace/dag.ts). Tap a node
 // to select it (the page opens it below the graph). ＋ Dataset: the page opens
 // the add form below. ＋ Transform: tap the input datasets, then Next.
-// ＋ Visualization: tap the dataset to draw.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { layoutDag, NODE_H, NODE_W, type Dag, type DagNode } from '../../lib/workspace/dag'
+// ＋ Visualization: tap the dataset to draw. ↓ / → flips the flow (top to
+// bottom, left to right), remembered per device. The graph pans and zooms
+// (usePanZoom): drag / Shift + wheel / pinch; on phones hold, then drag.
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { vReveal } from '../reveal'
+import { usePanZoom } from './usePanZoom'
+import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode } from '../../lib/workspace/dag'
 
 const props = defineProps<{ dag: Dag; selected: string | null }>()
 const emit = defineEmits<{
@@ -15,31 +19,62 @@ const emit = defineEmits<{
   (e: 'new-dataset'): void
 }>()
 
-const layout = computed(() => layoutDag(props.dag))
-
-// Wider than the screen: open scrolled to the middle (the inputs of most graphs sit there).
-const scroller = ref<HTMLElement>()
-function center() {
-  const el = scroller.value
-  if (el) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2
+const DIRECTION = 'powergis.dagDirection'
+function readDirection(): DagDirection {
+  try {
+    return localStorage.getItem(DIRECTION) === 'horizontal' ? 'horizontal' : 'vertical'
+  } catch {
+    return 'vertical'
+  }
 }
-onMounted(center)
-watch(() => layout.value.width, () => nextTick(center))
-const byKey = computed(() => new Map(props.dag.nodes.map((n) => [n.key, n])))
+const direction = ref<DagDirection>(readDirection())
+function flip() {
+  direction.value = direction.value === 'vertical' ? 'horizontal' : 'vertical'
+  try {
+    localStorage.setItem(DIRECTION, direction.value)
+  } catch {
+    /* per-device convenience only */
+  }
+}
 
-/** One curve per edge, from the parent's bottom middle to the child's top middle. */
+const layout = computed(() => layoutDag(props.dag, direction.value))
+
+// The graph sits in a fixed viewport and pans / zooms; it opens fitted (never
+// enlarged), and refits when its size or direction changes.
+const viewport = ref<HTMLElement>()
+const { view, panning, fit, zoomBy } = usePanZoom(viewport, () => ({ w: layout.value.width, h: layout.value.height }))
+/** Viewport height: the graph's height at the zoom that fits its width (the CSS max-height caps it). */
+const viewportH = ref(240)
+function refit() {
+  const el = viewport.value
+  if (!el) return
+  const kw = Math.min(1, (el.clientWidth - 16) / (layout.value.width || 1))
+  viewportH.value = Math.max(160, Math.round(layout.value.height * kw + 16))
+  nextTick(fit)
+}
+onMounted(() => {
+  refit()
+  // The box changes width without the graph changing (splitter, pop-out window): refit to use it.
+  let lastW = viewport.value?.clientWidth ?? 0
+  resizer = new ResizeObserver(() => {
+    const w = viewport.value?.clientWidth ?? 0
+    if (w && Math.abs(w - lastW) > 1) refit()
+    lastW = w
+  })
+  if (viewport.value) resizer.observe(viewport.value)
+})
+let resizer: ResizeObserver | null = null
+onBeforeUnmount(() => resizer?.disconnect())
+watch(() => [layout.value.width, layout.value.height, direction.value, props.dag.nodes.length > 0], () => nextTick(refit))
+const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+
+/** One curve per edge, through the points its layout gave it (lib/workspace/dag.ts edgePath). */
 const paths = computed(() =>
   props.dag.edges.flatMap((e) => {
-    const a = layout.value.at.get(e.from)
-    const b = layout.value.at.get(e.to)
-    if (!a || !b) return []
-    const x1 = a.x + NODE_W / 2
-    const y1 = a.y + NODE_H
-    const x2 = b.x + NODE_W / 2
-    const y2 = b.y - 3 // room for the arrowhead
-    const mid = (y1 + y2) / 2
+    const d = edgePath(layout.value, e)
+    if (!d) return []
     const lit = props.selected !== null && (e.from === props.selected || e.to === props.selected)
-    return [{ key: `${e.from}>${e.to}`, d: `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`, lit }]
+    return [{ key: `${e.from}>${e.to}`, d, lit }]
   }),
 )
 
@@ -76,18 +111,25 @@ function tap(n: DagNode) {
 const kindLabel = (n: DagNode) => (n.kind === 'dataset' ? 'Dataset' : n.kind === 'transform' ? 'Transform' : 'Viz')
 function tag(n: DagNode): string {
   if (mode.value === 'transform' && pickNo(n)) return `✓ Input ${pickNo(n)}`
-  if (n.kind === 'transform' && n.state === 'stale') return 'Transform ↻'
   return kindLabel(n)
 }
 const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 </script>
 
 <template>
-  <div class="dag">
+  <div v-reveal="mode" class="dag">
     <div v-if="!mode" class="bar">
-      <button class="btn" @click="emit('new-dataset')">＋ Dataset</button>
-      <button class="btn primary" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
-      <button class="btn" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
+      <button class="kind-pill k-dataset" @click="emit('new-dataset')">＋ Dataset</button>
+      <button class="kind-pill k-transform" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
+      <button class="kind-pill k-viz" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
+      <button
+        class="flip"
+        :title="direction === 'vertical' ? 'Flowing down — switch to left to right' : 'Flowing right — switch to top to bottom'"
+        :aria-label="direction === 'vertical' ? 'Lay out left to right' : 'Lay out top to bottom'"
+        @click="flip"
+      >
+        {{ direction === 'vertical' ? '↓' : '→' }}
+      </button>
     </div>
     <div v-else class="banner">
       <span v-if="mode === 'transform'">Tap the datasets this transform reads{{ picked.length ? ` · ${picked.length} picked` : '' }}.</span>
@@ -99,13 +141,17 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
     </div>
 
     <p v-if="!dag.nodes.length" class="muted">Nothing here yet — start with ＋ Dataset.</p>
-    <div v-else ref="scroller" class="scroll">
-      <div class="canvas" :style="{ width: `${layout.width}px`, height: `${layout.height}px` }">
+    <div v-show="dag.nodes.length" ref="viewport" class="scroll" :class="{ panning }" :style="{ height: `${viewportH}px` }">
+      <div
+        class="canvas"
+        :style="{ width: `${layout.width}px`, height: `${layout.height}px`, transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }"
+      >
         <svg class="edges" :width="layout.width" :height="layout.height" aria-hidden="true">
           <defs>
             <marker id="dag-head" orient="auto" markerWidth="6" markerHeight="6" refX="3" refY="3"><path d="M0 0 L6 3 L0 6 Z" fill="currentColor" /></marker>
+            <marker id="dag-head-lit" orient="auto" markerWidth="6" markerHeight="6" refX="3" refY="3"><path d="M0 0 L6 3 L0 6 Z" style="fill: var(--accent-blue)" /></marker>
           </defs>
-          <path v-for="p in paths" :key="p.key" :d="p.d" :class="{ lit: p.lit }" marker-end="url(#dag-head)" />
+          <path v-for="p in paths" :key="p.key" :d="p.d" :class="{ lit: p.lit }" :marker-end="p.lit ? 'url(#dag-head-lit)' : 'url(#dag-head)'" />
         </svg>
         <button
           v-for="n in dag.nodes"
@@ -117,13 +163,22 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
           :title="`${kindLabel(n)}: ${n.label} — ${n.detail}`"
           @click="tap(n)"
         >
+          <span v-if="n.kind === 'transform' && n.state === 'stale'" class="badge" aria-label="Needs re-run">↻</span>
           <span class="tag">{{ tag(n) }}</span>
           <span class="label">{{ n.label }}</span>
           <span class="detail">{{ n.detail }}</span>
         </button>
       </div>
+      <div class="zoom" @pointerdown.stop @touchstart.stop>
+        <button aria-label="Zoom in" title="Zoom in" @click="zoomBy(1.25)">＋</button>
+        <button aria-label="Zoom out" title="Zoom out" @click="zoomBy(0.8)">−</button>
+        <button aria-label="Fit the graph" title="Fit" @click="fit">⤢</button>
+      </div>
     </div>
-    <p v-if="dag.nodes.length && !mode" class="muted hint">Tap a node to open it. Arrows run from inputs to what they make.</p>
+    <p v-if="dag.nodes.length && !mode" class="muted hint">
+      Tap a node to open it.
+      {{ coarse ? 'Touch and hold, then drag to move the graph; pinch to zoom.' : 'Drag to move the graph; Shift + scroll or pinch to zoom.' }}
+    </p>
   </div>
 </template>
 
@@ -140,9 +195,18 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 }
 .bar {
   flex-wrap: wrap;
+  gap: 0.3rem;
 }
-.bar .btn {
-  flex: 1 1 auto;
+.flip {
+  margin-left: auto;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--bg-elev-2);
+  color: var(--text);
+  font-size: 0.8rem;
+  line-height: 1;
 }
 .banner {
   justify-content: space-between;
@@ -169,33 +233,74 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 .btn.primary {
   background: var(--accent-blue);
   border-color: var(--accent-blue);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn:disabled {
   opacity: 0.5;
 }
 .scroll {
-  overflow: auto;
+  position: relative;
+  overflow: hidden;
   max-height: 70vh;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
-  -webkit-overflow-scrolling: touch;
+  background: var(--bg);
+  cursor: grab;
+  /* one finger still scrolls the page; holding first pans the graph */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.scroll.panning {
+  cursor: grabbing;
+  border-color: var(--accent-blue);
+  box-shadow: inset 0 0 0 1px var(--accent-blue);
 }
 .canvas {
-  position: relative;
-  margin: 0 auto;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  overflow: hidden;
+  background: var(--bg-elev-2);
+  cursor: default;
+}
+.zoom button {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.zoom button:last-child {
+  border-bottom: none;
+}
+.zoom button:hover {
+  background: color-mix(in srgb, var(--accent-blue) 25%, var(--bg-elev-2));
 }
 .edges {
   position: absolute;
   inset: 0;
   overflow: visible;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--border-strong));
 }
 .edges path {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
-  opacity: 0.6;
 }
 .edges path.lit {
   stroke: var(--accent-blue);
@@ -221,19 +326,19 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 }
 /* Kinds differ in label as well as color. */
 .node.dataset {
-  border-color: #4c8dff;
-  background: color-mix(in srgb, #4c8dff 14%, var(--bg));
+  border-color: var(--kind-dataset);
+  background: color-mix(in srgb, var(--kind-dataset) 14%, var(--bg));
 }
 .node.transform {
-  border-color: #e0962a;
-  background: color-mix(in srgb, #e0962a 16%, var(--bg));
+  border-color: var(--kind-transform);
+  background: color-mix(in srgb, var(--kind-transform) 14%, var(--bg));
 }
 .node.transform.not-run {
   border-style: dashed;
 }
 .node.viz {
-  border-color: #3faf62;
-  background: color-mix(in srgb, #3faf62 14%, var(--bg));
+  border-color: var(--kind-viz);
+  background: color-mix(in srgb, var(--kind-viz) 14%, var(--bg));
 }
 .node.viz.muted {
   opacity: 0.6;
@@ -273,9 +378,25 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   text-overflow: ellipsis;
   max-width: 100%;
 }
-.node.stale .detail,
-.node.stale .tag {
-  color: #e0962a;
+.node.stale .detail {
+  color: var(--text);
+  font-weight: 650;
+}
+/* Needs re-run: an amber ↻ on the node's corner (attention = amber + a mark, never hue alone). */
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--warn);
+  color: var(--on-amber);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
 }
 .muted {
   color: var(--text-muted);
