@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // The workspace as a graph: datasets → transforms → output datasets →
 // visualizations, laid out automatically (lib/workspace/dag.ts). Tap a node
-// to select it (the page opens it below the graph). ＋ Transform: tap the
-// input datasets, then Next. ＋ Visualization: tap the dataset to draw.
+// to select it (the page opens it below the graph). ＋ Dataset: the page opens
+// the add form below. ＋ Transform: tap the input datasets, then Next.
+// ＋ Visualization: tap the dataset to draw.
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { layoutDag, NODE_H, NODE_W, type Dag, type DagNode } from '../../lib/workspace/dag'
 
@@ -11,6 +12,7 @@ const emit = defineEmits<{
   (e: 'select', node: DagNode | null): void
   (e: 'new-transform', datasetIds: string[]): void
   (e: 'new-viz', datasetId: string): void
+  (e: 'new-dataset'): void
 }>()
 
 const layout = computed(() => layoutDag(props.dag))
@@ -83,6 +85,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 <template>
   <div class="dag">
     <div v-if="!mode" class="bar">
+      <button class="btn" @click="emit('new-dataset')">＋ Dataset</button>
       <button class="btn primary" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
       <button class="btn" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
     </div>
@@ -95,7 +98,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
       </span>
     </div>
 
-    <p v-if="!dag.nodes.length" class="muted">Nothing here yet — add a dataset.</p>
+    <p v-if="!dag.nodes.length" class="muted">Nothing here yet — start with ＋ Dataset.</p>
     <div v-else ref="scroller" class="scroll">
       <div class="canvas" :style="{ width: `${layout.width}px`, height: `${layout.height}px` }">
         <svg class="edges" :width="layout.width" :height="layout.height" aria-hidden="true">
@@ -135,8 +138,11 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   gap: 0.4rem;
   align-items: center;
 }
+.bar {
+  flex-wrap: wrap;
+}
 .bar .btn {
-  flex: 1;
+  flex: 1 1 auto;
 }
 .banner {
   justify-content: space-between;

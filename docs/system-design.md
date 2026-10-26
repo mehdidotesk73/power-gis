@@ -207,6 +207,7 @@ Each dataset has at most one writer: each transform output writes a new dataset 
 an existing dataset that isn't one of its transform's inputs and that no other output writes
 (`checkTransform` in `workspace.ts`). Deleting a transform keeps its output dataset; that dataset
 just can't be re-run until another transform is pointed at it.
+**＋ Dataset** opens the add-dataset form under the graph and then the new dataset's card.
 **＋ Transform** enters pick mode (tap input datasets, Next) and adds a transform whose inputs are
 those datasets (aliases from their names, deduplicated), opened in its editor. **＋ Visualization**
 picks a dataset and opens the visualization add form for it. Everything goes through the same

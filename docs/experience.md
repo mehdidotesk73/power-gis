@@ -323,7 +323,8 @@ Two additions from reviewing it here, beyond what the originating project report
   dataset); deleting a transform keeps its output, re-linkable by another transform. Transform menu
   gained Preview.
 - **Changed:** transforms are inputs + outputs (one SQL per output; Run writes all, or none if one
-  fails). Old single-SQL transforms are read through `normalizeTransform`.
+  fails). Old single-SQL transforms are read through `normalizeTransform`. **＋ Dataset** joined the
+  graph's toolbar (the separate Add dataset button under the graph is gone).
 - **Fixed:** the transform editor could widen the whole controls column past a phone's screen (a
   grid's auto column grows to its widest child) — `minmax(0, 1fr)` on the page grid and the editor.
 - **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.

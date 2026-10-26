@@ -219,12 +219,14 @@ async function firstVisualizations(ds: DatasetRecord): Promise<VisualizationSpec
 
 async function onAddDataset(datasetId: string) {
   importing.value = false
+  dagNewDataset.value = false
   const ds = await loadRecord(datasetId)
   if (!ds) return void logDebug(`dataset ${datasetId} not found in the database`, 'error')
   const first = await firstVisualizations(ds)
   if (!apply(addDataset(doc.value, ds.id, first))) return
   logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Add visualization'}`)
   if (first.length) setTimeout(() => zoomToViz(first[0].id), 300)
+  if (view.value === 'graph') openNode({ key: `ds:${ds.id}`, kind: 'dataset', id: ds.id })
 }
 
 function removeDataset(id: string) {
@@ -265,12 +267,15 @@ const dagKey = ref<string | null>(null)
 const dagNode = computed(() => dag.value.nodes.find((n) => n.key === dagKey.value) ?? null)
 /** ＋ Visualization: the dataset whose add form is open under the graph. */
 const dagNewViz = ref<string | null>(null)
+/** ＋ Dataset: the add-dataset form is open under the graph. */
+const dagNewDataset = ref(false)
 const dagViz = ref<InstanceType<typeof VisualizationList>>()
 const dagTr = ref<InstanceType<typeof TransformsPanel>>()
 
 /** Shows a node's card under the graph (hold it for options); `edit` opens its editor (new items). */
 async function openNode(n: Pick<DagNode, 'key' | 'kind' | 'id'> | null, edit = false) {
   dagNewViz.value = null
+  dagNewDataset.value = false
   dagKey.value = n?.key ?? null
   if (!edit) return
   await nextTick()
@@ -280,9 +285,15 @@ async function openNode(n: Pick<DagNode, 'key' | 'kind' | 'id'> | null, edit = f
 function closeNode() {
   dagKey.value = null
   dagNewViz.value = null
+  dagNewDataset.value = false
+}
+function newDataset() {
+  closeNode()
+  dagNewDataset.value = true
 }
 async function newVizFor(datasetId: string) {
   dagKey.value = null
+  dagNewDataset.value = false
   dagNewViz.value = datasetId
   await nextTick()
   dagViz.value?.addFor(datasetId)
@@ -654,15 +665,16 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 
       <template v-if="view === 'graph'">
         <section class="box">
-          <DagView :dag="dag" :selected="dagKey" @select="openNode" @new-transform="newTransformFrom" @new-viz="newVizFor" />
+          <DagView :dag="dag" :selected="dagKey" @select="openNode" @new-transform="newTransformFrom" @new-viz="newVizFor" @new-dataset="newDataset" />
         </section>
-        <section v-if="dagNode || dagNewViz" class="box dag-detail">
+        <section v-if="dagNode || dagNewViz || dagNewDataset" class="box dag-detail">
           <div class="dag-detail-head">
-            <strong>{{ dagNewViz ? 'New visualization' : dagNode!.kind === 'dataset' ? 'Dataset' : dagNode!.kind === 'transform' ? 'Transform' : 'Visualization' }}</strong>
+            <strong>{{ dagNewDataset ? 'New dataset' : dagNewViz ? 'New visualization' : dagNode!.kind === 'dataset' ? 'Dataset' : dagNode!.kind === 'transform' ? 'Transform' : 'Visualization' }}</strong>
             <button class="close" aria-label="Close" @click="closeNode">✕</button>
           </div>
+          <AddDatasetPanel v-if="dagNewDataset" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="closeNode" />
           <VisualizationList
-            v-if="dagNewViz || dagNode?.kind === 'viz'"
+            v-else-if="dagNewViz || dagNode?.kind === 'viz'"
             ref="dagViz"
             compact
             :visualizations="visualizations.filter((v) => v.id === dagNode?.id)"
@@ -699,10 +711,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             @run="runTransform"
           />
         </section>
-        <div class="import-wrap">
-          <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
-          <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
-        </div>
       </template>
 
       <template v-else>

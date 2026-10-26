@@ -220,6 +220,7 @@ whatever they're actually asking about.
   draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
   same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in
   the lists (only new transforms / visualizations open straight into their editors).
+  **＋ Dataset**: the add-dataset form under the graph (the new dataset's node then opens);
   **＋ Transform**: tap input datasets, Next → a new transform with those inputs; **＋ Visualization**:
   tap a dataset → the add form. The graph is an interface to the same workspace operations, not a
   separate model.
