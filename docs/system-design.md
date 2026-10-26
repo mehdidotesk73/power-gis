@@ -115,7 +115,7 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   database read-only.
 - **Server** — `src/server/server.ts` (`createServer(db, env)`), run in a **Web Worker** by
   `worker.ts`. Requests (`src/shared/api.ts`): `init`, `uploadDataset` (CSV / GeoJSON-Esri file,
-  ArcGIS URL, built-in table → new data table + registry row), `addColumn` (point from lat/lon or vector from east/north), `updateDataset`,
+  ArcGIS URL, built-in table → new data table + registry row), `updateDataset`,
   `deleteDataset` (cleans up visualizations and workspace configs), `describeBinding` (features,
   unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
   `saveWorkspace` (upserts its visualization records, deletes dropped ones), `deleteWorkspace`.
@@ -132,10 +132,9 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   access control yet — an access layer between users and tables comes later.
 - **Geometry columns.** `point`, `polyline` and `region` are column types (`lib/dataset/columns.ts`):
   GeoJSON geometries in lon/lat, inferred from GeoJSON or WKT cells (a mixed column takes its most
-  common kind; cells of another kind coerce to null). `uploadDataset` sets geometry up at ingestion:
-  features get a typed geometry column, and a table with no geometry but an obvious lat/lon pair
-  gets a `location` point column. `addColumn` derives a point (lat, lon) or a vector (east, north)
-  column later.
+  common kind; cells of another kind coerce to null). Geometry comes with the data — features get a
+  typed geometry column, WKT / GeoJSON cells are typed — and nothing is derived at upload: building
+  a point from latitude / longitude (or a vector from two columns) is a transform (step 2).
 - **Geometry binding is a visualization setting** — `{kind: 'geometry', column}` draws a geometry
   column; rows with identical geometry become one feature. There are no lat/lon bindings: a
   visualization always draws real features (older saved lat/lon visualizations are dropped on load

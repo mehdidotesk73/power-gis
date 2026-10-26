@@ -10,7 +10,7 @@ const counties = new Map<string, BoundaryFeature>([
   ['01001', { key: '01001', name: 'Autauga, AL', geometry: square(0) }],
   ['01003', { key: '01003', name: 'Baldwin, AL', geometry: square(2) }],
 ])
-const CSV = 'county_fips,utility,mw,lat,lon\n01001,A,5,32.5,-86.6\n01001,B,7,32.5,-86.6\n01003,A,1,30.7,-87.7\n99999,C,2,x,y\n'
+const CSV = 'county_fips,utility,mw,flow,location\n01001,A,5,"[5, 1]",POINT (-86.6 32.5)\n01001,B,7,"[7, 1]",POINT (-86.6 32.5)\n01003,A,1,"[1, 1]",POINT (-87.7 30.7)\n99999,C,2,"[2, 1]",\n'
 const file = (name: string, text: string) => ({ name, text: async () => text }) as unknown as File
 
 function setup() {
@@ -35,8 +35,7 @@ describe('server', () => {
     const ds = (await db.get('datasets', datasetId))!
     expect(ds).toMatchObject({ name: 'plants', rowCount: 4, origin: 'Device · plants.csv', table: `ds_${datasetId.replace(/-/g, '')}` })
     expect(ds.columns.find((c) => c.name === 'county_fips')!.type).toBe('string') // zero-padded codes stay text
-    expect(ds.columns.at(-1)).toEqual({ name: 'location', type: 'point' }) // geometry set up at ingestion from lat/lon
-    expect((await db.readRows(ds.table))![0].location).toEqual({ type: 'Point', coordinates: [-86.6, 32.5] })
+    expect(ds.columns.map((c) => c.type)).toEqual(['string', 'string', 'int', 'vector', 'point'])
     expect(await db.readRows(ds.table)).toHaveLength(4)
     expect((await server.handle('uploadDataset', { source: { kind: 'csv', file: file('e.csv', 'a\n') } })).ok).toBe(false)
   })
@@ -60,19 +59,12 @@ describe('server', () => {
     expect(bad).toMatchObject({ ok: false, error: { code: 'invalid' } })
   })
 
-  it('adds vector and point columns and recomputes', async () => {
-    const { db, server } = setup()
+  it('aggregates vector cells component-wise', async () => {
+    const { server } = setup()
     const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
-    data(await server.handle('describeBinding', { datasetId, binding: county })) // warm the cache
-    data(await server.handle('addColumn', { datasetId, name: 'flow', from: { kind: 'vector', u: 'mw', v: 'mw' } }))
-    expect((await db.get('datasets', datasetId))!.columns.at(-1)).toEqual({ name: 'flow', type: 'vector' })
     const v = data(await server.handle('queryVisualization', { datasetId, binding: county, column: 'flow', aggregation: 'sum' }))
     expect(v.valueType).toBe('vector')
-    expect(v.features[0].value).toEqual({ u: 12, v: 12 })
-    expect((await server.handle('addColumn', { datasetId, name: 'flow', from: { kind: 'vector', u: 'mw', v: 'mw' } })).ok).toBe(false)
-    expect(await server.handle('addColumn', { datasetId, name: 'p', from: { kind: 'point', lat: 'utility', lon: 'mw' } })).toMatchObject({ ok: false, error: { message: expect.stringContaining('numeric') } })
-    data(await server.handle('addColumn', { datasetId, name: 'p', from: { kind: 'point', lat: 'mw', lon: 'mw' } }))
-    expect((await db.get('datasets', datasetId))!.columns.at(-1)).toEqual({ name: 'p', type: 'point' })
+    expect(v.features[0].value).toEqual({ u: 12, v: 2 })
   })
 
   it('saves workspaces as pointers, and deleting a dataset cleans up after it', async () => {

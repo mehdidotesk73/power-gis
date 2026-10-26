@@ -3,7 +3,7 @@ import { aggregate, defaultAggregation } from './aggregate'
 import { boundaryKey, geometryFromValue, groupRows, guessBinding, isSupportedBinding, type BoundaryFeature } from './binding'
 import { coerce, inferColumns, type ColumnType } from './columns'
 import { parseWkt } from './wkt'
-import { guessLatLon, withPointColumn, withVectorColumn } from './dataset'
+import { guessLatLon } from './dataset'
 import { bindingInfo, groupDataset, queryValues } from './query'
 import { defaultVisualization, makeVisualization, retarget, visualizationLayer, ROWS, VALUE } from './visualization'
 import { parseVector } from '../schema'
@@ -100,9 +100,7 @@ describe('bindings', () => {
     expect(coerce('POINT (-90 35)', 'region')).toBeNull() // wrong kind for the column
   })
 
-  it('makes a point column from latitude and longitude', () => {
-    const rows = withPointColumn([{ la: '35', lo: '-90' }, { la: '', lo: '-90' }, { la: '95', lo: 1 }], 'loc', 'la', 'lo')
-    expect(rows.map((r) => r.loc)).toEqual([{ type: 'Point', coordinates: [-90, 35] }, null, null])
+  it('recognizes latitude / longitude column names', () => {
     expect(guessLatLon([{ name: 'Latitude' }, { name: 'lng' }])).toEqual({ lat: 'Latitude', lon: 'lng' })
     expect(guessLatLon([{ name: 'lat' }])).toBeNull()
   })
@@ -127,24 +125,14 @@ describe('vectors', () => {
     expect(aggregate([{ u: 1, v: 0 }, { u: 0, v: 1 }, null], 'mean')).toEqual({ u: 0.5, v: 0.5 })
     expect(aggregate([{ u: 1, v: 0 }, { u: 0, v: 1 }], 'sum')).toEqual({ u: 1, v: 1 })
   })
-
-  it('builds a vector column from two numeric columns', () => {
-    const rows = withVectorColumn([{ e: '1', n: '2' }, { e: '', n: '2' }], 'wind', 'e', 'n')
-    expect(rows.map((r) => r.wind)).toEqual([{ u: 1, v: 2 }, null])
-  })
 })
 
 describe('visualization queries', () => {
-  const records = withVectorColumn(
-    [
-      { county_fips: '01001', utility: 'Alabama Power', type: 'IOU', customers: '100', u: '1', v: '0' },
-      { county_fips: '01001', utility: 'Central Coop', type: 'Coop', customers: '50', u: '0', v: '1' },
-      { county_fips: '01003', utility: 'Alabama Power', type: 'IOU', customers: '100', u: '2', v: '2' },
-    ],
-    'flow',
-    'u',
-    'v',
-  )
+  const records = [
+    { county_fips: '01001', utility: 'Alabama Power', type: 'IOU', customers: '100', flow: '[1, 0]' },
+    { county_fips: '01001', utility: 'Central Coop', type: 'Coop', customers: '50', flow: '[0, 1]' },
+    { county_fips: '01003', utility: 'Alabama Power', type: 'IOU', customers: '100', flow: '[2, 2]' },
+  ]
   const columns = inferColumns(records)
   const binding = { kind: 'boundary' as const, column: 'county_fips', boundary: 'us-counties' as const }
   const g = groupDataset(records, columns, binding, counties)
@@ -181,7 +169,11 @@ describe('visualization queries', () => {
   })
 
   it('carries geometry for geometry-column bindings', () => {
-    const pts = withPointColumn([{ lat: '35', lon: '-90', mw: '5' }, { lat: '35', lon: '-90', mw: '7' }, { lat: 'x', lon: '1', mw: '1' }], 'loc', 'lat', 'lon')
+    const pts = [
+      { lat: '35', lon: '-90', mw: '5', loc: 'POINT (-90 35)' },
+      { lat: '35', lon: '-90', mw: '7', loc: 'POINT (-90 35)' },
+      { lat: 'x', lon: '1', mw: '1', loc: '' },
+    ]
     const c = inferColumns(pts)
     expect(c.find((x) => x.name === 'loc')!.type).toBe('point')
     const v = queryValues(groupDataset(pts, c, { kind: 'geometry', column: 'loc' }), c, 'mw', 'sum', true)

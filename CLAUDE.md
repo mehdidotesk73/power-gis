@@ -138,8 +138,8 @@ whatever they're actually asking about.
   Details: `docs/system-design.md` §4.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
   column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
-  Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells, or combined from two
-  numeric columns (`addColumn` request, `from: {kind: 'vector'}` → `withVectorColumn`). They aggregate component-wise (sum / mean).
+  Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells (combining two numeric
+  columns into one is a transform's job, step 2). They aggregate component-wise (sum / mean).
   ArcGIS has no vector type, so exports split them into `<name>_u` / `<name>_v` Double fields;
   our schema sidecar rebuilds them on re-import.
 - **Categorical colors** (`lib/palettes.ts`): every value gets a color — no category cap. Palettes
@@ -149,10 +149,9 @@ whatever they're actually asking about.
   value keeps its color as data changes. Use `paletteColors(name, n)` for any widget (charts too).
 - **Geometry columns** are column types — `point`, `polyline`, `region` (closed polylines) —
   holding GeoJSON geometries in lon/lat (WGS84); cells may arrive as GeoJSON or WKT and are coerced.
-  Geometry is set up at **ingestion**: GeoJSON / Esri / ArcGIS features get a typed geometry column;
-  a table with an obvious lat/lon pair (`guessLatLon`) and no geometry gets a `location` point
-  column (`withPointColumn`). Otherwise the dataset editor's **Add a column** (`addColumn` request:
-  point from lat/lon, or vector from east/north) — later, transforms.
+  Geometry comes with the data: GeoJSON / Esri / ArcGIS features get a typed geometry column, and
+  CSV cells in WKT or GeoJSON are typed too. A table with only latitude / longitude columns has no
+  geometry until a transform builds a point column (step 2) — nothing is derived at upload.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).

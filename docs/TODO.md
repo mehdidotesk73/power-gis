@@ -38,9 +38,9 @@ Track feature development, improvements, and known issues here. Move completed w
   the editor; legends with many items in columns. Reusable for charts.
 - **Geometry columns** — `point` / `polyline` / `region` column types (GeoJSON, lon/lat; inferred
   from GeoJSON or WKT); visualizations draw a geometry column (lat/lon bindings removed;
-  `isSupportedBinding` drops old ones); point column made at ingestion from an obvious lat/lon pair
-  (`guessLatLon`, `withPointColumn`) or via the `addColumn` request (point or vector). Region-code
-  binding kept as a stopgap until boundary datasets + joins.
+  `isSupportedBinding` drops old ones). Geometry comes with the data (nothing derived at upload;
+  lat/lon → point and u/v → vector are transforms, step 2). Region-code binding kept as a stopgap
+  until boundary datasets + joins.
 
 ## Next (Current Sprint)
 
@@ -92,9 +92,9 @@ results, because the agent workflow (step 6) drives the same operations as the U
      wherever the database has those ids (this device today; any device with Supabase).
    - Built-in EIA data is loaded into the database once, as an ordinary dataset.
 1c. ~~**Geometry columns**~~ (done, see Done) — visualizations draw real features: a point /
-   polyline / region column (lon/lat), set up at ingestion or by a transform.
+   polyline / region column (lon/lat), from the data or a transform.
 2. **DuckDB-WASM + derived datasets + dataset profiles** — DuckDB (lazy-loaded) for SQL; a derived
-   dataset is a SQL query over datasets (e.g. lat + lon → point), whose geometry columns visualizations draw (this also covers
+   dataset is a SQL query over datasets (e.g. lat + lon → point, east + north → vector), whose geometry columns visualizations draw (this also covers
    visualizations sourced from several datasets: join, then visualize). A **profile** for every
    dataset (row count, columns/types, nulls, completeness, key coverage) — the metadata agents
    report for approval. SQL errors and profiles returned in agent-readable form.

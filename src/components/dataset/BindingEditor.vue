@@ -37,7 +37,7 @@ const value = (e: Event) => (e.target as HTMLSelectElement).value
         </select>
       </label>
       <p v-else class="small muted">
-        This dataset has no geometry column. If it has latitude and longitude, add a point column from them (✎ on the dataset → Add a column).
+        This dataset has no geometry column, so it can't be drawn yet. Latitude and longitude columns will be turnable into points with a transform.
       </p>
     </template>
     <template v-else>

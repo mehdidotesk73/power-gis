@@ -1,15 +1,11 @@
 <script setup lang="ts">
 // The workspace's datasets: tables in the database, by pointer. Drag ≡ to
-// reorder; ✎ renames, describes, or combines two columns into a vector
-// (each a server request). ✕ takes a dataset out of the workspace — the
+// reorder; ✎ renames or describes (a server request). ✕ takes a dataset out of the workspace — the
 // table stays in the database. (Visualizations are added from the
 // Visualizations panel; how rows map to features is part of each one.)
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { useDragReorder } from './useDragReorder'
-import { isNumericColumn } from '../../lib/dataset/columns'
 import type { DatasetRecord } from '../../shared/records'
-import type { DerivedColumn } from '../../shared/api'
-import { guessLatLon } from '../../lib/dataset/dataset'
 
 const props = defineProps<{ datasets: DatasetRecord[]; vizCount: (id: string) => number }>()
 const emit = defineEmits<{
@@ -17,7 +13,6 @@ const emit = defineEmits<{
   (e: 'remove', id: string): void
   (e: 'reorder', ids: string[]): void
   (e: 'update', id: string, patch: { name?: string; description?: string }): void
-  (e: 'add-column', id: string, name: string, from: DerivedColumn): void
 }>()
 
 const listEl = ref<HTMLElement>()
@@ -27,29 +22,6 @@ const { dragging, onHandleDown, onHandleMove, onHandleUp } = useDragReorder(
   (ids) => emit('reorder', ids),
 )
 const editing = ref<string | null>(null)
-const editingDs = computed(() => props.datasets.find((d) => d.id === editing.value))
-const numeric = computed(() => editingDs.value?.columns.filter((c) => isNumericColumn(c.type)) ?? [])
-// A new column from two numeric ones: a point (lat, lon) or a vector (east, north).
-const add = ref({ kind: 'point' as DerivedColumn['kind'], name: '', a: '', b: '' })
-function resetAdd(kind: DerivedColumn['kind']) {
-  const [x, y] = numeric.value
-  const ll = kind === 'point' ? guessLatLon(numeric.value) : null
-  add.value = {
-    kind,
-    name: kind === 'point' ? 'location' : 'vector',
-    a: ll?.lat ?? x?.name ?? '',
-    b: ll?.lon ?? y?.name ?? x?.name ?? '',
-  }
-}
-function startEdit(id: string) {
-  editing.value = editing.value === id ? null : id
-  resetAdd('point')
-}
-function confirmAdd(id: string) {
-  const { kind, name, a, b } = add.value
-  emit('add-column', id, name, kind === 'point' ? { kind, lat: a, lon: b } : { kind, u: a, v: b })
-}
-
 const stats = (d: DatasetRecord) => `${plural(d.rowCount, 'row')} · ${plural(d.columns.length, 'column')}`
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 </script>
@@ -74,7 +46,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
           <span v-if="ds.description" class="desc">{{ ds.description }}</span>
           <span class="muted">{{ stats(ds) }} · {{ ds.origin }}</span>
         </div>
-        <button class="icon" :class="{ on: editing === ds.id }" title="Rename / describe" @click="startEdit(ds.id)">✎</button>
+        <button class="icon" :class="{ on: editing === ds.id }" title="Rename / describe" @click="editing = editing === ds.id ? null : ds.id">✎</button>
         <button class="icon" title="Zoom to data" @click="emit('zoom', ds.id)">⤢</button>
         <button class="icon" title="Take out of the workspace (stays in the database)" @click="emit('remove', ds.id)">✕</button>
       </div>
@@ -92,26 +64,6 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
             @change="emit('update', ds.id, { description: ($event.target as HTMLTextAreaElement).value })"
           />
         </label>
-        <div v-if="numeric.length" class="vec">
-          <span>
-            Add a column:
-            <select :value="add.kind" aria-label="Kind of column" @change="resetAdd(($event.target as HTMLSelectElement).value as DerivedColumn['kind'])">
-              <option value="point">Point from latitude, longitude</option>
-              <option value="vector">Vector from east, north</option>
-            </select>
-          </span>
-          <div class="vec-row">
-            <input v-model="add.name" type="text" aria-label="New column name" />
-            <select v-model="add.a" :aria-label="add.kind === 'point' ? 'Latitude' : 'East component'">
-              <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
-            </select>
-            <select v-model="add.b" :aria-label="add.kind === 'point' ? 'Longitude' : 'North component'">
-              <option v-for="c in numeric" :key="c.name" :value="c.name">{{ c.name }}</option>
-            </select>
-            <button class="add" :disabled="!add.name.trim() || !add.a || !add.b" @click="confirmAdd(ds.id)">Add</button>
-          </div>
-          <span class="muted">{{ add.kind === 'point' ? 'name · latitude column · longitude column' : 'name · east (u) column · north (v) column' }}</span>
-        </div>
         <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
       </div>
       <p class="muted uses">Used by {{ plural(vizCount(ds.id), 'visualization') }}</p>
@@ -166,26 +118,6 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
   font: inherit;
   padding: 0.3rem;
   font-size: 16px; /* below 16px iOS zooms the page on focus */
-}
-.vec {
-  display: grid;
-  gap: 0.2rem;
-}
-.vec-row {
-  display: flex;
-  gap: 0.25rem;
-}
-.vec-row input,
-.vec-row select {
-  min-width: 0;
-  flex: 1;
-}
-.add {
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--accent-blue);
-  border-radius: 0.3rem;
-  background: none;
-  color: var(--accent-blue);
 }
 .head {
   display: flex;

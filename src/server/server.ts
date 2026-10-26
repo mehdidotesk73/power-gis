@@ -12,8 +12,8 @@ import { featureTable, type DataRecord } from '../lib/data/connectors'
 import { parseCsv } from '../lib/data/csv'
 import { fetchArcGISLayer, importJSON } from '../lib/arcgis'
 import type { BoundaryFeature, BoundaryId, GeometryBinding } from '../lib/dataset/binding'
-import { inferColumns, isGeometryColumn, isNumericColumn, type ColumnInfo } from '../lib/dataset/columns'
-import { guessLatLon, newId, withPointColumn, withVectorColumn } from '../lib/dataset/dataset'
+import { inferColumns, isGeometryColumn, type ColumnInfo } from '../lib/dataset/columns'
+import { newId } from '../lib/dataset/dataset'
 import { bindingInfo, groupDataset, queryValues, type Grouped } from '../lib/dataset/query'
 
 export interface ServerEnv {
@@ -33,12 +33,6 @@ class Failure extends Error {
 }
 const fail = (code: ApiError['code'], message: string): never => {
   throw new Failure(code, message)
-}
-
-const uniqueName = (columns: ColumnInfo[], base: string) => {
-  let n = base
-  for (let i = 2; columns.some((c) => c.name === n); i++) n = `${base}_${i}`
-  return n
 }
 
 type Handlers = { [K in RequestType]: (p: Payload<K>) => Promise<Response<K>> }
@@ -114,15 +108,8 @@ export function createServer(db: Database, env: ServerEnv) {
     async uploadDataset({ source, name }) {
       const src = await readSource(source)
       if (!src.rows.length) fail('invalid', 'That table has no rows')
-      let rows = src.rows
-      let columns = inferColumns(rows)
-      // Geometry is set up at ingestion when it can be: an obvious lat/lon pair becomes a point column.
-      const ll = columns.some((c) => isGeometryColumn(c.type)) ? null : guessLatLon(columns)
-      if (ll) {
-        const col = uniqueName(columns, 'location')
-        rows = withPointColumn(rows, col, ll.lat, ll.lon)
-        columns = [...columns, { name: col, type: 'point' }]
-      }
+      const rows = src.rows
+      const columns = inferColumns(rows)
       const id = newId()
       const t = now()
       const record: DatasetRecord = {
@@ -139,24 +126,6 @@ export function createServer(db: Database, env: ServerEnv) {
       await db.writeRows(record.table, rows)
       await db.put('datasets', record)
       return { datasetId: id }
-    },
-
-    async addColumn({ datasetId, name, from }) {
-      const ds = await dataset(datasetId)
-      const n = name.trim()
-      if (!n) fail('invalid', 'A new column needs a name')
-      if (ds.columns.some((c) => c.name === n)) fail('invalid', `Dataset "${ds.name}" already has a column "${n}"`)
-      const inputs = from.kind === 'vector' ? [from.u, from.v] : [from.lat, from.lon]
-      for (const c of inputs) {
-        const col = ds.columns.find((x) => x.name === c) ?? fail('invalid', `Dataset "${ds.name}" has no column "${c}"`)
-        if (!isNumericColumn(col.type)) fail('invalid', `"${c}" is a ${col.type} column; it needs to be numeric`)
-      }
-      const rows = (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`)
-      const next = from.kind === 'vector' ? withVectorColumn(rows, n, from.u, from.v) : withPointColumn(rows, n, from.lat, from.lon)
-      await db.writeRows(ds.table, next)
-      await db.put('datasets', { ...ds, columns: [...ds.columns, { name: n, type: from.kind }], updatedAt: now() })
-      forget(datasetId)
-      return { datasetId }
     },
 
     async updateDataset({ id, name, description, extensions }) {

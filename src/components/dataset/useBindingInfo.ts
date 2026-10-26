@@ -35,7 +35,7 @@ export function useBindingInfo(datasetId: () => string | undefined, binding: () 
       const mine = ++seq
       info.value = null
       error.value = ''
-      if (!id || !b) return
+      if (!id || !b?.column) return
       loading.value = true
       const r = await describeBinding(id, b)
       if (mine !== seq) return

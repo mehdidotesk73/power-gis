@@ -29,7 +29,6 @@ import { request } from '../client/api'
 import { readDb } from '../client/db'
 import { UTILITY_TABLE } from '../shared/builtins'
 import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
-import type { DerivedColumn } from '../shared/api'
 import { utilitiesFromRows, utilityRowsFromRecords, type Utility } from '../lib/utilities'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
@@ -227,13 +226,6 @@ function removeDataset(id: string) {
 async function updateDataset(id: string, patch: { name?: string; description?: string }) {
   if (await call('update dataset', request('updateDataset', { id, ...patch }))) await loadRecord(id)
 }
-async function addColumn(id: string, name: string, from: DerivedColumn) {
-  if (!(await call('add column', request('addColumn', { datasetId: id, name, from })))) return
-  forgetBindingInfo(id)
-  for (const k of valuesCache.keys()) if (k.startsWith(`${id}|`)) valuesCache.delete(k)
-  await loadRecord(id)
-}
-
 /** New visualization of a dataset column, on top of the list, open for editing. */
 async function addVisualization(datasetId: string, binding: GeometryBinding, column: string) {
   const info = await describeBinding(datasetId, binding)
@@ -552,7 +544,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           @remove="removeDataset"
           @reorder="reorderDatasets"
           @update="updateDataset"
-          @add-column="addColumn"
         />
         <div class="import-wrap">
           <AddDatasetPanel v-if="importing" :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
