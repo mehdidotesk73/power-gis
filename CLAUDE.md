@@ -30,7 +30,7 @@ cleanly with ArcGIS (Esri JSON FeatureSets, GeoJSON, CSV, FeatureServer REST).
 
 UI structure — one page, the **Map**:
 
-- **Controls** (left sidebar on desktop, below the map on phones): utility search, layer toggles,
+- **Controls** (left sidebar on desktop, below the map on phones): Find (any visualization's features), layer toggles,
   view presets, style editors (scalar + vector), ArcGIS import/export.
 - **Map** (MapLibre GL) with:
   - **Scalar layers** — color (constant / colormap / categorical), transparency (fixed / by
@@ -151,22 +151,29 @@ whatever they're actually asking about.
   holding GeoJSON geometries in lon/lat (WGS84); cells may arrive as GeoJSON or WKT and are coerced.
   Geometry comes with the data: GeoJSON / Esri / ArcGIS features get a typed geometry column, and
   CSV cells in WKT or GeoJSON are typed too. A table with only latitude / longitude columns has no
-  geometry until a transform builds a point column (`point(lon, lat)`) — nothing is derived at upload.
+  geometry until a transform builds a point column (`point(lat, lon)`) — nothing is derived at upload.
 - **Transforms** (SQL that makes datasets): DuckDB-WASM runs in the server worker, loaded on first use
   (`server/duckdb.ts`; the ~34 MB eh wasm is kept out of the PWA precache). `server/sql.ts` loads
   each input dataset as a table named by its alias (INSERT … VALUES — no file registration, which hangs
   the Node build), runs one SELECT, and types the result again (GeoJSON text → geometry, `{u, v}` →
-  vector). Helpers in SQL: `point(lon, lat)`, `vector(u, v)`. Requests: `previewTransform` (first rows,
+  vector). Helpers in SQL: `point(lat, lon)`, `vector(u, v)`. Requests: `previewTransform` (first rows,
   nothing stored), `runTransform` (writes `outputId`'s table or a new dataset; returns the pointer).
   Transforms are part of the workspace draft (`TransformSpec`, ops `addTransform` / `updateTransform`
-  / `removeTransform`) and saved with it. Tests run real DuckDB through its Node build
+  / `removeTransform`) and saved with it. Inputs are `{datasetId, alias}` pairs: the dataset is picked
+  in a search box (name, typo-tolerant, or a pasted id — ⧉ on a dataset copies it); the alias is the
+  table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
+  table's error lists the aliases). Tests run real DuckDB through its Node build
   (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
+- **Find** (`FindPanel.vue`): pick a visualization, then search — all data or one column — over its
+  features' names and every text value in their rows (typo-tolerant). The server builds the index
+  (`findIndex` request, `lib/dataset/query.ts`, cached with the grouping; columns with more than
+  20k distinct values are left out); `findFeatures` returns the matching features' keys, which the
+  page highlights (on every visualization drawing the same features) and zooms to.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).
 - **Presets:** the built-in EIA-861 dataset is a normal dataset with preset visualizations
-  (`utilityStyles.ts`) plus extras keyed by `preset: 'utilities'` — the county dashboard and
-  utility search. Other datasets get the generic rows table in their click panel.
+  (`utilityStyles.ts`) plus an extra keyed by `preset: 'utilities'` — the county dashboard. Other datasets get the generic rows table in their click panel.
 - **Visualization list UI** (`VisualizationList.vue`; `DatasetList.vue` reorders the same way via `useDragReorder`): drag the ≡ handle to reorder, swipe left to
   reveal Delete — pointer events (not HTML5 drag-and-drop, which iOS lacks); the row uses
   `touch-action: pan-y` so vertical scrolling stays native.
@@ -203,7 +210,7 @@ src/
     data/connectors.ts     connectors: how sources are read
     workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts)
     dataset/               columns, aggregate, binding (+ wkt), boundaries (loader), query (server-side grouping), profile, visualization
-    search.ts              ranked type-ahead search
+    search.ts              ranked type-ahead search (optional typo-tolerant `fuzzy`)
     data/csv.ts            CSV → records
     demo.ts                synthetic vector field for exercising the arrow widget
   shared/                  client ↔ server contract: api, records (tables), database, idb, builtins
@@ -221,6 +228,7 @@ src/
       ScalarStyleEditor.vue, VectorStyleEditor.vue
       DataExchange.vue     ArcGIS import/export UI
       SearchBox.vue        type-ahead search over any list (no <datalist>: iOS chokes on big ones)
+    FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
     dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset

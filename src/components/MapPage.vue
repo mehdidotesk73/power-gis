@@ -15,13 +15,13 @@ import MapLegend from './map/MapLegend.vue'
 import FeatureTooltip from './map/FeatureTooltip.vue'
 import FeaturePanel from './map/FeaturePanel.vue'
 import DataExchange from './map/DataExchange.vue'
-import SearchBox from './map/SearchBox.vue'
 import AddDatasetPanel from './dataset/AddDatasetPanel.vue'
 import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
 import UtilityCountyDashboard from './UtilityCountyDashboard.vue'
 import WorkspaceBar from './workspace/WorkspaceBar.vue'
+import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
@@ -30,7 +30,6 @@ import { request } from '../client/api'
 import { readDb } from '../client/db'
 import { UTILITY_TABLE } from '../shared/builtins'
 import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
-import { utilitiesFromRows, utilityRowsFromRecords, type Utility } from '../lib/utilities'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { loadBoundaries } from '../lib/dataset/boundaries'
@@ -73,12 +72,10 @@ const doc = shallowRef<WorkspaceDoc>(emptyWorkspace())
 /** Registry records of the workspace's datasets, read from the database. */
 const records = shallowRef(new Map<string, DatasetRecord>())
 const importing = ref(false)
-const utilities = shallowRef<Utility[]>([])
 
 const datasets = computed(() => doc.value.datasetIds.flatMap((id) => records.value.get(id) ?? []))
 const visualizations = computed(() => doc.value.visualizations)
 const opCtx: OpContext = { columns: (id) => records.value.get(id)?.columns.map((c) => c.name) }
-const presetOf = (id: string) => records.value.get(id)?.extensions?.preset
 
 /** Applies an operation's result; failures are logged, not thrown. */
 function apply(r: OpResult): boolean {
@@ -104,7 +101,6 @@ async function loadRecord(id: string): Promise<DatasetRecord | undefined> {
     records.value = new Map(records.value).set(id, r)
     // Datasets stored before profiles existed get one (once; the server keeps it).
     if (!r.profile) void backfillProfile(id)
-    if (r.extensions?.preset === 'utilities') void loadUtilities(r)
   }
   return r
 }
@@ -112,10 +108,6 @@ async function backfillProfile(id: string) {
   if (!(await request('profileDataset', { datasetId: id })).ok) return
   const x = await readDb.get('datasets', id)
   if (x) records.value = new Map(records.value).set(id, x)
-}
-async function loadUtilities(r: DatasetRecord) {
-  const rows = await readDb.readRows(r.table)
-  if (rows) utilities.value = utilitiesFromRows(utilityRowsFromRecords(rows))
 }
 
 // Saving: edits are a draft until Save sends them to the server. The draft
@@ -184,7 +176,7 @@ async function revert() {
 
 function resetSelection() {
   selected.value = null
-  clearUtility()
+  clearFound()
 }
 
 const rename = (name: string) => apply(renameWorkspace(doc.value, name))
@@ -475,27 +467,41 @@ const selectedKeyFor = (v: VisualizationSpec) => {
   return s && s.datasetId === v.datasetId && JSON.stringify(s.binding) === JSON.stringify(v.binding) ? selected.value!.key : null
 }
 
-// ── utility search (preset extra) ──────────────────────────────────────────
+// ── find (any visualization's features by name or text value) ──────────────
 
-const searchBox = ref<{ clear: () => void }>()
-const selectedUtility = ref<Utility | null>(null)
-const utilityDs = computed(() => datasets.value.find((d) => d.extensions?.preset === 'utilities'))
-const utilityName = (u: Utility) => u.utility_name
-const utilityDetail = (u: Utility) => `${u.entity_type} · ${u.states.join(', ')} · ${u.county_fips.length} counties`
-function pickUtility(id: number) {
-  const u = utilities.value.find((x) => x.utility_id_eia === id) ?? null
-  selectedUtility.value = u
-  const r = rendered.value.find((x) => x.layer.datasetId === utilityDs.value?.id && x.layer.binding.kind === 'boundary')
-  if (!u || !r) return
-  const keys = new Set(u.county_fips)
-  const b = focusBox(r.data.features.filter((f) => keys.has(String(f.id))).map((f) => f.geometry))
+const found = ref<Found | null>(null)
+const findable = computed(() =>
+  rendered.value.map((r) => ({ viz: r.layer, label: `${r.layer.name} · ${r.ds.name}` })),
+)
+function onFound(f: Found) {
+  found.value = f
+  const r = renderedById.value.get(f.vizId)
+  if (!r) return
+  const keys = new Set(f.keys)
+  const b = focusBox(r.data.features.filter((x) => keys.has(String(x.id))).map((x) => x.geometry))
   if (b) mapView.value?.fitBounds(b)
 }
-function clearUtility() {
-  selectedUtility.value = null
-  searchBox.value?.clear()
+function clearFound() {
+  found.value = null
 }
-const highlightFor = (v: VisualizationSpec) => (presetOf(v.datasetId) === 'utilities' ? (selectedUtility.value?.county_fips ?? []) : [])
+/** Highlighted features: the found ones, on every visualization drawing the same features. */
+const highlightFor = (v: VisualizationSpec) => {
+  const f = found.value
+  const fv = f && vizById.value.get(f.vizId)
+  return fv && fv.datasetId === v.datasetId && JSON.stringify(fv.binding) === JSON.stringify(v.binding) ? f!.keys : []
+}
+/** The county dashboard's "Territory" button: find that utility's features by name. */
+async function findUtility(id: number) {
+  const name = selectedRows.value?.find((r) => r.utility_id_eia === id)?.utility_name
+  const v = selectedFeature.value?.viz
+  if (!name || !v) return
+  const r = await request('findFeatures', { datasetId: v.datasetId, binding: v.binding, column: 'utility_name', value: String(name) })
+  if (r.ok) onFound({ vizId: v.id, column: 'utility_name', value: String(name), keys: r.data.keys })
+}
+const foundUtilityId = computed(() => {
+  const f = found.value
+  return f?.column === 'utility_name' ? Number(selectedRows.value?.find((r) => r.utility_name === f.value)?.utility_id_eia ?? NaN) : null
+})
 
 // ── legend ─────────────────────────────────────────────────────────────────
 
@@ -544,27 +550,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         @load="loadFile"
         @reset="resetWorkspace"
       />
-      <div v-if="utilityDs" class="search">
-        <SearchBox
-          ref="searchBox"
-          label="Find a utility"
-          placeholder="e.g. Duke Energy Carolinas"
-          :items="utilities"
-          :text="utilityName"
-          :detail="utilityDetail"
-          @pick="(u) => pickUtility(u.utility_id_eia)"
-        />
-        <div v-if="selectedUtility" class="chip">
-          <div>
-            <strong>{{ selectedUtility.utility_name }}</strong>
-            <div class="muted">
-              {{ selectedUtility.entity_type }} · {{ selectedUtility.county_fips.length }} counties ·
-              {{ formatPrimitive(selectedUtility.customers, 'int') }} customers
-            </div>
-          </div>
-          <button aria-label="Clear utility" @click="clearUtility">✕</button>
-        </div>
-      </div>
+      <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
 
       <details class="box" open>
         <summary>Visualizations</summary>
@@ -666,8 +652,8 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             <UtilityCountyDashboard
               v-else-if="selectedFeature.ds.extensions?.preset === 'utilities'"
               :rows="selectedRows"
-              :selected-utility-id="selectedUtility?.utility_id_eia ?? null"
-              @pick-utility="pickUtility"
+              :selected-utility-id="foundUtilityId"
+              @pick-utility="findUtility"
             />
             <FeatureRows v-else :columns="selectedFeature.ds.columns" :rows="selectedRows" />
           </FeaturePanel>

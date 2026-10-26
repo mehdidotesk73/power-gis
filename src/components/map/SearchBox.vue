@@ -2,7 +2,7 @@
 // Type-ahead search over any list. Shows at most `limit` ranked matches in a
 // dropdown — instead of a <datalist>, which iOS can't handle with thousands
 // of options.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { search } from '../../lib/search'
 
 const props = withDefaults(
@@ -10,20 +10,34 @@ const props = withDefaults(
     items: T[]
     /** Text matched against the query. */
     text: (item: T) => string
+    /** Text the query is matched against, if not `text` (e.g. name + id). */
+    match?: (item: T) => string
     /** Secondary line under each result. */
     detail?: (item: T) => string
     placeholder?: string
     label?: string
     limit?: number
+    /** Tolerate typos ("elastic" matching). */
+    fuzzy?: boolean
+    /** Focusing an empty box lists the items (for short lists, like a picker). */
+    allWhenEmpty?: boolean
+    /** Text to show when not typing (e.g. the current pick); kept in sync. */
+    value?: string
   }>(),
-  { limit: 12 },
+  { limit: 12, fuzzy: false, allWhenEmpty: false, value: undefined },
 )
 const emit = defineEmits<{ (e: 'pick', item: T): void }>()
 
-const query = ref('')
+const query = ref(props.value ?? '')
+watch(
+  () => props.value,
+  (v) => v !== undefined && (query.value = v),
+)
 const open = ref(false)
 const active = ref(0)
-const results = computed(() => search(props.items, query.value, props.text, props.limit))
+// While the box still shows the current pick, list everything (a picker), not just that name.
+const typed = computed(() => (props.value !== undefined && query.value === props.value ? '' : query.value))
+const results = computed(() => search(props.items, typed.value, props.match ?? props.text, { limit: props.limit, fuzzy: props.fuzzy, allWhenEmpty: props.allWhenEmpty }))
 
 function pick(item: T) {
   query.value = props.text(item)
@@ -58,7 +72,7 @@ defineExpose({ clear: () => (query.value = '') })
       spellcheck="false"
       @input="(open = true), (active = 0)"
       @focus="open = true"
-      @blur="open = false"
+      @blur="(open = false), value !== undefined && (query = value)"
       @keydown="onKey"
     />
     <ul v-if="open && results.length" class="sb-results" role="listbox">

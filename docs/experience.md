@@ -312,6 +312,19 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Transform inputs + dataset preview — 2026-10-26
+- **Added:** Insert button and alias rename-in-SQL for transform inputs; readable missing-table
+  errors; dataset row preview (▤); copy dataset id (⧉); searchable input picker (name, typo-tolerant
+  fuzzy search, or id).
+- **Removed:** "Find a utility" (utility-specific) — replaced by **Find**, which searches any
+  visualization's feature names and row values (all data or one column) and highlights + zooms like
+  the old search did.
+- **Changed:** `point(lat, lon)` — latitude first (was `point(lon, lat)`); transforms written
+  with the old order now put points in the wrong place and need their arguments swapped.
+- **What didn't work:** naming SQL tables by dataset id (`ds_<uuid>`, inputs as bare ids) — built
+  and dropped in favour of the `{datasetId, alias}` pairs, which read better in SQL. Also: a string
+  `ref` on an element inside `v-for` is an array, so the SQL textarea uses a function ref.
+
 ### Transforms + profiles — 2026-10-26
 - **Added:** SQL transforms on DuckDB-WASM (preview, run, saved with the workspace and in files);
   `point(lon, lat)` / `vector(u, v)` helpers; dataset profiles on every write.

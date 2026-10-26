@@ -94,3 +94,60 @@ export function queryValues(g: Grouped, columns: ColumnInfo[], column: string, a
     unmatchedSamples: g.unmatchedSamples,
   }
 }
+
+// ── find: which features have a value ──────────────────────────────────────
+
+/** A searchable value: a feature's label, or a text cell in the rows behind features. */
+export interface FindEntry {
+  /** The column it's from, or LABEL_COLUMN for feature names. */
+  column: string
+  value: string
+  /** How many features have it. */
+  features: number
+}
+export const LABEL_COLUMN = '_label'
+
+/** Columns with more distinct values than this are left out of the index (ids, free text). */
+const MAX_DISTINCT = 20_000
+
+export interface FindIndex {
+  entries: FindEntry[]
+  /** `${column}\u0000${value}` → feature keys. */
+  keys: Map<string, string[]>
+}
+
+/** Every distinct text value (and feature label) with the features it appears on. */
+export function findIndex(g: Grouped, columns: ColumnInfo[]): FindIndex {
+  const sets = new Map<string, Set<string>>()
+  const add = (column: string, value: string, key: string) => {
+    const id = `${column}\u0000${value}`
+    let s = sets.get(id)
+    if (!s) sets.set(id, (s = new Set()))
+    s.add(key)
+  }
+  const text = columns.filter((c) => c.type === 'string')
+  const distinct = new Map<string, Set<string>>(text.map((c) => [c.name, new Set()]))
+  for (const grp of g.groups) {
+    if (!grp.rows.length) continue
+    if (grp.label) add(LABEL_COLUMN, grp.label, grp.key)
+    for (const r of grp.rows)
+      for (const c of text) {
+        const v = r[c.name]
+        if (v === null || v === undefined || v === '') continue
+        const d = distinct.get(c.name)!
+        if (d.size > MAX_DISTINCT) continue
+        d.add(String(v))
+        add(c.name, String(v), grp.key)
+      }
+  }
+  const tooMany = new Set([...distinct].filter(([, d]) => d.size > MAX_DISTINCT).map(([n]) => n))
+  const entries: FindEntry[] = []
+  const keys = new Map<string, string[]>()
+  for (const [id, s] of sets) {
+    const [column, value] = id.split('\u0000')
+    if (tooMany.has(column)) continue
+    entries.push({ column, value, features: s.size })
+    keys.set(id, [...s])
+  }
+  return { entries, keys }
+}

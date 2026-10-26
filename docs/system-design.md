@@ -160,7 +160,7 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
   → VARCHAR, vector → STRUCT(u, v), geometry → VARCHAR GeoJSON), with `INSERT … VALUES` batches (no
   `registerFileText` + `read_json`: that hangs DuckDB's Node build). Loaded tables are reused while
   the dataset's `updatedAt` is unchanged. One SELECT / WITH statement only (`checkSelect`). Helper
-  macros: `point(lon, lat)` → GeoJSON point text, `vector(u, v)` → `{u, v}`. Results are normalized
+  macros: `point(lat, lon)` → GeoJSON point text, `vector(u, v)` → `{u, v}`. Results are normalized
   (BigInt → number, timestamps → ISO text) and typed with `inferColumns`, so GeoJSON text becomes a
   geometry column and `{u, v}` a vector column; all-null columns fall back to DuckDB's type.
 - **Requests** — `previewTransform` (first rows + columns + full count; nothing stored),
@@ -170,10 +170,23 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
 - **Client** — transforms live in the workspace draft (`TransformSpec`; ops `addTransform`,
   `updateTransform`, `removeTransform`; `removeDataset` refuses while a transform reads the dataset),
   saved by `saveWorkspace` (config `transformIds`) and in workspace files (fresh ids; transforms whose
-  inputs are missing are dropped). `TransformsPanel.vue`: inputs (dataset + alias), SQL, Preview,
-  Run. A run adds the output dataset to the workspace with a first visualization when it has geometry.
+  inputs are missing are dropped). `TransformsPanel.vue`: inputs (dataset — picked in a `SearchBox` matching name,
+  typo-tolerant (`search(…, {fuzzy})`, edit distance 1–2), or id — **as** alias, with **Insert** at the SQL
+  cursor; renaming an alias renames its whole-word uses in the SQL), SQL, Preview, Run. A missing
+  table's DuckDB error is replaced by one listing the inputs' aliases (`server/sql.ts`). A run adds the output dataset to the workspace with a first visualization when it has geometry.
   Visualization values are keyed by the dataset's `updatedAt`, so a re-run refreshes the map.
 - **Tests** run real DuckDB via `@duckdb/duckdb-wasm`'s Node build (`server/testEngine.ts`).
+
+### Find
+
+`FindPanel.vue` searches one visualization's features. The server indexes them (`findIndex`,
+`lib/dataset/query.ts` `findIndex(grouped, columns)`): every feature label, and every distinct value
+of every text column in the rows behind features, with how many features have it (columns over 20k
+distinct values are skipped). The index is cached beside the dataset + binding grouping. The client
+filters it by column (or All data) and searches it with `search(…, {fuzzy: true})`; picking an entry
+asks `findFeatures` for its feature keys, which the page highlights on every visualization drawing
+the same features (same dataset and binding) and zooms to (`focusBox`). Replaces the utility-only
+"Find a utility".
 
 ### Dataset profiles
 

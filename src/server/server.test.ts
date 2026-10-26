@@ -116,14 +116,14 @@ describe('server', () => {
     expect((await db.get('datasets', src))!.profile).toMatchObject({ rowCount: 3, columns: expect.arrayContaining([expect.objectContaining({ name: 'lat', filled: 2 })]) })
     const inputs = [{ datasetId: src, alias: 'plants' }]
 
-    const preview = data(await server.handle('previewTransform', { sql: 'SELECT name, point(lon, lat) AS location, mw FROM plants', inputs, limit: 2 }))
+    const preview = data(await server.handle('previewTransform', { sql: 'SELECT name, point(lat, lon) AS location, mw FROM plants', inputs, limit: 2 }))
     expect(preview).toMatchObject({ rowCount: 3, rows: expect.any(Array) })
     expect(preview.rows).toHaveLength(2)
     expect(preview.columns.map((c) => c.type)).toEqual(['string', 'point', 'int'])
     const bad = await server.handle('previewTransform', { sql: 'SELECT nope FROM plants', inputs })
     expect(bad).toMatchObject({ ok: false, error: { code: 'invalid', message: expect.stringContaining('nope') } })
 
-    const tr = { id: crypto.randomUUID(), name: 'Plant points', sql: 'SELECT name, point(lon, lat) AS location, mw FROM plants WHERE lat IS NOT NULL', inputs }
+    const tr = { id: crypto.randomUUID(), name: 'Plant points', sql: 'SELECT name, point(lat, lon) AS location, mw FROM plants WHERE lat IS NOT NULL', inputs }
     data(await server.handle('saveWorkspace', { name: 'W', config: { datasetIds: [src] }, visualizations: [], transforms: [tr] }))
     const first = data(await server.handle('runTransform', { transform: tr }))
     expect(first).toMatchObject({ rowCount: 2, created: true })
@@ -137,7 +137,7 @@ describe('server', () => {
     expect(pts.features.map((f) => f.value)).toEqual([500, 1200])
 
     // Re-running with the output id overwrites that dataset; cached values are recomputed.
-    const again = data(await server.handle('runTransform', { transform: { ...tr, sql: 'SELECT name, point(lon, lat) AS location, mw * 2 AS mw FROM plants WHERE lat IS NOT NULL', outputId: first.datasetId } }))
+    const again = data(await server.handle('runTransform', { transform: { ...tr, sql: 'SELECT name, point(lat, lon) AS location, mw * 2 AS mw FROM plants WHERE lat IS NOT NULL', outputId: first.datasetId } }))
     expect(again).toEqual({ datasetId: first.datasetId, rowCount: 2, created: false })
     const pts2 = data(await server.handle('queryVisualization', { datasetId: first.datasetId, binding: { kind: 'geometry', column: 'location' }, column: 'mw', aggregation: 'sum' }))
     expect(pts2.features.map((f) => f.value)).toEqual([1000, 2400])
@@ -159,5 +159,22 @@ describe('server', () => {
     const p = data(await server.handle('profileDataset', { datasetId }))
     expect(p.rowCount).toBe(4)
     expect((await db.get('datasets', datasetId))!.profile).toEqual(p)
+  })
+
+  it('finds features by name or by a text value in their rows', async () => {
+    const { server } = setup()
+    const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
+    const { entries } = data(await server.handle('findIndex', { datasetId, binding: county }))
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        { column: '_label', value: 'Autauga, AL', features: 1 },
+        { column: 'utility', value: 'A', features: 2 }, // utility A serves both counties
+        { column: 'utility', value: 'B', features: 1 },
+      ]),
+    )
+    expect(entries.some((e) => e.value === 'C')).toBe(false) // C's row matched no county
+    const a = data(await server.handle('findFeatures', { datasetId, binding: county, column: 'utility', value: 'A' }))
+    expect(a.keys.sort()).toEqual(['01001', '01003'])
+    expect(data(await server.handle('findFeatures', { datasetId, binding: county, column: 'utility', value: 'nope' })).keys).toEqual([])
   })
 })

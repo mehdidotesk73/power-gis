@@ -6,7 +6,7 @@
 //   int → BIGINT, double → DOUBLE, boolean → BOOLEAN, string → VARCHAR,
 //   datetime → TIMESTAMP (ISO text back), vector → STRUCT(u, v),
 //   point / polyline / region → VARCHAR holding GeoJSON (typed again on the way out).
-// Helpers available in SQL: point(lon, lat) → a point geometry; vector(u, v) → a vector.
+// Helpers available in SQL: point(lat, lon) → a point geometry; vector(u, v) → a vector.
 //
 // The engine is anything that runs SQL and returns rows — DuckDB-WASM in the
 // browser (duckdb.ts), its Node build in tests.
@@ -26,6 +26,8 @@ export interface SqlEngine {
 
 export interface SqlInput {
   alias: string
+  /** For messages: what the user calls the dataset. */
+  label?: string
   /** Changes whenever the rows change (e.g. dataset id + updatedAt), so loaded tables can be reused. */
   version: string
   columns: ColumnInfo[]
@@ -76,7 +78,8 @@ function literal(v: unknown, type: ColumnType): string {
 }
 
 const MACROS = [
-  `CREATE OR REPLACE MACRO point(lon, lat) AS CASE WHEN lon IS NULL OR lat IS NULL THEN NULL ELSE '{"type":"Point","coordinates":[' || CAST(lon AS DOUBLE) || ',' || CAST(lat AS DOUBLE) || ']}' END`,
+  // Latitude first, as people say coordinates; GeoJSON stores longitude first.
+  `CREATE OR REPLACE MACRO point(lat, lon) AS CASE WHEN lon IS NULL OR lat IS NULL THEN NULL ELSE '{"type":"Point","coordinates":[' || CAST(lon AS DOUBLE) || ',' || CAST(lat AS DOUBLE) || ']}' END`,
   `CREATE OR REPLACE MACRO vector(u, v) AS CASE WHEN u IS NULL OR v IS NULL THEN NULL ELSE {'u': CAST(u AS DOUBLE), 'v': CAST(v AS DOUBLE)} END`,
 ]
 
@@ -136,7 +139,18 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>) {
     if (dup) throw new Error(`Two inputs are both called "${dup}"`)
     const e = await connect()
     for (const input of inputs) await load(e, input)
-    const res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}) LIMIT ${Math.max(0, Math.floor(limit))}`)
+    let res: SqlResult
+    try {
+      res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}) LIMIT ${Math.max(0, Math.floor(limit))}`)
+    } catch (err) {
+      // An unknown table is almost always a name that isn't one of the inputs' table names: list them.
+      const missing = /Table with name (\S+) does not exist/.exec((err as Error).message)
+      if (missing) {
+        const have = inputs.map((i) => (i.label ? `${i.alias} (${i.label})` : i.alias)).join(', ')
+        throw new Error(`No table ${missing[1]}. Tables you can use: ${have}.`)
+      }
+      throw err
+    }
     const rows = res.rows.map((r) => Object.fromEntries(res.fields.map((f) => [f.name, plain(r[f.name], f.type)])))
     const rowCount = limit === undefined ? rows.length : Number((await e.query(`SELECT count(*) AS n FROM (${query})`)).rows[0].n)
     // Our types from the values (GeoJSON text → geometry, {u, v} → vector, ISO text → datetime);
