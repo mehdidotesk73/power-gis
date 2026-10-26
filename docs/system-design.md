@@ -191,9 +191,15 @@ workspace's dataset order. `layoutDag` gives pixel positions (rows centered; wid
 it scrolls, opened centered). Nothing about the layout is stored. Transform state: **not run yet**
 (no output), **needs re-run** (an input's `updatedAt` is after the output's), else ready.
 
-`DagView.vue` draws nodes as buttons over one SVG of curved edges. Tapping a node opens it under
-the graph using the list components filtered to that item (`compact` props hide their add buttons
-and hints): a dataset's card (hold menu), a transform's editor, a visualization's editor.
+`DagView.vue` draws nodes as buttons over one SVG of curved edges. Tapping a node shows its card
+under the graph using the list components filtered to that item (`compact` props hide their add
+buttons and hints); holding the card gives its menu, exactly as in the lists. Only a transform or
+visualization just created from the graph opens straight into its editor.
+
+Each dataset has at most one writer: a transform's **Writes to** is a new dataset (made on Run) or
+an existing dataset that isn't one of its inputs and that no other transform writes
+(`checkTransform` in `workspace.ts`). Deleting a transform keeps its output dataset; that dataset
+just can't be re-run until another transform is pointed at it.
 **＋ Transform** enters pick mode (tap input datasets, Next) and adds a transform whose inputs are
 those datasets (aliases from their names, deduplicated), opened in its editor. **＋ Visualization**
 picks a dataset and opens the visualization add form for it. Everything goes through the same

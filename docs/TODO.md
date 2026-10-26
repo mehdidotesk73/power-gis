@@ -169,6 +169,7 @@ bridge (holds the Anthropic API key, starts sessions, relays clarifications/appr
 
 ### Backlog
 
+- Transforms with several outputs: one set of inputs, one SQL per output, all written together on Run
 - EIA-861 customers / sales / revenue as a separate built-in (per utility × state)
 - Real vector dataset (e.g. EIA-930 balancing-authority interchange flows) to replace the demo arrows
 - Point and polyline datasets (plants from EIA-860, transmission lines) to exercise those geometries

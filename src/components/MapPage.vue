@@ -239,7 +239,7 @@ async function addVisualization(datasetId: string, binding: GeometryBinding, col
   if (typeof info === 'string') return void logDebug(info, 'error')
   const v = makeVisualization(info, datasetId, binding, column)
   if (!apply(addVisualization_(doc.value, v, 0, opCtx))) return
-  if (view.value === 'graph') openNode({ key: `viz:${v.id}`, kind: 'viz', id: v.id })
+  if (view.value === 'graph') openNode({ key: `viz:${v.id}`, kind: 'viz', id: v.id }, true)
   else vizList.value?.edit(v.id)
 }
 
@@ -266,10 +266,11 @@ const dagNewViz = ref<string | null>(null)
 const dagViz = ref<InstanceType<typeof VisualizationList>>()
 const dagTr = ref<InstanceType<typeof TransformsPanel>>()
 
-/** Opens a node under the graph: transforms and visualizations straight into their editors. */
-async function openNode(n: Pick<DagNode, 'key' | 'kind' | 'id'> | null) {
+/** Shows a node's card under the graph (hold it for options); `edit` opens its editor (new items). */
+async function openNode(n: Pick<DagNode, 'key' | 'kind' | 'id'> | null, edit = false) {
   dagNewViz.value = null
   dagKey.value = n?.key ?? null
+  if (!edit) return
   await nextTick()
   if (n?.kind === 'transform') dagTr.value?.edit(n.id)
   else if (n?.kind === 'viz') dagViz.value?.edit(n.id)
@@ -296,7 +297,7 @@ function newTransformFrom(datasetIds: string[]) {
   })
   const also = inputs.length > 1 ? `\n-- also: ${inputs.slice(1).map((i) => i.alias).join(', ')}` : ''
   const t: TransformSpec = { id: newId(), name: 'New transform', sql: `SELECT *\nFROM ${inputs[0].alias}${also}`, inputs }
-  if (apply(addTransform_(doc.value, t))) openNode({ key: `tr:${t.id}`, kind: 'transform', id: t.id })
+  if (apply(addTransform_(doc.value, t))) openNode({ key: `tr:${t.id}`, kind: 'transform', id: t.id }, true)
 }
 
 // ── transforms ─────────────────────────────────────────────────────────────
@@ -670,6 +671,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             ref="dagTr"
             compact
             :transforms="doc.transforms.filter((t) => t.id === dagNode!.id)"
+            :all-transforms="doc.transforms"
             :datasets="datasets"
             :name-of="nameOf"
             :status="runStatus"

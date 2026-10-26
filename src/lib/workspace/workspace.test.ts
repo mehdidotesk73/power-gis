@@ -94,6 +94,16 @@ describe('workspace operations', () => {
     expect(aliasFor('2025 plants')).toBe('t_2025_plants')
   })
 
+  it('keeps a dataset with one writer: deleting a transform leaves its output, which a new transform can take over', () => {
+    const t = { id: 't1', name: 'Pts', sql: 'SELECT * FROM a', inputs: [{ datasetId: 'a', alias: 'a' }], outputId: 'b' }
+    const d = doc(addTransform(base, t))
+    expect(addTransform(d, { ...t, id: 't2', name: 'Other' })).toMatchObject({ ok: false, error: { message: expect.stringContaining('already written by transform "Pts"') } })
+    expect(addTransform(base, { ...t, outputId: 'a' })).toMatchObject({ ok: false, error: { message: expect.stringContaining('its own inputs') } })
+    const gone = doc(removeTransform(d, 't1'))
+    expect(gone.datasetIds).toContain('b') // downstream stays
+    expect(doc(addTransform(gone, { ...t, id: 't2', name: 'Relinked' })).transforms[0].outputId).toBe('b')
+  })
+
   it('renames the workspace', () => {
     expect(doc(renameWorkspace(base, ' Grid ')).name).toBe('Grid')
     expect(renameWorkspace(base, '').ok).toBe(false)

@@ -135,6 +135,11 @@ function checkTransform(doc: WorkspaceDoc, t: TransformSpec): OpError | null {
   const aliases = t.inputs.map((i) => i.alias)
   const dup = aliases.find((a, i) => aliases.indexOf(a) !== i)
   if (dup) return { code: 'invalid', message: `Two inputs are both called "${dup}"` }
+  if (t.outputId) {
+    if (t.inputs.some((i) => i.datasetId === t.outputId)) return { code: 'invalid', message: "A transform can't write one of its own inputs" }
+    const other = doc.transforms.find((x) => x.id !== t.id && x.outputId === t.outputId)
+    if (other) return { code: 'invalid', message: `That dataset is already written by transform "${other.name}"` }
+  }
   return null
 }
 

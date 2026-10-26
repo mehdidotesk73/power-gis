@@ -203,19 +203,25 @@ whatever they're actually asking about.
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
   Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
-  (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Run,
-  Edit, Delete.
+  (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Preview,
+  Run, Edit, Delete.
 - **Graph view (DAG)** — a **List | Graph** switch above the panels (remembered per device,
   `powergis.controlsView`). `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
   nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest
   input, its output below it, every visualization in the bottom row), one barycenter pass orders each
   row; `layoutDag` places them (automatic, nothing stored). Transforms show **not run yet** (no
   output) or **needs re-run** (an input's `updatedAt` is newer than the output's). `DagView.vue`
-  draws it (nodes are buttons, edges one SVG); **tap** a node to open it under the graph — the same
-  list components filtered to that item (`compact`), transforms and visualizations straight into
-  their editors. **＋ Transform**: tap input datasets, Next → a new transform with those inputs opens
-  in its editor; **＋ Visualization**: tap a dataset → the add form. The graph is an interface to
-  the same workspace operations, not a separate model.
+  draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
+  same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in
+  the lists (only new transforms / visualizations open straight into their editors).
+  **＋ Transform**: tap input datasets, Next → a new transform with those inputs; **＋ Visualization**:
+  tap a dataset → the add form. The graph is an interface to the same workspace operations, not a
+  separate model.
+- **One writer per dataset.** A transform's **Writes to** picks a new dataset (made on Run) or an
+  existing one no other transform writes and that isn't one of its inputs (`checkTransform`).
+  Deleting a transform keeps its output dataset — it just can't be re-run until another transform
+  is set to write it. Transform menu: Preview (first rows, without opening the editor), Run, Edit,
+  Delete.
 - County join keys are 5-digit FIPS strings (`county_fips` / `fips`). Keep them strings: leading
   zeros matter.
 

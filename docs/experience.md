@@ -318,7 +318,10 @@ Two additions from reviewing it here, beyond what the originating project report
   barycenter order); tap a node to open it under the graph; ＋ Transform by tapping input datasets;
   ＋ Visualization by tapping a dataset; transforms marked not run yet / needs re-run.
 - **Decided:** automatic layout only for now (no saved positions); tap-to-pick inputs (no edge
-  dragging); visualizations are nodes.
+  dragging); visualizations are nodes. Tapping a node shows its card (hold for options) — editors
+  open only for new items. One writer per dataset: a transform's Writes to (new / an unclaimed
+  dataset); deleting a transform keeps its output, re-linkable by another transform. Transform menu
+  gained Preview.
 - **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
 
 ### Object lists: hold menus for datasets, visualizations, transforms — 2026-10-26

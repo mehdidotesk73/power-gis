@@ -28,6 +28,8 @@ const props = defineProps<{
   status: Record<string, RunStatus>
   /** Shown under the graph: no ＋ button, hint or empty message. */
   compact?: boolean
+  /** Every transform in the workspace (when `transforms` is a subset): no two may write one dataset. */
+  allTransforms?: TransformSpec[]
 }>()
 const emit = defineEmits<{
   (e: 'add', t: TransformSpec): void
@@ -55,12 +57,14 @@ function create() {
 const patch = (t: TransformSpec, p: Partial<TransformSpec>) => emit('update', { ...t, ...p })
 
 const actions = (t: TransformSpec): ObjectAction[] => [
+  { id: 'preview', icon: '▤', label: preview.value?.id === t.id ? 'Hide preview' : previewing.value ? 'Previewing…' : 'Preview', disabled: previewing.value },
   { id: 'run', icon: '▶', label: props.status[t.id]?.state === 'running' ? 'Running…' : 'Run', disabled: props.status[t.id]?.state === 'running' },
   { id: 'edit', icon: '✎', label: editing.value === t.id ? 'Close edit' : 'Edit' },
   { id: 'delete', icon: '✕', label: 'Delete', danger: true },
 ]
 function onAction(id: string, t: TransformSpec) {
-  if (id === 'run') emit('run', t.id)
+  if (id === 'preview') togglePreview(t)
+  else if (id === 'run') emit('run', t.id)
   else if (id === 'edit') editing.value = editing.value === t.id ? null : t.id
   else if (id === 'delete') emit('remove', t.id)
 }
@@ -118,7 +122,20 @@ async function runPreview(t: TransformSpec) {
   previewing.value = false
   preview.value = r.ok ? { id: t.id, ...r.data } : { id: t.id, error: r.error.message }
 }
-const shown = computed(() => (preview.value && editing.value === preview.value.id ? preview.value : null))
+const shown = computed(() => preview.value)
+function togglePreview(t: TransformSpec) {
+  if (preview.value?.id === t.id) preview.value = null
+  else runPreview(t)
+}
+
+// ── output: where Run writes ───────────────────────────────────────────────
+
+/** Datasets this transform may write: not its own inputs, not another transform's output. */
+function outputChoices(t: TransformSpec) {
+  const taken = new Set((props.allTransforms ?? props.transforms).filter((x) => x.id !== t.id && x.outputId).map((x) => x.outputId!))
+  const inputs = new Set(t.inputs.map((i) => i.datasetId))
+  return props.datasets.filter((d) => !taken.has(d.id) && !inputs.has(d.id))
+}
 defineExpose({ edit: (id: string) => (editing.value = id) })
 
 const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 60)
@@ -180,6 +197,15 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
           </div>
           <button class="btn link" @click="addInput(t)">＋ Add an input</button>
 
+          <label class="row">
+            Writes to
+            <select :value="t.outputId ?? ''" @change="patch(t, { outputId: ($event.target as HTMLSelectElement).value || undefined })">
+              <option value="">A new dataset (made on Run)</option>
+              <option v-for="d in outputChoices(t)" :key="d.id" :value="d.id">{{ d.name }}</option>
+            </select>
+          </label>
+          <p v-if="t.outputId" class="muted">Run replaces this dataset's rows. Pick a dataset whose transform was deleted to make it updatable again.</p>
+
           <label class="lbl" :for="`sql-${t.id}`">SQL <span class="muted">(one SELECT; DuckDB)</span></label>
           <textarea
             :id="`sql-${t.id}`"
@@ -202,23 +228,23 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
             <button class="btn" @click="editing = null">Done</button>
           </div>
 
-          <p v-if="shown && 'error' in shown" class="bad">{{ shown.error }}</p>
-          <div v-else-if="shown" class="preview">
-            <p class="muted">{{ shown.rowCount.toLocaleString() }} rows · first {{ shown.rows.length }}</p>
-            <div class="scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th v-for="c in shown.columns" :key="c.name">{{ c.name }}<br /><span class="muted">{{ c.type }}</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(r, i) in shown.rows" :key="i">
-                    <td v-for="c in shown.columns" :key="c.name">{{ cell(r[c.name]) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+        </div>
+        <p v-if="shown?.id === t.id && 'error' in shown" class="bad">{{ shown.error }}</p>
+        <div v-else-if="shown?.id === t.id && 'rows' in shown" class="preview">
+          <p class="muted">{{ shown.rowCount.toLocaleString() }} rows · first {{ shown.rows.length }}</p>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th v-for="c in shown.columns" :key="c.name">{{ c.name }}<br /><span class="muted">{{ c.type }}</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(r, i) in shown.rows" :key="i">
+                  <td v-for="c in shown.columns" :key="c.name">{{ cell(r[c.name]) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </template>
