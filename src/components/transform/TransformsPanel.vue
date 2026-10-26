@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Transforms: SQL that makes datasets from datasets. Each has inputs (a
-// dataset and the table name the SQL calls it), one SELECT query, and an
+// dataset "as" the table name the SQL calls it — Insert puts that name into
+// the SQL at the cursor; renaming it renames it in the SQL), one SELECT query, and an
 // output dataset once it has run. Preview runs the SQL on the server and
 // shows the first rows without storing anything; Run stores the result as
 // the output dataset (a new one the first time). Edits are part of the
 // workspace draft, saved with Save.
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { request } from '../../client/api'
 import type { DatasetRecord } from '../../shared/records'
 import type { ColumnInfo } from '../../lib/dataset/columns'
@@ -50,9 +51,36 @@ const patch = (t: TransformSpec, p: Partial<TransformSpec>) => emit('update', { 
 
 function setInput(t: TransformSpec, i: number, p: Partial<TransformSpec['inputs'][number]>) {
   const inputs = t.inputs.map((x, j) => (j === i ? { ...x, ...p } : x))
-  // A dataset picked for an input gets its default table name unless one was typed.
+  // A dataset picked for an input gets its default table name.
   if (p.datasetId) inputs[i].alias = aliasFor(props.datasets.find((d) => d.id === p.datasetId)?.name ?? 'input')
-  patch(t, { inputs })
+  // Renaming a table renames it in the SQL too (whole words only), so the two can't drift apart.
+  const before = t.inputs[i].alias
+  const after = inputs[i].alias
+  const sql = currentSql(t)
+  patch(t, { inputs, sql: after && before !== after ? sql.replace(new RegExp(`\\b${escapeRe(before)}\\b`, 'g'), after) : sql })
+}
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// ── insert a table name into the SQL at the cursor ─────────────────────────
+
+// A function ref: inside v-for a string ref would collect an array. Only the open editor has a textarea.
+const sqlEl = ref<HTMLTextAreaElement>()
+/** The SQL as typed (the textarea commits on blur, so read it directly while editing). */
+const currentSql = (t: TransformSpec) => (editing.value === t.id && sqlEl.value ? sqlEl.value.value : t.sql)
+async function insert(t: TransformSpec, alias: string) {
+  const el = sqlEl.value
+  const text = currentSql(t)
+  const start = el?.selectionStart ?? text.length
+  const end = el?.selectionEnd ?? start
+  const before = text.slice(0, start)
+  const pad = before && !/\s$/.test(before) ? ' ' : ''
+  patch(t, { sql: `${before}${pad}${alias}${text.slice(end)}` })
+  await nextTick()
+  if (el) {
+    const at = start + pad.length + alias.length
+    el.focus()
+    el.setSelectionRange(at, at)
+  }
 }
 function addInput(t: TransformSpec) {
   const used = new Set(t.inputs.map((i) => i.datasetId))
@@ -69,7 +97,7 @@ const preview = ref<{ id: string; columns: ColumnInfo[]; rows: DataRecord[]; row
 const previewing = ref(false)
 async function runPreview(t: TransformSpec) {
   previewing.value = true
-  const r = await request('previewTransform', { sql: t.sql, inputs: t.inputs, limit: 20 })
+  const r = await request('previewTransform', { sql: currentSql(t), inputs: t.inputs, limit: 20 })
   previewing.value = false
   preview.value = r.ok ? { id: t.id, ...r.data } : { id: t.id, error: r.error.message }
 }
@@ -101,12 +129,22 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
         <div v-if="editing === t.id" class="ed">
           <label class="row">Name <input type="text" :value="t.name" @change="patch(t, { name: ($event.target as HTMLInputElement).value })" /></label>
 
-          <div class="lbl">Inputs <span class="muted">(dataset → table name in the SQL)</span></div>
+          <div class="lbl">Inputs <span class="muted">(each dataset is a table in the SQL, by the name after "as")</span></div>
           <div v-for="(inp, i) in t.inputs" :key="i" class="input">
             <select :value="inp.datasetId" aria-label="Input dataset" @change="setInput(t, i, { datasetId: ($event.target as HTMLSelectElement).value })">
               <option v-for="d in datasets" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
-            <input type="text" :value="inp.alias" aria-label="Table name" autocapitalize="off" spellcheck="false" @change="setInput(t, i, { alias: ($event.target as HTMLInputElement).value.trim() })" />
+            <span class="as">as</span>
+            <input
+              type="text"
+              :value="inp.alias"
+              placeholder="table name in SQL"
+              aria-label="Table name in the SQL"
+              autocapitalize="off"
+              spellcheck="false"
+              @change="setInput(t, i, { alias: ($event.target as HTMLInputElement).value.trim() })"
+            />
+            <button class="btn" title="Insert this table name into the SQL at the cursor" @click="insert(t, inp.alias)">Insert</button>
             <button v-if="t.inputs.length > 1" class="icon" aria-label="Remove input" @click="patch(t, { inputs: t.inputs.filter((_, j) => j !== i) })">✕</button>
           </div>
           <button class="btn link" @click="addInput(t)">＋ Add an input</button>
@@ -114,6 +152,7 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
           <label class="lbl" :for="`sql-${t.id}`">SQL <span class="muted">(one SELECT; DuckDB)</span></label>
           <textarea
             :id="`sql-${t.id}`"
+            :ref="(el) => (sqlEl = (el as HTMLTextAreaElement) ?? undefined)"
             class="sql"
             rows="6"
             :value="t.sql"
@@ -215,13 +254,26 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
   display: flex;
   gap: 0.25rem;
 }
-.input select,
+.input {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.input select {
+  flex: 1 1 100%; /* its own line on phones; the table name and Insert go below */
+  min-width: 0;
+  padding: 0.25rem;
+  font-size: 16px;
+}
 .input input {
   flex: 1;
   min-width: 0;
   width: 0;
   padding: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 16px;
+}
+.as {
+  color: var(--text-muted);
 }
 .sql {
   width: 100%;

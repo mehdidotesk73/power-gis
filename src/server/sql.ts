@@ -26,6 +26,8 @@ export interface SqlEngine {
 
 export interface SqlInput {
   alias: string
+  /** For messages: what the user calls the dataset. */
+  label?: string
   /** Changes whenever the rows change (e.g. dataset id + updatedAt), so loaded tables can be reused. */
   version: string
   columns: ColumnInfo[]
@@ -136,7 +138,18 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>) {
     if (dup) throw new Error(`Two inputs are both called "${dup}"`)
     const e = await connect()
     for (const input of inputs) await load(e, input)
-    const res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}) LIMIT ${Math.max(0, Math.floor(limit))}`)
+    let res: SqlResult
+    try {
+      res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}) LIMIT ${Math.max(0, Math.floor(limit))}`)
+    } catch (err) {
+      // An unknown table is almost always a name that isn't one of the inputs' table names: list them.
+      const missing = /Table with name (\S+) does not exist/.exec((err as Error).message)
+      if (missing) {
+        const have = inputs.map((i) => (i.label ? `${i.alias} (${i.label})` : i.alias)).join(', ')
+        throw new Error(`No table ${missing[1]}. Tables you can use: ${have}.`)
+      }
+      throw err
+    }
     const rows = res.rows.map((r) => Object.fromEntries(res.fields.map((f) => [f.name, plain(r[f.name], f.type)])))
     const rowCount = limit === undefined ? rows.length : Number((await e.query(`SELECT count(*) AS n FROM (${query})`)).rows[0].n)
     // Our types from the values (GeoJSON text → geometry, {u, v} → vector, ISO text → datetime);

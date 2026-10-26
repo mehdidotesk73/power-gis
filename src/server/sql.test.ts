@@ -59,6 +59,8 @@ describe('sql transforms (DuckDB)', () => {
 
   it('reports SQL errors and non-SELECT statements readably', async () => {
     await expect(sql.run('SELECT nope FROM plants', [plants])).rejects.toThrow(/nope/)
+    // A table that isn't an input: say which tables there are.
+    await expect(sql.run('SELECT * FROM electric_utilities', [{ ...plants, label: 'My plants' }])).rejects.toThrow('No table electric_utilities. Tables you can use: plants (My plants).')
     await expect(sql.run('DROP TABLE plants', [plants])).rejects.toThrow(/one SELECT/)
     await expect(sql.run('SELECT 1; SELECT 2', [plants])).rejects.toThrow(/one SELECT/)
     await expect(sql.run('SELECT 1', [{ ...plants, alias: '1bad' }])).rejects.toThrow(/table name/)

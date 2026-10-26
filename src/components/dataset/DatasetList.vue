@@ -1,11 +1,15 @@
 <script setup lang="ts">
 // The workspace's datasets: tables in the database, by pointer. Drag ≡ to
-// reorder; ✎ renames or describes (a server request). ✕ takes a dataset out of the workspace — the
+// reorder; ▤ previews the first rows; ✎ renames or describes (a server request) and shows the
+// profile. ✕ takes a dataset out of the workspace — the
 // table stays in the database. (Visualizations are added from the
 // Visualizations panel; how rows map to features is part of each one.)
 import { ref } from 'vue'
 import { useDragReorder } from './useDragReorder'
+import { readDb } from '../../client/db'
 import type { DatasetRecord } from '../../shared/records'
+import type { DataRecord } from '../../lib/data/connectors'
+import { isGeometryColumn } from '../../lib/dataset/columns'
 
 const props = defineProps<{ datasets: DatasetRecord[]; vizCount: (id: string) => number }>()
 const emit = defineEmits<{
@@ -22,6 +26,31 @@ const { dragging, onHandleDown, onHandleMove, onHandleUp } = useDragReorder(
   (ids) => emit('reorder', ids),
 )
 const editing = ref<string | null>(null)
+
+// ── preview: the first rows, read straight from the database ──────────────
+
+const PREVIEW_ROWS = 20
+const previewing = ref<string | null>(null)
+const previewRows = ref<DataRecord[]>([])
+const previewError = ref('')
+async function togglePreview(ds: DatasetRecord) {
+  if (previewing.value === ds.id) return void (previewing.value = null)
+  previewing.value = ds.id
+  previewRows.value = []
+  previewError.value = ''
+  try {
+    const rows = await readDb.readRows(ds.table)
+    if (previewing.value === ds.id) previewRows.value = (rows ?? []).slice(0, PREVIEW_ROWS)
+  } catch (e) {
+    previewError.value = (e as Error).message
+  }
+}
+/** A cell as short text; geometry as its kind (the full GeoJSON is noise in a table). */
+function cell(v: unknown, type: string): string {
+  if (v === null || v === undefined) return ''
+  if (isGeometryColumn(type as never)) return typeof v === 'object' ? String((v as { type?: string }).type ?? type) : String(v).slice(0, 24)
+  return (typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 60)
+}
 const stats = (d: DatasetRecord) => `${plural(d.rowCount, 'row')} · ${plural(d.columns.length, 'column')}`
 const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : '—')
 /** Numbers compact, datetimes as dates. */
@@ -50,6 +79,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
           <span v-if="ds.description" class="desc">{{ ds.description }}</span>
           <span class="muted">{{ stats(ds) }} · {{ ds.origin }}</span>
         </div>
+        <button class="icon" :class="{ on: previewing === ds.id }" title="Preview the first rows" @click="togglePreview(ds)">▤</button>
         <button class="icon" :class="{ on: editing === ds.id }" title="Rename / describe" @click="editing = editing === ds.id ? null : ds.id">✎</button>
         <button class="icon" title="Zoom to data" @click="emit('zoom', ds.id)">⤢</button>
         <button class="icon" title="Take out of the workspace (stays in the database)" @click="emit('remove', ds.id)">✕</button>
@@ -88,6 +118,26 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
           </div>
         </div>
         <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
+      </div>
+      <div v-if="previewing === ds.id" class="preview">
+        <p v-if="previewError" class="warn">{{ previewError }}</p>
+        <template v-else>
+          <span class="muted">First {{ Math.min(PREVIEW_ROWS, ds.rowCount).toLocaleString() }} of {{ ds.rowCount.toLocaleString() }} rows</span>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th v-for="c in ds.columns" :key="c.name">{{ c.name }}<br /><span class="muted">{{ c.type }}</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(r, i) in previewRows" :key="i">
+                  <td v-for="c in ds.columns" :key="c.name">{{ cell(r[c.name], c.type) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </div>
       <p class="muted uses">Used by {{ plural(vizCount(ds.id), 'visualization') }}</p>
     </li>
@@ -138,6 +188,12 @@ th {
   position: sticky;
   top: 0;
   background: var(--bg-elev);
+}
+.preview {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.35rem;
+  min-width: 0;
 }
 .ds.dragging {
   opacity: 0.7;

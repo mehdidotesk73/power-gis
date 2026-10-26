@@ -159,7 +159,9 @@ whatever they're actually asking about.
   vector). Helpers in SQL: `point(lon, lat)`, `vector(u, v)`. Requests: `previewTransform` (first rows,
   nothing stored), `runTransform` (writes `outputId`'s table or a new dataset; returns the pointer).
   Transforms are part of the workspace draft (`TransformSpec`, ops `addTransform` / `updateTransform`
-  / `removeTransform`) and saved with it. Tests run real DuckDB through its Node build
+  / `removeTransform`) and saved with it. Inputs are `{datasetId, alias}` pairs: the alias is the
+  table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
+  table's error lists the aliases). Tests run real DuckDB through its Node build
   (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the

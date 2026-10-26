@@ -48,6 +48,9 @@ Track feature development, improvements, and known issues here. Move completed w
   `TransformsPanel` (inputs with aliases, SQL, Preview, Run). Dataset profiles
   (`lib/dataset/profile.ts`) stored on every write, shown in the dataset editor. Tests on real
   DuckDB (Node build).
+- **Transform inputs + dataset preview** — inputs read "dataset **as** alias"; **Insert** puts the
+  alias into the SQL at the cursor; renaming an alias renames it in the SQL; "no such table" errors
+  list the usable tables. ▤ on a dataset previews its first 20 rows (read from the database).
 
 ## Next (Current Sprint)
 

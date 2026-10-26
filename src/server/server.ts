@@ -63,6 +63,7 @@ export function createServer(db: Database, env: ServerEnv) {
         const ds = await dataset(i.datasetId)
         return {
           alias: i.alias,
+          label: ds.name,
           version: `${ds.id}|${ds.updatedAt}`,
           columns: ds.columns,
           rows: async () => (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`),
