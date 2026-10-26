@@ -337,6 +337,8 @@ Two additions from reviewing it here, beyond what the originating project report
   labels are repainted light with a dark halo.
 - **Added:** the graph pans and zooms instead of scrolling — drag; Shift + wheel / pinch; on phones
   hold-then-drag and two-finger pinch, so a one-finger swipe still scrolls the page.
+- **Changed:** the default workspace is named **PowerGIS** (was "Electric utilities by county
+  (EIA-861)"); saved workspaces keep their names.
 - **Changed:** the workspace bar left the side panel: a **Workspace** button in the header (amber ●
   while unsaved) drops down the name, counts, Save / Discard and file actions (a sheet on phones).
   `<Teleport defer>` puts it in the header (the target is rendered by App in the same pass).
