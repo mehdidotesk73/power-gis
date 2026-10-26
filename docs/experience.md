@@ -337,6 +337,8 @@ Two additions from reviewing it here, beyond what the originating project report
   labels are repainted light with a dark halo.
 - **Added:** the graph pans and zooms instead of scrolling — drag; Shift + wheel / pinch; on phones
   hold-then-drag and two-finger pinch, so a one-finger swipe still scrolls the page.
+- **Changed:** ＋ Dataset / ＋ Transform / ＋ Visualization are compact pills like bitcoin-explorer's
+  `.toggle`: thin kind-coloured border, 12% tint, kind-coloured 0.68rem text, 1rem radius.
 - **Fixed:** on iOS the map grew as you started scrolling, and only then did the page move: its
   height was `70dvh`, which tracks Safari's collapsing address bar. Now `70svh` (small viewport,
   stable). **Use `svh` for in-page heights on phones; `dvh` only for full-screen overlays.**

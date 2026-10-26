@@ -195,17 +195,22 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 }
 .bar {
   flex-wrap: wrap;
+  gap: 0.3rem;
 }
 .pill {
-  min-height: 2rem;
-  padding: 0.25rem 0.8rem;
+  /* compact pill, as bitcoin-explorer's .toggle: thin border, 12% tint, text in the kind's colour */
+  padding: 0.12rem 0.5rem;
   border: 1px solid var(--pill);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--pill) 14%, var(--bg-elev));
-  color: var(--text);
-  font-size: 0.8rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--pill) 12%, transparent);
+  color: var(--pill);
+  font-size: 0.68rem;
   font-weight: 600;
+  line-height: 1.4;
   white-space: nowrap;
+}
+.pill:not(:disabled):hover {
+  background: color-mix(in srgb, var(--pill) 24%, transparent);
 }
 .pill:disabled {
   opacity: 0.45;
@@ -221,13 +226,13 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 }
 .flip {
   margin-left: auto;
-  width: 2rem;
-  height: 2rem;
+  width: 1.6rem;
+  height: 1.6rem;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-elev);
+  border-radius: 1rem;
+  background: var(--bg-elev-2);
   color: var(--text);
-  font-size: 1rem;
+  font-size: 0.8rem;
   line-height: 1;
 }
 .banner {

@@ -67,7 +67,7 @@ Track feature development, improvements, and known issues here. Move completed w
 - **Graph layout + panel UI** — crossing-minimizing DAG layout (virtual points for row-skipping
   arrows, barycenter sweeps + swaps), ↓ / → direction toggle, resizable desktop side panel, ⤢ pop-out
   of the workspace panels into a modal (open item beside the graph), Search card ("Search in [viz] in
-  [column]"), pill ＋ buttons, flows scroll each step into view, clearer visualization-form labels.
+  [column]"), compact pill ＋ buttons (as bitcoin-explorer's toggles), flows scroll each step into view, clearer visualization-form labels.
 - **Dark theme** — dark only; colour tokens by job (blue interaction, violet datasets, orange
   transforms, green visualizations, amber attention + mark, orchid Search matches); dark basemap.
 - **Graph pan / zoom** — drag, Shift + wheel, trackpad pinch; phones: hold then drag, pinch.
