@@ -204,6 +204,9 @@ bridge (holds the Anthropic API key, starts sessions, relays clarifications/appr
 
 ## Known Issues
 
+- Renaming or describing a dataset bumps its `updatedAt`, so downstream transforms show ↻ needs
+  re-run although no rows changed. A separate data timestamp would fix it.
+
 (Bugs, edge cases, platform-specific quirks)
 
 ## Ideas / Backlog (Low Priority)
