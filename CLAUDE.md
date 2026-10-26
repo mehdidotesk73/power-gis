@@ -225,7 +225,9 @@ whatever they're actually asking about.
   input, its output below it, every visualization in the bottom row); `orderLayers` minimizes arrow
   crossings (virtual points for row-skipping edges, `edge.via`; barycenter sweeps + swaps);
   `layoutDag(dag, 'vertical' | 'horizontal')` places them and `edgePath` draws edges (automatic;
-  only the ↓ / → direction is remembered per device, `powergis.dagDirection`). Transforms show **not run yet** (no
+  only the ↓ / → direction is remembered per device, `powergis.dagDirection`). The graph **pans and
+  zooms** (`dag/usePanZoom.ts` + `lib/panZoom.ts`): drag; Shift + wheel or pinch; on phones
+  touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. Transforms show **not run yet** (no
   output) or **needs re-run** (an input's `updatedAt` is newer than the output's). `DagView.vue`
   draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
   same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in

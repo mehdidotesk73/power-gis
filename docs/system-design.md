@@ -226,7 +226,13 @@ the ordering with the fewest crossings (row 0 starts in the workspace's dataset 
 `layoutDag(dag, direction)` gives pixel positions, `'vertical'` (rows top to bottom) or
 `'horizontal'` (rows as columns, left to right); each row is centered on the widest, virtual points
 take a narrow lane. `edgePath` draws an edge out of the parent's far side, through its points, into
-the child's near side. Wider than the screen → it scrolls, opened centered on the cross axis. The
+the child's near side. The graph **pans and zooms** in a fixed viewport (`components/dag/usePanZoom.ts`,
+maths in `lib/panZoom.ts`): mouse drag pans; Shift + wheel zooms, as does a trackpad pinch (Ctrl +
+wheel, or Safari's gesture events); on touch, one finger still scrolls the page, touch-and-hold
+(0.35 s, still) then drag pans, and two fingers pinch. A drag or pinch swallows the click after it, so
+it never taps a node. It opens fitted (never above 1:1), refits when the layout or the viewport's
+width changes (splitter, pop-out), and keeps part of the graph on screen; ＋ / − / ⤢ buttons sit in
+its corner. The
 direction toggle (↓ / →) is remembered per device (`powergis.dagDirection`); nothing else about the
 layout is stored. Transform state: **not run yet**
 (no output), **needs re-run** (an input's `updatedAt` is after the output's), else ready.

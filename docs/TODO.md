@@ -70,6 +70,7 @@ Track feature development, improvements, and known issues here. Move completed w
   [column]"), pill ＋ buttons, flows scroll each step into view, clearer visualization-form labels.
 - **Dark theme** — dark only; colour tokens by job (blue interaction, violet datasets, orange
   transforms, green visualizations, amber attention + mark, orchid Search matches); dark basemap.
+- **Graph pan / zoom** — drag, Shift + wheel, trackpad pinch; phones: hold then drag, pinch.
 
 ## Next (Current Sprint)
 

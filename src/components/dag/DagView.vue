@@ -4,9 +4,11 @@
 // to select it (the page opens it below the graph). ＋ Dataset: the page opens
 // the add form below. ＋ Transform: tap the input datasets, then Next.
 // ＋ Visualization: tap the dataset to draw. ↓ / → flips the flow (top to
-// bottom, left to right), remembered per device.
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+// bottom, left to right), remembered per device. The graph pans and zooms
+// (usePanZoom): drag / Shift + wheel / pinch; on phones hold, then drag.
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { vReveal } from '../reveal'
+import { usePanZoom } from './usePanZoom'
 import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode } from '../../lib/workspace/dag'
 
 const props = defineProps<{ dag: Dag; selected: string | null }>()
@@ -37,16 +39,34 @@ function flip() {
 
 const layout = computed(() => layoutDag(props.dag, direction.value))
 
-// Wider than the screen: open scrolled to the middle of the cross axis (the inputs of most graphs sit there).
-const scroller = ref<HTMLElement>()
-function center() {
-  const el = scroller.value
+// The graph sits in a fixed viewport and pans / zooms; it opens fitted (never
+// enlarged), and refits when its size or direction changes.
+const viewport = ref<HTMLElement>()
+const { view, panning, fit, zoomBy } = usePanZoom(viewport, () => ({ w: layout.value.width, h: layout.value.height }))
+/** Viewport height: the graph's height at the zoom that fits its width (the CSS max-height caps it). */
+const viewportH = ref(240)
+function refit() {
+  const el = viewport.value
   if (!el) return
-  if (direction.value === 'vertical') el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2
-  else el.scrollTop = (el.scrollHeight - el.clientHeight) / 2
+  const kw = Math.min(1, (el.clientWidth - 16) / (layout.value.width || 1))
+  viewportH.value = Math.max(160, Math.round(layout.value.height * kw + 16))
+  nextTick(fit)
 }
-onMounted(center)
-watch(() => [layout.value.width, layout.value.height, direction.value], () => nextTick(center))
+onMounted(() => {
+  refit()
+  // The box changes width without the graph changing (splitter, pop-out window): refit to use it.
+  let lastW = viewport.value?.clientWidth ?? 0
+  resizer = new ResizeObserver(() => {
+    const w = viewport.value?.clientWidth ?? 0
+    if (w && Math.abs(w - lastW) > 1) refit()
+    lastW = w
+  })
+  if (viewport.value) resizer.observe(viewport.value)
+})
+let resizer: ResizeObserver | null = null
+onBeforeUnmount(() => resizer?.disconnect())
+watch(() => [layout.value.width, layout.value.height, direction.value, props.dag.nodes.length > 0], () => nextTick(refit))
+const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
 /** One curve per edge, through the points its layout gave it (lib/workspace/dag.ts edgePath). */
 const paths = computed(() =>
@@ -121,8 +141,11 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
     </div>
 
     <p v-if="!dag.nodes.length" class="muted">Nothing here yet — start with ＋ Dataset.</p>
-    <div v-else ref="scroller" class="scroll">
-      <div class="canvas" :style="{ width: `${layout.width}px`, height: `${layout.height}px` }">
+    <div v-show="dag.nodes.length" ref="viewport" class="scroll" :class="{ panning }" :style="{ height: `${viewportH}px` }">
+      <div
+        class="canvas"
+        :style="{ width: `${layout.width}px`, height: `${layout.height}px`, transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }"
+      >
         <svg class="edges" :width="layout.width" :height="layout.height" aria-hidden="true">
           <defs>
             <marker id="dag-head" orient="auto" markerWidth="6" markerHeight="6" refX="3" refY="3"><path d="M0 0 L6 3 L0 6 Z" fill="currentColor" /></marker>
@@ -146,8 +169,16 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
           <span class="detail">{{ n.detail }}</span>
         </button>
       </div>
+      <div class="zoom" @pointerdown.stop @touchstart.stop>
+        <button aria-label="Zoom in" title="Zoom in" @click="zoomBy(1.25)">＋</button>
+        <button aria-label="Zoom out" title="Zoom out" @click="zoomBy(0.8)">−</button>
+        <button aria-label="Fit the graph" title="Fit" @click="fit">⤢</button>
+      </div>
     </div>
-    <p v-if="dag.nodes.length && !mode" class="muted hint">Tap a node to open it. Arrows run from inputs to what they make.</p>
+    <p v-if="dag.nodes.length && !mode" class="muted hint">
+      Tap a node to open it.
+      {{ coarse ? 'Touch and hold, then drag to move the graph; pinch to zoom.' : 'Drag to move the graph; Shift + scroll or pinch to zoom.' }}
+    </p>
   </div>
 </template>
 
@@ -230,16 +261,57 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   opacity: 0.5;
 }
 .scroll {
-  overflow: auto;
+  position: relative;
+  overflow: hidden;
   max-height: 70vh;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   background: var(--bg);
-  -webkit-overflow-scrolling: touch;
+  cursor: grab;
+  /* one finger still scrolls the page; holding first pans the graph */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.scroll.panning {
+  cursor: grabbing;
+  border-color: var(--accent-blue);
+  box-shadow: inset 0 0 0 1px var(--accent-blue);
 }
 .canvas {
-  position: relative;
-  margin: 0 auto;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  overflow: hidden;
+  background: var(--bg-elev-2);
+  cursor: default;
+}
+.zoom button {
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.zoom button:last-child {
+  border-bottom: none;
+}
+.zoom button:hover {
+  background: color-mix(in srgb, var(--accent-blue) 25%, var(--bg-elev-2));
 }
 .edges {
   position: absolute;

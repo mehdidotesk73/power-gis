@@ -335,6 +335,8 @@ Two additions from reviewing it here, beyond what the originating project report
   dark style puts some water labels before its roads, so slotting data under "the first symbol
   layer" sank it below the roads. Data now goes under the trailing run of label layers, and those
   labels are repainted light with a dark halo.
+- **Added:** the graph pans and zooms instead of scrolling — drag; Shift + wheel / pinch; on phones
+  hold-then-drag and two-finger pinch, so a one-finger swipe still scrolls the page.
 - **Lesson:** a global form-control rule must sit in `:where(…)` — `input:not(…)` chains outrank
   scoped component rules and silently restyle every field.
 - **Lesson:** MapLibre only resizes with the window — a splitter or modal changes its container
