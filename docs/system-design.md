@@ -209,7 +209,7 @@ The first run loads DuckDB (~6 s on a desktop); later visits reuse the stored ou
 `lib/dataset/profile.ts` `profileRows(rows, columns)`: per column filled count, distinct count (capped
 at 100k), min / max for numbers and datetimes; overall completeness. Stored on the dataset record
 whenever its table is written (upload, transform run); `profileDataset` computes it for older
-records. Shown in the dataset editor (✎).
+records. Shown in the dataset editor (hold menu → Edit).
 
 ### Workspace (`lib/workspace/`)
 

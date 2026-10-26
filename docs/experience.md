@@ -312,6 +312,14 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Dataset card menu — 2026-10-26
+- **Changed:** dataset cards lost their ⧉ ▤ ✎ ⤢ ✕ buttons and always-on ≡ handles. Tap and hold
+  (right-click on desktop) opens a menu: Preview, Edit, Reorder, Copy id, Zoom to data, Remove from
+  workspace. Reorder shows ≡ handles, centered vertically on each card, until Done.
+- **Lesson:** iOS Safari fires no `contextmenu` on a long press — a pointer-event timer
+  (`useLongPress`) with a 10 px move slop (so scrolling cancels) plus `-webkit-touch-callout: none`.
+- **Docs:** CLAUDE.md, help overview, system-design.
+
 ### Boundary datasets + data-agnostic default map — 2026-10-26
 - **Added:** built-in boundary datasets `us_counties` / `us_states` (region geometry from us-atlas);
   normalized EIA-861 tables (`utilities` identity, `utility_counties` links); the

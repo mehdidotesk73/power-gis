@@ -173,7 +173,7 @@ whatever they're actually asking about.
   nothing stored), `runTransform` (writes `outputId`'s table or a new dataset; returns the pointer).
   Transforms are part of the workspace draft (`TransformSpec`, ops `addTransform` / `updateTransform`
   / `removeTransform`) and saved with it. Inputs are `{datasetId, alias}` pairs: the dataset is picked
-  in a search box (name, typo-tolerant, or a pasted id — ⧉ on a dataset copies it); the alias is the
+  in a search box (name, typo-tolerant, or a pasted id — a dataset's hold menu → Copy id); the alias is the
   table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
   table's error lists the aliases). Tests run real DuckDB through its Node build
   (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
@@ -191,7 +191,12 @@ whatever they're actually asking about.
   `extensions.madeBy` with the same SQL + inputs; the first run loads DuckDB), swaps in the ids
   (`replacePointers`, `lib/workspace/file.ts`) and opens it like a loaded file. Changing the default
   map = editing that file. Every dataset's click panel shows its rows (`FeatureRows`).
-- **Visualization list UI** (`VisualizationList.vue`; `DatasetList.vue` reorders the same way via `useDragReorder`): drag the ≡ handle to reorder, swipe left to
+- **Dataset cards** (`DatasetList.vue`): no buttons on the card — **tap and hold** (right-click with a
+  mouse; `useLongPress`, pointer events + timer since iOS fires no `contextmenu`) opens a menu:
+  Preview, Edit, Reorder, Copy id, Zoom to data, Remove from workspace. **Reorder** shows ≡ handles
+  on every card (vertically centered) until **Done**. Cards set `-webkit-touch-callout: none` /
+  `user-select: none` so iOS shows our menu, not its callout.
+- **Visualization list UI** (`VisualizationList.vue`; dataset reordering uses the same `useDragReorder`): drag the ≡ handle to reorder, swipe left to
   reveal Delete — pointer events (not HTML5 drag-and-drop, which iOS lacks); the row uses
   `touch-action: pan-y` so vertical scrolling stays native.
 - County join keys are 5-digit FIPS strings (`county_fips` / `fips`). Keep them strings: leading
