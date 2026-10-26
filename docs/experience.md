@@ -337,6 +337,11 @@ Two additions from reviewing it here, beyond what the originating project report
   labels are repainted light with a dark halo.
 - **Added:** the graph pans and zooms instead of scrolling — drag; Shift + wheel / pinch; on phones
   hold-then-drag and two-finger pinch, so a one-finger swipe still scrolls the page.
+- **Changed:** the workspace bar left the side panel: a **Workspace** button in the header (amber ●
+  while unsaved) drops down the name, counts, Save / Discard and file actions (a sheet on phones).
+  `<Teleport defer>` puts it in the header (the target is rendered by App in the same pass).
+- **Changed:** list panels in the graph's order of attention — Visualizations, Transforms, Datasets —
+  with the same compact ＋ pills as the graph (global `.kind-pill`).
 - **Changed:** ＋ Dataset / ＋ Transform / ＋ Visualization are compact pills like bitcoin-explorer's
   `.toggle`: thin kind-coloured border, 12% tint, kind-coloured 0.68rem text, 1rem radius.
 - **Fixed:** on iOS the map grew as you started scrolling, and only then did the page move: its

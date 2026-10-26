@@ -30,7 +30,7 @@ cleanly with ArcGIS (Esri JSON FeatureSets, GeoJSON, CSV, FeatureServer REST).
 
 UI structure — one page, the **Map**:
 
-- **Controls** (left sidebar on desktop, below the map on phones): workspace bar, Find (any visualization's features),
+- **Controls** (left sidebar on desktop, below the map on phones; the Workspace button sits in the header): Find (any visualization's features),
   visualizations, datasets, transforms, style editors (scalar + vector), ArcGIS import/export.
 - **Map** (MapLibre GL) with:
   - **Scalar layers** — color (constant / colormap / categorical), transparency (fixed / by
@@ -145,7 +145,9 @@ whatever they're actually asking about.
   ordered visualizations); **every edit is an operation** returning `{ok, doc}` or
   `{ok:false, error}` — the UI uses them and agents will too. **Explicit Save**: edits are a
   draft (localStorage `powergis.draft`, restored on reload, "Unsaved changes" + Discard in
-  `WorkspaceBar`) until Save sends `saveWorkspace`. **Workspace files** (`lib/workspace/file.ts`):
+  `WorkspaceBar` — the **Workspace** button in the header, teleported there from `MapPage` into
+  `#header-workspace`; amber with a ● while unsaved; it drops down the name, counts, Save / Discard and
+  the file actions) until Save sends `saveWorkspace`. **Workspace files** (`lib/workspace/file.ts`):
   download / load a `.powergis.json` of pointers + settings, never rows; loading replaces the
   working copy (fresh visualization ids, datasets missing from the database dropped and reported).
   Details: `docs/system-design.md` §4.
@@ -217,8 +219,9 @@ whatever they're actually asking about.
   Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
   (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Preview,
   Run, Edit, Delete.
-- **List view** panels (Visualizations, Datasets, Transforms, Export) open collapsed; each panel's
-  ＋ button sits at its top.
+- **List view** panels (Visualizations, Transforms, Datasets, then Export) open collapsed; each
+  panel's ＋ button sits at its top. All ＋ buttons (graph and lists) are the global `.kind-pill`
+  (`k-dataset` / `k-transform` / `k-viz`, in `vars.css`).
 - **Graph view (DAG)** — the default view; a **List | Graph** switch above the panels changes it,
   remembered per device (`powergis.controlsView`). `lib/workspace/dag.ts` `buildDag(doc, dataset)` turns the workspace into
   nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest

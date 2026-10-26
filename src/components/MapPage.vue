@@ -466,8 +466,8 @@ async function open(w: WorkspaceRecord) {
     if (!v || !ids.includes(v.datasetId)) continue
     // Older visualizations drew from a lat/lon pair or region codes; now they need a geometry column.
     if (!isSupportedBinding(v.settings.binding)) {
-      logDebug(`"${v.name}" drew from lat/lon or region codes — make a geometry column with a transform (or ⋯ → Reset for the default map)`, 'warn')
-      barMessage.value = 'Some visualizations used an older way of placing rows and were left out — ⋯ → Reset gets the default map.'
+      logDebug(`"${v.name}" drew from lat/lon or region codes — make a geometry column with a transform (or Workspace → Reset for the default map)`, 'warn')
+      barMessage.value = 'Some visualizations used an older way of placing rows and were left out — Workspace → Reset gets the default map.'
     }
     else vizs.push({ ...v.settings, id: v.id, name: v.name, datasetId: v.datasetId } as VisualizationSpec)
   }
@@ -700,18 +700,21 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 <template>
   <div class="page" :style="{ '--panel-w': `${panelWidth}px` }">
     <section class="controls">
-      <WorkspaceBar
-        :name="doc.name"
-        :dirty="dirty"
-        :saving="saving"
-        :message="barMessage"
-        @save="save"
-        @revert="revert"
-        @rename="rename"
-        @download="download"
-        @load="loadFile"
-        @reset="resetWorkspace"
-      />
+      <Teleport defer to="#header-workspace">
+        <WorkspaceBar
+          :name="doc.name"
+          :dirty="dirty"
+          :saving="saving"
+          :message="barMessage"
+          :counts="{ datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length }"
+          @save="save"
+          @revert="revert"
+          @rename="rename"
+          @download="download"
+          @load="loadFile"
+          @reset="resetWorkspace"
+        />
+      </Teleport>
       <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
 
       <div v-if="popped" class="popped-note">
@@ -800,21 +803,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         </details>
 
         <details class="box">
-          <summary>Datasets</summary>
-          <div class="import-wrap">
-            <AddDatasetPanel v-if="importing" v-reveal :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
-            <button v-else class="import-btn" @click="importing = true">＋ Add dataset</button>
-          </div>
-          <DatasetList
-            :datasets="datasets"
-            :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
-            @remove="removeDataset"
-            @reorder="reorderDatasets"
-            @update="updateDataset"
-          />
-        </details>
-
-        <details class="box">
           <summary>Transforms</summary>
           <TransformsPanel
             :transforms="doc.transforms"
@@ -825,6 +813,21 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             @update="(t) => apply(updateTransform_(doc, t))"
             @remove="(id) => apply(removeTransform_(doc, id))"
             @run="runTransform"
+          />
+        </details>
+
+        <details class="box">
+          <summary>Datasets</summary>
+          <div class="import-wrap">
+            <AddDatasetPanel v-if="importing" v-reveal :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
+            <button v-else class="kind-pill k-dataset" @click="importing = true">＋ Dataset</button>
+          </div>
+          <DatasetList
+            :datasets="datasets"
+            :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
+            @remove="removeDataset"
+            @reorder="reorderDatasets"
+            @update="updateDataset"
           />
         </details>
 
@@ -1098,15 +1101,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .import-wrap {
   margin-bottom: 0.45rem; /* above the list, as the other panels' ＋ buttons */
-}
-.import-btn {
-  width: 100%;
-  padding: 0.45rem;
-  border: 1px dashed var(--accent-blue);
-  border-radius: 0.4rem;
-  background: none;
-  color: var(--accent-blue);
-  font-size: 0.85rem;
 }
 .row {
   display: flex;

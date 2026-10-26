@@ -123,7 +123,7 @@ defineExpose({
         <button class="btn primary" :disabled="!addInfo?.features" @click="confirmAdd">Add</button>
       </div>
     </div>
-    <button v-else-if="!compact" class="add-btn" :disabled="!datasets.length" @click="openAdd">＋ Add visualization</button>
+    <button v-else-if="!compact" class="kind-pill k-viz add-pill" :disabled="!datasets.length" @click="openAdd">＋ Visualization</button>
 
     <p v-if="!visualizations.length && !compact" class="muted">No visualizations yet.</p>
     <ObjectList
@@ -188,18 +188,6 @@ defineExpose({
   font-size: 0.72rem;
   margin: 0;
 }
-.add-btn {
-  width: 100%;
-  padding: 0.45rem;
-  border: 1px dashed var(--accent-blue);
-  border-radius: 0.4rem;
-  background: none;
-  color: var(--accent-blue);
-  font-size: 0.85rem;
-}
-.add-btn:disabled {
-  opacity: 0.5;
-}
 .add-form {
   display: grid;
   gap: 0.4rem;
@@ -241,5 +229,9 @@ defineExpose({
   background: var(--accent-blue);
   border-color: var(--accent-blue);
   color: var(--on-accent);
+}
+.add-pill {
+  justify-self: start;
+  margin-bottom: 0.45rem;
 }
 </style>

@@ -70,6 +70,8 @@ Track feature development, improvements, and known issues here. Move completed w
   [column]"), compact pill ＋ buttons (as bitcoin-explorer's toggles), flows scroll each step into view, clearer visualization-form labels.
 - **Dark theme** — dark only; colour tokens by job (blue interaction, violet datasets, orange
   transforms, green visualizations, amber attention + mark, orchid Search matches); dark basemap.
+- **Workspace in the header** — Workspace button (amber ● when unsaved) with a drop-down panel; list
+  panels ordered Visualizations / Transforms / Datasets with the same ＋ pills.
 - **Graph pan / zoom** — drag, Shift + wheel, trackpad pinch; phones: hold then drag, pinch.
 
 ## Next (Current Sprint)

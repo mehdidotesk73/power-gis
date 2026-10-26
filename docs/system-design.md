@@ -282,7 +282,7 @@ visualization it follows the top visible one (they load one by one).
 
 ### Default workspace
 
-The first visit (and ⋯ → Reset) opens `public/data/default.powergis.json`, a workspace file used as a
+The first visit (and Workspace → Reset) opens `public/data/default.powergis.json`, a workspace file used as a
 template: dataset pointers are `builtin:<table>` or `transform:<n>` (the output of the file's n-th
 transform). `seedDefault` (`MapPage.vue`) uploads each built-in (or reuses a copy marked
 `extensions.builtin` with the built-in's current `extensions.version`), runs each transform in order (or reuses an output marked `extensions.madeBy`

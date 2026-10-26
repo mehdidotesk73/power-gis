@@ -119,9 +119,9 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 <template>
   <div v-reveal="mode" class="dag">
     <div v-if="!mode" class="bar">
-      <button class="pill dataset" @click="emit('new-dataset')">＋ Dataset</button>
-      <button class="pill transform" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
-      <button class="pill viz" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
+      <button class="kind-pill k-dataset" @click="emit('new-dataset')">＋ Dataset</button>
+      <button class="kind-pill k-transform" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
+      <button class="kind-pill k-viz" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
       <button
         class="flip"
         :title="direction === 'vertical' ? 'Flowing down — switch to left to right' : 'Flowing right — switch to top to bottom'"
@@ -196,33 +196,6 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 .bar {
   flex-wrap: wrap;
   gap: 0.3rem;
-}
-.pill {
-  /* compact pill, as bitcoin-explorer's .toggle: thin border, 12% tint, text in the kind's colour */
-  padding: 0.12rem 0.5rem;
-  border: 1px solid var(--pill);
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--pill) 12%, transparent);
-  color: var(--pill);
-  font-size: 0.68rem;
-  font-weight: 600;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-.pill:not(:disabled):hover {
-  background: color-mix(in srgb, var(--pill) 24%, transparent);
-}
-.pill:disabled {
-  opacity: 0.45;
-}
-.pill.dataset {
-  --pill: var(--kind-dataset);
-}
-.pill.transform {
-  --pill: var(--kind-transform);
-}
-.pill.viz {
-  --pill: var(--kind-viz);
 }
 .flip {
   margin-left: auto;

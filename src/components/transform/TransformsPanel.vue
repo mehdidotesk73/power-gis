@@ -173,7 +173,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
 
 <template>
   <div class="transforms">
-    <button v-if="!compact" class="add-btn" :disabled="!datasets.length" @click="create">＋ New transform</button>
+    <button v-if="!compact" class="kind-pill k-transform add-pill" :disabled="!datasets.length" @click="create">＋ Transform</button>
     <p v-if="!transforms.length && !compact" class="muted">
       No transforms yet. A transform is SQL over your datasets — joins, filters, sums, or building a point from latitude and longitude —
       whose results become datasets.
@@ -438,16 +438,8 @@ code {
   border: none;
   color: var(--text-muted);
 }
-.add-btn {
-  width: 100%;
-  padding: 0.45rem;
-  border: 1px dashed var(--accent-blue);
-  border-radius: 0.4rem;
-  background: none;
-  color: var(--accent-blue);
-  font-size: 0.85rem;
-}
-.add-btn:disabled {
-  opacity: 0.5;
+.add-pill {
+  justify-self: start;
+  margin-bottom: 0.45rem;
 }
 </style>

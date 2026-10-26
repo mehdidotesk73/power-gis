@@ -106,9 +106,13 @@ const helpDoc = ref('default')
           </div>
         </div>
         <h1 class="app-title">PowerGIS</h1>
-        <button class="help-btn" @click="showHelp = true" aria-label="Help" title="Help">
-          ? Help
-        </button>
+        <div class="header-actions">
+          <!-- the page puts its workspace control here (MapPage → WorkspaceBar) -->
+          <div id="header-workspace" />
+          <button class="help-btn" @click="showHelp = true" aria-label="Help" title="Help">
+            ?<span class="help-word"> Help</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -240,10 +244,23 @@ const helpDoc = ref('default')
   color: var(--text-muted);
 }
 
-.help-btn {
+.header-actions {
   grid-column: 3;
   justify-self: end;
   align-self: start;
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+/* Phones: "?" alone, so Workspace and Help fit beside the title. */
+@media (max-width: 30rem) {
+  .help-word {
+    display: none;
+  }
+}
+
+.help-btn {
   background: var(--bg-elev-2, transparent);
   border: 1px solid var(--border);
   color: var(--text-muted);
