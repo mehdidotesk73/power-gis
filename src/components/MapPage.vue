@@ -5,8 +5,9 @@
 // lasting or heavy: uploads, dataset edits, each visualization's values,
 // the rows behind a feature, and saving the workspace (on Save; until then
 // edits are a draft kept on the device). Top of the
-// visualization list draws on top. The EIA-861 utilities dataset is the
-// starting workspace, with its own dashboard and utility search.
+// visualization list draws on top. The starting workspace comes from a
+// workspace file (public/data/default.powergis.json): built-in datasets, a
+// join transform and its visualizations — nothing here knows what they hold.
 import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue'
 import MapView from './map/MapView.vue'
 import ScalarLayer from './map/ScalarLayer'
@@ -19,20 +20,17 @@ import AddDatasetPanel from './dataset/AddDatasetPanel.vue'
 import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
-import UtilityCountyDashboard from './UtilityCountyDashboard.vue'
 import WorkspaceBar from './workspace/WorkspaceBar.vue'
 import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
-import { UTILITY_NAME, utilityVisualizations } from './utilityStyles'
 import { request } from '../client/api'
 import { readDb } from '../client/db'
-import { UTILITY_TABLE } from '../shared/builtins'
+import { BUILTIN_TABLES } from '../shared/builtins'
 import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
-import { loadBoundaries } from '../lib/dataset/boundaries'
 import { ROW_COUNT } from '../lib/dataset/dataset'
 import { defaultVisualization, makeVisualization, settingsOf, visualizationLayer, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
 import {
@@ -53,7 +51,7 @@ import {
   type OpResult,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
-import { fileName, fromWorkspaceFile, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft } from '../lib/workspace/file'
+import { fileName, fromWorkspaceFile, isPlaceholder, OUTPUT_REF, BUILTIN_REF, parseDraft, parseWorkspaceFile, replacePointers, snapshot, templateBuiltins, toWorkspaceFile, type Draft } from '../lib/workspace/file'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -65,6 +63,7 @@ const mapView = ref<InstanceType<typeof MapView>>()
 const vizList = ref<{ edit: (id: string) => void }>()
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const errorMsg = ref('')
+const loadingMsg = ref('Loading data…')
 
 // ── workspace ──────────────────────────────────────────────────────────────
 
@@ -275,12 +274,42 @@ function zoomTo(datasetId: string) {
   if (b) mapView.value?.fitBounds(b, 10)
 }
 
-/** The starting workspace: the EIA-861 utilities dataset (reused if already in the database) with its preset visualizations. */
+/**
+ * The starting workspace, from the default workspace file: its built-in
+ * datasets are uploaded (or current copies reused), its transforms run in
+ * order (or an earlier output of the same SQL over the same inputs reused),
+ * then it opens like any loaded file.
+ */
 async function seedDefault() {
-  const existing = (await readDb.list('datasets')).find((d) => d.extensions?.preset === 'utilities')
-  const id = existing?.id ?? (await call('load built-in data', request('uploadDataset', { source: { kind: 'builtin', table: UTILITY_TABLE } })))?.datasetId
-  if (!id || !(await loadRecord(id))) throw new Error('could not load the built-in utilities dataset')
-  apply(addDataset({ ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}), name: UTILITY_NAME }, id, utilityVisualizations(id)))
+  const res = await fetch(`${base}data/default.powergis.json`)
+  const parsed = parseWorkspaceFile(res.ok ? await res.text() : '')
+  if (!parsed.ok) throw new Error(`default workspace: ${parsed.error}`)
+  const existing = await readDb.list('datasets')
+  const ids = new Map<string, string>()
+  for (const table of templateBuiltins(parsed.file)) {
+    const version = BUILTIN_TABLES.find((b) => b.table === table)?.version
+    const have = existing.find((d) => d.extensions?.builtin === table && d.extensions?.version === version)
+    const id = have?.id ?? (await call(`load built-in ${table}`, request('uploadDataset', { source: { kind: 'builtin', table } })))?.datasetId
+    if (!id) throw new Error(`could not load the built-in table "${table}"`)
+    ids.set(BUILTIN_REF + table, id)
+  }
+  let file = replacePointers(parsed.file, (p) => ids.get(p))
+  for (const [i, t] of (file.transforms ?? []).entries()) {
+    const made = JSON.stringify({ sql: t.sql, inputs: t.inputs })
+    let id = existing.find((d) => d.extensions?.madeBy === made)?.id
+    if (!id) {
+      loadingMsg.value = `Running "${t.name}" (the first run loads the SQL engine)…`
+      const r = await call(`transform "${t.name}"`, request('runTransform', { transform: { ...t, id: `seed-${i}`, outputId: undefined } }))
+      if (!r) throw new Error(`the default transform "${t.name}" failed`)
+      id = r.datasetId
+      await request('updateDataset', { id, extensions: { madeBy: made } })
+    }
+    ids.set(OUTPUT_REF + i, id)
+    file = replacePointers(file, (p) => ids.get(p))
+  }
+  for (const id of file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
+  apply({ ok: true, doc: fromWorkspaceFile(file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id)).doc })
+  loadingMsg.value = 'Loading data…'
 }
 
 /** Opens a saved workspace: its dataset pointers and visualization records. */
@@ -294,8 +323,11 @@ async function open(w: WorkspaceRecord) {
   for (const id of w.config.visualizationIds) {
     const v = await readDb.get('visualizations', id)
     if (!v || !ids.includes(v.datasetId)) continue
-    // Older visualizations drew from a lat/lon pair; now they need a point column.
-    if (!isSupportedBinding(v.settings.binding)) logDebug(`"${v.name}" used a lat/lon pair — add a point column to its dataset and visualize that`, 'warn')
+    // Older visualizations drew from a lat/lon pair or region codes; now they need a geometry column.
+    if (!isSupportedBinding(v.settings.binding)) {
+      logDebug(`"${v.name}" drew from lat/lon or region codes — make a geometry column with a transform (or ⋯ → Reset for the default map)`, 'warn')
+      barMessage.value = 'Some visualizations used an older way of placing rows and were left out — ⋯ → Reset gets the default map.'
+    }
     else vizs.push({ ...v.settings, id: v.id, name: v.name, datasetId: v.datasetId } as VisualizationSpec)
   }
   const transforms: TransformSpec[] = []
@@ -365,8 +397,7 @@ function fetchLayer(v: VisualizationSpec): Promise<LayerData | null> {
       const values = await call(`values for "${v.name}"`, request('queryVisualization', { datasetId: v.datasetId, binding: v.binding, column: v.column, aggregation: v.aggregation }))
       if (!values) return null
       if (values.unmatched) logDebug(`"${v.name}": ${values.unmatched} rows had no feature (e.g. ${values.unmatchedSamples.slice(0, 5).join(', ')})`, 'warn')
-      const boundaries = v.binding.kind === 'boundary' ? await loadBoundaries(v.binding.boundary) : undefined
-      return visualizationLayer(values, v, '', boundaries)
+      return visualizationLayer(values, v, '')
     })()
     p.then((x) => x || valuesCache.delete(k))
     valuesCache.set(k, p)
@@ -490,19 +521,6 @@ const highlightFor = (v: VisualizationSpec) => {
   const fv = f && vizById.value.get(f.vizId)
   return fv && fv.datasetId === v.datasetId && JSON.stringify(fv.binding) === JSON.stringify(v.binding) ? f!.keys : []
 }
-/** The county dashboard's "Territory" button: find that utility's features by name. */
-async function findUtility(id: number) {
-  const name = selectedRows.value?.find((r) => r.utility_id_eia === id)?.utility_name
-  const v = selectedFeature.value?.viz
-  if (!name || !v) return
-  const r = await request('findFeatures', { datasetId: v.datasetId, binding: v.binding, column: 'utility_name', value: String(name) })
-  if (r.ok) onFound({ vizId: v.id, column: 'utility_name', value: String(name), keys: r.data.keys })
-}
-const foundUtilityId = computed(() => {
-  const f = found.value
-  return f?.column === 'utility_name' ? Number(selectedRows.value?.find((r) => r.utility_name === f.value)?.utility_id_eia ?? NaN) : null
-})
-
 // ── legend ─────────────────────────────────────────────────────────────────
 
 const legend = computed<LegendEntry[]>(() => {
@@ -531,6 +549,7 @@ const legend = computed<LegendEntry[]>(() => {
 
 // ── export ─────────────────────────────────────────────────────────────────
 
+const csvTables = BUILTIN_TABLES.filter((t) => t.source === 'csv').map((t) => t.table)
 const exportTarget = ref<string | null>(null)
 const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ?? '') ?? rendered.value[0])?.data ?? null)
 </script>
@@ -606,9 +625,11 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         </label>
         <DataExchange :layer="exportLayer" />
         <p class="muted small">
-          Source CSVs:
-          <a :href="`${base}data/utility_counties.csv`" download>utility_counties.csv</a> ·
-          <a :href="`${base}data/utilities.csv`" download>utilities.csv</a>
+          Built-in CSVs:
+          <template v-for="(t, i) in csvTables" :key="t">
+            <template v-if="i"> · </template>
+            <a :href="`${base}data/${t}.csv`" download>{{ t }}.csv</a>
+          </template>
         </p>
       </details>
     </section>
@@ -637,7 +658,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         </template>
         <template #overlay>
           <div v-if="status !== 'ready'" class="status" :class="status">
-            {{ status === 'loading' ? 'Loading data…' : `Couldn't load data: ${errorMsg}` }}
+            {{ status === 'loading' ? loadingMsg : `Couldn't load data: ${errorMsg}` }}
           </div>
           <MapLegend :entries="legend" />
           <FeatureTooltip v-if="hoverCard && !selectedFeature" v-bind="hoverCard" />
@@ -649,12 +670,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
               </template>
             </dl>
             <p v-if="!selectedRows" class="muted small">Loading rows…</p>
-            <UtilityCountyDashboard
-              v-else-if="selectedFeature.ds.extensions?.preset === 'utilities'"
-              :rows="selectedRows"
-              :selected-utility-id="foundUtilityId"
-              @pick-utility="findUtility"
-            />
             <FeatureRows v-else :columns="selectedFeature.ds.columns" :rows="selectedRows" />
           </FeaturePanel>
         </template>
@@ -681,21 +696,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .map-wrap {
   min-height: 0;
-}
-.chip {
-  margin-top: 0.4rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.4rem 0.55rem;
-  border: 1px solid var(--accent-blue);
-  border-radius: 0.4rem;
-}
-.chip button {
-  background: none;
-  border: none;
-  color: var(--text-muted);
 }
 .box {
   border: 1px solid var(--border);

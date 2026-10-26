@@ -54,6 +54,11 @@ Track feature development, improvements, and known issues here. Move completed w
   copies its id. Input datasets are picked in a search box (name with typo tolerance, or id).
   `point(lat, lon)` (was lon, lat). **Find** replaces "Find a utility": any visualization, all data or
   one column, typo-tolerant, server-built index (`findIndex` / `findFeatures`), highlight + zoom.
+- **Normalized EIA data + boundary datasets, data-agnostic (roadmap step 3)** — EIA-861 as
+  `utilities` (identity) and `utility_counties` (links); built-in `us_counties` / `us_states`
+  boundary datasets; the default map is `public/data/default.powergis.json` (built-ins + the
+  **Utilities by county** join transform + visualizations). Region-code binding, the county dashboard,
+  utility presets and ownership flags deleted; geometry bindings name features by a `label` column.
 
 ## Next (Current Sprint)
 
@@ -63,7 +68,7 @@ One-time setup — tick these off as they're done:
       (site: https://powergis.netlify.app)
 - [x] Protect `main` (finish-setup) — required; this is what makes changes arrive as PRs with
       preview links, instead of going straight to the live site
-- [ ] Review the utilities-by-county map on a phone
+- [ ] Review the utilities-by-county map on a phone (now built from datasets + a join transform)
 
 ## Code
 
@@ -111,14 +116,9 @@ results, because the agent workflow (step 6) drives the same operations as the U
    visualizations sourced from several datasets: join, then visualize). A **profile** for every
    dataset (row count, columns/types, nulls, completeness, key coverage) — the metadata agents
    report for approval. SQL errors and profiles returned in agent-readable form.
-3. **Normalize the EIA-861 data** — **counties**, **utilities** and a **county ↔ utility join table**
-   (and the alternative: a utilities **list-of-counties column** joined by unnest); rebuild today's
-   map from a SQL join. Fixes the misleading `counties_in_state` (it's per utility, not per state).
-   Built-in **counties** and **states** boundary datasets (fips → region column) replace the
-   region-code binding. **Data-agnostic:** today's map rebuilt from datasets, a join transform and a
-   default workspace file; utility- and county-specific code (`utilityStyles`, the county dashboard,
-   utility search, `withOwnershipFlags`, boundary matching) deleted — general replacements where
-   needed (column search; the rows table).
+3. ~~**Normalize the EIA-861 data + boundary datasets, data-agnostic**~~ (done, see Done) — still
+   open: the alternative shape (a utilities **list-of-counties column** joined by unnest) once list
+   columns round-trip through transforms.
 4. **DAG** — connector → dataset → derived dataset → visualization, built from the workspace
    document; later also a live view of agent pipelines (with their source / usage-policy records).
 5. **Tabs** — datasets shared; each tab has its own ordered visualizations, map view and DAG.
@@ -163,6 +163,7 @@ bridge (holds the Anthropic API key, starts sessions, relays clarifications/appr
 
 ### Backlog
 
+- EIA-861 customers / sales / revenue as a separate built-in (per utility × state)
 - Real vector dataset (e.g. EIA-930 balancing-authority interchange flows) to replace the demo arrows
 - Point and polyline datasets (plants from EIA-860, transmission lines) to exercise those geometries
 - Patterns for polylines (dash arrays) and points (symbol overlays)

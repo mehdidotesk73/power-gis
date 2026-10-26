@@ -87,6 +87,10 @@ const MACROS = [
 function plain(v: unknown, type: string): unknown {
   if (v === null || v === undefined) return null
   if (typeof v === 'bigint') return Number(v)
+  // DECIMAL / HUGEINT (e.g. sum() of a BIGINT) arrive as Arrow big numbers whose text is the
+  // unscaled integer; the type ("Decimal[38e0]", "Decimal[10e+3]") carries the scale.
+  const dec = /^Decimal\[\d+e([+-]?\d+)\]/.exec(type)
+  if (dec && typeof v === 'object') return Number(String(v)) / 10 ** Number(dec[1])
   if (/^(Timestamp|Date)/.test(type) && (typeof v === 'number' || v instanceof Date)) return new Date(v as number).toISOString()
   if (Array.isArray(v)) return v.map((x) => plain(x, ''))
   if (typeof v === 'object') return Object.fromEntries(Object.entries(v as object).map(([k, x]) => [k, plain(x, '')]))
@@ -95,11 +99,17 @@ function plain(v: unknown, type: string): unknown {
 
 /** One SELECT (or WITH … SELECT) statement, trailing semicolon trimmed; anything else is rejected with a reason. */
 export function checkSelect(sql: string): string {
-  const s = sql.trim().replace(/;\s*$/, '').trim()
+  let s = sql.trim()
   if (!s) throw new Error('The SQL is empty')
-  if (/;\s*\S/.test(s.replace(/'[^']*'/g, "''"))) throw new Error('Write one SELECT statement (no semicolons between statements)')
-  if (!/^(select|with|from)\b/i.test(s.replace(/^(--[^\n]*\n|\s)+/, ''))) throw new Error('A transform is one SELECT query (it may start with WITH)')
-  return s
+  // Strings and comments may hold anything (a ";", a "don't"): blank them out,
+  // keeping positions, to look at the code alone.
+  const code = s.replace(/'(?:[^']|'')*'|--[^\n]*|\/\*[\s\S]*?\*\//g, (m) => (m.startsWith("'") ? `'${' '.repeat(m.length - 2)}'` : ' '.repeat(m.length)))
+  const end = /;\s*$/.exec(code)
+  if (end) s = s.slice(0, end.index) + s.slice(end.index + 1)
+  if (/;\s*\S/.test(code.slice(0, end?.index))) throw new Error('Write one SELECT statement (no semicolons between statements)')
+  if (!/^(select|with|from)\b/i.test(code.trim())) throw new Error('A transform is one SELECT query (it may start with WITH)')
+  if (!s.trim()) throw new Error('The SQL is empty')
+  return s.trim()
 }
 
 export function createSqlRunner(engine: () => Promise<SqlEngine>) {
@@ -141,7 +151,7 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>) {
     for (const input of inputs) await load(e, input)
     let res: SqlResult
     try {
-      res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}) LIMIT ${Math.max(0, Math.floor(limit))}`)
+      res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}\n) LIMIT ${Math.max(0, Math.floor(limit))}`)
     } catch (err) {
       // An unknown table is almost always a name that isn't one of the inputs' table names: list them.
       const missing = /Table with name (\S+) does not exist/.exec((err as Error).message)
@@ -152,7 +162,7 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>) {
       throw err
     }
     const rows = res.rows.map((r) => Object.fromEntries(res.fields.map((f) => [f.name, plain(r[f.name], f.type)])))
-    const rowCount = limit === undefined ? rows.length : Number((await e.query(`SELECT count(*) AS n FROM (${query})`)).rows[0].n)
+    const rowCount = limit === undefined ? rows.length : Number((await e.query(`SELECT count(*) AS n FROM (${query}\n)`)).rows[0].n)
     // Our types from the values (GeoJSON text → geometry, {u, v} → vector, ISO text → datetime);
     // columns with no values fall back to the engine's type.
     const inferred = new Map(inferColumns(rows).map((c) => [c.name, c.type]))

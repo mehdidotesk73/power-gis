@@ -7,8 +7,8 @@ import type { Geometry } from 'geojson'
 import type { DataRecord } from '../data/connectors'
 import { geometryKindOf, type GeometryKind } from '../schema'
 import { aggregate, type Aggregation } from './aggregate'
-import { dominantKind, groupRows, type BoundaryFeature, type FeatureGroup, type GeometryBinding } from './binding'
-import { coerce, type ColumnInfo, type ColumnType } from './columns'
+import { dominantKind, groupRows, type FeatureGroup, type GeometryBinding } from './binding'
+import { coerce, isGeometryColumn, type ColumnInfo, type ColumnType } from './columns'
 import { dataColumns, ROWS, valueType, type DatasetShape } from './visualization'
 
 export interface Grouped {
@@ -21,13 +21,21 @@ export interface Grouped {
 }
 
 /** Coerce rows to their column types and group them onto features (one geometry kind). */
-export function groupDataset(records: DataRecord[], columns: ColumnInfo[], binding: GeometryBinding, boundaries?: Map<string, BoundaryFeature>): Grouped {
+export function groupDataset(records: DataRecord[], columns: ColumnInfo[], binding: GeometryBinding): Grouped {
+  // Geometry text repeats when a join copies a shape onto many rows: parse each text once.
+  const parsed = new Map<string, unknown>()
+  const cell = (v: unknown, type: ColumnType) => {
+    if (typeof v !== 'string' || !isGeometryColumn(type)) return coerce(v, type)
+    let g = parsed.get(v)
+    if (g === undefined) parsed.set(v, (g = coerce(v, type)))
+    return g
+  }
   const rows = records.map((r) => {
     const o: DataRecord = {}
-    for (const c of columns) o[c.name] = coerce(r[c.name], c.type)
+    for (const c of columns) o[c.name] = cell(r[c.name], c.type)
     return o
   })
-  const { groups: all, unmatched, unmatchedSamples } = groupRows(rows, binding, boundaries)
+  const { groups: all, unmatched, unmatchedSamples } = groupRows(rows, binding)
   const geometryKind = dominantKind(all.filter((g) => g.rows.length))
   const groups = all.filter((g) => geometryKindOf(g.geometry) === geometryKind)
   return {
@@ -66,8 +74,7 @@ export interface VizFeature {
   label: string
   rows: number
   value: unknown
-  /** Absent for region-code bindings: the client has the polygons. */
-  geometry?: Geometry
+  geometry: Geometry
 }
 
 /** One value per feature: what the server returns for a visualization. */
@@ -79,7 +86,7 @@ export interface VizValues {
   unmatchedSamples: string[]
 }
 
-export function queryValues(g: Grouped, columns: ColumnInfo[], column: string, aggregation: Aggregation, withGeometry: boolean): VizValues {
+export function queryValues(g: Grouped, columns: ColumnInfo[], column: string, aggregation: Aggregation): VizValues {
   return {
     geometryKind: g.geometryKind,
     valueType: valueType(columns, column, aggregation),
@@ -88,7 +95,7 @@ export function queryValues(g: Grouped, columns: ColumnInfo[], column: string, a
       label: x.label ?? x.key,
       rows: x.rows.length,
       value: column === ROWS ? x.rows.length : aggregate(x.rows.map((r) => r[column]), aggregation),
-      ...(withGeometry ? { geometry: x.geometry } : {}),
+      geometry: x.geometry,
     })),
     unmatched: g.unmatched,
     unmatchedSamples: g.unmatchedSamples,
@@ -117,7 +124,7 @@ export interface FindIndex {
 }
 
 /** Every distinct text value (and feature label) with the features it appears on. */
-export function findIndex(g: Grouped, columns: ColumnInfo[]): FindIndex {
+export function findIndex(g: Grouped, columns: ColumnInfo[], labelColumn?: string): FindIndex {
   const sets = new Map<string, Set<string>>()
   const add = (column: string, value: string, key: string) => {
     const id = `${column}\u0000${value}`
@@ -125,7 +132,8 @@ export function findIndex(g: Grouped, columns: ColumnInfo[]): FindIndex {
     if (!s) sets.set(id, (s = new Set()))
     s.add(key)
   }
-  const text = columns.filter((c) => c.type === 'string')
+  // The label column is already there as feature names.
+  const text = columns.filter((c) => c.type === 'string' && c.name !== labelColumn)
   const distinct = new Map<string, Set<string>>(text.map((c) => [c.name, new Set()]))
   for (const grp of g.groups) {
     if (!grp.rows.length) continue

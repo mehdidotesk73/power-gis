@@ -30,17 +30,18 @@ cleanly with ArcGIS (Esri JSON FeatureSets, GeoJSON, CSV, FeatureServer REST).
 
 UI structure — one page, the **Map**:
 
-- **Controls** (left sidebar on desktop, below the map on phones): Find (any visualization's features), layer toggles,
-  view presets, style editors (scalar + vector), ArcGIS import/export.
+- **Controls** (left sidebar on desktop, below the map on phones): workspace bar, Find (any visualization's features),
+  visualizations, datasets, transforms, style editors (scalar + vector), ArcGIS import/export.
 - **Map** (MapLibre GL) with:
   - **Scalar layers** — color (constant / colormap / categorical), transparency (fixed / by
     field), fill pattern (none / all / by field).
   - **Vector layers** — arrows with direction from the vector, size from magnitude, plus color and
     transparency encodings.
-  - **Hover tooltip**, **click → feature panel** (generic property table plus an optional custom
-    dashboard per layer), **legend**.
-- **First dataset**: every US electric utility and the counties it serves (EIA Form 861 Service
-  Territory, report year 2025), as `public/data/utility_counties.csv` → a county region layer.
+  - **Hover tooltip**, **click → feature panel** (the visualizations' values plus the rows behind
+    the feature), **legend**.
+- **Default map**: every US electric utility and the counties it serves (EIA Form 861, report year
+  2025), built like any user's map: built-in datasets (EIA tables + US counties / states polygons), a
+  SQL join transform and visualizations, from the workspace file `public/data/default.powergis.json`.
 
 The entire app is wrapped inside a header and footer. The header provides the app title, a Help button that opens the conceptual-docs modal, and an "Update available" affordance that surfaces when a newer PWA build is live. The footer provides the current build id/timestamp, version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
 
@@ -94,11 +95,23 @@ whatever they're actually asking about.
 
 ## Data
 
-- `scripts/build_utility_counties.py [year]` regenerates `public/data/utility_counties.csv` (one row
-  per utility × county) and `public/data/utilities.csv` (one row per utility) from EIA-861 via
-  PUDL. It needs `pandas` + `pyarrow`; downloads are cached in `scripts/.cache/` (git-ignored).
-- County polygons come from the `us-atlas` npm package (Census 2017 cartographic boundaries,
-  1:10m). EIA-861 still reports Connecticut's eight legacy counties, which match it.
+- `scripts/build_utility_counties.py [year]` regenerates the normalized EIA-861 tables from PUDL:
+  `public/data/utilities.csv` (one row per utility: id, name, ownership type, short-form filer) and
+  `utility_counties.csv` (the many-to-many links: `utility_id_eia`, `county_fips`; retired FIPS
+  codes mapped to their successors). **Four built-ins, nothing derived:** these two plus
+  `us_counties` and `us_states`. Utilities per county, a utility's territory, utilities per state
+  (states ⋈ counties ⋈ links ⋈ utilities, grouped) are all transforms. Customers / sales / revenue
+  (EIA reports them per utility per state) can come back later as a separate built-in. It needs `pandas` + `pyarrow`;
+  downloads are cached in `scripts/.cache/` (git-ignored).
+- **Boundary datasets**: built-in `us_counties` (`fips`, `name` "Autauga, AL", `county`, `state`,
+  `state_fips`, `geometry`) and `us_states` (`fips`, `name`, `abbr`, `geometry`), made from the `us-atlas`
+  npm package (Census 2017, 1:10m) by `lib/data/boundaryTables.ts` in the worker. Region codes in any
+  dataset are joined onto them in a transform — there is no region-code binding. EIA-861 still
+  reports Connecticut's eight legacy counties, which match us-atlas.
+- **Built-ins** (`shared/builtins.ts`): uploading one stores a copy marked `extensions.builtin =
+  <table>` and `extensions.version`; **bump `version` when a built-in's columns or contents change**,
+  or devices keep reusing their old copy for the default map. **Data-agnostic code**: nothing outside the data files and the default workspace file
+  knows what a utility or a county is.
 - **Client / server boundary** (everything runs in the browser today, but split as if it didn't):
   - **Server** (`src/server/`): a **Web Worker** (`worker.ts`) running `createServer` (`server.ts`).
     It owns every **lasting change** and every **heavy computation**: uploads, dataset edits,
@@ -121,11 +134,11 @@ whatever they're actually asking about.
     device files, in-memory tables, ArcGIS features via `featureTable`).
   - **Dataset**: a plain table in the database, by id. No geometry of its own.
   - **Visualization** (`src/lib/dataset/visualization.ts`): a dataset pointer plus settings —
-    **geometry binding** (`geometry`: a geometry column; or the stopgap `boundary`: region codes
-    joined to built-in US county/state polygons until transforms can join a boundary dataset),
-    column, `Aggregation`, style. **No lat/lon pairs**: a visualization draws real features. The server groups rows onto features and
-    aggregates (`lib/dataset/query.ts`, cached per dataset+binding); the client attaches boundary
-    polygons from static files (`visualizationLayer`). Any number per dataset; one ordered list.
+    **geometry binding** (`{kind: 'geometry', column, label?}`: a geometry column, plus an optional
+    column naming each feature), column, `Aggregation`, style. **No lat/lon pairs, no region codes**:
+    a visualization draws real features. The server groups rows onto features (identical geometries
+    → one feature) and aggregates (`lib/dataset/query.ts`, cached per dataset+binding), sending each
+    feature's geometry. Any number per dataset; one ordered list.
     **Top of the list draws on top** (within its geometry kind): widgets register their map layers
     in `ctx.stacks` and `MapView.restack` moves them to match. Restyling never refetches values.
 - **Workspace** (`src/lib/workspace/workspace.ts`): the client's working copy (dataset pointers +
@@ -172,13 +185,17 @@ whatever they're actually asking about.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all under the
   basemap's labels (invisible slot layers added in `MapView`).
-- **Presets:** the built-in EIA-861 dataset is a normal dataset with preset visualizations
-  (`utilityStyles.ts`) plus an extra keyed by `preset: 'utilities'` — the county dashboard. Other datasets get the generic rows table in their click panel.
+- **Default workspace** (`public/data/default.powergis.json`): a workspace file whose pointers are
+  placeholders — `builtin:<table>` and `transform:<n>` (the n-th transform's output). `seedDefault`
+  (`MapPage.vue`) uploads or reuses the built-ins, runs the transforms (reusing an output marked
+  `extensions.madeBy` with the same SQL + inputs; the first run loads DuckDB), swaps in the ids
+  (`replacePointers`, `lib/workspace/file.ts`) and opens it like a loaded file. Changing the default
+  map = editing that file. Every dataset's click panel shows its rows (`FeatureRows`).
 - **Visualization list UI** (`VisualizationList.vue`; `DatasetList.vue` reorders the same way via `useDragReorder`): drag the ≡ handle to reorder, swipe left to
   reveal Delete — pointer events (not HTML5 drag-and-drop, which iOS lacks); the row uses
   `touch-action: pan-y` so vertical scrolling stays native.
-- Join key everywhere is the 5-digit county FIPS string (`county_fips` / `fips`). Keep it a
-  string: leading zeros matter.
+- County join keys are 5-digit FIPS strings (`county_fips` / `fips`). Keep them strings: leading
+  zeros matter.
 
 ## Deploys
 
@@ -206,10 +223,10 @@ src/
     rasters.ts             pattern tiles + arrow SDF as raw RGBA
     arcgis.ts              Esri JSON / GeoJSON / CSV import-export, FeatureServer fetch
     geometry.ts            anchor points (centroids), bbox
-    utilities.ts           EIA-861 typed rows + utility list (search)
     data/connectors.ts     connectors: how sources are read
+    data/boundaryTables.ts us-atlas → us_counties / us_states rows (built-in boundary datasets)
     workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts)
-    dataset/               columns, aggregate, binding (+ wkt), boundaries (loader), query (server-side grouping), profile, visualization
+    dataset/               columns, aggregate, binding (+ wkt), query (server-side grouping), profile, visualization
     search.ts              ranked type-ahead search (optional typo-tolerant `fuzzy`)
     data/csv.ts            CSV → records
     demo.ts                synthetic vector field for exercising the arrow widget
@@ -233,10 +250,8 @@ src/
     dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
-    UtilityCountyDashboard.vue  custom dashboard for a county
-    utilityStyles.ts       view presets + ownership colors
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
-public/data/               utility_counties.csv, utilities.csv (generated)
+public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
 scripts/                   data build scripts
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)
@@ -253,8 +268,9 @@ package-lock.json              committed — CI runs `npm ci` and needs it
 - **Pure logic lives in `src/lib/`** as plain functions over already-loaded data. Keep map- and
   DOM-specific code in `src/components/map/` and keep page components thin.
 - **Adding a dataset** = an `uploadDataset` request (or a new `UploadSource` kind on the server);
-  then visualizations of it via the ops. Dataset-specific extras (dashboard, search) key off
-  `extensions.preset`; custom dashboards go in `FeaturePanel`'s default slot.
+  then visualizations of it via the ops. No dataset-specific code: a new built-in is a row in
+  `shared/builtins.ts` (+ how the worker reads it); a new default view is an edit to the default
+  workspace file.
 - **MapLibre flattens nested properties** into JSON strings in rendered features. Widgets emit only
   feature ids; look the original feature up by id (see `byKey` in `MapPage.vue`).
 - **Patterns are a region encoding** (fill-pattern). Points/polylines ignore `style.pattern`.

@@ -25,11 +25,13 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'found', f: Found): void; (e: 'clear'): void }>()
 
 const vizId = ref('')
-// Default to the top visible visualization; keep the pick while it exists.
+const picked = ref(false) // the user chose one: keep it while it exists
+// Until then, follow the top visible visualization (they load one by one).
 watch(
   () => props.visualizations.map((x) => x.viz.id + (x.viz.visible ? '+' : '')).join('|'),
   () => {
-    if (props.visualizations.some((x) => x.viz.id === vizId.value)) return
+    if (picked.value && props.visualizations.some((x) => x.viz.id === vizId.value)) return
+    picked.value = false
     vizId.value = (props.visualizations.find((x) => x.viz.visible) ?? props.visualizations[0])?.viz.id ?? ''
   },
   { immediate: true },
@@ -89,7 +91,7 @@ function clear() {
   <div class="find">
     <div class="top">
       <span class="lbl">Find</span>
-      <select v-model="vizId" aria-label="Visualization to search" :disabled="!visualizations.length">
+      <select v-model="vizId" aria-label="Visualization to search" @change="picked = true" :disabled="!visualizations.length">
         <option v-for="x in visualizations" :key="x.viz.id" :value="x.viz.id">{{ x.label }}</option>
       </select>
     </div>

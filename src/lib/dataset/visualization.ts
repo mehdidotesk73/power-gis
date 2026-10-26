@@ -8,7 +8,7 @@
 import type { FieldDef, GeometryKind, LayerData, LayerFeature } from '../schema'
 import type { ScalarStyle, VectorStyle } from '../style'
 import { aggregatedType, defaultAggregation, type Aggregation } from './aggregate'
-import { bindingColumns, type BoundaryFeature, type GeometryBinding } from './binding'
+import { bindingColumns, type GeometryBinding } from './binding'
 import { isGeometryColumn, isNumericColumn, type ColumnInfo, type ColumnType } from './columns'
 import { fieldTypeOf, guessLatLon, KEY, LABEL, newId, ROW_COUNT } from './dataset'
 import type { VizValues } from './query'
@@ -66,18 +66,14 @@ export function kindFor(columns: ColumnInfo[], column: string, agg: Aggregation)
   return valueType(columns, column, agg) === 'vector' ? 'vector' : 'scalar'
 }
 
-/**
- * The renderable layer for one visualization from its server-computed
- * values. Region-code bindings get their polygons from the client's static
- * boundary files; other bindings carry their geometry in the values.
- */
-export function visualizationLayer(values: VizValues, spec: VisualizationSpec, datasetName: string, boundaries?: Map<string, BoundaryFeature>): LayerData {
-  const features: LayerFeature[] = []
-  for (const f of values.features) {
-    const geometry = f.geometry ?? boundaries?.get(f.key)?.geometry
-    if (!geometry) continue
-    features.push({ type: 'Feature', id: f.key, geometry, properties: { [KEY]: f.key, [LABEL]: f.label, [ROW_COUNT]: f.rows, [VALUE]: f.value } })
-  }
+/** The renderable layer for one visualization from its server-computed values. */
+export function visualizationLayer(values: VizValues, spec: VisualizationSpec, datasetName: string): LayerData {
+  const features: LayerFeature[] = values.features.map((f) => ({
+    type: 'Feature',
+    id: f.key,
+    geometry: f.geometry,
+    properties: { [KEY]: f.key, [LABEL]: f.label, [ROW_COUNT]: f.rows, [VALUE]: f.value },
+  }))
   const fields: FieldDef[] = [
     { name: VALUE, type: fieldTypeOf(values.valueType), alias: spec.name },
     { name: LABEL, type: 'string', alias: 'Name' },

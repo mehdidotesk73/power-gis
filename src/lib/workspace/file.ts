@@ -113,3 +113,35 @@ export function parseDraft(text: string | null): Draft | null {
     return null
   }
 }
+
+// ── templates (the default workspace) ──────────────────────────────────────
+//
+// A template is a workspace file whose pointers aren't dataset ids yet:
+// `builtin:<table>` names a built-in table and `transform:<n>` the output of
+// the file's n-th transform. Opening one uploads (or reuses) the built-ins,
+// runs the transforms in order, and swaps the real ids in.
+
+export const BUILTIN_REF = 'builtin:'
+export const OUTPUT_REF = 'transform:'
+
+/** Every dataset pointer in a file. */
+function pointers(file: WorkspaceFile): string[] {
+  return [...file.datasetIds, ...file.visualizations.map((v) => v.datasetId), ...(file.transforms ?? []).flatMap((t) => [...t.inputs.map((i) => i.datasetId), ...(t.outputId ? [t.outputId] : [])])]
+}
+
+/** The built-in tables a template points at. */
+export const templateBuiltins = (file: WorkspaceFile) => [...new Set(pointers(file).filter((p) => p.startsWith(BUILTIN_REF)).map((p) => p.slice(BUILTIN_REF.length)))]
+
+/** The file with pointers swapped where `to` knows them (others unchanged). */
+export function replacePointers(file: WorkspaceFile, to: (pointer: string) => string | undefined): WorkspaceFile {
+  const r = (p: string) => to(p) ?? p
+  return {
+    ...file,
+    datasetIds: file.datasetIds.map(r),
+    visualizations: file.visualizations.map((v) => ({ ...v, datasetId: r(v.datasetId) })),
+    transforms: (file.transforms ?? []).map((t) => ({ ...t, inputs: t.inputs.map((i) => ({ ...i, datasetId: r(i.datasetId) })), ...(t.outputId ? { outputId: r(t.outputId) } : {}) })),
+  }
+}
+
+/** Whether a pointer is still a template placeholder. */
+export const isPlaceholder = (p: string) => p.startsWith(BUILTIN_REF) || p.startsWith(OUTPUT_REF)

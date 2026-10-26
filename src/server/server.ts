@@ -5,13 +5,13 @@
 // never as throws.
 
 import type { ApiError, ApiResult, Payload, RequestType, Response, UploadSource } from '../shared/api'
-import { BUILTIN_TABLES } from '../shared/builtins'
+import { builtinTable } from '../shared/builtins'
 import type { Database } from '../shared/database'
 import { dataTableName, type DatasetRecord, type TransformInputRef, type TransformRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
 import { featureTable, type DataRecord } from '../lib/data/connectors'
 import { parseCsv } from '../lib/data/csv'
 import { fetchArcGISLayer, importJSON } from '../lib/arcgis'
-import type { BoundaryFeature, BoundaryId, GeometryBinding } from '../lib/dataset/binding'
+import { isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { inferColumns, isGeometryColumn, type ColumnInfo } from '../lib/dataset/columns'
 import { newId } from '../lib/dataset/dataset'
 import { bindingInfo, findIndex, groupDataset, queryValues, type FindIndex, type Grouped } from '../lib/dataset/query'
@@ -19,8 +19,7 @@ import { profileRows } from '../lib/dataset/profile'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
 export interface ServerEnv {
-  loadBoundaries(id: BoundaryId): Promise<Map<string, BoundaryFeature>>
-  /** A built-in table's rows (already prepared, e.g. ownership flags added). */
+  /** A built-in table's rows (CSVs shipped with the app, boundary polygons, demo data). */
   readBuiltin(table: string, baseUrl: string): Promise<DataRecord[]>
   fetchImpl?: typeof fetch
   /** Opens the SQL engine (DuckDB) on first use. Without one, transforms are unsupported. */
@@ -92,13 +91,13 @@ export function createServer(db: Database, env: ServerEnv) {
     if (!p) {
       p = (async () => {
         const ds = await dataset(datasetId)
+        if (!isSupportedBinding(binding)) fail('invalid', 'Visualizations draw a geometry column (join region codes onto a boundary dataset in a transform)')
         const cols = ds.columns.map((c) => c.name)
-        if (!cols.includes(binding.column)) fail('invalid', `Dataset "${ds.name}" has no column "${binding.column}"`)
+        for (const c of [binding.column, binding.label]) if (c && !cols.includes(c)) fail('invalid', `Dataset "${ds.name}" has no column "${c}"`)
         const type = ds.columns.find((c) => c.name === binding.column)!.type
-        if (binding.kind === 'geometry' && !isGeometryColumn(type)) fail('invalid', `"${binding.column}" is a ${type} column, not a geometry column`)
+        if (!isGeometryColumn(type)) fail('invalid', `"${binding.column}" is a ${type} column, not a geometry column`)
         const rows = (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`)
-        const boundaries = binding.kind === 'boundary' ? await env.loadBoundaries(binding.boundary) : undefined
-        return { g: groupDataset(rows, ds.columns, binding, boundaries), columns: ds.columns }
+        return { g: groupDataset(rows, ds.columns, binding), columns: ds.columns }
       })()
       p.catch(() => groupedCache.delete(key))
       groupedCache.set(key, p)
@@ -106,7 +105,7 @@ export function createServer(db: Database, env: ServerEnv) {
     return p
   }
 
-  async function readSource(source: UploadSource): Promise<{ rows: DataRecord[]; origin: string; name: string; extensions?: Record<string, unknown> }> {
+  async function readSource(source: UploadSource): Promise<{ rows: DataRecord[]; origin: string; name: string; description?: string; extensions?: Record<string, unknown> }> {
     switch (source.kind) {
       case 'csv':
         return { rows: parseCsv(await source.file.text()), origin: `Device · ${source.file.name}`, name: source.file.name.replace(/\.csv$/i, '') }
@@ -119,8 +118,8 @@ export function createServer(db: Database, env: ServerEnv) {
         return { rows: featureTable(layer.features), origin: `ArcGIS · ${layer.name}`, name: layer.name }
       }
       case 'builtin': {
-        const b = BUILTIN_TABLES.find((t) => t.table === source.table) ?? fail('not_found', `No built-in table "${source.table}"`)
-        return { rows: await env.readBuiltin(b.table, baseUrl), origin: `Built-in · ${b.table}.csv`, name: b.label, extensions: b.extensions }
+        const b = builtinTable(source.table) ?? fail('not_found', `No built-in table "${source.table}"`)
+        return { rows: await env.readBuiltin(b.table, baseUrl), origin: `Built-in · ${b.table}`, name: b.label, description: b.description, extensions: { builtin: b.table, version: b.version } }
       }
     }
   }
@@ -153,6 +152,7 @@ export function createServer(db: Database, env: ServerEnv) {
         rowCount: rows.length,
         profile: profileRows(rows, columns),
         origin: src.origin,
+        ...(src.description ? { description: src.description } : {}),
         createdAt: t,
         updatedAt: t,
         ...(src.extensions ? { extensions: src.extensions } : {}),
@@ -235,18 +235,18 @@ export function createServer(db: Database, env: ServerEnv) {
     async queryVisualization({ datasetId, binding, column, aggregation }) {
       const { g, columns } = await grouped(datasetId, binding)
       if (column !== '__rows' && !columns.some((c) => c.name === column)) fail('invalid', `Dataset has no column "${column}"`)
-      return queryValues(g, columns, column, aggregation, binding.kind !== 'boundary')
+      return queryValues(g, columns, column, aggregation)
     },
 
     async findIndex({ datasetId, binding }) {
       const entry = await grouped(datasetId, binding)
-      entry.find ??= findIndex(entry.g, entry.columns)
+      entry.find ??= findIndex(entry.g, entry.columns, binding.label)
       return { entries: entry.find.entries }
     },
 
     async findFeatures({ datasetId, binding, column, value }) {
       const entry = await grouped(datasetId, binding)
-      entry.find ??= findIndex(entry.g, entry.columns)
+      entry.find ??= findIndex(entry.g, entry.columns, binding.label)
       return { keys: entry.find.keys.get(`${column}\u0000${value}`) ?? [] }
     },
 

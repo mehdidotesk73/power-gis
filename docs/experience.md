@@ -312,6 +312,31 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Boundary datasets + data-agnostic default map — 2026-10-26
+- **Added:** built-in boundary datasets `us_counties` / `us_states` (region geometry from us-atlas);
+  normalized EIA-861 tables (`utilities` identity, `utility_counties` links); the
+  default workspace file `public/data/default.powergis.json` (placeholders `builtin:<table>` /
+  `transform:<n>`, resolved by `seedDefault`); a feature-name column in the geometry binding (`label`).
+- **Removed:** the region-code binding (`kind: 'boundary'`, `includeEmpty`, client boundary loader),
+  `UtilityCountyDashboard`, `utilityStyles`, `lib/utilities.ts` (ownership flags, typed rows), the
+  `preset: 'utilities'` extension. Old saved visualizations of the removed kind are dropped on open
+  with a note pointing at ⋯ → Reset. Clicking a county now shows the generic rows table.
+- **Fixed:** the misleading `counties_in_state` column is gone (count links in a transform instead).
+  Customers / sales / revenue dropped for now (a separate built-in later, at EIA's utility × state
+  grain).
+- **Lesson:** a stored copy of a built-in must carry a version, or a device keeps feeding the old
+  columns to a new default transform (`extensions.version`).
+  `checkSelect` counted semicolons inside comments and strings as statement breaks; a trailing
+  `-- comment` swallowed the `)` of the preview wrapper.
+  `sum()` of integers (DuckDB HUGEINT) and DECIMAL results came back as raw Arrow big numbers —
+  now plain numbers, scaled from the type (`plain()` in `server/sql.ts`).
+- **Lesson:** a join copies a county's shape onto every utility row; grouping stays cheap by
+  parsing repeated GeoJSON text once and keying shared geometry objects by identity.
+- **Cost:** the first visit loads DuckDB (~8 MB gzipped) to run the default join (~6 s on a desktop);
+  later visits reuse the stored output.
+- **Docs:** CLAUDE.md, README, system-design (geometry binding, boundary datasets, Default
+  workspace), help overview, TODO.
+
 ### Transform inputs + dataset preview — 2026-10-26
 - **Added:** Insert button and alias rename-in-SQL for transform inputs; readable missing-table
   errors; dataset row preview (▤); copy dataset id (⧉); searchable input picker (name, typo-tolerant
