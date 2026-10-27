@@ -37,7 +37,11 @@ export interface WorkspaceRecord extends BaseRecord {
  */
 export type DatasetStore = 'local' | 'remote'
 
-/** The dataset registry: what a data table holds. Standard metadata only. */
+/**
+ * The dataset registry: what a data table holds. Standard metadata only.
+ * `updatedAt` is when the rows were last written: renaming or describing a
+ * dataset leaves it alone, so transforms reading it don't turn stale.
+ */
 export interface DatasetRecord extends BaseRecord {
   /** Name of the data table holding the rows. */
   table: string

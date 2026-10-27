@@ -312,6 +312,19 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Engine speed — 2026-10-27
+- **Fixed:** queries slowed down over a session. The engine cached loaded tables **by alias**, and the
+  agent invents a new alias for nearly every query, so each one reloaded the whole dataset (a 3,071 ×
+  330 Zillow file took ~11 s as `INSERT … VALUES` text) and old copies were never dropped. Now: one
+  copy per dataset (aliases are temp views), bulk load as an Arrow IPC stream (~0.5 s), an LRU cell
+  budget, queries serialized, paged queries run once (`count(*) OVER ()`).
+- **Gotcha:** `insertArrowTable` with a Table built by a different copy of apache-arrow (our import vs.
+  DuckDB's own, in the Node build) silently creates nothing. Pass bytes (`tableToIPC` →
+  `insertArrowFromIPCStream`) instead. `apache-arrow` is pinned to DuckDB-WASM's version (17.0.0).
+- **Fixed:** renaming or describing a dataset no longer bumps `updatedAt` (transforms stayed "stale").
+- **Agent:** re-reads the workspace when something expected is missing, before offering to search
+  other datasets.
+
 ### Assistant: dataset processor agent — 2026-10-27
 - **Added:** ✦ Assistant (header): a chat with an agent that studies the workspace's datasets,
   writes and runs transforms, and sets up visualizations, through its tools (`get_workspace`,

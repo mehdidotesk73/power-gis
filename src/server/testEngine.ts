@@ -1,6 +1,7 @@
 // Tests only: real DuckDB through its Node build (synchronous), behind the
 // same SqlEngine interface the browser uses. Never imported by app code.
 import { createRequire } from 'node:module'
+import { stagedIPC } from './arrowStage'
 import type { SqlEngine } from './sql'
 
 export async function nodeDuckDb(): Promise<SqlEngine> {
@@ -17,6 +18,9 @@ export async function nodeDuckDb(): Promise<SqlEngine> {
         fields: t.schema.fields.map((f: { name: string; type: unknown }) => ({ name: f.name, type: String(f.type) })),
         rows: t.toArray().map((r: { toJSON(): Record<string, unknown> }) => r.toJSON()),
       }
+    },
+    async insert(table, columns) {
+      conn.insertArrowFromIPCStream(stagedIPC(columns), { name: table, create: true })
     },
   }
 }

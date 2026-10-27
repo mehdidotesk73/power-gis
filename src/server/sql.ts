@@ -22,10 +22,21 @@ export interface SqlResult {
 export interface SqlEngine {
   /** Runs one statement. Rejects with the engine's message on error. */
   query(sql: string): Promise<SqlResult>
+  /** Bulk-loads plain columns into a new table (Arrow). Engines without it get INSERT … VALUES. */
+  insert?(table: string, columns: StagedColumn[]): Promise<void>
+}
+
+/** One column of plain values for a bulk load; sql.ts casts it to its final type afterwards. */
+export interface StagedColumn {
+  name: string
+  kind: 'double' | 'bool' | 'text'
+  values: (number | boolean | string | null)[]
 }
 
 export interface SqlInput {
   alias: string
+  /** Which dataset this is (one engine copy each, whatever alias a query uses); defaults to the alias. */
+  key?: string
   /** For messages: what the user calls the dataset. */
   label?: string
   /** Changes whenever the rows change (e.g. dataset id + updatedAt), so loaded tables can be reused. */
@@ -112,9 +123,74 @@ export function checkSelect(sql: string): string {
   return s.trim()
 }
 
-export function createSqlRunner(engine: () => Promise<SqlEngine>) {
-  const loaded = new Map<string, string>() // alias → version
+/** A cell as a plain value for a bulk load (the same reading as `literal`). */
+function plainCell(v: unknown, type: ColumnType): number | boolean | string | null {
+  if (v === null || v === undefined || v === '') return null
+  switch (type) {
+    case 'int':
+    case 'double': {
+      const n = Number(v)
+      return Number.isFinite(n) ? n : null
+    }
+    case 'boolean':
+      return v === true || /^(true|1)$/i.test(String(v))
+    case 'datetime': {
+      const d = new Date(String(v))
+      return Number.isNaN(d.getTime()) ? null : d.toISOString()
+    }
+    default:
+      return isGeometryColumn(type) && typeof v === 'object' ? JSON.stringify(v) : String(v)
+  }
+}
+
+/** Plain columns for a bulk load: vectors travel as two numbers (u, v). */
+function stage(columns: ColumnInfo[], rows: DataRecord[]): StagedColumn[] {
+  return columns.flatMap((c, i): StagedColumn[] => {
+    if (c.type === 'vector') {
+      const part = (k: 'u' | 'v') => rows.map((r) => {
+        const n = Number((r[c.name] as { u?: unknown; v?: unknown } | null)?.[k])
+        return r[c.name] && Number.isFinite(n) ? n : null
+      })
+      return [
+        { name: `c${i}_u`, kind: 'double', values: part('u') },
+        { name: `c${i}_v`, kind: 'double', values: part('v') },
+      ]
+    }
+    const kind = c.type === 'int' || c.type === 'double' ? 'double' : c.type === 'boolean' ? 'bool' : 'text'
+    return [{ name: `c${i}`, kind, values: rows.map((r) => plainCell(r[c.name], c.type)) }]
+  })
+}
+
+/** Each staged column cast to its final type, under its real name. */
+function castFromStage(columns: ColumnInfo[]): string {
+  return columns
+    .map((c, i) => {
+      const s = `"c${i}"`
+      const expr =
+        c.type === 'int'
+          ? `CAST(${s} AS BIGINT)`
+          : c.type === 'datetime'
+            ? `TRY_CAST(${s} AS TIMESTAMP)`
+            : c.type === 'vector'
+              ? `CASE WHEN "c${i}_u" IS NULL OR "c${i}_v" IS NULL THEN NULL ELSE {'u': "c${i}_u", 'v': "c${i}_v"} END`
+              : s
+      return `${expr} AS ${ident(c.name)}`
+    })
+    .join(', ')
+}
+
+/** About how many cells (rows × columns) the engine keeps loaded before dropping the least recently used tables. */
+export const CELL_BUDGET = 8_000_000
+
+export function createSqlRunner(engine: () => Promise<SqlEngine>, opts: { cellBudget?: number } = {}) {
+  const budget = opts.cellBudget ?? CELL_BUDGET
+  /** Engine copies of datasets: one table per dataset (key), whatever aliases queries use. */
+  const tables = new Map<string, { table: string; version: string; cells: number; used: number }>()
+  let clock = 0
+  let made = 0
   let ready: Promise<SqlEngine> | null = null
+  // One query at a time: aliases are views that each query points at its own datasets.
+  let queue: Promise<unknown> = Promise.resolve()
 
   async function connect() {
     ready ??= (async () => {
@@ -128,30 +204,73 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>) {
     return ready
   }
 
-  async function load(e: SqlEngine, input: SqlInput) {
-    if (!ALIAS.test(input.alias)) throw new Error(`"${input.alias}" can't be a table name: use letters, digits and _ (not starting with a digit)`)
-    if (loaded.get(input.alias) === input.version) return
-    const cols = input.columns
-    await e.query(`CREATE OR REPLACE TABLE ${ident(input.alias)} (${cols.map((c) => `${ident(c.name)} ${SQL_TYPE[c.type]}`).join(', ')})`)
-    const rows = await input.rows()
-    for (let i = 0; i < rows.length; i += 500) {
-      const batch = rows.slice(i, i + 500).map((r) => `(${cols.map((c) => literal(r[c.name], c.type)).join(', ')})`)
-      await e.query(`INSERT INTO ${ident(input.alias)} VALUES ${batch.join(', ')}`)
+  /** The engine table holding a dataset's rows, loading it (once per version) if needed. */
+  async function table(e: SqlEngine, input: SqlInput): Promise<string> {
+    const key = input.key ?? input.alias
+    const have = tables.get(key)
+    if (have && have.version === input.version) {
+      have.used = ++clock
+      return have.table
     }
-    loaded.set(input.alias, input.version)
+    const name = `__ds_${++made}_${key.replace(/[^A-Za-z0-9]/g, '').slice(0, 40)}`
+    const target = have?.table ?? name
+    const cols = input.columns
+    const rows = await input.rows()
+    if (e.insert && cols.length) {
+      await e.query('DROP TABLE IF EXISTS "__stage"')
+      await e.insert('__stage', stage(cols, rows))
+      await e.query(`CREATE OR REPLACE TABLE ${ident(target)} AS SELECT ${castFromStage(cols)} FROM "__stage"`)
+      await e.query('DROP TABLE "__stage"')
+    } else {
+      await e.query(`CREATE OR REPLACE TABLE ${ident(target)} (${cols.map((c) => `${ident(c.name)} ${SQL_TYPE[c.type]}`).join(', ')})`)
+      for (let i = 0; i < rows.length; i += 500) {
+        const batch = rows.slice(i, i + 500).map((r) => `(${cols.map((c) => literal(r[c.name], c.type)).join(', ')})`)
+        await e.query(`INSERT INTO ${ident(target)} VALUES ${batch.join(', ')}`)
+      }
+    }
+    tables.set(key, { table: target, version: input.version, cells: rows.length * Math.max(1, cols.length), used: ++clock })
+    return target
+  }
+
+  /** Drops the least recently used tables while over budget (never the ones this query uses). */
+  async function evict(e: SqlEngine, keep: Set<string>) {
+    let total = [...tables.values()].reduce((a, t) => a + t.cells, 0)
+    const byAge = [...tables.entries()].filter(([k]) => !keep.has(k)).sort((a, b) => a[1].used - b[1].used)
+    for (const [k, t] of byAge) {
+      if (total <= budget) break
+      await e.query(`DROP TABLE IF EXISTS ${ident(t.table)}`)
+      tables.delete(k)
+      total -= t.cells
+    }
   }
 
   /** Runs a SELECT over the inputs. `limit` (and `offset`) page the rows returned (previews); the full count comes back too. */
-  async function run(sql: string, inputs: SqlInput[], limit?: number, offset = 0): Promise<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }> {
+  function run(sql: string, inputs: SqlInput[], limit?: number, offset = 0): Promise<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }> {
+    const job = queue.then(() => runNow(sql, inputs, limit, offset))
+    queue = job.catch(() => undefined)
+    return job
+  }
+
+  async function runNow(sql: string, inputs: SqlInput[], limit?: number, offset = 0): Promise<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }> {
     const query = checkSelect(sql)
     const aliases = inputs.map((i) => i.alias)
     const dup = aliases.find((a, i) => aliases.indexOf(a) !== i)
     if (dup) throw new Error(`Two inputs are both called "${dup}"`)
+    for (const a of aliases) if (!ALIAS.test(a)) throw new Error(`"${a}" can't be a table name: use letters, digits and _ (not starting with a digit)`)
     const e = await connect()
-    for (const input of inputs) await load(e, input)
+    for (const input of inputs) {
+      const t = await table(e, input)
+      // The alias the SQL uses is a view of the dataset's table: free to make, nothing copied.
+      await e.query(`CREATE OR REPLACE TEMP VIEW ${ident(input.alias)} AS SELECT * FROM ${ident(t)}`)
+    }
+    await evict(e, new Set(inputs.map((i) => i.key ?? i.alias)))
     let res: SqlResult
+    const paged = limit !== undefined
     try {
-      res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}\n) LIMIT ${Math.max(0, Math.floor(limit))}${offset > 0 ? ` OFFSET ${Math.floor(offset)}` : ''}`)
+      // One run: the page, plus the full count alongside every row.
+      res = await e.query(
+        paged ? `SELECT *, count(*) OVER () AS "__total" FROM (${query}\n) LIMIT ${Math.max(0, Math.floor(limit))}${offset > 0 ? ` OFFSET ${Math.floor(offset)}` : ''}` : query,
+      )
     } catch (err) {
       // An unknown table is almost always a name that isn't one of the inputs' table names: list them.
       const missing = /Table with name (\S+) does not exist/.exec((err as Error).message)
@@ -161,12 +280,17 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>) {
       }
       throw err
     }
-    const rows = res.rows.map((r) => Object.fromEntries(res.fields.map((f) => [f.name, plain(r[f.name], f.type)])))
-    const rowCount = limit === undefined ? rows.length : Number((await e.query(`SELECT count(*) AS n FROM (${query}\n)`)).rows[0].n)
+    const fields = paged ? res.fields.filter((f) => f.name !== '__total') : res.fields
+    const rows = res.rows.map((r) => Object.fromEntries(fields.map((f) => [f.name, plain(r[f.name], f.type)])))
+    let rowCount = rows.length
+    if (paged) {
+      if (res.rows.length) rowCount = Number(res.rows[0].__total)
+      else rowCount = offset > 0 ? Number((await e.query(`SELECT count(*) AS n FROM (${query}\n)`)).rows[0].n) : 0
+    }
     // Our types from the values (GeoJSON text → geometry, {u, v} → vector, ISO text → datetime);
     // columns with no values fall back to the engine's type.
     const inferred = new Map(inferColumns(rows).map((c) => [c.name, c.type]))
-    const columns = res.fields.map((f) => ({ name: f.name, type: rows.some((r) => r[f.name] !== null) ? (inferred.get(f.name) ?? 'string') : fromEngineType(f.type) }))
+    const columns = fields.map((f) => ({ name: f.name, type: rows.some((r) => r[f.name] !== null) ? (inferred.get(f.name) ?? 'string') : fromEngineType(f.type) }))
     return { columns, rows, rowCount }
   }
 

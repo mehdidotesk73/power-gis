@@ -194,11 +194,18 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
   own worker, started from the server worker, on the first transform request (`env.sql` in
   `worker.ts` is a dynamic import — hence `worker.format: 'es'` in `vite.config.ts`). The ~34 MB wasm
   (7.7 MB gzipped) is excluded from the PWA precache (`globIgnores: ['**/duckdb-*']`).
-- **Runner** — `server/sql.ts` `createSqlRunner(engine)`: loads each input as a table named by its
-  alias, typed from our columns (int → BIGINT, double → DOUBLE, boolean, datetime → TIMESTAMP, string
-  → VARCHAR, vector → STRUCT(u, v), geometry → VARCHAR GeoJSON), with `INSERT … VALUES` batches (no
-  `registerFileText` + `read_json`: that hangs DuckDB's Node build). Loaded tables are reused while
-  the dataset's `updatedAt` is unchanged. One SELECT / WITH statement only (`checkSelect`). Helper
+- **Runner** — `server/sql.ts` `createSqlRunner(engine, {cellBudget})`: keeps **one table per
+  dataset** (`SqlInput.key` = dataset id; `__ds_<n>_<id>`), typed from our columns (int → BIGINT,
+  double → DOUBLE, boolean, datetime → TIMESTAMP, string → VARCHAR, vector → STRUCT(u, v), geometry →
+  VARCHAR GeoJSON). It's reloaded only when the version (`id|updatedAt`) changes; past `CELL_BUDGET`
+  (8M cells) the least recently used tables are dropped. Loading goes through `engine.insert`: plain
+  columns as an Arrow IPC stream (`server/arrowStage.ts`, `insertArrowFromIPCStream`; we pass bytes,
+  since `insertArrowTable` with another apache-arrow copy's Table silently created nothing), then one
+  `CREATE TABLE … AS SELECT` casts them (vectors travel as two doubles). Engines without `insert` get
+  `INSERT … VALUES` batches (no `registerFileText` + `read_json`: that hangs DuckDB's Node build).
+  Each query's aliases are `TEMP VIEW`s onto the dataset tables, so a new alias costs nothing;
+  queries run one at a time (a queue), since the views are per query. Paged queries run once with
+  `count(*) OVER ()` for the total. One SELECT / WITH statement only (`checkSelect`). Helper
   macros: `point(lat, lon)` → GeoJSON point text, `vector(u, v)` → `{u, v}`. Results are normalized
   (BigInt → number, timestamps → ISO text) and typed with `inferColumns`, so GeoJSON text becomes a
   geometry column and `{u, v}` a vector column; all-null columns fall back to DuckDB's type.

@@ -134,6 +134,11 @@ describe('server', () => {
     const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
     data(await server.handle('updateDataset', { id: datasetId, name: ' Plants ', description: 'test', extensions: { x: 1 } }))
     expect(await db.get('datasets', datasetId)).toMatchObject({ name: 'Plants', description: 'test', extensions: { x: 1 } })
+    // Renaming doesn't count as a change to the rows (transforms reading it stay up to date).
+    const before = (await db.get('datasets', datasetId))!.updatedAt
+    await new Promise((r) => setTimeout(r, 5))
+    data(await server.handle('updateDataset', { id: datasetId, name: 'Plants 2' }))
+    expect((await db.get('datasets', datasetId))!.updatedAt).toBe(before)
     expect(await server.handle('updateDataset', { id: 'zz' })).toMatchObject({ ok: false, error: { code: 'not_found' } })
     expect(await server.handle('nope' as never, {} as never)).toMatchObject({ ok: false, error: { code: 'unsupported' } })
     expect(defaultScalarStyle('int', 'region').color.kind).toBe('colormap')

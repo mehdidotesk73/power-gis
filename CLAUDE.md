@@ -187,9 +187,11 @@ whatever they're actually asking about.
   CSV cells in WKT or GeoJSON are typed too. A table with only latitude / longitude columns has no
   geometry until a transform builds a point column (`point(lat, lon)`) — nothing is derived at upload.
 - **Transforms** (SQL that makes datasets): DuckDB-WASM runs in the server worker, loaded on first use
-  (`server/duckdb.ts`; the ~34 MB eh wasm is kept out of the PWA precache). `server/sql.ts` loads
-  each input dataset as a table named by its alias (INSERT … VALUES — no file registration, which hangs
-  the Node build), runs one SELECT, and types the result again (GeoJSON text → geometry, `{u, v}` →
+  (`server/duckdb.ts`; the ~34 MB eh wasm is kept out of the PWA precache). `server/sql.ts` keeps
+  **one engine copy per dataset** (`__ds_…`, reloaded only when its `updatedAt` changes, least recently
+  used copies dropped past `CELL_BUDGET`), bulk-loaded as an Arrow IPC stream (`server/arrowStage.ts`;
+  ~0.5 s for 3,071 × 330, was ~11 s as INSERT … VALUES); each query's aliases are temp views onto those
+  copies, queries run one at a time; runs one SELECT (paged ones once, with `count(*) OVER ()`), and types the result again (GeoJSON text → geometry, `{u, v}` →
   vector). Helpers in SQL: `point(lat, lon)`, `vector(u, v)`. A transform is **inputs + outputs**:
   `TransformSpec {id, name, inputs, outputs: {key, name, sql, outputId?}[]}` — one SELECT per output.
   Requests: `previewTransform` (one SQL's first rows, nothing stored), `runTransform` (runs every
