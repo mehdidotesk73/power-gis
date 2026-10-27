@@ -4,6 +4,7 @@
 // Visible / Hidden pill shows / hides (only a tap on the pill itself); double-click /
 // double-tap a card to edit it; hold a card (right-click with a mouse) for Edit,
 // Zoom to data, Reorder and Delete.
+import UiButton from '../ui/UiButton.vue'
 import { vReveal } from '../reveal'
 import { computed, ref } from 'vue'
 import VisualizationEditor from './VisualizationEditor.vue'
@@ -124,7 +125,7 @@ defineExpose({
         <button class="btn primary" :disabled="!addInfo?.features" @click="confirmAdd">Add</button>
       </div>
     </div>
-    <button v-else-if="!compact" class="kind-pill k-viz add-pill" :disabled="!datasets.length" @click="openAdd">＋ Visualization</button>
+    <UiButton v-else-if="!compact" size="tag" tone="viz" icon="＋" class="add-pill" :disabled="!datasets.length" @click="openAdd">Visualization</UiButton>
 
     <p v-if="!visualizations.length && !compact" class="muted">No visualizations yet.</p>
     <ObjectList
@@ -141,15 +142,16 @@ defineExpose({
     >
       <template #default="{ item: v }">
         <div class="name">
-          <button
+          <UiButton
+            size="tag"
+            :tone="v.visible ? 'viz' : 'neutral'"
             class="vis"
-            :class="{ on: v.visible }"
             :aria-pressed="v.visible"
             :title="v.visible ? 'Shown on the map — tap to hide' : 'Hidden — tap to show'"
             @click="emit('update', { ...v, visible: !v.visible })"
           >
             {{ v.visible ? 'Visible' : 'Hidden' }}
-          </button>
+          </UiButton>
           <span>
             {{ v.name }} <span v-if="v.kind === 'vector'" class="tag">➚</span>
             <span class="muted">{{ dsOf(v)?.name }} · {{ summary(v) }}</span>
@@ -173,19 +175,6 @@ defineExpose({
   flex: none;
   align-self: flex-start;
   min-width: 3.9rem;
-  padding: 0.08rem 0.45rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 1rem;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.66rem;
-  font-weight: 600;
-  line-height: 1.5;
-}
-.vis.on {
-  border-color: var(--kind-viz);
-  background: color-mix(in srgb, var(--kind-viz) 14%, transparent);
-  color: var(--kind-viz);
 }
 .name {
   flex: 1;

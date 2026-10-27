@@ -11,6 +11,7 @@
 // Edits are part of the workspace draft, saved with Save. Cards in an
 // ObjectList: hold one (right-click with a mouse) for Preview, Run, Edit and
 // Delete.
+import UiButton from '../ui/UiButton.vue'
 import { vReveal } from '../reveal'
 import { nextTick, ref } from 'vue'
 import { request } from '../../client/api'
@@ -237,7 +238,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
 
 <template>
   <div class="transforms">
-    <button v-if="!compact" class="kind-pill k-transform add-pill" :disabled="!datasets.length" @click="create">＋ Transform</button>
+    <UiButton v-if="!compact" size="tag" tone="transform" icon="＋" class="add-pill" :disabled="!datasets.length" @click="create">Transform</UiButton>
     <p v-if="!transforms.length && !compact" class="muted">
       No transforms yet. A transform is SQL over your datasets — joins, filters, sums, or building a point from latitude and longitude —
       whose results become datasets.
@@ -278,7 +279,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
                 all-when-empty
                 @pick="(d) => (setInput(t, i, { datasetId: d.id }), (changing = null), showInDock(t, { kind: 'input', index: i }))"
               />
-              <button class="icon" aria-label="Keep this dataset" title="Done" @click="changing = null">✓</button>
+              <UiButton size="compact" icon="✓" aria-label="Keep this dataset" title="Done" @click="changing = null" />
             </template>
             <template v-else>
               <button class="chip k-dataset" :class="{ on: isDocked({ kind: 'input', index: i }) }" :title="`Preview ${nameIn(inp.datasetId)}`" @click="showInDock(t, { kind: 'input', index: i })">
@@ -295,9 +296,9 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
                 spellcheck="false"
                 @change="setInput(t, i, { alias: ($event.target as HTMLInputElement).value.trim() })"
               />
-              <button class="icon" aria-label="Insert the table name into the SQL" title="Insert into the SQL" @click="insert(t, inp.alias)">⤵</button>
-              <button class="icon" aria-label="Use another dataset" title="Use another dataset" @click="changing = i">⇄</button>
-              <button v-if="t.inputs.length > 1" class="icon" aria-label="Remove input" title="Remove" @click="patch(t, { inputs: t.inputs.filter((_, j) => j !== i) })">✕</button>
+              <UiButton size="compact" icon="⤵" aria-label="Insert the table name into the SQL" title="Insert into the SQL" @click="insert(t, inp.alias)" />
+              <UiButton size="compact" icon="⇄" aria-label="Use another dataset" title="Use another dataset" @click="changing = i" />
+              <UiButton v-if="t.inputs.length > 1" size="compact" icon="✕" aria-label="Remove input" title="Remove" @click="patch(t, { inputs: t.inputs.filter((_, j) => j !== i) })" />
             </template>
           </div>
           <button class="btn link" @click="addInput(t)">＋ Add an input</button>
@@ -319,7 +320,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
               <option value="">New dataset</option>
               <option v-for="d in outputChoices(t, o)" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
-            <button v-if="t.outputs.length > 1" class="icon" aria-label="Remove output" title="Remove" @click="removeOutput(t, o.key)">✕</button>
+            <UiButton v-if="t.outputs.length > 1" size="compact" icon="✕" aria-label="Remove output" title="Remove" @click="removeOutput(t, o.key)" />
           </div>
           <p class="muted">Writing to an existing dataset replaces its rows on Run — pick one whose transform was deleted to make it updatable again.</p>
           <button class="btn link" @click="addOutput(t)">＋ Add an output</button>
@@ -578,20 +579,6 @@ code {
   color: var(--accent-blue);
   padding: 0;
   justify-self: start;
-}
-.icon {
-  flex: none;
-  min-width: 1.7rem;
-  height: 1.8rem;
-  border: none;
-  border-radius: 0.3rem;
-  background: none;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-.icon:hover {
-  color: var(--text);
-  background: var(--bg-elev-2);
 }
 .add-pill {
   justify-self: start;

@@ -134,8 +134,11 @@ whatever they're actually asking about.
   dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
   stays on the device (localStorage `powergis.anthropicKey`); calls go straight to Anthropic
   (`client/agent/claude.ts`, streaming; the model is picked in ⚙ from `CLAUDE_MODELS`, default
-  `claude-opus-5-5`, fixed for each chat). Provider-neutral loop and tools in
-  `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`); tools act through an
+  `claude-haiku-5-5`, fixed for each chat). Provider-neutral loop and tools in
+  `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`). On desktop the assistant is
+  a column **docked on the right** of the page, resizable (`useSplitter`, `powergis.assistantWidth`;
+  the left panel uses the same composable); on phones a sheet. Screenshots paste or attach (📎),
+  shrunk before sending (`agent/images.ts`). Tools act through an
   `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. The
   agent starts from the workspace (`get_workspace`: its datasets' names, descriptions, stores),
   confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
@@ -366,6 +369,12 @@ package-lock.json              committed — CI runs `npm ci` and needs it
   `u` = east component, `v` = north component.
 - **ArcGIS type mapping** is in `src/lib/arcgis.ts`'s header comment. Composite types travel as JSON
   strings in Esri fields; our full schema rides along under the `x-powergis` key.
+- **Buttons are `UiButton`** (`components/ui/UiButton.vue`): `size` tag (pills: ＋ Dataset, Visible /
+  Hidden) / compact (header controls, small icons) / regular (default; ⤢, tool buttons) / large;
+  `tone` neutral / primary / dataset / transform / viz / attention / ok / danger; `icon` (a glyph,
+  drawn 1.35× the label; icon only = square, give it an aria-label); `active` for toggles. Label
+  and glyph scale with the size, padding stays tight. Use it for new buttons; older text `.btn`
+  buttons are being moved over (`docs/TODO.md`, component audit).
 - **Dark only, colours by job** (`src/styles/vars.css`, table in `docs/system-design.md` §2): blue =
   interaction only; violet = datasets, orange = transforms, green = visualizations / success; amber =
   needs attention, always with a mark (↻, ●, ⚠); red = errors. Components use tokens, never literals;

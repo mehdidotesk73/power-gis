@@ -324,6 +324,13 @@ Two additions from reviewing it here, beyond what the originating project report
   it looks at datasets outside the workspace only when the user agrees.
 - **Added:** model choice in the assistant's settings (Opus 5.5 default; Fable 5.1, Sonnet, Haiku and
   older models), fixed for each chat: a new choice applies from the next chat.
+- **Added:** screenshots in the chat (paste or 📎; shrunk to 1,568 px JPEG); `visualization_stats` and
+  data-aware styling rules (log scale as a setting, centered diverging maps, clipping domains;
+  legend marks clipped ends); a log scale now starts at the smallest positive value. Default model
+  Haiku 5.5. The assistant docks on the right on desktop, resizable (`useSplitter`).
+- **Added:** `UiButton` with sizes (tag / compact / regular / large) and tones: glyphs drawn larger
+  than text and tight padding; pills, header, icon and assistant buttons moved to it. **New chat**
+  is a labeled button that confirms (a ＋ read as "add", but it clears the conversation).
 - **Added:** the server refuses an agent's (`caller: 'agent'`) changes to remote datasets.
 - **Design:** a provider-neutral loop (`lib/agent/`) with an adapter per AI provider; tool inputs are
   validated before anything runs, and a workspace update is all-or-nothing with every problem

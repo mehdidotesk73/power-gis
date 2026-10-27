@@ -180,7 +180,9 @@ results, because the agent workflow (step 5) drives the same operations as the U
    is imported client-side; `DataExchange` exports in the client). Output: a list of moves, then PRs.
 2. **Component reusability.** Goal: the UI is composed from a small set of shared components, no
    inline one-off panels / buttons / cards / lists / modals / grids. Today: `ObjectList` (cards +
-   hold menu) and `.kind-pill` are shared; duplicated by hand — `.btn` styles in 6 components, modal
+   hold menu) and **`UiButton`** (`components/ui/`, sizes tag / compact / regular / large, tones by
+   job: pills, header, icon and assistant buttons use it) are shared; still by hand — text `.btn`
+   styles in ~6 components (Save, Run, Cancel, Preview…: move them to `UiButton`), modal
    backdrops in 3 (pop-out, Help, Explore), `.close` buttons in 3, chips in 3, a separate
    `PreviewTable` vs `FeatureRows` table. Check: inventory every repeated pattern, then extract
    `Button` (variants: primary / ghost / danger / icon / pill), `Modal`, `Panel` (collapsible, with

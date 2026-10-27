@@ -45,6 +45,13 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
     },
     runTransform: async (id) => (calls.push(`run ${id}`), { ok: true, outputs: [{ datasetId: 'joined', name: 'JOINED', rowCount: 10, created: false }] }),
     deleteDataset: async (id) => (calls.push(`delete ${id}`), { ok: true }),
+    values: async () => ({
+      geometryKind: 'region',
+      valueType: 'double',
+      unmatched: 0,
+      unmatchedSamples: [],
+      features: [0, 1, 10, 100, 1000, 10000, null].map((value, i) => ({ key: `f${i}`, label: `F${i}`, rows: 1, value, geometry: { type: 'Point', coordinates: [0, 0] } })),
+    }),
     ask: async (question, details) => (calls.push(`ask ${question}${details ? ` | ${details}` : ''}`), { answer: 'reject', notes: 'Use 2024 only' }),
   }
   return { host, state, calls }
@@ -66,6 +73,23 @@ describe('agent tools', () => {
     const w = json((await runTool(host, 'get_workspace', {})).content)
     expect(w).toMatchObject({ version: workspaceVersion(host.doc()), name: 'Test', datasets: [{ id: 'prices', name: 'PRICES', store: 'local', rows: 10 }], transforms: [], visualizations: [] })
     expect(w.datasets[0]).not.toHaveProperty('columns')
+  })
+
+  it('reports the drawn values so the agent can pick a scale, and accepts a fixed domain', async () => {
+    const { host, state } = fakeHost()
+    const viz = (color: object) => ({
+      version: workspaceVersion(state.doc),
+      datasetIds: ['joined'],
+      transforms: [],
+      visualizations: [{ id: 'v1', name: 'Price', datasetId: 'joined', geometry: 'geometry', column: 'price', color }],
+    })
+    expect((await runTool(host, 'update_workspace', viz({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] }))).isError).toBe(false)
+    expect(state.doc.visualizations[0].style.color).toMatchObject({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] })
+    expect(await runTool(host, 'update_workspace', viz({ kind: 'colormap', scale: 'log', domain: [0, 5] }))).toMatchObject({ isError: true, content: expect.stringContaining('positive on a log scale') })
+    expect(await runTool(host, 'update_workspace', viz({ kind: 'colormap', domain: [5, 1] }))).toMatchObject({ isError: true })
+    const stats = json((await runTool(host, 'visualization_stats', { id: 'v1' })).content)
+    expect(stats).toMatchObject({ visualization: 'Price', features: 7, withValue: 6, nulls: 1, min: 0, max: 10000, atOrBelowZero: 1, belowZero: 0, positiveOrdersOfMagnitude: 4, color: { colormap: 'rdBu', domain: [-5, 5] } })
+    expect(await runTool(host, 'visualization_stats', { id: 'nope' })).toMatchObject({ isError: true })
   })
 
   it('asks the user and hands the answer and notes back', async () => {

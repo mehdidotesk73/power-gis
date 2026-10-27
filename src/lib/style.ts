@@ -98,6 +98,25 @@ export function dataDomain(features: LayerFeature[], field: string): [number, nu
   return [lo, hi]
 }
 
+/**
+ * The value range a colormap spans: its fixed domain, else the data's. A log
+ * scale starts at the smallest positive value (values at or below it take the
+ * first color), so a few zeros don't squash the whole ramp.
+ */
+export function colormapDomain(enc: Extract<ColorEncoding, { kind: 'colormap' }>, features: LayerFeature[]): [number, number] {
+  if (enc.domain) return enc.domain
+  if (enc.scale !== 'log') return dataDomain(features, enc.field)
+  const pos = numericValues(features, enc.field).filter((v) => v > 0)
+  if (!pos.length) return [1, 10]
+  let lo = Infinity
+  let hi = -Infinity
+  for (const v of pos) {
+    if (v < lo) lo = v
+    if (v > hi) hi = v
+  }
+  return [lo, hi]
+}
+
 /** n stop values across the domain, strictly ascending (as MapLibre requires). */
 export function stopValues(domain: [number, number], n: number, scale: 'linear' | 'log' = 'linear'): number[] {
   let [lo, hi] = domain
@@ -132,7 +151,7 @@ export function colorExpression(enc: ColorEncoding, features: LayerFeature[]): E
   const get: Expr = ['get', enc.field]
   if (enc.kind === 'colormap') {
     const colors = colormapStops(enc.colormap, enc.reverse)
-    const values = stopValues(enc.domain ?? dataDomain(features, enc.field), colors.length, enc.scale)
+    const values = stopValues(colormapDomain(enc, features), colors.length, enc.scale)
     const ramp = ['interpolate', ['linear'], ['to-number', get], ...values.flatMap((v, i) => [v, colors[i]])]
     return ['case', ['==', ['typeof', get], 'number'], ramp, enc.nullColor ?? 'rgba(0,0,0,0)'] as Expr
   }
@@ -204,7 +223,8 @@ export function sizeExpression(style: VectorStyle, features: LayerFeature[]): Ex
 // ── legend ─────────────────────────────────────────────────────────────────
 
 export type LegendEntry =
-  | { kind: 'ramp'; title: string; gradient: string; min: number; max: number; scale: 'linear' | 'log' }
+  /** `clippedLow` / `clippedHigh`: some values lie beyond the ramp's end (they take its end color). */
+  | { kind: 'ramp'; title: string; gradient: string; min: number; max: number; scale: 'linear' | 'log'; clippedLow?: boolean; clippedHigh?: boolean }
   | { kind: 'swatches'; title: string; items: { label: string; color: string; pattern?: PatternKind }[] }
 
 const legendLabel = (v: string) => (v === 'true' ? 'Yes' : v === 'false' ? 'No' : v)
@@ -212,8 +232,19 @@ const legendLabel = (v: string) => (v === 'true' ? 'Yes' : v === 'false' ? 'No' 
 export function colorLegend(enc: ColorEncoding, features: LayerFeature[], title: string): LegendEntry | null {
   if (enc.kind === 'constant') return null
   if (enc.kind === 'colormap') {
-    const [min, max] = enc.domain ?? dataDomain(features, enc.field)
-    return { kind: 'ramp', title, gradient: cssGradient(enc.colormap, enc.reverse), min, max, scale: enc.scale ?? 'linear' }
+    const [min, max] = colormapDomain(enc, features)
+    const [lo, hi] = dataDomain(features, enc.field)
+    const has = numericValues(features, enc.field).length > 0
+    return {
+      kind: 'ramp',
+      title,
+      gradient: cssGradient(enc.colormap, enc.reverse),
+      min,
+      max,
+      scale: enc.scale ?? 'linear',
+      ...(has && lo < min ? { clippedLow: true } : {}),
+      ...(has && hi > max ? { clippedHigh: true } : {}),
+    }
   }
   const items = categoricalColors(enc, features).map((c) => ({ label: legendLabel(c.value), color: c.color }))
   return { kind: 'swatches', title, items }

@@ -67,6 +67,7 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 | `web_search`, `web_fetch` | read | Find sources and read their pages (scouting leg; not given to the dataset processor yet) | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
 | `get_workspace` | read | **Where the agent starts.** The workspace's datasets (id, name, description, store, origin, row count; no columns), transforms (full spec + ready / not run / needs re-run), visualizations, plus a **version** stamp | The workspace draft + registry records |
 | `list_datasets` | read | Every dataset the user can use, outside the workspace too, local and remote (same fields + `inWorkspace`). Used only when the workspace lacks what's needed, **after asking** | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
+| `visualization_stats(id)` | read | The per-feature values a visualization draws (after aggregation): count, nulls, min, percentiles (p2…p98), max, mean, how many ≤ 0 / < 0, orders of magnitude of the positive values; text: distinct count and most common | `queryVisualization` |
 | `ask_user(question, details?)` | read | Shows a card with the question, details (what it found, its plan), **Approve / Reject** and a notes box; waits; returns `{answer, notes}` | The chat panel |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
 | `update_workspace(config, version)` | **gated** | Replaces the draft with a modified config | Loading a workspace file into the draft |
@@ -92,6 +93,15 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 - `update_workspace` checks everything and lists **every** problem; nothing applies unless all
   is valid.
 - Query results hide geometry (`<region>`) and cut long text, so rows stay small.
+- **Styling follows the data.** After adding a visualization the agent calls `visualization_stats`
+  and picks the scale (`color.scale: "log"`, a setting of the visualization, never a computed log
+  column), sequential vs diverging colormap (rdBu centered with a symmetric `domain` for values
+  around a midpoint), and a clipping `domain` (≈ p2–p98) when outliers wash out the map. The
+  legend marks clipped ends (≤ / ≥). A log scale starts at the smallest positive value
+  (`colormapDomain`, `lib/style.ts`).
+- **Images.** The user can paste a screenshot into the message box or attach one (📎); it's shrunk
+  to 1,568 px on the long edge as JPEG (`components/agent/images.ts`) and sent before the text
+  (`UserMessage.images`).
 - A transform the agent runs adds its new outputs to the workspace **without** a first
   visualization (the user's Run adds one); the agent sets up its own.
 
@@ -167,9 +177,10 @@ usage policies live **there**, not as dataset properties.
   changes.
 - **Model:** the user picks it in the assistant's settings (⚙; `CLAUDE_MODELS` in
   `client/agent/claude.ts`, remembered per device in `powergis.agentModel`; default
-  `claude-opus-5-5`). **A chat keeps the model it started with**: newer models' thinking is tied to
-  the model that produced it, so switching mid-chat isn't offered; a new choice applies to the
-  next chat ("Start a new chat"). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
+  `claude-haiku-5-5`: fast, cheap, and good at this work in the user's tests). **A chat keeps the
+  model it started with** (decided: simple, one model per chat). The API would accept a switch
+  mid-chat (same history, new `model`; earlier thinking a model can't read is skipped), but a new
+  choice applies to the next chat ("Start a new chat"). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
   with `dangerouslyAllowBrowser`, `fallbacks: "default"` on the models that have it (Opus 5.5,
   Opus 5, Sonnet 5.5; beta `server-side-fallback-2026-07-01`: a declined request is retried on
   Anthropic's recommended fallback model), automatic prompt

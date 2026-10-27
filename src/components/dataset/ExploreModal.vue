@@ -4,6 +4,7 @@
 // Every workspace dataset can be used by its table name (the chips insert
 // it); only the tables the SQL names are loaded. Nothing is stored — this is
 // previewTransform with paging.
+import UiButton from '../ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { request } from '../../client/api'
 import PreviewTable from '../transform/PreviewTable.vue'
@@ -102,7 +103,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             <span class="eyebrow">Explore</span>
             <strong>{{ dataset.name }}</strong>
           </div>
-          <button class="icon" aria-label="Close" title="Close (Esc)" @click="emit('close')">✕</button>
+          <UiButton size="compact" icon="✕" aria-label="Close" title="Close (Esc)" @click="emit('close')" />
         </header>
 
         <div class="tables">
@@ -282,14 +283,6 @@ header {
 }
 .btn:disabled {
   opacity: 0.5;
-}
-.icon {
-  width: 2.2rem;
-  height: 2.2rem;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--bg-elev-2);
-  color: var(--text);
 }
 .muted {
   color: var(--text-muted);

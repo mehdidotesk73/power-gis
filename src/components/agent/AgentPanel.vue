@@ -5,11 +5,15 @@
 // (lib/agent/tools.ts): edits land in the draft (Save / Discard as usual);
 // it may change only local datasets. When it asks for approval (ask_user), a
 // card with Approve / Reject and a notes box waits for the user's answer.
+// Screenshots can be pasted into the message box or attached (📎); they're
+// shrunk before sending (images.ts).
+import UiButton from '../ui/UiButton.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { claudeProvider, CLAUDE_MODEL, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
 import { runTool, TOOLS, type AgentHost, type UserAnswer } from '../../lib/agent/tools'
+import { MAX_IMAGES, pastedImages, prepareImage, type Attached } from './images'
 import { addUsage, emptyUsage, type ChatSession, type ToolCall } from '../../lib/agent/provider'
 
 /** The page's side of the tools; the panel adds asking the user. */
@@ -79,7 +83,7 @@ const labelOf = (id: string) => CLAUDE_MODELS.find((m) => m.id === id)?.label ??
 // ── the conversation ───────────────────────────────────────────────────────
 
 type Item =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; images?: string[] }
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean }
   | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error' }
@@ -122,6 +126,7 @@ const TOOL_LABEL: Record<string, string> = {
   get_workspace: 'Read the workspace',
   query_sql: 'Query',
   update_workspace: 'Update the workspace',
+  visualization_stats: 'Check the values drawn',
   run_transform: 'Run a transform',
   delete_dataset: 'Delete a dataset',
 }
@@ -133,11 +138,46 @@ async function scrollDown() {
 }
 watch(() => items.value.length, scrollDown)
 
+// ── attached images ────────────────────────────────────────────────────────
+
+const attached = ref<Attached[]>([])
+const attachError = ref('')
+const picker = ref<HTMLInputElement>()
+async function attach(files: Blob[]) {
+  attachError.value = ''
+  for (const f of files) {
+    if (attached.value.length >= MAX_IMAGES) {
+      attachError.value = `Up to ${MAX_IMAGES} images per message.`
+      break
+    }
+    const im = await prepareImage(f)
+    if (typeof im === 'string') attachError.value = im
+    else attached.value = [...attached.value, im]
+  }
+}
+function onPaste(e: ClipboardEvent) {
+  const files = pastedImages(e)
+  if (!files.length) return // ordinary text paste
+  e.preventDefault()
+  void attach(files)
+}
+function onPick(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  void attach(files)
+}
+const unattach = (i: number) => (attached.value = attached.value.filter((_, j) => j !== i))
+const canSend = computed(() => !!apiKey.value && (!!draft.value.trim() || attached.value.length > 0))
+
 async function send() {
   const text = draft.value.trim()
-  if (!text || busy.value || !apiKey.value) return
+  const images = attached.value
+  if ((!text && !images.length) || busy.value || !apiKey.value) return
   draft.value = ''
-  items.value.push({ kind: 'user', text })
+  attached.value = []
+  attachError.value = ''
+  items.value.push({ kind: 'user', text, ...(images.length ? { images: images.map((im) => im.url) } : {}) })
   if (!session) {
     session = claudeProvider.start({ apiKey: apiKey.value, model: model.value, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
     chatModel.value = model.value
@@ -149,7 +189,7 @@ async function send() {
     const { end, usage: used } = await runAgent(
       session,
       (name, input) => runTool(host, name, input),
-      text,
+      { text, ...(images.length ? { images: images.map(({ mediaType, data }) => ({ mediaType, data })) } : {}) },
       {
         onTurnStart: () => {
           current = null
@@ -190,8 +230,10 @@ function stop() {
   controller?.abort()
   answerPending?.({ answer: 'reject', notes: 'Stopped by the user.' })
 }
-function newChat() {
+/** Clears the conversation (it can't be reopened), after asking when `confirmFirst`. */
+function newChat(confirmFirst = false) {
   if (busy.value) return
+  if (confirmFirst && items.value.length && !confirm('Start a new chat? This conversation will be cleared (your workspace stays as it is).')) return
   items.value = []
   usage.value = emptyUsage()
   session = null
@@ -226,9 +268,9 @@ const usageText = computed(() => {
         <strong>Dataset processor</strong>
         <span class="muted small">{{ labelOf(chatModel ?? model) }}</span>
       </div>
-      <button class="icon" :aria-pressed="settings" title="API key and model" aria-label="Settings: API key and model" @click="settings = !settings">⚙</button>
-      <button class="icon" title="New chat" aria-label="New chat" :disabled="busy || !items.length" @click="newChat">＋</button>
-      <button class="icon" title="Close" aria-label="Close" @click="emit('close')">✕</button>
+      <UiButton size="compact" title="Clear this conversation and start over" :disabled="busy || !items.length" @click="newChat(true)">New chat</UiButton>
+      <UiButton size="compact" icon="⚙" :active="settings" :aria-pressed="settings" title="API key and model" aria-label="Settings: API key and model" @click="settings = !settings" />
+      <UiButton size="compact" icon="✕" title="Close" aria-label="Close" @click="emit('close')" />
     </header>
 
     <section v-if="settings" class="settings">
@@ -236,8 +278,8 @@ const usageText = computed(() => {
       <label for="agent-key">Anthropic API key</label>
       <input id="agent-key" v-model="keyDraft" type="password" autocomplete="off" placeholder="sk-ant-…" @keydown.enter="saveKey" />
       <div class="row">
-        <button v-if="apiKey" class="btn" @click="forgetKey">Remove key</button>
-        <button class="btn primary" :disabled="!keyDraft.trim()" @click="saveKey">Save key</button>
+        <UiButton v-if="apiKey" size="compact" @click="forgetKey">Remove key</UiButton>
+        <UiButton size="compact" tone="primary" :disabled="!keyDraft.trim()" @click="saveKey">Save key</UiButton>
       </div>
       <p class="muted small">
         The key stays on this device and is sent only to Anthropic; usage is billed to your Anthropic account (create a key at console.anthropic.com, and set a spending limit there).
@@ -249,7 +291,7 @@ const usageText = computed(() => {
       <p class="muted small">Prices are dollars per million tokens, in / out. A chat keeps the model it started with.</p>
       <div v-if="chatModel && chatModel !== model" class="switch">
         <span>This chat uses {{ labelOf(chatModel) }}; {{ labelOf(model) }} applies to the next one.</span>
-        <button class="btn" :disabled="busy" @click="newChat">Start a new chat</button>
+        <UiButton size="compact" :disabled="busy" @click="newChat()">Start a new chat</UiButton>
       </div>
     </section>
 
@@ -260,7 +302,12 @@ const usageText = computed(() => {
         <p class="muted small">It reads your datasets, writes transforms and sets up visualizations in your workspace. Its edits are unsaved until you Save. It can change or delete only <b>local</b> datasets.</p>
       </div>
       <template v-for="(it, i) in items" :key="i">
-        <p v-if="it.kind === 'user'" class="msg user">{{ it.text }}</p>
+        <div v-if="it.kind === 'user'" class="msg user">
+          <div v-if="it.images" class="thumbs">
+            <img v-for="(src, j) in it.images" :key="j" :src="src" alt="Attached image" />
+          </div>
+          <span v-if="it.text">{{ it.text }}</span>
+        </div>
         <!-- eslint-disable-next-line vue/no-v-html -- format() escapes everything first -->
         <p v-else-if="it.kind === 'assistant'" class="msg bot" v-html="format(it.text)" />
         <div v-else-if="it.kind === 'tool'" class="tool" :class="it.state">
@@ -280,8 +327,8 @@ const usageText = computed(() => {
           <template v-if="!it.answer">
             <textarea v-model="it.notes" rows="2" placeholder="Notes (optional)" aria-label="Notes for the assistant" />
             <div class="row">
-              <button class="btn" @click="answer(it, 'reject')">Reject</button>
-              <button class="btn approve" @click="answer(it, 'approve')">Approve</button>
+              <UiButton size="compact" @click="answer(it, 'reject')">Reject</UiButton>
+              <UiButton size="compact" tone="ok" @click="answer(it, 'approve')">Approve</UiButton>
             </div>
           </template>
           <p v-else class="answered" :class="it.answer.answer">
@@ -294,6 +341,13 @@ const usageText = computed(() => {
     </div>
 
     <footer>
+      <div v-if="attached.length" class="thumbs pending">
+        <span v-for="(im, i) in attached" :key="i" class="thumb">
+          <img :src="im.url" alt="Image to send" />
+          <button class="x" aria-label="Remove image" @click="unattach(i)">✕</button>
+        </span>
+      </div>
+      <p v-if="attachError" class="note warn">{{ attachError }}</p>
       <textarea
         id="agent-input"
         v-model="draft"
@@ -302,11 +356,14 @@ const usageText = computed(() => {
         :placeholder="!apiKey ? 'Add your API key (⚙) to start' : waiting ? 'Answer the question above' : 'Ask the assistant…'"
         aria-label="Message"
         @keydown="onKey"
+        @paste="onPaste"
       />
       <div class="row">
+        <UiButton size="compact" icon="📎" title="Attach a screenshot or photo" aria-label="Attach an image" :disabled="!apiKey || waiting" @click="picker?.click()" />
+        <input ref="picker" class="hidden" type="file" accept="image/*" multiple @change="onPick" />
         <span class="muted small usage">{{ usageText }}</span>
-        <button v-if="busy" class="btn" @click="stop">Stop</button>
-        <button v-else class="btn primary" :disabled="!draft.trim() || !apiKey" @click="send">Send</button>
+        <UiButton v-if="busy" size="compact" @click="stop">Stop</UiButton>
+        <UiButton v-else size="compact" tone="primary" :disabled="!canSend || waiting" @click="send">Send</UiButton>
       </div>
     </footer>
   </aside>
@@ -314,31 +371,30 @@ const usageText = computed(() => {
 
 <style scoped>
 .assistant {
-  position: fixed;
-  z-index: 70;
-  top: calc(env(safe-area-inset-top, 0px) + 3.2rem);
-  right: max(0.5rem, env(safe-area-inset-right, 0px));
-  bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
-  width: min(26rem, calc(100vw - 1rem));
+  overflow: hidden;
+  /* Desktop: fills its docked column on the right of the page (MapPage sizes it). */
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--bg-elev);
   color: var(--text);
-  box-shadow: var(--shadow);
   font-size: 0.86rem;
 }
 /* Phones: a sheet over the lower part of the screen, so the map stays in view above. */
-@media (max-width: 40rem) {
+@media (max-width: 48rem) {
   .assistant {
-    top: auto;
+    position: fixed;
+    z-index: 70;
     left: 0;
     right: 0;
     bottom: 0;
-    width: auto;
     height: 72svh;
     border-radius: var(--radius) var(--radius) 0 0;
+    box-shadow: var(--shadow);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
@@ -361,23 +417,9 @@ header {
   text-transform: uppercase;
   color: var(--accent-blue);
 }
-.icon {
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--bg-elev-2);
-  color: var(--text-muted);
-}
-.icon[aria-pressed='true'] {
-  border-color: var(--accent-blue);
-  color: var(--text);
-}
-.icon:disabled {
-  opacity: 0.4;
-}
 .settings {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.35rem;
   padding: 0.6rem;
   border-bottom: 1px solid var(--border);
@@ -385,6 +427,9 @@ header {
 }
 .settings input,
 .settings select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   font-size: 16px; /* below 16px iOS zooms on focus */
   padding: 0.35rem 0.45rem;
 }
@@ -543,12 +588,6 @@ header {
   font: inherit;
   font-size: 16px; /* below 16px iOS zooms on focus */
 }
-.btn.approve {
-  background: var(--ok);
-  border-color: var(--ok);
-  color: var(--on-accent);
-  font-weight: 600;
-}
 .answered {
   font-size: 0.8rem;
 }
@@ -557,6 +596,41 @@ header {
 }
 .answered.reject {
   color: var(--warn);
+}
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.thumbs img {
+  max-width: 7rem;
+  max-height: 5rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+.msg.user .thumbs + span {
+  display: block;
+  margin-top: 0.3rem;
+}
+.thumb {
+  position: relative;
+}
+.thumb .x {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.4rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 0.65rem;
+}
+.hidden {
+  display: none;
 }
 .working {
   margin: 0;
@@ -583,24 +657,6 @@ footer textarea {
 }
 .usage {
   margin-right: auto;
-}
-.btn {
-  min-height: 2.1rem;
-  padding: 0.2rem 0.8rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 0.4rem;
-  background: var(--bg-elev-2);
-  color: var(--text);
-  font-size: 0.82rem;
-}
-.btn.primary {
-  background: var(--accent-blue);
-  border-color: var(--accent-blue);
-  color: var(--on-accent);
-  font-weight: 600;
-}
-.btn:disabled {
-  opacity: 0.5;
 }
 .muted {
   color: var(--text-muted);

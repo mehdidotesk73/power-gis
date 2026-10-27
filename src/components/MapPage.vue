@@ -8,6 +8,7 @@
 // visualization list draws on top. The starting workspace comes from a
 // workspace file (public/data/default.powergis.json): built-in datasets, a
 // join transform and its visualizations — nothing here knows what they hold.
+import UiButton from './ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import MapView from './map/MapView.vue'
 import ScalarLayer from './map/ScalarLayer'
@@ -25,6 +26,7 @@ import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import DagView from './dag/DagView.vue'
 import { vReveal } from './reveal'
+import { useSplitter } from './useSplitter'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
@@ -298,45 +300,10 @@ const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids
 // ── side panel: width (desktop) and popping out ────────────────────────────
 
 // Drag the splitter between the controls and the map; the width is remembered per device.
-const PANEL_W = 'powergis.panelWidth'
-const panelMin = 256
-const panelMax = () => Math.max(panelMin, Math.round(window.innerWidth * 0.7))
-const clampPanel = (w: number) => Math.min(panelMax(), Math.max(panelMin, Math.round(w)))
-const panelWidth = ref(clampPanel(Number(store.get(PANEL_W)) || 336))
-let dragFrom: { x: number; w: number } | null = null
-function splitStart(e: PointerEvent) {
-  dragFrom = { x: e.clientX, w: panelWidth.value }
-  try {
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  } catch {
-    /* the window listeners below still hear it */
-  }
-  window.addEventListener('pointermove', splitMove)
-  window.addEventListener('pointerup', splitEnd, { once: true })
-  window.addEventListener('pointercancel', splitEnd, { once: true })
-}
-function splitMove(e: PointerEvent) {
-  if (dragFrom) panelWidth.value = clampPanel(dragFrom.w + e.clientX - dragFrom.x)
-}
-function splitEnd() {
-  dragFrom = null
-  window.removeEventListener('pointermove', splitMove)
-  window.removeEventListener('pointerup', splitEnd)
-  window.removeEventListener('pointercancel', splitEnd)
-  store.set(PANEL_W, String(panelWidth.value))
-}
-function splitKey(e: KeyboardEvent) {
-  const step = e.shiftKey ? 64 : 16
-  if (e.key === 'ArrowLeft') panelWidth.value = clampPanel(panelWidth.value - step)
-  else if (e.key === 'ArrowRight') panelWidth.value = clampPanel(panelWidth.value + step)
-  else return
-  e.preventDefault()
-  store.set(PANEL_W, String(panelWidth.value))
-}
-function splitReset() {
-  panelWidth.value = 336
-  store.set(PANEL_W, null)
-}
+const panel = useSplitter({ key: 'powergis.panelWidth', initial: 336, min: 256, maxShare: 0.7, side: 'left' })
+const panelWidth = panel.width
+// The assistant docks on the right (desktop), resizable the same way.
+const assist = useSplitter({ key: 'powergis.assistantWidth', initial: 400, min: 300, maxShare: 0.5, side: 'right' })
 
 // The workspace panels (List / Graph and what's under them) can pop out into a
 // large modal. One Teleport moves the same components, so nothing is lost.
@@ -345,10 +312,7 @@ function onEsc(e: KeyboardEvent) {
   if (e.key === 'Escape' && popped.value) popped.value = false
 }
 onMounted(() => window.addEventListener('keydown', onEsc))
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onEsc)
-  splitEnd()
-})
+onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 
 // ── graph (DAG) view of the workspace ──────────────────────────────────────
 
@@ -466,6 +430,10 @@ const agentHost: Omit<AgentHost, 'ask'> = {
   listDatasets,
   query: (sql, inputs, limit) => request('previewTransform', { sql, inputs, limit }, 'agent'),
   shape: describeBinding,
+  values: async (datasetId, binding, column, aggregation) => {
+    const r = await request('queryVisualization', { datasetId, binding, column, aggregation })
+    return r.ok ? r.data : r.error.message
+  },
   runTransform: (id) => runTransform(id, 'agent'),
   deleteDataset: (id) => deleteForGood(id, 'agent'),
 }
@@ -793,7 +761,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 </script>
 
 <template>
-  <div class="page" :style="{ '--panel-w': `${panelWidth}px` }">
+  <div class="page" :class="{ assisting: assistantOpen }" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.width.value}px` }">
     <section class="controls">
       <Teleport defer to="#header-workspace">
         <WorkspaceBar
@@ -811,9 +779,8 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           @paste="(text: string) => loadWorkspaceText(text, 'paste')"
           @reset="resetWorkspace"
         />
-        <button class="ai-btn" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span aria-hidden="true">✦</span><span class="ai-word">Assistant</span></button>
+        <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
-      <AgentPanel v-show="assistantOpen" :host="agentHost" @close="assistantOpen = false" />
       <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
 
       <div v-if="popped" class="popped-note">
@@ -828,9 +795,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
           <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
         </div>
-        <button class="pop-btn" :aria-label="popped ? 'Close window' : 'Open in a window'" :title="popped ? 'Close (Esc)' : 'Open in a window'" @click="popped = !popped">
-          {{ popped ? '✕' : '⤢' }}
-        </button>
+        <UiButton class="pop-btn" :icon="popped ? '✕' : '⤢'" :aria-label="popped ? 'Close window' : 'Open in a window'" :title="popped ? 'Close (Esc)' : 'Open in a window'" @click="popped = !popped" />
       </div>
 
       <template v-if="view === 'graph'">
@@ -917,7 +882,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         <details class="box">
           <summary>Transforms</summary>
           <div v-if="staleOrder.length || staleProgress" class="stale-row">
-            <button v-if="staleOrder.length && !staleProgress?.running" class="kind-pill k-attention" @click="runAllStale">↻ Run all stale ({{ staleOrder.length }})</button>
+            <UiButton v-if="staleOrder.length && !staleProgress?.running" size="tag" tone="attention" icon="↻" @click="runAllStale">Run all stale ({{ staleOrder.length }})</UiButton>
             <span v-if="staleProgress" class="stale-msg">{{ staleProgress.text }}</span>
           </div>
           <TransformsPanel
@@ -936,7 +901,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           <summary>Datasets</summary>
           <div class="import-wrap">
             <AddDatasetPanel v-if="importing" v-reveal :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
-            <button v-else class="kind-pill k-dataset" @click="importing = true">＋ Dataset</button>
+            <UiButton v-else size="tag" tone="dataset" icon="＋" @click="importing = true">Dataset</UiButton>
           </div>
           <DatasetList
             :datasets="datasets"
@@ -981,9 +946,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
       :aria-valuenow="panelWidth"
       tabindex="0"
       title="Drag to resize · double-click to reset"
-      @pointerdown.prevent="splitStart"
-      @keydown="splitKey"
-      @dblclick="splitReset"
+      @pointerdown.prevent="panel.start"
+      @keydown="panel.key"
+      @dblclick="panel.reset"
     />
 
     <section class="map-wrap">
@@ -1027,6 +992,22 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         </template>
       </MapView>
     </section>
+
+    <!-- The assistant: a column docked on the right on desktop (a sheet over the page on phones). -->
+    <div
+      v-show="assistantOpen"
+      class="splitter assist-splitter"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the assistant"
+      :aria-valuenow="assist.width.value"
+      tabindex="0"
+      title="Drag to resize · double-click to reset"
+      @pointerdown.prevent="assist.start"
+      @keydown="assist.key"
+      @dblclick="assist.reset"
+    />
+    <AgentPanel v-show="assistantOpen" class="assistant-col" :host="agentHost" @close="assistantOpen = false" />
   </div>
 </template>
 
@@ -1050,6 +1031,12 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   padding-right: 0.15rem;
 }
 .map-wrap {
+  min-height: 0;
+}
+.page.assisting {
+  grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr) 0.75rem var(--assist-w, 25rem);
+}
+.assistant-col {
   min-height: 0;
 }
 .splitter {
@@ -1090,8 +1077,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   color: var(--text-muted);
   font-size: 0.8rem;
 }
-.popped-note button,
-.pop-btn {
+.popped-note button {
   min-height: 2.2rem;
   border: 1px solid var(--border);
   border-radius: 0.4rem;
@@ -1167,8 +1153,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   flex: 1;
 }
 .pop-btn {
-  width: 2.6rem;
-  font-size: 1.05rem;
+  height: auto; /* as tall as the List | Graph switch beside it; square */
 }
 /* Search is docked to the top of the side panel (and, on phones, of the screen while the
    controls scroll by), above everything else in it. */
@@ -1309,6 +1294,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   .splitter {
     display: none;
   }
+  .page.assisting {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .pop-backdrop {
     padding: 0;
   }
@@ -1327,23 +1315,6 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
     order: 1;
     height: 70svh;
   }
-}
-.ai-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--bg-elev-2);
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  white-space: nowrap;
-}
-.ai-btn:hover,
-.ai-btn[aria-pressed='true'] {
-  color: var(--text);
-  border-color: var(--accent-blue);
 }
 @media (max-width: 30rem) {
   .ai-word {

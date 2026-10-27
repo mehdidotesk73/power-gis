@@ -6,6 +6,7 @@
 // ＋ Visualization: tap the dataset to draw. ↓ / → flips the flow (top to
 // bottom, left to right), remembered per device. The graph pans and zooms
 // (usePanZoom): drag / Shift + wheel / pinch; on phones hold, then drag.
+import UiButton from '../ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { vReveal } from '../reveal'
 import { usePanZoom } from './usePanZoom'
@@ -127,17 +128,19 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 <template>
   <div v-reveal="mode" class="dag">
     <div v-if="!mode" class="bar">
-      <button class="kind-pill k-dataset" @click="emit('new-dataset')">＋ Dataset</button>
-      <button class="kind-pill k-transform" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">＋ Transform</button>
-      <button class="kind-pill k-viz" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">＋ Visualization</button>
-      <button
+      <UiButton size="tag" tone="dataset" icon="＋" @click="emit('new-dataset')">Dataset</UiButton>
+      <UiButton size="tag" tone="transform" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">Transform</UiButton>
+      <UiButton size="tag" tone="viz" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">Visualization</UiButton>
+      <UiButton
         v-if="staleCount && !staleProgress?.running"
-        class="kind-pill k-attention"
+        size="tag"
+        tone="attention"
+        icon="↻"
         title="Re-run every transform marked ↻, and what depends on them, in order"
         @click="emit('run-stale')"
       >
-        ↻ Run all stale ({{ staleCount }})
-      </button>
+        Run all stale ({{ staleCount }})
+      </UiButton>
       <button
         class="flip"
         :title="direction === 'vertical' ? 'Flowing down — switch to left to right' : 'Flowing right — switch to top to bottom'"
@@ -187,9 +190,9 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
         </button>
       </div>
       <div class="zoom" @pointerdown.stop @touchstart.stop>
-        <button aria-label="Zoom in" title="Zoom in" @click="zoomBy(1.25)">＋</button>
-        <button aria-label="Zoom out" title="Zoom out" @click="zoomBy(0.8)">−</button>
-        <button aria-label="Fit the graph" title="Fit" @click="fit">⤢</button>
+        <UiButton size="compact" icon="＋" aria-label="Zoom in" title="Zoom in" @click="zoomBy(1.25)" />
+        <UiButton size="compact" icon="−" aria-label="Zoom out" title="Zoom out" @click="zoomBy(0.8)" />
+        <UiButton size="compact" icon="⤢" aria-label="Fit the graph" title="Fit" @click="fit" />
       </div>
     </div>
     <p v-if="dag.nodes.length && !mode" class="muted hint">
@@ -291,27 +294,8 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   right: 6px;
   bottom: 6px;
   display: grid;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  overflow: hidden;
-  background: var(--bg-elev-2);
+  gap: 0.25rem;
   cursor: default;
-}
-.zoom button {
-  width: 2rem;
-  height: 2rem;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  background: none;
-  color: var(--text);
-  font-size: 0.95rem;
-  line-height: 1;
-}
-.zoom button:last-child {
-  border-bottom: none;
-}
-.zoom button:hover {
-  background: color-mix(in srgb, var(--accent-blue) 25%, var(--bg-elev-2));
 }
 .edges {
   position: absolute;

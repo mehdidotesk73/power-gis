@@ -3,6 +3,7 @@
 // Esri JSON, ArcGIS URL) — the server stores it as a new table and returns
 // its id — or pick one already in the database. How its rows map to
 // features is chosen per visualization.
+import UiButton from '../ui/UiButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { request } from '../../client/api'
 import { listDatasets } from '../../client/datasets'
@@ -95,7 +96,7 @@ async function deleteStored(d: DatasetRecord) {
             <span class="muted small">{{ d.rowCount.toLocaleString() }} rows · {{ d.origin }}</span>
           </span>
           <button class="btn primary" @click="emit('add', d.id)">Add</button>
-          <button class="icon" title="Delete from the database" @click="deleteStored(d)">🗑</button>
+          <UiButton size="compact" tone="danger" icon="⊗" aria-label="Delete from the database" title="Delete from the database" @click="deleteStored(d)" />
         </li>
       </ul>
     </template>
@@ -200,11 +201,6 @@ form.row input {
   min-width: 0;
   padding: 0.25rem;
   font-size: 0.8rem;
-}
-.icon {
-  background: none;
-  border: none;
-  color: var(--text-muted);
 }
 .add-vec {
   color: var(--accent-blue);

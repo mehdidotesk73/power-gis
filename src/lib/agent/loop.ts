@@ -3,7 +3,7 @@
 // (or stops for another reason). Tool calls never throw: every outcome,
 // including a refusal from the gate, goes back to the model to act on.
 
-import { addUsage, emptyUsage, type ChatSession, type ToolCall, type ToolResult, type TurnStop, type Usage } from './provider'
+import { addUsage, emptyUsage, type ChatSession, type ToolCall, type ToolResult, type TurnStop, type Usage, type UserMessage } from './provider'
 
 export interface ToolOutcome {
   content: string
@@ -28,12 +28,12 @@ export const MAX_STEPS = 40
 export async function runAgent(
   session: ChatSession,
   runTool: (name: string, input: unknown) => Promise<ToolOutcome>,
-  text: string,
+  message: string | UserMessage,
   events: LoopEvents = {},
   signal?: AbortSignal,
 ): Promise<{ end: LoopEnd; usage: Usage }> {
   let usage = emptyUsage()
-  let input: Parameters<ChatSession['send']>[0] = { text }
+  let input: Parameters<ChatSession['send']>[0] = typeof message === 'string' ? { text: message } : message
   for (let step = 0; step < MAX_STEPS; step++) {
     if (signal?.aborted) return { end: 'stopped', usage }
     events.onTurnStart?.()

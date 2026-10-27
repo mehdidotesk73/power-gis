@@ -7,14 +7,15 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { emptyUsage, addUsage, type ChatProvider, type ChatSession, type ToolCall, type ToolSpec, type TurnEvents, type TurnInput, type TurnResult, type Usage } from '../../lib/agent/provider'
 
-export const CLAUDE_MODEL = 'claude-opus-5-5'
+/** The default model: Haiku is fast and cheap, and does this work well. */
+export const CLAUDE_MODEL = 'claude-haiku-5-5'
 
 /** The models offered in the assistant's settings; prices are $ per million tokens in / out. */
 export const CLAUDE_MODELS: { id: string; label: string; note: string }[] = [
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'recommended · $4 / $20' },
-  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', note: 'most capable · $10 / $50' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'default · fastest, cheapest · $0.10 / $0.50' },
   { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'balanced · $2 / $10' },
-  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'fastest, cheapest · $0.10 / $0.50' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'stronger reasoning · $4 / $20' },
+  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', note: 'most capable · $10 / $50' },
   { id: 'claude-opus-5', label: 'Claude Opus 5', note: 'previous Opus · $5 / $25' },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', note: 'previous Sonnet · $2 / $10' },
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', note: 'older' },
@@ -118,7 +119,9 @@ class ClaudeSession implements ChatSession {
       role: 'user',
       content: [
         ...pending.map((id) => ({ type: 'tool_result' as const, tool_use_id: id, content: 'Not run: the user stopped the work.', is_error: true })),
-        { type: 'text' as const, text: input.text },
+        // Images first, then the words about them.
+        ...(input.images ?? []).map((im) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: im.mediaType, data: im.data } })),
+        ...(input.text.trim() || !input.images?.length ? [{ type: 'text' as const, text: input.text }] : []),
       ],
     }
   }

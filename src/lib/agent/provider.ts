@@ -47,7 +47,19 @@ export interface TurnEvents {
   onText?(delta: string): void
 }
 
-export type TurnInput = { text: string } | { toolResults: ToolResult[] }
+/** An image the user attached (base64, already resized for the model). */
+export interface ImageInput {
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  data: string
+}
+
+/** What the user sends: text, and optionally images (screenshots). */
+export interface UserMessage {
+  text: string
+  images?: ImageInput[]
+}
+
+export type TurnInput = UserMessage | { toolResults: ToolResult[] }
 
 export interface ChatSession {
   /** Sends the user's message (or the results of the last turn's tool calls); resolves with the model's next turn. */

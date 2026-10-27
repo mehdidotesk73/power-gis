@@ -38,7 +38,7 @@ describe('Claude adapter', () => {
       sse([{ type: 'text', text: 'Looking. ' }, { type: 'tool_use', id: 'tu_1', name: 'get_workspace', input: {} }], 'tool_use'),
       sse([{ type: 'text', text: 'All set.' }], 'end_turn'),
     ])
-    const s = startClaude({ apiKey: 'sk-test', system: 'SYSTEM', tools }, fetchImpl)
+    const s = startClaude({ apiKey: 'sk-test', model: 'claude-opus-5-5', system: 'SYSTEM', tools }, fetchImpl)
     const streamed: string[] = []
     const t1 = await s.send({ text: 'hello' }, { onText: (d) => streamed.push(d) })
     expect(t1).toMatchObject({ text: 'Looking. ', stop: 'tools', toolCalls: [{ id: 'tu_1', name: 'get_workspace', input: {} }], usage: { input: 100, output: 20, cacheRead: 40 } })
@@ -51,7 +51,7 @@ describe('Claude adapter', () => {
     expect([r1.headers.get('x-api-key'), r1.headers.get('authorization')]).toContainEqual(expect.stringContaining('sk-test'))
     expect(r1.headers.get('anthropic-dangerous-direct-browser-access')).toBe('true')
     expect(r1.headers.get('anthropic-beta')).toContain('server-side-fallback-2026-07-01')
-    expect(r1.body).toMatchObject({ model: CLAUDE_MODEL, stream: true, system: 'SYSTEM', fallbacks: 'default', cache_control: { type: 'ephemeral' } })
+    expect(r1.body).toMatchObject({ model: 'claude-opus-5-5', fallbacks: 'default', stream: true, system: 'SYSTEM', cache_control: { type: 'ephemeral' } })
     expect(r1.body.tools).toEqual([{ name: 'get_workspace', description: 'Read it', input_schema: { type: 'object', properties: {} }, eager_input_streaming: true }])
     expect(r2.body.messages).toEqual([
       { role: 'user', content: [{ type: 'text', text: 'hello' }] },
@@ -82,6 +82,15 @@ describe('Claude adapter', () => {
     expect(requests[0].body.model).toBe('claude-haiku-5-5')
     expect(requests[0].body).not.toHaveProperty('fallbacks')
     expect(requests[0].headers.get('anthropic-beta') ?? '').not.toContain('server-side-fallback')
+  })
+
+  it('sends attached images before the text', async () => {
+    const { fetchImpl, requests } = fakeApi([sse([{ type: 'text', text: 'I see it.' }], 'end_turn')])
+    await startClaude({ apiKey: 'k', system: 'S', tools }, fetchImpl).send({ text: 'What is this?', images: [{ mediaType: 'image/jpeg', data: 'AAAA' }] }, {})
+    expect((requests[0].body.messages as { content: unknown[] }[])[0].content).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } },
+      { type: 'text', text: 'What is this?' },
+    ])
   })
 
   it('never hands back a tool call cut off by max_tokens', async () => {

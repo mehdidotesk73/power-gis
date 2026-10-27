@@ -10,7 +10,7 @@ import { isGeometryColumn } from '../dataset/columns'
 import type { DataRecord } from '../data/connectors'
 import { aggregationsFor, defaultAggregation, type Aggregation } from '../dataset/aggregate'
 import type { GeometryBinding } from '../dataset/binding'
-import type { BindingInfo } from '../dataset/query'
+import type { BindingInfo, VizValues } from '../dataset/query'
 import { columnType, makeVisualization, retarget, ROWS, VALUE, type VisualizationSpec } from '../dataset/visualization'
 import { newId } from '../dataset/dataset'
 import { COLORMAPS, type ColormapName } from '../colormaps'
@@ -32,6 +32,8 @@ export interface AgentHost {
   query(sql: string, inputs: TransformInputRef[], limit: number): Promise<ApiResult<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }>>
   /** How a dataset looks under a geometry binding, or an error message. */
   shape(datasetId: string, binding: GeometryBinding): Promise<BindingInfo | string>
+  /** The values a visualization draws, one per feature (what the map colors), or an error message. */
+  values(datasetId: string, binding: GeometryBinding, column: string, aggregation: Aggregation): Promise<VizValues | string>
   runTransform(id: string): Promise<{ ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }>
   deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
   /** Shows the user a question (and optional details) with Approve / Reject and a notes box; resolves with their answer. */
@@ -60,6 +62,12 @@ const colorSchema = {
     scale: { type: 'string', enum: ['linear', 'log'] },
     palette: { type: 'string', enum: PALETTES },
     color: { type: 'string', description: 'For constant: a hex color like #3b82f6' },
+    domain: {
+      type: 'array',
+      items: { type: 'number' },
+      description:
+        'For colormap: a fixed [min, max] the ramp spans; values beyond take the end colors. Use it to clip outliers (e.g. the 2nd–98th percentile) or to center a diverging map on its midpoint (e.g. [-m, m] around 0). Leave out to span the data.',
+    },
   },
   required: ['kind'],
 }
@@ -164,6 +172,12 @@ export const TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: 'visualization_stats',
+    description:
+      'How the values a visualization draws are distributed: one value per feature, after the aggregation (which can differ from the raw rows). Numbers: count, nulls, min, percentiles, max, mean, how many are ≤ 0 and < 0, and how many orders of magnitude the positive values span. Text: distinct values and the most common. Use it after adding or changing a visualization to choose the scale (linear / log), colormap (sequential / diverging) and domain.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  },
+  {
     name: 'run_transform',
     description:
       'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns row counts and dataset ids. Refused if an output would write a remote dataset.',
@@ -218,7 +232,7 @@ function cell(v: unknown, type: string | undefined): unknown {
 }
 
 function compactColor(c: ColorEncoding): Obj {
-  if (c.kind === 'colormap') return { kind: c.kind, colormap: c.colormap, ...(c.reverse ? { reverse: true } : {}), ...(c.scale === 'log' ? { scale: 'log' } : {}) }
+  if (c.kind === 'colormap') return { kind: c.kind, colormap: c.colormap, ...(c.reverse ? { reverse: true } : {}), ...(c.scale === 'log' ? { scale: 'log' } : {}), ...(c.domain ? { domain: c.domain } : {}) }
   if (c.kind === 'categorical') return { kind: c.kind, ...(c.palette ? { palette: c.palette } : {}) }
   return { kind: c.kind, color: c.color }
 }
@@ -301,7 +315,17 @@ function readColor(v: unknown, kind: VisualizationSpec['kind'], where: string): 
     const cm = v.colormap ?? 'viridis'
     need(str(cm) && cm in COLORMAPS, `${where}.color.colormap must be one of ${Object.keys(COLORMAPS).join(', ')}`)
     need(v.scale === undefined || v.scale === 'linear' || v.scale === 'log', `${where}.color.scale must be linear or log`)
-    return { kind: 'colormap', field, colormap: cm as ColormapName, ...(v.reverse === true ? { reverse: true } : {}), ...(v.scale === 'log' ? { scale: 'log' as const } : {}) }
+    const d = v.domain
+    need(d === undefined || (Array.isArray(d) && d.length === 2 && d.every((x) => typeof x === 'number' && Number.isFinite(x)) && d[0] < d[1]), `${where}.color.domain must be [min, max] with min < max`)
+    need(!d || v.scale !== 'log' || (d as number[])[0] > 0, `${where}.color.domain must be positive on a log scale`)
+    return {
+      kind: 'colormap',
+      field,
+      colormap: cm as ColormapName,
+      ...(v.reverse === true ? { reverse: true } : {}),
+      ...(v.scale === 'log' ? { scale: 'log' as const } : {}),
+      ...(d ? { domain: [(d as number[])[0], (d as number[])[1]] as [number, number] } : {}),
+    }
   }
   if (v.kind === 'categorical') {
     need(kind === 'scalar', `${where}: arrows can't be colored by category`)
@@ -411,6 +435,66 @@ async function updateWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome
   )
 }
 
+// ── visualization_stats ────────────────────────────────────────────────────
+
+const round = (n: number) => (Number.isInteger(n) ? n : Number(n.toPrecision(4)))
+function quantile(sorted: number[], q: number): number {
+  const i = (sorted.length - 1) * q
+  const lo = Math.floor(i)
+  return sorted[lo] + (sorted[Math.ceil(i)] - sorted[lo]) * (i - lo)
+}
+
+/** The distribution of a visualization's per-feature values, for choosing its scale and colors. */
+export function valueStats(values: VizValues): Obj {
+  const features = values.features.length
+  const raw = values.features.map((f) => f.value)
+  const present = raw.filter((v) => v !== null && v !== undefined && v !== '')
+  const base = { features, withValue: present.length, nulls: features - present.length, valueType: values.valueType }
+  const nums =
+    values.valueType === 'vector'
+      ? present.flatMap((v) => {
+          const o = v as { u?: number; v?: number }
+          return typeof o?.u === 'number' && typeof o.v === 'number' ? [Math.hypot(o.u, o.v)] : []
+        })
+      : present.flatMap((v) => (typeof v === 'number' && Number.isFinite(v) ? [v] : []))
+  if (nums.length && nums.length >= present.length / 2) {
+    const s = [...nums].sort((a, b) => a - b)
+    const pos = s.filter((x) => x > 0)
+    const q = (p: number) => round(quantile(s, p))
+    return {
+      ...base,
+      ...(values.valueType === 'vector' ? { of: 'arrow lengths (magnitudes)' } : {}),
+      min: round(s[0]),
+      p2: q(0.02),
+      p10: q(0.1),
+      p25: q(0.25),
+      median: q(0.5),
+      p75: q(0.75),
+      p90: q(0.9),
+      p98: q(0.98),
+      max: round(s[s.length - 1]),
+      mean: round(s.reduce((a, b) => a + b, 0) / s.length),
+      atOrBelowZero: s.length - pos.length,
+      belowZero: s.filter((x) => x < 0).length,
+      ...(pos.length > 1 ? { positiveOrdersOfMagnitude: round(Math.log10(pos[pos.length - 1] / pos[0])) } : {}),
+    }
+  }
+  const counts = new Map<string, number>()
+  for (const v of present) counts.set(String(v), (counts.get(String(v)) ?? 0) + 1)
+  const top = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 10)
+  return { ...base, distinct: counts.size, mostCommon: Object.fromEntries(top) }
+}
+
+async function visualizationStats(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.id), '`id` is required')
+  const v = host.doc().visualizations.find((x) => x.id === input.id)
+  need(v, `No visualization "${input.id}" in the workspace (get_workspace lists them)`)
+  const values = await host.values(v.datasetId, v.binding, v.column, v.aggregation)
+  if (typeof values === 'string') return err(values)
+  const stats = valueStats(values)
+  return ok({ visualization: v.name, column: v.column, aggregation: v.aggregation, color: compactColor(v.style.color), ...stats }, `${plural(stats.withValue as number, 'feature')} with a value`)
+}
+
 // ── run_transform / delete_dataset ─────────────────────────────────────────
 
 async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
@@ -464,6 +548,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await querySql(host, input)
       case 'update_workspace':
         return await updateWorkspace(host, input)
+      case 'visualization_stats':
+        return await visualizationStats(host, input)
       case 'run_transform':
         return await runTransform(host, input)
       case 'delete_dataset':
