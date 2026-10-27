@@ -64,6 +64,9 @@ import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
 import { formatPrimitive } from '../lib/format'
 import { logDebug } from '../debug'
+import AgentPanel from './agent/AgentPanel.vue'
+import type { AgentHost } from '../lib/agent/tools'
+import type { Caller } from '../shared/api'
 
 const base = import.meta.env.BASE_URL
 const mapView = ref<InstanceType<typeof MapView>>()
@@ -250,19 +253,27 @@ function removeDataset(id: string) {
   if (selected.value && vizById.value.get(selected.value.vizId)?.datasetId === id) selected.value = null
 }
 
-/** Deletes a dataset from the database: out of the workspace first (refused while a transform reads it), then the table. */
+/** Deletes a dataset from the database (after the user confirms). */
 async function deleteDataset(id: string) {
   const ds = records.value.get(id)
   const where = ds && storeOf(ds) === 'remote' ? 'the shared database' : 'this device'
   if (!confirm(`Delete "${ds?.name ?? id}" from ${where}? Its rows are gone for good, and its visualizations go with it (in other saved workspaces too).`)) return
+  const r = await deleteForGood(id)
+  if (!r.ok) alert(r.message)
+}
+
+/** Out of the workspace first (refused while a transform reads it), then the table. */
+async function deleteForGood(id: string, by: Caller = 'user'): Promise<{ ok: true } | { ok: false; message: string }> {
   const next = forgetDataset(doc.value, id)
-  if (!next.ok) return void alert(next.error.message)
-  if (!(await call('delete dataset', request('deleteDataset', { id })))) return void alert("The dataset couldn't be deleted — see View logs.")
+  if (!next.ok) return { ok: false, message: next.error.message }
+  const r = await request('deleteDataset', { id }, by)
+  if (!r.ok) return { ok: false, message: r.error.message }
   if (selected.value && vizById.value.get(selected.value.vizId)?.datasetId === id) selected.value = null
   apply(next)
   const left = new Map(records.value)
   left.delete(id)
   records.value = left
+  return { ok: true }
 }
 
 async function updateDataset(id: string, patch: { name?: string; description?: string }) {
@@ -404,22 +415,30 @@ function newTransformFrom(datasetIds: string[]) {
 const runStatus = ref<Record<string, RunStatus>>({})
 const nameOf = (id: string) => records.value.get(id)?.name
 
-/** Runs a transform on the server (all its outputs together); new output datasets join the workspace (with a first visualization when they have geometry). */
-async function runTransform(id: string) {
+type RunOutcome = { ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }
+
+/**
+ * Runs a transform on the server (all its outputs together); new output
+ * datasets join the workspace — with a first visualization when the user ran
+ * it, without when an agent did (it sets up its own).
+ */
+async function runTransform(id: string, by: Caller = 'user'): Promise<RunOutcome> {
   const t = doc.value.transforms.find((x) => x.id === id)
-  if (!t) return
+  if (!t) return { ok: false, message: `No transform "${id}"` }
   runStatus.value = { ...runStatus.value, [id]: { state: 'running' } }
-  const r = await request('runTransform', { transform: t })
+  const r = await request('runTransform', { transform: t }, by)
   if (!r.ok) {
     runStatus.value = { ...runStatus.value, [id]: { state: 'error', message: r.error.message } }
-    return
+    return { ok: false, message: r.error.message }
   }
   const lines: string[] = []
-  for (const { datasetId, rowCount } of r.data.outputs) {
+  const outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] = []
+  for (const { datasetId, rowCount, created } of r.data.outputs) {
     forgetBindingInfo(datasetId)
     const ds = await loadRecord(datasetId) // a new updatedAt: its visualizations re-query
-    if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, await firstVisualizations(ds)))
+    if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, by === 'user' ? await firstVisualizations(ds) : []))
     lines.push(`${rowCount.toLocaleString()} rows → ${ds?.name ?? 'dataset'}`)
+    outputs.push({ datasetId, name: ds?.name ?? 'dataset', rowCount, created })
   }
   // Each output remembers the dataset it wrote.
   const now = doc.value.transforms.find((x) => x.id === id)
@@ -429,7 +448,27 @@ async function runTransform(id: string) {
   }
   runStatus.value = { ...runStatus.value, [id]: { state: 'done', message: lines.join(' · ') } }
   logDebug(`transform "${t.name}": ${lines.join(' · ')}`)
+  return { ok: true, outputs }
 }
+
+// ── the assistant (agent) ──────────────────────────────────────────────────
+// The agent's tools act through the same functions as the UI (lib/agent/tools.ts).
+
+const agentHost: AgentHost = {
+  doc: () => doc.value,
+  setDoc(next) {
+    doc.value = next
+    for (const id of next.datasetIds) if (!records.value.has(id)) void loadRecord(id)
+    if (selected.value && !next.visualizations.some((v) => v.id === selected.value?.vizId)) selected.value = null
+  },
+  dataset: (id) => readDb.get('datasets', id),
+  allDatasets: () => readDb.list('datasets'),
+  query: (sql, inputs, limit) => request('previewTransform', { sql, inputs, limit }, 'agent'),
+  shape: describeBinding,
+  runTransform: (id) => runTransform(id, 'agent'),
+  deleteDataset: (id) => deleteForGood(id, 'agent'),
+}
+const assistantOpen = ref(false)
 
 // ── Run all stale ──────────────────────────────────────────────────────────
 // Every transform needing a re-run, plus everything downstream of one, inputs
@@ -771,7 +810,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           @paste="(text: string) => loadWorkspaceText(text, 'paste')"
           @reset="resetWorkspace"
         />
+        <button class="ai-btn" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span aria-hidden="true">✦</span><span class="ai-word">Assistant</span></button>
       </Teleport>
+      <AgentPanel v-show="assistantOpen" :host="agentHost" @close="assistantOpen = false" />
       <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
 
       <div v-if="popped" class="popped-note">
@@ -1284,6 +1325,28 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   .map-wrap {
     order: 1;
     height: 70svh;
+  }
+}
+.ai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg-elev-2);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.ai-btn:hover,
+.ai-btn[aria-pressed='true'] {
+  color: var(--text);
+  border-color: var(--accent-blue);
+}
+@media (max-width: 30rem) {
+  .ai-word {
+    display: none;
   }
 }
 </style>

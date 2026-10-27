@@ -312,6 +312,22 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Assistant: dataset processor agent — 2026-10-27
+- **Added:** ✦ Assistant (header): a chat with an agent that studies the workspace's datasets,
+  writes and runs transforms, and sets up visualizations, through five tools (`get_workspace`,
+  `query_sql`, `update_workspace`, `run_transform`, `delete_dataset`) that call the page's own
+  functions. The user's own Anthropic API key, stored on the device; calls go straight to Anthropic
+  from the browser (`claude-opus-5-5`, streaming, server-side fallbacks, prompt caching).
+- **Added:** the server refuses an agent's (`caller: 'agent'`) changes to remote datasets.
+- **Design:** a provider-neutral loop (`lib/agent/`) with an adapter per AI provider; tool inputs are
+  validated before anything runs, and a workspace update is all-or-nothing with every problem
+  listed for the model. Visualizations travel in a compact form filled from the app's defaults, so
+  the model never writes full style JSON.
+- **Tested:** tools and loop with a fake host and scripted model; the Claude adapter against a fake
+  streaming API (request shape, history, pause / truncation / Stop); end to end in a headless
+  browser with the API stubbed (real DuckDB queries and workspace edits). Not yet tested against
+  the real API from here (no key in the sandbox).
+
 ### Dataset stores + copy / paste workspace — 2026-10-27
 - **Added:** every dataset has a store, **Local** (this device) or **Remote** (shared database,
   later), shown on its card. **Move to remote storage** exists and answers that remote storage

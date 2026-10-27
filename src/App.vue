@@ -252,6 +252,11 @@ const helpDoc = ref('default')
   gap: 0.35rem;
   align-items: center;
 }
+#header-workspace {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
 
 /* Phones: "?" alone, so Workspace and Help fit beside the title. */
 @media (max-width: 30rem) {

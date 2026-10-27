@@ -82,6 +82,13 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Assistant: the dataset processor agent** — ✦ Assistant in the header opens a chat (side panel
+  on desktop, sheet on phones). The user's own Anthropic API key stays on the device; calls go
+  straight to Anthropic (`claude-opus-5-5`, streaming). The agent reads the workspace, queries any
+  dataset (DuckDB), replaces the draft (`update_workspace`, all-or-nothing with every problem
+  listed), runs transforms and deletes local datasets, all through the page's own functions; the
+  server refuses its changes to remote datasets (`caller: 'agent'`). `src/lib/agent/` (provider
+  contract, loop, tools, prompt), `src/client/agent/claude.ts`, `components/agent/AgentPanel.vue`.
 
 ## Next (Current Sprint)
 
@@ -222,11 +229,11 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 
 1. ~~Dataset stores, Move / Delete, Copy / Paste workspace~~ (done).
 2. ~~Query speed-up~~: already there (loaded tables stay in DuckDB until their dataset changes).
-3. **Agent**: API key setting, chat panel, the loop with the six tools (`get_workspace`,
-   `query_sql`, `update_workspace`, `run_transform`, `delete_dataset` + web search / fetch), the
-   server-side gate for `caller: 'agent'`, instructions (orchestrator, scout source reports,
-   surveyor, transformer, visualizer), run records.
-4. **Supabase**: login, the remote store (Move to remote / local for real), storage limits.
+3. ~~**Dataset processor agent**~~ (done): API key setting, chat panel, the loop, the five data
+   tools, the server-side gate for `caller: 'agent'`.
+4. **Scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
+   size-capped) for data it collects itself, scout source reports, run records.
+5. **Supabase**: login, the remote store (Move to remote / local for real), storage limits.
 
 ### Backlog
 

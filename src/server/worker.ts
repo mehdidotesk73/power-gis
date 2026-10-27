@@ -29,7 +29,7 @@ const server = createServer(new IndexedDbDatabase(), {
 })
 
 self.onmessage = async (e: MessageEvent<RequestMessage>) => {
-  const { id, type, payload } = e.data
-  const result = await server.handle(type, payload as never)
+  const { id, type, payload, caller } = e.data
+  const result = await server.handle(type, payload as never, caller)
   self.postMessage({ id, result } satisfies ResponseMessage)
 }

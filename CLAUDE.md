@@ -130,6 +130,14 @@ whatever they're actually asking about.
   (`ds_<uuid>`). **Stores**: `DatasetRecord.store` `local` (this device) | `remote` (Supabase, later;
   `moveDataset` says it isn't available yet), missing = local — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
   properties**.
+- **Assistant (agents)** (`docs/agents.md`): **✦ Assistant** in the header opens a chat with the
+  dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
+  stays on the device (localStorage `powergis.anthropicKey`); calls go straight to Anthropic
+  (`client/agent/claude.ts`, `claude-opus-5-5`, streaming). Provider-neutral loop and tools in
+  `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`); tools act through an
+  `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. Agents
+  read any dataset but change only **local** ones: tools check it, and the server refuses
+  `caller: 'agent'` writes to remote datasets (`request(type, payload, 'agent')`).
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
     device files, in-memory tables, ArcGIS features via `featureTable`).
@@ -302,7 +310,8 @@ src/
     demo.ts                synthetic vector field for exercising the arrow widget
   shared/                  client ↔ server contract: api, records (tables), database, idb, builtins
   server/                  the server (Web Worker today): server.ts handlers, worker.ts entry, sql.ts + duckdb.ts (transforms)
-  client/                  api.ts (requests to the server), db.ts (read-only database)
+  client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter)
+  lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt
   components/
     map/                   reusable map widgets
       MapView.vue          the map; provides it to child layer widgets
@@ -323,6 +332,7 @@ src/
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
+    agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)
 public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
 scripts/                   data build scripts
 docs/

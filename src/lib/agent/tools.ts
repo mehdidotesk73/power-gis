@@ -1,0 +1,421 @@
+// The agent's tools: what the model may call, checked before anything runs.
+// Each tool validates its input, applies the store gate (agents change only
+// local datasets), and calls an operation the UI already uses through the
+// host. No business logic lives here (docs/agents.md).
+
+import type { ApiResult } from '../../shared/api'
+import { storeOf, type DatasetRecord, type TransformInputRef } from '../../shared/records'
+import type { ColumnInfo } from '../dataset/columns'
+import { isGeometryColumn } from '../dataset/columns'
+import type { DataRecord } from '../data/connectors'
+import { aggregationsFor, defaultAggregation, type Aggregation } from '../dataset/aggregate'
+import type { GeometryBinding } from '../dataset/binding'
+import type { BindingInfo } from '../dataset/query'
+import { columnType, makeVisualization, retarget, ROWS, VALUE, type VisualizationSpec } from '../dataset/visualization'
+import { newId } from '../dataset/dataset'
+import { COLORMAPS, type ColormapName } from '../colormaps'
+import type { PaletteName } from '../palettes'
+import { MAGNITUDE_FIELD, type ColorEncoding } from '../style'
+import { addDataset, addTransform, addVisualization, newOutput, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
+import { transformState } from '../workspace/dag'
+import { snapshot } from '../workspace/file'
+import type { ToolOutcome } from './loop'
+import type { ToolSpec } from './provider'
+
+/** What the tools act through: the page's workspace copy and the server. */
+export interface AgentHost {
+  doc(): WorkspaceDoc
+  setDoc(doc: WorkspaceDoc): void
+  dataset(id: string): Promise<DatasetRecord | undefined>
+  /** Every dataset in this PowerGIS (not only the workspace's). */
+  allDatasets(): Promise<DatasetRecord[]>
+  query(sql: string, inputs: TransformInputRef[], limit: number): Promise<ApiResult<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }>>
+  /** How a dataset looks under a geometry binding, or an error message. */
+  shape(datasetId: string, binding: GeometryBinding): Promise<BindingInfo | string>
+  runTransform(id: string): Promise<{ ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }>
+  deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
+}
+
+const PALETTES: PaletteName[] = ['auto', 'p12', 'p24', 'p60', 'many']
+const AGG_NAMES = ['first', 'count', 'distinct', 'sum', 'mean', 'min', 'max', 'mode', 'any']
+export const QUERY_LIMIT = 50
+
+// ── tool definitions ───────────────────────────────────────────────────────
+
+const colorSchema = {
+  type: 'object',
+  description:
+    'How features are colored by their value. colormap: a color ramp for numbers; categorical: one color per value (text); constant: one color. Leave out to keep the current color (or the default for the value type).',
+  properties: {
+    kind: { type: 'string', enum: ['colormap', 'categorical', 'constant'] },
+    colormap: { type: 'string', enum: Object.keys(COLORMAPS) },
+    reverse: { type: 'boolean' },
+    scale: { type: 'string', enum: ['linear', 'log'] },
+    palette: { type: 'string', enum: PALETTES },
+    color: { type: 'string', description: 'For constant: a hex color like #3b82f6' },
+  },
+  required: ['kind'],
+}
+
+export const TOOLS: ToolSpec[] = [
+  {
+    name: 'get_workspace',
+    description:
+      "The user's workspace: its datasets (id, name, store local/remote, origin, row count, columns with types), transforms (id, inputs, outputs with SQL, state: ready / not-run / stale), visualizations (id, dataset, geometry column, value column, aggregation, color), plus the other datasets stored in this PowerGIS that aren't in the workspace. Also a version stamp that update_workspace needs. Call it first, and again after the user changes things.",
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'query_sql',
+    description:
+      'Run one read-only SELECT (DuckDB) over datasets and get the first rows plus the total row count. Nothing is stored. Each input dataset is a table named by its alias. Geometry cells come back as "<region>" etc. Use it to profile (FROM (SUMMARIZE t)), check values and join coverage, and test transform SQL before writing it. CTEs (WITH …) chain steps. Works on any dataset, local or remote, in the workspace or not.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sql: { type: 'string' },
+        inputs: {
+          type: 'array',
+          items: { type: 'object', properties: { datasetId: { type: 'string' }, alias: { type: 'string' } }, required: ['datasetId', 'alias'] },
+        },
+        limit: { type: 'integer', description: `Rows to return, at most ${QUERY_LIMIT} (default 20).` },
+      },
+      required: ['sql', 'inputs'],
+    },
+  },
+  {
+    name: 'update_workspace',
+    description:
+      "Replace the workspace's contents (the user's unsaved draft: they Save or Discard it). Send the complete lists — anything left out is removed from the workspace (datasets stay stored). Keep the ids of items you keep; leave id out for new ones. Transforms: SQL that writes datasets, one SELECT per output; an output without outputId writes a new dataset on its first run, then keep the outputId get_workspace shows. A new or changed transform does nothing until run_transform. Visualizations: draw one value column of a dataset on its features (a geometry column); rows on the same feature are combined by the aggregation. The list order is draw order: first draws on top. Refused if the workspace changed since `version`, or if a transform would write a remote dataset; nothing is applied when anything is invalid.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        version: { type: 'string', description: 'The version from the latest get_workspace / update_workspace.' },
+        name: { type: 'string' },
+        datasetIds: { type: 'array', items: { type: 'string' } },
+        transforms: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              inputs: {
+                type: 'array',
+                items: { type: 'object', properties: { datasetId: { type: 'string' }, alias: { type: 'string' } }, required: ['datasetId', 'alias'] },
+              },
+              outputs: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: { key: { type: 'string' }, name: { type: 'string' }, sql: { type: 'string' }, outputId: { type: 'string' } },
+                  required: ['name', 'sql'],
+                },
+              },
+            },
+            required: ['name', 'inputs', 'outputs'],
+          },
+        },
+        visualizations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              datasetId: { type: 'string' },
+              geometry: { type: 'string', description: 'The geometry column (point / polyline / region) that places each row.' },
+              label: { type: 'string', description: 'Optional column naming each feature (shown on hover and in Find).' },
+              column: { type: 'string', description: `The value column, or "${ROWS}" for the number of rows per feature.` },
+              aggregation: { type: 'string', enum: AGG_NAMES, description: 'How rows on one feature combine. Default: pass-through when each feature has one row, else a summary.' },
+              visible: { type: 'boolean' },
+              color: colorSchema,
+              opacity: { type: 'number', description: '0–1' },
+            },
+            required: ['name', 'datasetId', 'geometry', 'column'],
+          },
+        },
+      },
+      required: ['version', 'datasetIds', 'transforms', 'visualizations'],
+    },
+  },
+  {
+    name: 'run_transform',
+    description:
+      'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns row counts and dataset ids. Refused if an output would write a remote dataset.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  },
+  {
+    name: 'delete_dataset',
+    description:
+      'Delete a local dataset and its rows for good (and its visualizations). Refused for remote datasets, and while a workspace transform reads it. Use it to clean up datasets you made that are no longer needed.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  },
+]
+
+// ── helpers ────────────────────────────────────────────────────────────────
+
+/** A short stamp of the workspace's contents (changes whenever anything does). */
+export function workspaceVersion(doc: WorkspaceDoc): string {
+  let h = 0x811c9dc5
+  const s = snapshot(doc)
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193)
+  return (h >>> 0).toString(36)
+}
+
+type Obj = Record<string, unknown>
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+const str = (v: unknown): v is string => typeof v === 'string'
+const optStr = (v: unknown) => v === undefined || str(v)
+
+class Invalid extends Error {}
+function need(cond: unknown, message: string): asserts cond {
+  if (!cond) throw new Invalid(message)
+}
+
+const ok = (data: unknown, summary: string): ToolOutcome => ({ content: JSON.stringify(data), isError: false, summary })
+const err = (message: string, summary = message): ToolOutcome => ({ content: message, isError: true, summary })
+const plural = (n: number, w: string) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`
+const columnsOf = (cols: ColumnInfo[]) => cols.map((c) => `${c.name} ${c.type}`).join(', ')
+
+/** A cell as the model sees it: geometry as its type, long text cut. */
+function cell(v: unknown, type: string | undefined): unknown {
+  if (v === null || v === undefined) return null
+  if (type && isGeometryColumn(type as ColumnInfo['type'])) return `<${type}>`
+  if (typeof v === 'string') {
+    if (/^\s*\{"type":"(Multi)?(Point|LineString|Polygon)"/.test(v)) return '<geometry>'
+    return v.length > 200 ? `${v.slice(0, 200)}…` : v
+  }
+  if (typeof v === 'object') {
+    const s = JSON.stringify(v)
+    return s.length > 200 ? `${s.slice(0, 200)}…` : v
+  }
+  return v
+}
+
+function compactColor(c: ColorEncoding): Obj {
+  if (c.kind === 'colormap') return { kind: c.kind, colormap: c.colormap, ...(c.reverse ? { reverse: true } : {}), ...(c.scale === 'log' ? { scale: 'log' } : {}) }
+  if (c.kind === 'categorical') return { kind: c.kind, ...(c.palette ? { palette: c.palette } : {}) }
+  return { kind: c.kind, color: c.color }
+}
+
+// ── get_workspace ──────────────────────────────────────────────────────────
+
+async function getWorkspace(host: AgentHost): Promise<ToolOutcome> {
+  const doc = host.doc()
+  const all = await host.allDatasets()
+  const byId = new Map(all.map((d) => [d.id, d]))
+  const ds = (d: DatasetRecord) => ({ id: d.id, name: d.name, store: storeOf(d), origin: d.origin, rows: d.rowCount, columns: columnsOf(d.columns), ...(d.description ? { description: d.description } : {}) })
+  const data = {
+    version: workspaceVersion(doc),
+    name: doc.name,
+    datasets: doc.datasetIds.flatMap((id) => (byId.has(id) ? [ds(byId.get(id)!)] : [])),
+    transforms: doc.transforms.map((t) => ({ id: t.id, name: t.name, state: transformState(t, (id) => byId.get(id)), inputs: t.inputs, outputs: t.outputs })),
+    visualizations: doc.visualizations.map((v) => ({
+      id: v.id,
+      name: v.name,
+      datasetId: v.datasetId,
+      geometry: v.binding.column,
+      ...(v.binding.label ? { label: v.binding.label } : {}),
+      column: v.column,
+      aggregation: v.aggregation,
+      visible: v.visible,
+      color: compactColor(v.style.color),
+      ...(v.kind === 'scalar' && v.style.opacity.kind === 'constant' ? { opacity: v.style.opacity.value } : {}),
+    })),
+    otherDatasets: all.filter((d) => !doc.datasetIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name, store: storeOf(d), rows: d.rowCount })),
+  }
+  return ok(data, `${plural(data.datasets.length, 'dataset')} · ${plural(data.transforms.length, 'transform')} · ${plural(data.visualizations.length, 'visualization')}`)
+}
+
+// ── query_sql ──────────────────────────────────────────────────────────────
+
+function readInputs(v: unknown): TransformInputRef[] {
+  need(Array.isArray(v), '`inputs` must be a list of {datasetId, alias}')
+  return v.map((i, n) => {
+    need(isObj(i) && str(i.datasetId) && str(i.alias), `inputs[${n}] needs datasetId and alias`)
+    return { datasetId: i.datasetId, alias: i.alias }
+  })
+}
+
+async function querySql(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.sql) && input.sql.trim(), '`sql` must be a SELECT')
+  const inputs = readInputs(input.inputs)
+  for (const i of inputs) need(await host.dataset(i.datasetId), `No dataset "${i.datasetId}"`)
+  const limit = Math.max(1, Math.min(QUERY_LIMIT, Number.isInteger(input.limit) ? (input.limit as number) : 20))
+  const r = await host.query(input.sql, inputs, limit)
+  if (!r.ok) return err(r.error.message, 'SQL error')
+  const types = new Map(r.data.columns.map((c) => [c.name, c.type]))
+  const rows = r.data.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, cell(v, types.get(k))])))
+  return ok({ rowCount: r.data.rowCount, columns: columnsOf(r.data.columns), rows }, `${plural(r.data.rowCount, 'row')}`)
+}
+
+// ── update_workspace ───────────────────────────────────────────────────────
+
+function readColor(v: unknown, kind: VisualizationSpec['kind'], where: string): ColorEncoding | undefined {
+  if (v === undefined) return undefined
+  need(isObj(v) && str(v.kind), `${where}.color needs a kind`)
+  const field = kind === 'vector' ? MAGNITUDE_FIELD : VALUE
+  if (v.kind === 'colormap') {
+    const cm = v.colormap ?? 'viridis'
+    need(str(cm) && cm in COLORMAPS, `${where}.color.colormap must be one of ${Object.keys(COLORMAPS).join(', ')}`)
+    need(v.scale === undefined || v.scale === 'linear' || v.scale === 'log', `${where}.color.scale must be linear or log`)
+    return { kind: 'colormap', field, colormap: cm as ColormapName, ...(v.reverse === true ? { reverse: true } : {}), ...(v.scale === 'log' ? { scale: 'log' as const } : {}) }
+  }
+  if (v.kind === 'categorical') {
+    need(kind === 'scalar', `${where}: arrows can't be colored by category`)
+    need(v.palette === undefined || PALETTES.includes(v.palette as PaletteName), `${where}.color.palette must be one of ${PALETTES.join(', ')}`)
+    return { kind: 'categorical', field, ...(v.palette ? { palette: v.palette as PaletteName } : {}) }
+  }
+  if (v.kind === 'constant') {
+    need(str(v.color) && /^#[0-9a-f]{6}$/i.test(v.color), `${where}.color.color must be a hex color like #3b82f6`)
+    return { kind: 'constant', color: v.color }
+  }
+  throw new Invalid(`${where}.color.kind must be colormap, categorical or constant`)
+}
+
+async function updateWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  const cur = host.doc()
+  need(str(input.version), '`version` is required (from get_workspace)')
+  if (input.version !== workspaceVersion(cur)) return err('The workspace changed since you read it (the user may have edited it). Call get_workspace and try again.', 'workspace changed: re-read')
+  need(optStr(input.name), '`name` must be text')
+  need(Array.isArray(input.datasetIds) && input.datasetIds.every(str), '`datasetIds` must be a list of dataset ids')
+  need(Array.isArray(input.transforms), '`transforms` must be a list (send [] for none)')
+  need(Array.isArray(input.visualizations), '`visualizations` must be a list (send [] for none)')
+  const errors: string[] = []
+  let doc: WorkspaceDoc = { ...cur, name: (input.name as string | undefined)?.trim() || cur.name, datasetIds: [], transforms: [], visualizations: [] }
+  const records = new Map<string, DatasetRecord>()
+
+  for (const id of input.datasetIds as string[]) {
+    const d = await host.dataset(id)
+    if (!d) {
+      errors.push(`datasetIds: no dataset "${id}"`)
+      continue
+    }
+    records.set(id, d)
+    const r = addDataset(doc, id)
+    if (r.ok) doc = r.doc
+    else errors.push(`datasetIds: ${r.error.message}`)
+  }
+
+  for (const [n, raw] of (input.transforms as unknown[]).entries()) {
+    const where = `transforms[${n}]`
+    try {
+      need(isObj(raw) && str(raw.name), `${where} needs a name`)
+      need(optStr(raw.id), `${where}.id must be text`)
+      need(Array.isArray(raw.outputs) && raw.outputs.length, `${where} needs at least one output`)
+      const inputs = readInputs(raw.inputs)
+      const outputs = (raw.outputs as unknown[]).map((o, m) => {
+        need(isObj(o) && str(o.name) && str(o.sql), `${where}.outputs[${m}] needs name and sql`)
+        need(optStr(o.key) && optStr(o.outputId), `${where}.outputs[${m}]: key and outputId must be text`)
+        const base = newOutput(o.name, o.sql, o.outputId as string | undefined)
+        return o.key ? { ...base, key: o.key as string } : base
+      })
+      for (const o of outputs) {
+        if (!o.outputId) continue
+        const out = await host.dataset(o.outputId)
+        need(out, `${where}: output "${o.name}" writes dataset "${o.outputId}", which doesn't exist (leave outputId out to make a new one)`)
+        need(storeOf(out) === 'local', `${where}: output "${o.name}" would write "${out.name}", a remote dataset — agents change only local datasets`)
+      }
+      const t: TransformSpec = { id: (raw.id as string | undefined) ?? newId(), name: raw.name, inputs, outputs }
+      const r = addTransform(doc, t)
+      if (r.ok) doc = r.doc
+      else errors.push(`${where} "${raw.name}": ${r.error.message}`)
+    } catch (e) {
+      if (!(e instanceof Invalid)) throw e
+      errors.push(e.message)
+    }
+  }
+
+  const ctx: OpContext = { columns: (id) => records.get(id)?.columns.map((c) => c.name) }
+  for (const [n, raw] of (input.visualizations as unknown[]).entries()) {
+    const where = `visualizations[${n}]`
+    try {
+      need(isObj(raw) && str(raw.name) && str(raw.datasetId) && str(raw.geometry) && str(raw.column), `${where} needs name, datasetId, geometry and column`)
+      need(optStr(raw.id) && optStr(raw.label), `${where}: id and label must be text`)
+      need(raw.aggregation === undefined || AGG_NAMES.includes(raw.aggregation as string), `${where}.aggregation must be one of ${AGG_NAMES.join(', ')}`)
+      need(raw.visible === undefined || typeof raw.visible === 'boolean', `${where}.visible must be true or false`)
+      need(raw.opacity === undefined || (typeof raw.opacity === 'number' && raw.opacity >= 0 && raw.opacity <= 1), `${where}.opacity must be between 0 and 1`)
+      need(records.has(raw.datasetId), `${where}: dataset "${raw.datasetId}" isn't in datasetIds`)
+      const binding: GeometryBinding = { kind: 'geometry', column: raw.geometry, ...(raw.label ? { label: raw.label as string } : {}) }
+      const info = await host.shape(raw.datasetId, binding)
+      need(typeof info !== 'string', `${where}: ${info as string}`)
+      const column = raw.column
+      need(column === ROWS || info.columns.some((c) => c.name === column), `${where}: "${column}" isn't a value column of this dataset under geometry "${raw.geometry}" (columns: ${info.columns.map((c) => c.name).join(', ') || 'none'}; or "${ROWS}")`)
+      const type = columnType(info.columns, column)
+      const agg = raw.aggregation as Aggregation | undefined
+      need(!agg || column === ROWS || aggregationsFor(type).includes(agg), `${where}: ${agg} doesn't apply to a ${type} column (use ${aggregationsFor(type).join(', ')})`)
+      const existing = cur.visualizations.find((v) => v.id === raw.id && v.datasetId === raw.datasetId)
+      const aggregation = agg ?? (existing && existing.column === column ? existing.aggregation : column === ROWS ? 'count' : defaultAggregation(type, info.maxRowsPerFeature))
+      let v: VisualizationSpec = existing ? retarget(info, existing, column, aggregation, binding) : { ...makeVisualization(info, raw.datasetId, binding, column, aggregation), ...(raw.id ? { id: raw.id as string } : {}) }
+      v = { ...v, name: raw.name, ...(raw.visible !== undefined ? { visible: raw.visible as boolean } : {}) }
+      const color = readColor(raw.color, v.kind, where)
+      if (color) v = { ...v, style: { ...v.style, color } } as VisualizationSpec
+      if (raw.opacity !== undefined) v = { ...v, style: { ...v.style, opacity: { kind: 'constant', value: raw.opacity as number } } } as VisualizationSpec
+      const r = addVisualization(doc, v, doc.visualizations.length, ctx)
+      if (r.ok) doc = r.doc
+      else errors.push(`${where} "${raw.name}": ${r.error.message}`)
+    } catch (e) {
+      if (!(e instanceof Invalid)) throw e
+      errors.push(e.message)
+    }
+  }
+
+  if (errors.length) return err(`Nothing was changed. Fix these and send the whole workspace again:\n- ${errors.join('\n- ')}`, `refused: ${plural(errors.length, 'problem')}`)
+  host.setDoc(doc)
+  const notRun = doc.transforms.filter((t) => t.outputs.some((o) => !o.outputId)).map((t) => t.name)
+  return ok(
+    { version: workspaceVersion(doc), datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length, ...(notRun.length ? { notRunYet: notRun } : {}) },
+    `${plural(doc.datasetIds.length, 'dataset')} · ${plural(doc.transforms.length, 'transform')} · ${plural(doc.visualizations.length, 'visualization')}`,
+  )
+}
+
+// ── run_transform / delete_dataset ─────────────────────────────────────────
+
+async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.id), '`id` is required')
+  const t = host.doc().transforms.find((x) => x.id === input.id)
+  need(t, `No transform "${input.id}" in the workspace (get_workspace lists them)`)
+  for (const o of t.outputs) {
+    const out = o.outputId ? await host.dataset(o.outputId) : undefined
+    if (out && storeOf(out) === 'remote') return err(`Output "${o.name}" writes "${out.name}", a remote dataset — agents change only local datasets.`, 'refused: remote output')
+  }
+  const r = await host.runTransform(t.id)
+  if (!r.ok) return err(r.message, 'SQL error')
+  return ok({ outputs: r.outputs, version: workspaceVersion(host.doc()) }, r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · '))
+}
+
+async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.id), '`id` is required')
+  const d = await host.dataset(input.id)
+  need(d, `No dataset "${input.id}"`)
+  if (storeOf(d) === 'remote') return err(`"${d.name}" is in remote storage — only the user can delete it.`, 'refused: remote dataset')
+  const reader = host.doc().transforms.find((t) => t.inputs.some((i) => i.datasetId === d.id))
+  if (reader) return err(`Transform "${reader.name}" reads "${d.name}"; change or remove that transform first.`, 'refused: still used')
+  const r = await host.deleteDataset(d.id)
+  if (!r.ok) return err(r.message)
+  return ok({ deleted: d.id, version: workspaceVersion(host.doc()) }, `deleted ${d.name}`)
+}
+
+// ── dispatch ───────────────────────────────────────────────────────────────
+
+/** Runs a tool call: validated, gated, never throwing. */
+export async function runTool(host: AgentHost, name: string, input: unknown): Promise<ToolOutcome> {
+  try {
+    need(isObj(input), 'The tool input must be a JSON object')
+    switch (name) {
+      case 'get_workspace':
+        return await getWorkspace(host)
+      case 'query_sql':
+        return await querySql(host, input)
+      case 'update_workspace':
+        return await updateWorkspace(host, input)
+      case 'run_transform':
+        return await runTransform(host, input)
+      case 'delete_dataset':
+        return await deleteDataset(host, input)
+      default:
+        return err(`Unknown tool "${name}"`)
+    }
+  } catch (e) {
+    return e instanceof Invalid ? err(e.message, 'invalid input') : err(`The tool failed: ${(e as Error).message ?? String(e)}`, 'failed')
+  }
+}

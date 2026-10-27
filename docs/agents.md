@@ -1,8 +1,22 @@
 # Agents — tool design and workflow
 
 The plan for AI-driven data finding and preparation in PowerGIS (roadmap step 5). Agreed
-2026-10-27; nothing here is built yet except the pieces marked **(built)**. It replaces the
-earlier Managed Agents plan in `docs/TODO.md`.
+2026-10-27; pieces marked **(built)** exist. It replaces the earlier Managed Agents plan in
+`docs/TODO.md`.
+
+**(built) First leg: the dataset processor.** One agent works on data that's already in PowerGIS:
+it studies datasets, writes and runs transforms, and sets up visualizations. Scouting and
+scraping (finding data on the web) come next.
+
+| Piece | File |
+|---|---|
+| Provider-neutral contract: `ChatProvider` / `ChatSession` (text + tool calls in, turn out) | `src/lib/agent/provider.ts` |
+| The loop: send, run tool calls, send results, until a text answer; stop, step limit | `src/lib/agent/loop.ts` |
+| The tools: definitions, input validation, the store gate, over an `AgentHost` | `src/lib/agent/tools.ts` |
+| Instructions (built-ins listed from `shared/builtins.ts`) | `src/lib/agent/prompt.ts` |
+| Claude adapter: Messages API from the browser, streaming, keeps Anthropic-format history | `src/client/agent/claude.ts` |
+| Chat panel: API key (this device), messages, tool steps, Stop, token use | `src/components/agent/AgentPanel.vue` |
+| The host: the page's own functions (draft, `runTransform`, `deleteForGood`, `describeBinding`) | `MapPage.vue` → `agentHost` |
 
 ## What the agent does
 
@@ -50,12 +64,27 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 
 | Tool | Kind | What it does | Built on |
 |---|---|---|---|
-| `web_search`, `web_fetch` | read | Find sources and read their pages | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
+| `web_search`, `web_fetch` | read | Find sources and read their pages (scouting leg; not given to the dataset processor yet) | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
 | `get_workspace` | read | The workspace config: datasets (id, name, store, origin), transforms (full spec + ready / not run / needs re-run), visualizations (full settings), plus a **version** stamp | The workspace file format (`lib/workspace/file.ts`) + registry records |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
 | `update_workspace(config, version)` | **gated** | Replaces the draft with a modified config | Loading a workspace file into the draft |
 | `run_transform(id)` | **gated** | Runs one transform of the draft; returns row counts or the error | `runTransform` |
 | `delete_dataset(id)` | **gated** | Deletes a dataset and its rows | `deleteDataset` + `forgetDataset` |
+
+**(built)** The dataset processor has `get_workspace`, `query_sql`, `update_workspace`, `run_transform`
+and `delete_dataset`. Notes from building them:
+
+- `get_workspace` lists each dataset's columns with types (schema, not a profile) and the
+  datasets stored in PowerGIS but not in the workspace (`otherDatasets`).
+- Visualizations go in and out in a **compact form**: `{id?, name, datasetId, geometry, label?,
+  column, aggregation?, visible?, color?: {kind: colormap | categorical | constant, …}, opacity?}`.
+  The tool fills the rest from the app's own defaults (`makeVisualization`); a kept id keeps its
+  style (`retarget`).
+- `update_workspace` checks everything and lists **every** problem; nothing applies unless all
+  is valid.
+- Query results hide geometry (`<region>`) and cut long text, so rows stay small.
+- A transform the agent runs adds its new outputs to the workspace **without** a first
+  visualization (the user's Run adds one); the agent sets up its own.
 
 **Profiling is a query.** `FROM (SUMMARIZE t)` returns per column: type, min, max, approximate
 distinct count, mean, standard deviation, quartiles, null percentage, count. There is no
@@ -74,8 +103,9 @@ Gated tools are refused, with a message the agent can act on, when:
 - `run_transform`: any of its outputs is remote (its **inputs** may be remote);
 - `delete_dataset`: the dataset is remote, or a transform in the draft still reads it.
 
-The check runs **in the server** too: agent requests carry `caller: 'agent'`, and the server
-refuses remote writes for them. A bug in a tool can't bypass it. The tool wrappers check first,
+**(built)** The check runs **in the server** too: agent requests carry `caller: 'agent'`
+(`request(type, payload, 'agent')`), and the server refuses their `runTransform` into a remote
+output, `deleteDataset` / `updateDataset` of a remote dataset, and any `moveDataset`. A bug in a tool can't bypass it. The tool wrappers check first,
 so the agent gets a clear message.
 
 ### What the user does
@@ -126,10 +156,24 @@ usage policies live **there**, not as dataset properties.
   calls the Messages API **directly from the browser**: no relay function, no function timeouts.
   A relay with the owner's key can be added later for users without one; only the "send" step
   changes.
-- **Model:** `claude-opus-5-5` for every role, streaming, adaptive thinking. Follow the
-  `claude-api` skill's TypeScript docs when writing it; don't guess SDK usage.
-- **Server tool pauses:** a long web-search step can end with `pause_turn`; the loop sends it back
-  to continue.
+- **Model:** `claude-opus-5-5` for every role, streaming, adaptive thinking (always on for this
+  model; default effort). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream` with
+  `dangerouslyAllowBrowser`, `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`:
+  a declined request is retried on Anthropic's recommended fallback model), automatic prompt
+  caching (`cache_control`), `eager_input_streaming` tools (inputs validated before running).
+  Follow the `claude-api` skill's TypeScript docs when changing it; don't guess SDK usage.
+- **(built) Stop reasons:** `pause_turn` is resumed (up to 5 times); `refusal` and a tool call cut
+  off at `max_tokens` stop the turn without running anything; tool calls left unanswered by Stop
+  get "not run" results before the next message.
+- **(built) Limits:** 40 model turns per user message, then it stops and says "continue" carries on.
+
+## Next: scouting and scraping
+
+Data isn't always a file to download: prices on product pages, shipping quotes from one place
+to each state. The user prefers the agent to **collect and assemble data itself** rather than
+point them to sources. That needs one more gated tool, roughly `create_dataset(name, rows)`
+(local only, size-capped), so data the agent gathered from web pages (`web_search` /
+`web_fetch`) becomes a dataset. Downloadable files still go through the user for now.
 
 ## Later (not decided)
 
