@@ -113,6 +113,9 @@ export function installErrorCapture(app: App) {
         return
       }
 
+      // The browser's notice that a resize observer's layout change spilled into the next frame
+      // (the map resizing as panels move) is harmless and says nothing about our code.
+      if (/^ResizeObserver loop/.test(e.message ?? '')) return
       record(e.error ? format(e.error) : `${e.message} (${e.filename}:${e.lineno})`, 'error')
     },
     true, // capture phase — resource errors don't bubble to window

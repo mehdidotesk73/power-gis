@@ -1153,7 +1153,10 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   flex: 1;
 }
 .pop-btn {
-  height: auto; /* as tall as the List | Graph switch beside it; square */
+  /* as tall as the List | Graph switch beside it; a fixed width (a stretched height can't drive aspect-ratio) */
+  height: auto;
+  width: 2.6rem;
+  aspect-ratio: auto;
 }
 /* Search is docked to the top of the side panel (and, on phones, of the screen while the
    controls scroll by), above everything else in it. */

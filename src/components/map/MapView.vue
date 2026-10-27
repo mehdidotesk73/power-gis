@@ -104,6 +104,10 @@ onMounted(() => {
   // If a basemap style can't load, try the next one, then a plain background,
   // so the data layers still render.
   let next = props.basemap === 'dark' ? 1 : BASEMAPS.length + 1
+  // Basemap styles sometimes name icons their sprite lacks: draw nothing for them, quietly.
+  m.on('styleimagemissing', (e: { id: string }) => {
+    if (!m.hasImage(e.id)) m.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) })
+  })
   m.on('error', (e) => {
     logDebug(`map: ${e.error?.message ?? 'error'}`, 'warn')
     if (map.value || m.isStyleLoaded() || next > BASEMAPS.length) return
@@ -113,7 +117,13 @@ onMounted(() => {
   })
   // The container changes size without the window doing so (the side panel's
   // splitter, the controls popping out): keep the canvas matched to it.
-  resizer = new ResizeObserver(() => m.resize())
+  // Resized in the next frame, not inside the observer, so the map's own layout change doesn't
+  // loop back into this frame's observations.
+  let frame = 0
+  resizer = new ResizeObserver(() => {
+    cancelAnimationFrame(frame)
+    frame = requestAnimationFrame(() => m.resize())
+  })
   resizer.observe(el.value!)
   m.on('click', (e) => {
     const layers = [...ctx.interactive].filter((id) => m.getLayer(id))
