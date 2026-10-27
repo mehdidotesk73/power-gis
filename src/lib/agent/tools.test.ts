@@ -68,7 +68,7 @@ describe('agent tools', () => {
       ['prices', 'local', true],
       ['counties', 'local', false],
       ['joined', 'local', false],
-      ['shared', 'remote', false],
+      ['shared', 'cloud', false],
     ])
     expect(json(list.content)[0]).not.toHaveProperty('columns')
     const w = json((await runTool(host, 'get_workspace', {})).content)
@@ -96,7 +96,7 @@ describe('agent tools', () => {
   it('renames and describes local datasets only', async () => {
     const { host, calls } = fakeHost()
     expect((await runTool(host, 'update_dataset', { id: 'prices', name: ' Home prices ', description: 'Zillow ZHVI by county' })).summary).toBe('renamed “PRICES” → “Home prices”')
-    expect(await runTool(host, 'update_dataset', { id: 'shared', name: 'x' })).toMatchObject({ isError: true, summary: 'refused: remote dataset' })
+    expect(await runTool(host, 'update_dataset', { id: 'shared', name: 'x' })).toMatchObject({ isError: true, summary: 'refused: cloud dataset' })
     expect(await runTool(host, 'update_dataset', { id: 'prices' })).toMatchObject({ isError: true })
     expect(await runTool(host, 'update_dataset', { id: 'prices', name: '  ' })).toMatchObject({ isError: true })
     expect(calls).toEqual(['update prices {"name":"Home prices","description":"Zillow ZHVI by county"}'])
@@ -140,6 +140,14 @@ describe('agent tools', () => {
     expect((await runTool(host, 'update_workspace', again)).isError).toBe(false)
     expect(state.doc.visualizations[0]).toMatchObject({ id: v.id, name: 'Price (latest)', style: { color: { colormap: 'magma' } } })
     expect(await runTool(host, 'update_workspace', again)).toMatchObject({ isError: true, summary: 'workspace changed: re-read' })
+
+    // Just {id} keeps an item exactly as it is.
+    const before = state.doc
+    const kept = await runTool(host, 'update_workspace', { version: workspaceVersion(before), datasetIds: before.datasetIds, transforms: [{ id: before.transforms[0].id }], visualizations: [{ id: v.id }] })
+    expect(kept.isError).toBe(false)
+    expect(state.doc.transforms).toEqual(before.transforms)
+    expect(state.doc.visualizations).toEqual(before.visualizations)
+    expect(await runTool(host, 'update_workspace', { version: workspaceVersion(state.doc), datasetIds: [], transforms: [{ id: 'ghost' }], visualizations: [] })).toMatchObject({ isError: true, content: expect.stringContaining('no transform "ghost"') })
   })
 
   it('refuses the whole update, listing every problem, and changes nothing', async () => {
@@ -157,7 +165,7 @@ describe('agent tools', () => {
       ],
     })
     expect(out.isError).toBe(true)
-    for (const bit of ['no dataset "ghost"', 'remote dataset', 'not a geometry column', '"nope" isn\'t a value column', "sum doesn't apply", 'colormap must be one of']) expect(out.content).toContain(bit)
+    for (const bit of ['no dataset "ghost"', 'cloud dataset', 'not a geometry column', '"nope" isn\'t a value column', "sum doesn't apply", 'colormap must be one of']) expect(out.content).toContain(bit)
     expect(state.doc).toBe(before)
   })
 
@@ -172,8 +180,8 @@ describe('agent tools', () => {
     }
     const { host, calls } = fakeHost(doc)
     expect((await runTool(host, 'run_transform', { id: 't1' })).summary).toBe('10 rows → JOINED')
-    expect(await runTool(host, 'run_transform', { id: 't2' })).toMatchObject({ isError: true, summary: 'refused: remote output' })
-    expect(await runTool(host, 'delete_dataset', { id: 'shared' })).toMatchObject({ isError: true, summary: 'refused: remote dataset' })
+    expect(await runTool(host, 'run_transform', { id: 't2' })).toMatchObject({ isError: true, summary: 'refused: cloud output' })
+    expect(await runTool(host, 'delete_dataset', { id: 'shared' })).toMatchObject({ isError: true, summary: 'refused: cloud dataset' })
     expect(await runTool(host, 'delete_dataset', { id: 'prices' })).toMatchObject({ isError: true, summary: 'refused: still used' })
     expect((await runTool(host, 'delete_dataset', { id: 'joined' })).isError).toBe(false)
     expect(calls).toEqual(['run t1', 'delete joined'])

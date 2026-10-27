@@ -49,7 +49,7 @@ their own edits.
 **(built)** Every dataset has a `store` (`DatasetRecord.store`, missing = `local`):
 
 - **local**: on this device (IndexedDB). As many as the device holds.
-- **remote**: the shared database (Supabase, later), within its storage limit.
+- **cloud** (`remote` in code): the shared database (Supabase, later), within its storage limit.
 
 The two stores have the same functions; only the storage behind them differs. The user moves a
 dataset between stores (`moveDataset`; the dataset keeps its id, so pointers stay valid). Until
@@ -92,7 +92,7 @@ and only the user deletes them. At the start of a chat the agent lists which dat
   The tool fills the rest from the app's own defaults (`makeVisualization`); a kept id keeps its
   style (`retarget`).
 - `update_workspace` checks everything and lists **every** problem; nothing applies unless all
-  is valid.
+  is valid. A kept transform / visualization can be sent as just `{id}`, which keeps inputs small.
 - Query results hide geometry (`<region>`) and cut long text, so rows stay small.
 - **Styling follows the data.** After adding a visualization the agent calls `visualization_stats`
   and picks the scale (`color.scale: "log"`, a setting of the visualization, never a computed log
@@ -185,7 +185,8 @@ usage policies live **there**, not as dataset properties.
   with `dangerouslyAllowBrowser`, `fallbacks: "default"` on the models that have it (Opus 5.5,
   Opus 5, Sonnet 5.5; beta `server-side-fallback-2026-07-01`: a declined request is retried on
   Anthropic's recommended fallback model), automatic prompt
-  caching (`cache_control`), `eager_input_streaming` tools (inputs validated before running).
+  caching (`cache_control`). **No `eager_input_streaming`**: the API then checks every tool input is
+  valid JSON (a long Haiku input once ended in stray `}]}` and the step failed); tools still validate.
   Follow the `claude-api` skill's TypeScript docs when changing it; don't guess SDK usage.
 - **(built) Stop reasons:** `pause_turn` is resumed (up to 5 times); `refusal` and a tool call cut
   off at `max_tokens` stop the turn without running anything; tool calls left unanswered by Stop

@@ -331,6 +331,10 @@ Two additions from reviewing it here, beyond what the originating project report
 - **Added:** `UiButton` with sizes (tag / compact / regular / large) and tones: glyphs drawn larger
   than text and tight padding; pills, header, icon and assistant buttons moved to it. **New chat**
   is a labeled button that confirms (a ＋ read as "add", but it clears the conversation).
+- **Fixed:** a long `update_workspace` input from Haiku ended in stray characters and the step failed
+  with a raw JSON dump. Eager input streaming is off (the API validates tool inputs again), kept
+  items can be sent as `{id}` (smaller inputs), and the error now reads in plain words with the
+  details folded away. "Remote" storage is called **cloud** everywhere users see it.
 - **Fixed:** Stop only took effect between steps, so a hung request or slow tool held the chat (and
   New chat was disabled while busy). Now every step is raced against Stop (`untilStopped`), and New
   chat stops the run first.

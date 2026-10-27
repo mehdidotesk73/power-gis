@@ -128,7 +128,7 @@ whatever they're actually asking about.
   count, origin, description, `extensions`), `transforms` (SQL, inputs `{datasetId, alias}`, output
   id), `visualizations` (dataset id + settings). **Each dataset is its own data table**
   (`ds_<uuid>`). **Stores**: `DatasetRecord.store` `local` (this device) | `remote` (Supabase, later;
-  `moveDataset` says it isn't available yet), missing = local — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
+  `moveDataset` says it isn't available yet), missing = local; **users see "Local" / "Cloud"** — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
   properties**.
 - **Assistant (agents)** (`docs/agents.md`): **✦ Assistant** in the header opens a chat with the
   dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
@@ -245,7 +245,7 @@ whatever they're actually asking about.
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
-  Menus: datasets — Explore, Edit, Copy id, Move to remote storage, Reorder, Remove from workspace,
+  Menus: datasets — Explore, Edit, Copy id, Move to cloud storage, Reorder, Remove from workspace,
   Delete dataset; visualizations
   (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
   data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**

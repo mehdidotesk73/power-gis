@@ -48,12 +48,13 @@ class ClaudeSession implements ChatSession {
     private readonly system: string,
     tools: ToolSpec[],
   ) {
-    // Streamed tool inputs arrive as generated (eager); lib/agent/tools.ts validates every input before running it.
+    // No eager input streaming: the API then checks each tool input is valid JSON before it
+    // reaches us (a long input once arrived with stray characters at the end). Tools still
+    // validate every input (lib/agent/tools.ts).
     this.tools = tools.map((t) => ({
       name: t.name,
       description: t.description,
       input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema,
-      eager_input_streaming: true,
     }))
   }
 
@@ -142,6 +143,9 @@ export const claudeProvider: ChatProvider = {
 
 /** A readable message for an API failure. */
 export function describeError(e: unknown): string {
+  // The SDK couldn't read a tool call's input (not valid JSON), even after retrying the step.
+  if (!(e instanceof Anthropic.APIError) && /tool parameter JSON|Unexpected .* JSON|JSON at position/i.test((e as Error)?.message ?? ''))
+    return "The assistant's last step came out garbled (its instructions to the app weren't valid JSON), even after retrying. Nothing from that step was applied. Ask it to try again, or to make the change in smaller steps."
   if (e instanceof Anthropic.APIUserAbortError) return 'Stopped.'
   if (e instanceof Anthropic.AuthenticationError) return 'The API key was not accepted. Check it in the assistant settings.'
   if (e instanceof Anthropic.PermissionDeniedError) return "This API key isn't allowed to use the model. Check your Anthropic Console workspace."

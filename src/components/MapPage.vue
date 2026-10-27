@@ -259,7 +259,7 @@ function removeDataset(id: string) {
 /** Deletes a dataset from the database (after the user confirms). */
 async function deleteDataset(id: string) {
   const ds = records.value.get(id)
-  const where = ds && storeOf(ds) === 'remote' ? 'the shared database' : 'this device'
+  const where = ds && storeOf(ds) === 'remote' ? 'cloud storage' : 'this device'
   if (!confirm(`Delete "${ds?.name ?? id}" from ${where}? Its rows are gone for good, and its visualizations go with it (in other saved workspaces too).`)) return
   const r = await deleteForGood(id)
   if (!r.ok) alert(r.message)

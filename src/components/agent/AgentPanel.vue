@@ -86,7 +86,7 @@ type Item =
   | { kind: 'user'; text: string; images?: string[] }
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean }
-  | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error' }
+  | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string }
   | { kind: 'ask'; question: string; details?: string; notes: string; answer?: UserAnswer }
 
 const items = ref<Item[]>([])
@@ -227,7 +227,11 @@ async function send() {
     else if (end === 'step-limit') items.value.push({ kind: 'note', tone: 'warn', text: 'Stopped after many steps. Say "continue" to let it carry on.' })
     else if (end === 'stopped') items.value.push({ kind: 'note', tone: 'info', text: 'Stopped.' })
   } catch (e) {
-    if (live()) items.value.push({ kind: 'note', tone: ctl.signal.aborted ? 'info' : 'error', text: describeError(e) })
+    if (live()) {
+      const text = describeError(e)
+      const raw = (e as Error)?.message ?? String(e)
+      items.value.push({ kind: 'note', tone: ctl.signal.aborted ? 'info' : 'error', text, ...(raw && raw !== text ? { detail: raw } : {}) })
+    }
   } finally {
     // A step cut short by Stop never reports back: show it as stopped, not running forever.
     if (live()) for (const it of items.value) if (it.kind === 'tool' && it.state === 'running') Object.assign(it, { state: 'error', summary: 'stopped' })
@@ -349,7 +353,13 @@ const usageText = computed(() => {
             {{ it.answer.answer === 'approve' ? '✓ Approved' : '✕ Rejected' }}<span v-if="it.answer.notes"> — {{ it.answer.notes }}</span>
           </p>
         </div>
-        <p v-else class="note" :class="it.tone">{{ it.text }}</p>
+        <div v-else class="note" :class="it.tone">
+          <p>{{ it.text }}</p>
+          <details v-if="it.detail" class="detail-box">
+            <summary>Details</summary>
+            <pre>{{ it.detail.length > 4000 ? `${it.detail.slice(0, 4000)}…` : it.detail }}</pre>
+          </details>
+        </div>
       </template>
       <p v-if="busy" class="muted working">{{ waiting ? 'Waiting for your answer…' : 'Working…' }}</p>
     </div>
@@ -560,6 +570,26 @@ header {
 .note {
   margin: 0;
   font-size: 0.78rem;
+}
+.note p {
+  margin: 0;
+}
+.detail-box summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+.detail-box pre {
+  margin: 0.25rem 0 0;
+  max-height: 10rem;
+  overflow: auto;
+  padding: 0.35rem;
+  border-radius: 0.3rem;
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .note.info {
   color: var(--text-muted);

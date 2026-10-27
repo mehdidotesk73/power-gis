@@ -78,13 +78,13 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'get_workspace',
     description:
-      "The user's workspace — where to start. Its datasets (id, name, description, store local / remote, origin, row count; no columns: query the ones that look relevant), its transforms (id, inputs, outputs with SQL, state: ready / not-run / stale) and visualizations (id, dataset, geometry column, value column, aggregation, color), plus a version stamp that update_workspace needs. Call it first, and again after the user changes things.",
+      "The user's workspace — where to start. Its datasets (id, name, description, store local / cloud, origin, row count; no columns: query the ones that look relevant), its transforms (id, inputs, outputs with SQL, state: ready / not-run / stale) and visualizations (id, dataset, geometry column, value column, aggregation, color), plus a version stamp that update_workspace needs. Call it first, and again after the user changes things.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'list_datasets',
     description:
-      "Every dataset the user can use, including those outside the workspace, local and remote: id, name, description, store, origin, row count, inWorkspace. Use it only when the workspace doesn't hold what the request needs, and after asking the user (ask_user) whether to look beyond the workspace.",
+      "Every dataset the user can use, including those outside the workspace, local and cloud: id, name, description, store, origin, row count, inWorkspace. Use it only when the workspace doesn't hold what the request needs, and after asking the user (ask_user) whether to look beyond the workspace.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -120,7 +120,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'update_workspace',
     description:
-      "Replace the workspace's contents (the user's unsaved draft: they Save or Discard it). Send the complete lists — anything left out is removed from the workspace (datasets stay stored). Keep the ids of items you keep; leave id out for new ones. Transforms: SQL that writes datasets, one SELECT per output; an output without outputId writes a new dataset on its first run, then keep the outputId get_workspace shows. A new or changed transform does nothing until run_transform. Visualizations: draw one value column of a dataset on its features (a geometry column); rows on the same feature are combined by the aggregation. The list order is draw order: first draws on top. Refused if the workspace changed since `version`, or if a transform would write a remote dataset; nothing is applied when anything is invalid.",
+      "Replace the workspace's contents (the user's unsaved draft: they Save or Discard it). Send the complete lists — anything left out is removed from the workspace (datasets stay stored). For a transform or visualization you keep unchanged, send just {\"id\": …}; for one you change, send its id and all its fields; leave id out for new ones. Transforms: SQL that writes datasets, one SELECT per output; an output without outputId writes a new dataset on its first run, then keep the outputId get_workspace shows. A new or changed transform does nothing until run_transform. Visualizations: draw one value column of a dataset on its features (a geometry column); rows on the same feature are combined by the aggregation. The list order is draw order: first draws on top. Refused if the workspace changed since `version`, or if a transform would write a cloud dataset; nothing is applied when anything is invalid.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -147,7 +147,7 @@ export const TOOLS: ToolSpec[] = [
                 },
               },
             },
-            required: ['name', 'inputs', 'outputs'],
+            description: 'Just {id} keeps an existing transform as it is; otherwise give name, inputs and outputs.',
           },
         },
         visualizations: {
@@ -166,7 +166,7 @@ export const TOOLS: ToolSpec[] = [
               color: colorSchema,
               opacity: { type: 'number', description: '0–1' },
             },
-            required: ['name', 'datasetId', 'geometry', 'column'],
+            description: 'Just {id} keeps an existing visualization as it is; otherwise give name, datasetId, geometry and column.',
           },
         },
       },
@@ -182,13 +182,13 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'run_transform',
     description:
-      'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns row counts and dataset ids. Refused if an output would write a remote dataset.',
+      'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns row counts and dataset ids. Refused if an output would write a cloud dataset.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
   {
     name: 'update_dataset',
     description:
-      "Rename a local dataset and/or set its description (its rows don't change). Refused for remote datasets. Give datasets you create a clear name and a one-line description (what each row is, the source, the period), so they're easy to find later.",
+      "Rename a local dataset and/or set its description (its rows don't change). Refused for cloud datasets. Give datasets you create a clear name and a one-line description (what each row is, the source, the period), so they're easy to find later.",
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' } },
@@ -198,7 +198,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'delete_dataset',
     description:
-      'Delete a local dataset and its rows for good (and its visualizations). Refused for remote datasets, and while a workspace transform reads it. Use it to clean up datasets you made that are no longer needed.',
+      'Delete a local dataset and its rows for good (and its visualizations). Refused for cloud datasets, and while a workspace transform reads it. Use it to clean up datasets you made that are no longer needed.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
 ]
@@ -226,6 +226,8 @@ function need(cond: unknown, message: string): asserts cond {
 const ok = (data: unknown, summary: string): ToolOutcome => ({ content: JSON.stringify(data), isError: false, summary })
 const err = (message: string, summary = message): ToolOutcome => ({ content: message, isError: true, summary })
 const plural = (n: number, w: string) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`
+/** The store as users call it: local (this device) or cloud. */
+const storeLabel = (d: DatasetRecord) => (storeOf(d) === 'remote' ? 'cloud' : 'local')
 const columnsOf = (cols: ColumnInfo[]) => cols.map((c) => `${c.name} ${c.type}`).join(', ')
 
 /** A cell as the model sees it: geometry as its type, long text cut. */
@@ -258,7 +260,7 @@ async function listDatasets(host: AgentHost): Promise<ToolOutcome> {
     id: d.id,
     name: d.name,
     ...(d.description ? { description: d.description } : {}),
-    store: storeOf(d),
+    store: storeLabel(d),
     origin: d.origin,
     rows: d.rowCount,
     inWorkspace: inWorkspace.has(d.id),
@@ -276,7 +278,7 @@ async function getWorkspace(host: AgentHost): Promise<ToolOutcome> {
     datasets: doc.datasetIds.map((id) => {
       const d = byId.get(id)
       if (!d) return { id, name: '(missing)' }
-      return { id, name: d.name, ...(d.description ? { description: d.description } : {}), store: storeOf(d), origin: d.origin, rows: d.rowCount }
+      return { id, name: d.name, ...(d.description ? { description: d.description } : {}), store: storeLabel(d), origin: d.origin, rows: d.rowCount }
     }),
     transforms: doc.transforms.map((t) => ({ id: t.id, name: t.name, state: transformState(t, (id) => byId.get(id)), inputs: t.inputs, outputs: t.outputs })),
     visualizations: doc.visualizations.map((v) => ({
@@ -378,6 +380,15 @@ async function updateWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome
   for (const [n, raw] of (input.transforms as unknown[]).entries()) {
     const where = `transforms[${n}]`
     try {
+      // Just {id}: keep the existing transform as it is.
+      if (isObj(raw) && str(raw.id) && Object.keys(raw).length === 1) {
+        const t = cur.transforms.find((x) => x.id === raw.id)
+        need(t, `${where}: no transform "${raw.id}" to keep (get_workspace lists them)`)
+        const r = addTransform(doc, t)
+        if (r.ok) doc = r.doc
+        else errors.push(`${where} "${t.name}": ${r.error.message}`)
+        continue
+      }
       need(isObj(raw) && str(raw.name), `${where} needs a name`)
       need(optStr(raw.id), `${where}.id must be text`)
       need(Array.isArray(raw.outputs) && raw.outputs.length, `${where} needs at least one output`)
@@ -392,7 +403,7 @@ async function updateWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome
         if (!o.outputId) continue
         const out = await host.dataset(o.outputId)
         need(out, `${where}: output "${o.name}" writes dataset "${o.outputId}", which doesn't exist (leave outputId out to make a new one)`)
-        need(storeOf(out) === 'local', `${where}: output "${o.name}" would write "${out.name}", a remote dataset — agents change only local datasets`)
+        need(storeOf(out) === 'local', `${where}: output "${o.name}" would write "${out.name}", a cloud dataset — agents change only local datasets`)
       }
       const t: TransformSpec = { id: (raw.id as string | undefined) ?? newId(), name: raw.name, inputs, outputs }
       const r = addTransform(doc, t)
@@ -408,6 +419,16 @@ async function updateWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome
   for (const [n, raw] of (input.visualizations as unknown[]).entries()) {
     const where = `visualizations[${n}]`
     try {
+      // Just {id}: keep the existing visualization as it is.
+      if (isObj(raw) && str(raw.id) && Object.keys(raw).length === 1) {
+        const v = cur.visualizations.find((x) => x.id === raw.id)
+        need(v, `${where}: no visualization "${raw.id}" to keep (get_workspace lists them)`)
+        need(records.has(v.datasetId), `${where} "${v.name}": its dataset isn't in datasetIds`)
+        const r = addVisualization(doc, v, doc.visualizations.length, ctx)
+        if (r.ok) doc = r.doc
+        else errors.push(`${where} "${v.name}": ${r.error.message}`)
+        continue
+      }
       need(isObj(raw) && str(raw.name) && str(raw.datasetId) && str(raw.geometry) && str(raw.column), `${where} needs name, datasetId, geometry and column`)
       need(optStr(raw.id) && optStr(raw.label), `${where}: id and label must be text`)
       need(raw.aggregation === undefined || AGG_NAMES.includes(raw.aggregation as string), `${where}.aggregation must be one of ${AGG_NAMES.join(', ')}`)
@@ -515,7 +536,7 @@ async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(t, `No transform "${input.id}" in the workspace (get_workspace lists them)`)
   for (const o of t.outputs) {
     const out = o.outputId ? await host.dataset(o.outputId) : undefined
-    if (out && storeOf(out) === 'remote') return err(`Output "${o.name}" writes "${out.name}", a remote dataset — agents change only local datasets.`, 'refused: remote output')
+    if (out && storeOf(out) === 'remote') return err(`Output "${o.name}" writes "${out.name}", a cloud dataset — agents change only local datasets.`, 'refused: cloud output')
   }
   const r = await host.runTransform(t.id)
   if (!r.ok) return err(r.message, 'SQL error')
@@ -529,7 +550,7 @@ async function updateDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
   need(input.name === undefined || (input.name as string).trim(), 'A dataset needs a name')
   const d = await host.dataset(input.id)
   need(d, `No dataset "${input.id}"`)
-  if (storeOf(d) === 'remote') return err(`"${d.name}" is in remote storage — only the user can change it.`, 'refused: remote dataset')
+  if (storeOf(d) === 'remote') return err(`"${d.name}" is in cloud storage — only the user can change it.`, 'refused: cloud dataset')
   const patch = { ...(input.name !== undefined ? { name: (input.name as string).trim() } : {}), ...(input.description !== undefined ? { description: (input.description as string).trim() } : {}) }
   const r = await host.updateDataset(d.id, patch)
   if (!r.ok) return err(r.message)
@@ -540,7 +561,7 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
   need(str(input.id), '`id` is required')
   const d = await host.dataset(input.id)
   need(d, `No dataset "${input.id}"`)
-  if (storeOf(d) === 'remote') return err(`"${d.name}" is in remote storage — only the user can delete it.`, 'refused: remote dataset')
+  if (storeOf(d) === 'remote') return err(`"${d.name}" is in cloud storage — only the user can delete it.`, 'refused: cloud dataset')
   const reader = host.doc().transforms.find((t) => t.inputs.some((i) => i.datasetId === d.id))
   if (reader) return err(`Transform "${reader.name}" reads "${d.name}"; change or remove that transform first.`, 'refused: still used')
   const r = await host.deleteDataset(d.id)

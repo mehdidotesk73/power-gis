@@ -41,7 +41,7 @@ const fail = (code: ApiError['code'], message: string): never => {
 type Handlers = { [K in RequestType]: (p: Payload<K>, caller: Caller) => Promise<Response<K>> }
 
 /** Requests that change existing datasets; an agent may make them only on local ones. */
-const AGENT_REMOTE_REFUSAL = 'Agents can change only local datasets; this one is in remote storage. Ask the user to do it, or to move it to this device.'
+const AGENT_REMOTE_REFUSAL = 'Agents can change only local datasets; this one is in cloud storage. Ask the user to do it, or to move it to this device.'
 
 export function createServer(db: Database, env: ServerEnv) {
   let baseUrl = '/'
@@ -206,7 +206,7 @@ export function createServer(db: Database, env: ServerEnv) {
       const ds = await dataset(id)
       if (storeOf(ds) === to) return { datasetId: id, store: to }
       // Only the local store exists so far; the remote one comes with the shared database.
-      return fail('unsupported', "Remote storage isn't available yet, so datasets stay on this device for now.")
+      return fail('unsupported', "Cloud storage isn't available yet, so datasets stay on this device for now.")
     },
 
     async previewTransform({ sql: query, inputs, limit, offset }) {

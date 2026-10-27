@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { startClaude, CLAUDE_MODEL } from './claude'
+import { startClaude, CLAUDE_MODEL, describeError } from './claude'
 
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: unknown }
 
@@ -52,7 +52,7 @@ describe('Claude adapter', () => {
     expect(r1.headers.get('anthropic-dangerous-direct-browser-access')).toBe('true')
     expect(r1.headers.get('anthropic-beta')).toContain('server-side-fallback-2026-07-01')
     expect(r1.body).toMatchObject({ model: 'claude-opus-5-5', fallbacks: 'default', stream: true, system: 'SYSTEM', cache_control: { type: 'ephemeral' } })
-    expect(r1.body.tools).toEqual([{ name: 'get_workspace', description: 'Read it', input_schema: { type: 'object', properties: {} }, eager_input_streaming: true }])
+    expect(r1.body.tools).toEqual([{ name: 'get_workspace', description: 'Read it', input_schema: { type: 'object', properties: {} } }])
     expect(r2.body.messages).toEqual([
       { role: 'user', content: [{ type: 'text', text: 'hello' }] },
       { role: 'assistant', content: [{ type: 'text', text: 'Looking. ' }, { type: 'tool_use', id: 'tu_1', name: 'get_workspace', input: {} }] },
@@ -91,6 +91,14 @@ describe('Claude adapter', () => {
       { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } },
       { type: 'text', text: 'What is this?' },
     ])
+  })
+
+  it('retries a garbled tool input, then explains it in plain words', async () => {
+    const garbled = sse([{ type: 'tool_use', id: 'tu_1', name: 'get_workspace', input: {} }], 'tool_use').replace('"partial_json":"{}"', '"partial_json":"{}]}"')
+    const { fetchImpl, requests } = fakeApi([garbled, garbled, garbled])
+    const err = await startClaude({ apiKey: 'k', system: 'S', tools }, fetchImpl).send({ text: 'go' }, {}).catch((e) => e)
+    expect(requests).toHaveLength(3)
+    expect(describeError(err)).toContain('came out garbled')
   })
 
   it('never hands back a tool call cut off by max_tokens', async () => {

@@ -35,7 +35,7 @@ const actions = (ds: DatasetRecord): ObjectAction[] => [
   { id: 'explore', icon: '▤', label: 'Explore' },
   { id: 'edit', icon: '✎', label: editing.value === ds.id ? 'Close edit' : 'Edit' },
   { id: 'copy', icon: '⧉', label: 'Copy id' },
-  storeOf(ds) === 'local' ? { id: 'move', icon: '⇡', label: 'Move to remote storage' } : { id: 'move', icon: '⇣', label: 'Move to this device' },
+  storeOf(ds) === 'local' ? { id: 'move', icon: '⇡', label: 'Move to cloud storage' } : { id: 'move', icon: '⇣', label: 'Move to this device' },
   { id: 'remove', icon: '✕', label: 'Remove from workspace', danger: true },
   { id: 'delete', icon: '⊗', label: 'Delete dataset', danger: true },
 ]
@@ -55,7 +55,7 @@ const notes = ref(new Map<string, string>())
 async function move(ds: DatasetRecord) {
   const to = storeOf(ds) === 'local' ? 'remote' : 'local'
   const r = await request('moveDataset', { id: ds.id, to })
-  notes.value = new Map(notes.value).set(ds.id, r.ok ? `Moved to ${to === 'remote' ? 'remote storage' : 'this device'} ✓` : r.error.message)
+  notes.value = new Map(notes.value).set(ds.id, r.ok ? `Moved to ${to === 'remote' ? 'cloud storage' : 'this device'} ✓` : r.error.message)
   if (r.ok) emit('changed', ds.id)
 }
 
@@ -107,7 +107,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
         <strong>{{ ds.name }}</strong>
         <span v-if="ds.description" class="desc">{{ ds.description }}</span>
         <span class="muted">
-          <span class="store" :class="storeOf(ds)" :title="storeOf(ds) === 'local' ? 'Kept on this device' : 'Kept in the shared database'">{{ storeOf(ds) === 'local' ? 'Local' : 'Remote' }}</span>
+          <span class="store" :class="storeOf(ds)" :title="storeOf(ds) === 'local' ? 'Kept on this device' : 'Kept in cloud storage'">{{ storeOf(ds) === 'local' ? 'Local' : 'Cloud' }}</span>
           {{ stats(ds) }} · {{ ds.origin }}
         </span>
         <span v-if="copied === ds.id" class="copied">Id copied ✓</span>
