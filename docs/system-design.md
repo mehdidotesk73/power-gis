@@ -370,7 +370,8 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   results until the model answers in text; Stop (`AbortSignal`) and a 40-turn limit.
 - `lib/agent/tools.ts`: `TOOLS` (JSON Schema definitions) and `runTool(host, name, input)`: validates
   input, applies the store gate, acts through an `AgentHost` (the page supplies it: the draft,
-  `readDb`, `request(…, 'agent')`, `describeBinding`, `runTransform`, `deleteForGood`). Never throws;
+  `readDb`, the dataset finder `listDatasets()` (`client/datasets.ts`: local datasets today, plus the
+  remote registry later), `request(…, 'agent')`, `describeBinding`, `runTransform`, `deleteForGood`). Never throws;
   every outcome is a message for the model plus a one-line summary for the chat.
   `workspaceVersion(doc)` stamps the draft so `update_workspace` refuses stale edits.
 - `lib/agent/prompt.ts`: the dataset processor's instructions.

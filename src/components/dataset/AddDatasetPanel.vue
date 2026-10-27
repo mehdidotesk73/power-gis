@@ -5,7 +5,7 @@
 // features is chosen per visualization.
 import { computed, onMounted, ref } from 'vue'
 import { request } from '../../client/api'
-import { readDb } from '../../client/db'
+import { listDatasets } from '../../client/datasets'
 import type { UploadSource } from '../../shared/api'
 import { BUILTIN_TABLES } from '../../shared/builtins'
 import type { DatasetRecord } from '../../shared/records'
@@ -41,7 +41,7 @@ const stored = ref<DatasetRecord[]>([])
 const available = computed(() => stored.value.filter((d) => !props.inWorkspace.includes(d.id)))
 async function refresh() {
   try {
-    stored.value = (await readDb.list('datasets')).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    stored.value = (await listDatasets()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   } catch (e) {
     error.value = (e as Error).message
   }

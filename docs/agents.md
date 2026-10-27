@@ -65,17 +65,21 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 | Tool | Kind | What it does | Built on |
 |---|---|---|---|
 | `web_search`, `web_fetch` | read | Find sources and read their pages (scouting leg; not given to the dataset processor yet) | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
-| `get_workspace` | read | The workspace config: datasets (id, name, store, origin), transforms (full spec + ready / not run / needs re-run), visualizations (full settings), plus a **version** stamp | The workspace file format (`lib/workspace/file.ts`) + registry records |
+| `list_datasets` | read | Every dataset the user can use, local and remote: id, name, description, store, origin, row count, in the workspace or not. No columns or contents: the agent picks by name and description, then queries | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
+| `get_workspace` | read | The workspace config only: dataset ids and names, transforms (full spec + ready / not run / needs re-run), visualizations, plus a **version** stamp | The workspace draft |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
 | `update_workspace(config, version)` | **gated** | Replaces the draft with a modified config | Loading a workspace file into the draft |
 | `run_transform(id)` | **gated** | Runs one transform of the draft; returns row counts or the error | `runTransform` |
 | `delete_dataset(id)` | **gated** | Deletes a dataset and its rows | `deleteDataset` + `forgetDataset` |
 
-**(built)** The dataset processor has `get_workspace`, `query_sql`, `update_workspace`, `run_transform`
-and `delete_dataset`. Notes from building them:
+**(built)** The dataset processor has `list_datasets`, `get_workspace`, `query_sql`,
+`update_workspace`, `run_transform` and `delete_dataset`. Notes from building them:
 
-- `get_workspace` lists each dataset's columns with types (schema, not a profile) and the
-  datasets stored in PowerGIS but not in the workspace (`otherDatasets`).
+- **Nothing in the prompt names a dataset.** The agent finds what exists with `list_datasets`,
+  which reads the app's dataset finder (`listDatasets()` in `client/datasets.ts`, also behind
+  ＋ Dataset → Saved and the default map's seeding). Today that's the datasets on this device;
+  with Supabase it becomes these plus the remote registry's datasets the user may access, and the
+  agent sees both without changes. Columns, types and values come from queries (`SUMMARIZE`).
 - Visualizations go in and out in a **compact form**: `{id?, name, datasetId, geometry, label?,
   column, aggregation?, visible?, color?: {kind: colormap | categorical | constant, …}, opacity?}`.
   The tool fills the rest from the app's own defaults (`makeVisualization`); a kept id keeps its

@@ -29,6 +29,7 @@ import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
 import { readDb } from '../client/db'
+import { listDatasets } from '../client/datasets'
 import { BUILTIN_TABLES } from '../shared/builtins'
 import { storeOf, type DatasetRecord, type WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
@@ -462,7 +463,7 @@ const agentHost: AgentHost = {
     if (selected.value && !next.visualizations.some((v) => v.id === selected.value?.vizId)) selected.value = null
   },
   dataset: (id) => readDb.get('datasets', id),
-  allDatasets: () => readDb.list('datasets'),
+  listDatasets,
   query: (sql, inputs, limit) => request('previewTransform', { sql, inputs, limit }, 'agent'),
   shape: describeBinding,
   runTransform: (id) => runTransform(id, 'agent'),
@@ -512,7 +513,7 @@ async function seedDefault() {
   const res = await fetch(`${base}data/default.powergis.json`)
   const parsed = parseWorkspaceFile(res.ok ? await res.text() : '')
   if (!parsed.ok) throw new Error(`default workspace: ${parsed.error}`)
-  const existing = await readDb.list('datasets')
+  const existing = await listDatasets()
   const ids = new Map<string, string>()
   for (const table of templateBuiltins(parsed.file)) {
     const version = BUILTIN_TABLES.find((b) => b.table === table)?.version

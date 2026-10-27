@@ -32,7 +32,7 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
     doc: () => state.doc,
     setDoc: (d) => void (state.doc = d),
     dataset: async (id) => datasets.get(id),
-    allDatasets: async () => [...datasets.values()],
+    listDatasets: async () => [...datasets.values()],
     query: async (sql) =>
       /nope/.test(sql)
         ? { ok: false, error: { code: 'invalid', message: 'Binder Error: no column nope' } }
@@ -51,14 +51,19 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
 const json = (s: string) => JSON.parse(s)
 
 describe('agent tools', () => {
-  it('reads the workspace with a version, columns, and the datasets outside it', async () => {
+  it('lists every dataset the user can use, and reads the workspace config with a version', async () => {
     const { host } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices'] })
-    const out = await runTool(host, 'get_workspace', {})
-    expect(out.isError).toBe(false)
-    const w = json(out.content)
-    expect(w.version).toBe(workspaceVersion(host.doc()))
-    expect(w.datasets[0]).toMatchObject({ id: 'prices', store: 'local', columns: 'fips string, price double, month datetime' })
-    expect(w.otherDatasets.map((d: { id: string }) => d.id)).toEqual(['counties', 'joined', 'shared'])
+    const list = await runTool(host, 'list_datasets', {})
+    expect(list.summary).toBe('4 datasets (3 local)')
+    expect(json(list.content).map((d: { id: string; store: string; inWorkspace: boolean }) => [d.id, d.store, d.inWorkspace])).toEqual([
+      ['prices', 'local', true],
+      ['counties', 'local', false],
+      ['joined', 'local', false],
+      ['shared', 'remote', false],
+    ])
+    expect(json(list.content)[0]).not.toHaveProperty('columns')
+    const w = json((await runTool(host, 'get_workspace', {})).content)
+    expect(w).toMatchObject({ version: workspaceVersion(host.doc()), name: 'Test', datasets: [{ id: 'prices', name: 'PRICES' }], transforms: [], visualizations: [] })
   })
 
   it('queries any dataset, hides geometry, and reports SQL errors to the model', async () => {

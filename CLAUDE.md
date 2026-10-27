@@ -135,7 +135,10 @@ whatever they're actually asking about.
   stays on the device (localStorage `powergis.anthropicKey`); calls go straight to Anthropic
   (`client/agent/claude.ts`, `claude-opus-5-5`, streaming). Provider-neutral loop and tools in
   `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`); tools act through an
-  `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. Agents
+  `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. The
+  agent finds datasets with `list_datasets`, which reads the app's one **dataset finder**
+  (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry later); the prompt
+  names no datasets. Agents
   read any dataset but change only **local** ones: tools check it, and the server refuses
   `caller: 'agent'` writes to remote datasets (`request(type, payload, 'agent')`).
 - **Concepts — keep the names straight:**

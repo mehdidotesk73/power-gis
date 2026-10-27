@@ -229,8 +229,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 
 1. ~~Dataset stores, Move / Delete, Copy / Paste workspace~~ (done).
 2. ~~Query speed-up~~: already there (loaded tables stay in DuckDB until their dataset changes).
-3. ~~**Dataset processor agent**~~ (done): API key setting, chat panel, the loop, the five data
-   tools, the server-side gate for `caller: 'agent'`.
+3. ~~**Dataset processor agent**~~ (done): API key setting, chat panel, the loop, the six data
+   tools (`list_datasets` reads the app's dataset finder), the server-side gate for `caller: 'agent'`.
 4. **Scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
    size-capped) for data it collects itself, scout source reports, run records.
 5. **Supabase**: login, the remote store (Move to remote / local for real), storage limits.

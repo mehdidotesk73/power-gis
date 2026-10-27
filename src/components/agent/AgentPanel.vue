@@ -68,6 +68,7 @@ let controller: AbortController | null = null
 const scroller = ref<HTMLElement>()
 
 const TOOL_LABEL: Record<string, string> = {
+  list_datasets: 'List datasets',
   get_workspace: 'Read the workspace',
   query_sql: 'Query',
   update_workspace: 'Update the workspace',

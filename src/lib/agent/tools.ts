@@ -27,8 +27,8 @@ export interface AgentHost {
   doc(): WorkspaceDoc
   setDoc(doc: WorkspaceDoc): void
   dataset(id: string): Promise<DatasetRecord | undefined>
-  /** Every dataset in this PowerGIS (not only the workspace's). */
-  allDatasets(): Promise<DatasetRecord[]>
+  /** Every dataset the user can use, local and remote (the app's dataset finder). */
+  listDatasets(): Promise<DatasetRecord[]>
   query(sql: string, inputs: TransformInputRef[], limit: number): Promise<ApiResult<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }>>
   /** How a dataset looks under a geometry binding, or an error message. */
   shape(datasetId: string, binding: GeometryBinding): Promise<BindingInfo | string>
@@ -59,9 +59,15 @@ const colorSchema = {
 
 export const TOOLS: ToolSpec[] = [
   {
+    name: 'list_datasets',
+    description:
+      'Every dataset the user can use, local and remote, whether in the workspace or not: id, name, description, store (local / remote), origin, row count, and inWorkspace. No columns or contents: query the ones that look relevant (FROM (SUMMARIZE t) shows the columns, types and value ranges).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'get_workspace',
     description:
-      "The user's workspace: its datasets (id, name, store local/remote, origin, row count, columns with types), transforms (id, inputs, outputs with SQL, state: ready / not-run / stale), visualizations (id, dataset, geometry column, value column, aggregation, color), plus the other datasets stored in this PowerGIS that aren't in the workspace. Also a version stamp that update_workspace needs. Call it first, and again after the user changes things.",
+      "The user's workspace: which datasets it uses (ids and names), its transforms (id, inputs, outputs with SQL, state: ready / not-run / stale) and visualizations (id, dataset, geometry column, value column, aggregation, color), plus a version stamp that update_workspace needs. Call it before changing the workspace, and again after the user changes things.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -197,17 +203,30 @@ function compactColor(c: ColorEncoding): Obj {
   return { kind: c.kind, color: c.color }
 }
 
-// ── get_workspace ──────────────────────────────────────────────────────────
+// ── list_datasets / get_workspace ──────────────────────────────────────────
+
+async function listDatasets(host: AgentHost): Promise<ToolOutcome> {
+  const inWorkspace = new Set(host.doc().datasetIds)
+  const all = await host.listDatasets()
+  const data = all.map((d) => ({
+    id: d.id,
+    name: d.name,
+    ...(d.description ? { description: d.description } : {}),
+    store: storeOf(d),
+    origin: d.origin,
+    rows: d.rowCount,
+    inWorkspace: inWorkspace.has(d.id),
+  }))
+  return ok(data, `${plural(data.length, 'dataset')} (${data.filter((d) => d.store === 'local').length} local)`)
+}
 
 async function getWorkspace(host: AgentHost): Promise<ToolOutcome> {
   const doc = host.doc()
-  const all = await host.allDatasets()
-  const byId = new Map(all.map((d) => [d.id, d]))
-  const ds = (d: DatasetRecord) => ({ id: d.id, name: d.name, store: storeOf(d), origin: d.origin, rows: d.rowCount, columns: columnsOf(d.columns), ...(d.description ? { description: d.description } : {}) })
+  const byId = new Map((await host.listDatasets()).map((d) => [d.id, d]))
   const data = {
     version: workspaceVersion(doc),
     name: doc.name,
-    datasets: doc.datasetIds.flatMap((id) => (byId.has(id) ? [ds(byId.get(id)!)] : [])),
+    datasets: doc.datasetIds.map((id) => ({ id, name: byId.get(id)?.name ?? '(missing)' })),
     transforms: doc.transforms.map((t) => ({ id: t.id, name: t.name, state: transformState(t, (id) => byId.get(id)), inputs: t.inputs, outputs: t.outputs })),
     visualizations: doc.visualizations.map((v) => ({
       id: v.id,
@@ -221,7 +240,6 @@ async function getWorkspace(host: AgentHost): Promise<ToolOutcome> {
       color: compactColor(v.style.color),
       ...(v.kind === 'scalar' && v.style.opacity.kind === 'constant' ? { opacity: v.style.opacity.value } : {}),
     })),
-    otherDatasets: all.filter((d) => !doc.datasetIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name, store: storeOf(d), rows: d.rowCount })),
   }
   return ok(data, `${plural(data.datasets.length, 'dataset')} · ${plural(data.transforms.length, 'transform')} · ${plural(data.visualizations.length, 'visualization')}`)
 }
@@ -402,6 +420,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
   try {
     need(isObj(input), 'The tool input must be a JSON object')
     switch (name) {
+      case 'list_datasets':
+        return await listDatasets(host)
       case 'get_workspace':
         return await getWorkspace(host)
       case 'query_sql':
