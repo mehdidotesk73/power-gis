@@ -225,7 +225,7 @@ async function onAddDataset(datasetId: string) {
   if (!ds) return void logDebug(`dataset ${datasetId} not found in the database`, 'error')
   const first = await firstVisualizations(ds)
   if (!apply(addDataset(doc.value, ds.id, first))) return
-  logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Add visualization'}`)
+  logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Visualization'}`)
   if (first.length) setTimeout(() => zoomToViz(first[0].id), 300)
   if (view.value === 'graph') openNode({ key: `ds:${ds.id}`, kind: 'dataset', id: ds.id })
 }
@@ -510,7 +510,7 @@ async function open(w: WorkspaceRecord) {
 
 /** Replaces the working copy with the default map (unsaved until Save). Datasets stay in the database. */
 async function resetWorkspace() {
-  if (!confirm('Reset this workspace to the default map? Nothing changes until you Save; your datasets stay in the database (＋ Add dataset → Saved).')) return
+  if (!confirm('Reset this workspace to the default map? Nothing changes until you Save; your datasets stay in the database (＋ Dataset → Saved).')) return
   resetSelection()
   await seedDefault()
   barMessage.value = ''

@@ -42,7 +42,7 @@ function setLabel(label: string) {
     </template>
     <p v-else class="small muted">
       This dataset has no geometry column, so it can't be drawn. Make one with a transform: <code>point(lat, lon)</code> for coordinates, or a join onto
-      a boundary dataset (＋ Add dataset → Built-in → US counties / US states) for region codes.
+      a boundary dataset (＋ Dataset → Built-in → US counties / US states) for region codes.
     </p>
     <p v-if="error" class="small bad">{{ error }}</p>
     <p v-else-if="info" class="small" :class="info.features ? 'ok' : 'bad'">
