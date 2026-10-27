@@ -208,6 +208,19 @@ describe('agent loop', () => {
     expect(inputs[1]).toEqual({ toolResults: [{ id: 'a', content: 'get_workspace ok', isError: false }, { id: 'b', content: 'query_sql ok', isError: true }] })
   })
 
+  it('stops at once even while a tool or the model hangs', async () => {
+    const never = new Promise<never>(() => {})
+    const ctl = new AbortController()
+    const { session } = scripted([{ text: '', stop: 'tools', toolCalls: [{ id: 'a', name: 'slow', input: {} }] }])
+    const run = runAgent(session, () => (setTimeout(() => ctl.abort(), 5), never), 'hi', {}, ctl.signal)
+    expect((await run).end).toBe('stopped')
+    const ctl2 = new AbortController()
+    const hung: ChatSession = { send: () => never }
+    const run2 = runAgent(hung, async () => ({ content: '', isError: false, summary: '' }), 'hi', {}, ctl2.signal)
+    setTimeout(() => ctl2.abort(), 5)
+    expect((await run2).end).toBe('stopped')
+  })
+
   it('stops when asked, and at the step limit', async () => {
     const ctl = new AbortController()
     const { session } = scripted([{ text: '', stop: 'tools', toolCalls: [{ id: 'a', name: 'x', input: {} }] }])

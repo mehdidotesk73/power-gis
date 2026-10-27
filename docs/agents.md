@@ -190,6 +190,9 @@ usage policies live **there**, not as dataset properties.
 - **(built) Stop reasons:** `pause_turn` is resumed (up to 5 times); `refusal` and a tool call cut
   off at `max_tokens` stop the turn without running anything; tool calls left unanswered by Stop
   get "not run" results before the next message.
+- **(built) Stop is immediate:** `runAgent` races every model call and tool against the abort signal
+  (`untilStopped`), so a hung request or a slow tool never holds the chat; work the engine already
+  started (a transform run) may still finish unseen. **New chat** works while busy (stops first).
 - **(built) Limits:** 40 model turns per user message, then it stops and says "continue" carries on.
 
 ## Next: scouting and scraping

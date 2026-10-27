@@ -331,6 +331,9 @@ Two additions from reviewing it here, beyond what the originating project report
 - **Added:** `UiButton` with sizes (tag / compact / regular / large) and tones: glyphs drawn larger
   than text and tight padding; pills, header, icon and assistant buttons moved to it. **New chat**
   is a labeled button that confirms (a ＋ read as "add", but it clears the conversation).
+- **Fixed:** Stop only took effect between steps, so a hung request or slow tool held the chat (and
+  New chat was disabled while busy). Now every step is raced against Stop (`untilStopped`), and New
+  chat stops the run first.
 - **Added:** the server refuses an agent's (`caller: 'agent'`) changes to remote datasets.
 - **Design:** a provider-neutral loop (`lib/agent/`) with an adapter per AI provider; tool inputs are
   validated before anything runs, and a workspace update is all-or-nothing with every problem

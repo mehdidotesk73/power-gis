@@ -94,6 +94,8 @@ const draft = ref('')
 const busy = ref(false)
 const usage = ref(emptyUsage())
 let session: ChatSession | null = null
+/** Bumped by New chat, so a run stopped for it doesn't write into the fresh conversation. */
+let chatGen = 0
 let controller: AbortController | null = null
 const scroller = ref<HTMLElement>()
 
@@ -184,7 +186,9 @@ async function send() {
     chatModel.value = model.value
   }
   busy.value = true
-  controller = new AbortController()
+  const ctl = (controller = new AbortController())
+  const gen = chatGen
+  const live = () => gen === chatGen
   let current: Extract<Item, { kind: 'assistant' }> | null = null
   try {
     const { end } = await runAgent(
@@ -196,6 +200,7 @@ async function send() {
           current = null
         },
         onText: (delta) => {
+          if (!live()) return
           if (!current) {
             items.value.push({ kind: 'assistant', text: '' })
             current = items.value[items.value.length - 1] as Extract<Item, { kind: 'assistant' }>
@@ -206,7 +211,7 @@ async function send() {
         onUsage: (turn) => (usage.value = addUsage(usage.value, turn)),
         onToolStart: (call) => {
           current = null
-          if (call.name === 'ask_user') return // its card is the step
+          if (!live() || call.name === 'ask_user') return // ask_user: its card is the step
           items.value.push({ kind: 'tool', call, state: 'running', summary: '', open: false })
         },
         onToolEnd: (call, out: ToolOutcome) => {
@@ -214,27 +219,35 @@ async function send() {
           if (it) Object.assign(it, { state: out.isError ? 'error' : 'ok', summary: out.summary, result: out.content })
         },
       },
-      controller.signal,
+      ctl.signal,
     )
+    if (!live()) return
     if (end === 'refused') items.value.push({ kind: 'note', tone: 'warn', text: 'Claude declined this request. Try rephrasing it.' })
     else if (end === 'truncated') items.value.push({ kind: 'note', tone: 'warn', text: 'The answer was cut off (too long). Ask it to continue, or to do less at once.' })
     else if (end === 'step-limit') items.value.push({ kind: 'note', tone: 'warn', text: 'Stopped after many steps. Say "continue" to let it carry on.' })
     else if (end === 'stopped') items.value.push({ kind: 'note', tone: 'info', text: 'Stopped.' })
   } catch (e) {
-    items.value.push({ kind: 'note', tone: controller?.signal.aborted ? 'info' : 'error', text: describeError(e) })
+    if (live()) items.value.push({ kind: 'note', tone: ctl.signal.aborted ? 'info' : 'error', text: describeError(e) })
   } finally {
+    // A step cut short by Stop never reports back: show it as stopped, not running forever.
+    if (live()) for (const it of items.value) if (it.kind === 'tool' && it.state === 'running') Object.assign(it, { state: 'error', summary: 'stopped' })
     busy.value = false
-    controller = null
+    if (controller === ctl) controller = null
   }
 }
+/** Stops the run at once, whatever it's waiting on (runAgent races every step against the signal). */
 function stop() {
-  controller?.abort()
   answerPending?.({ answer: 'reject', notes: 'Stopped by the user.' })
+  controller?.abort()
 }
-/** Clears the conversation (it can't be reopened), after asking when `confirmFirst`. */
+/**
+ * Clears the conversation (it can't be reopened), after asking when `confirmFirst`. Works while
+ * the assistant is busy too: it stops the run first, and the stopped run's last words are dropped.
+ */
 function newChat(confirmFirst = false) {
-  if (busy.value) return
-  if (confirmFirst && items.value.length && !confirm('Start a new chat? This conversation will be cleared (your workspace stays as it is).')) return
+  if (confirmFirst && items.value.length && !confirm(busy.value ? 'Stop the assistant and start a new chat? This conversation will be cleared (your workspace stays as it is).' : 'Start a new chat? This conversation will be cleared (your workspace stays as it is).')) return
+  if (busy.value) stop()
+  chatGen++
   items.value = []
   usage.value = emptyUsage()
   session = null
@@ -269,7 +282,7 @@ const usageText = computed(() => {
         <strong>Dataset processor</strong>
         <span class="muted small">{{ labelOf(chatModel ?? model) }}</span>
       </div>
-      <UiButton size="compact" title="Clear this conversation and start over" :disabled="busy || !items.length" @click="newChat(true)">New chat</UiButton>
+      <UiButton size="compact" title="Clear this conversation and start over" :disabled="!items.length" @click="newChat(true)">New chat</UiButton>
       <UiButton size="compact" icon="⚙" :active="settings" :aria-pressed="settings" title="API key and model" aria-label="Settings: API key and model" @click="settings = !settings" />
       <UiButton size="compact" icon="✕" title="Close" aria-label="Close" @click="emit('close')" />
     </header>
