@@ -317,6 +317,10 @@ Two additions from reviewing it here, beyond what the originating project report
   everything downstream, writers before readers, one by one, stopping at the first failure.
 - **Changed:** the transform editor is compact — one line per input / output — with a sticky,
   collapsible preview dock: tap an input for its rows, an output for what its SQL makes.
+- **Added:** double-click / double-tap a card opens it (Explore / editor); visualizations' checkbox
+  became a Visible / Hidden pill. Decided: **cards only** — graph nodes keep tap = select / tap again = deselect. A single tap already opens the node's
+  card, which shifts the layout between the two clicks (scroll anchoring moved a node 31 px), so a
+  double-tap there was timing-dependent. `overflow-anchor: none` on the side panel and pop-out.
 - **Added:** **Explore** replaces a dataset's Preview: a SQL window over the dataset (and the
   workspace's others, by table name) with paged results, 200 rows a page. Made for checking joins —
   e.g. which rows of an upload find no county.

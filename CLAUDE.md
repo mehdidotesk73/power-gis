@@ -227,8 +227,11 @@ whatever they're actually asking about.
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
   Menus: datasets — Explore, Edit, Copy id, Reorder, Remove from workspace; visualizations
-  (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Preview,
-  Run, Edit, Delete.
+  (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
+  data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
+  (`useDoubleTap`: two clicks on one card within 350 ms; not on buttons, fields or `[data-no-open]`
+  editors) opens it: a dataset's Explore, a transform's or visualization's editor (`@open`). **Cards only** —
+  graph nodes stay tap = select / tap again = deselect (a double-tap there raced the card's layout shift).
 - **List view** panels (Visualizations, Transforms, Datasets, then Export) open collapsed; each
   panel's ＋ button sits at its top. All ＋ buttons (graph and lists) are the global `.kind-pill`
   (`k-dataset` / `k-transform` / `k-viz`, in `vars.css`).

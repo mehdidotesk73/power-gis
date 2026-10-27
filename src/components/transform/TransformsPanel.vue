@@ -249,6 +249,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
       :actions="actions"
       :hint="compact ? '' : 'Tap and hold a transform to preview, run, edit or delete it.'"
       @action="onAction"
+      @open="(t) => (editing = t.id)"
     >
       <template #default="{ item: t }">
         <div class="title">
@@ -259,7 +260,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
           <span v-else-if="status[t.id]?.state === 'error'" class="bad">{{ message(t.id) }}</span>
         </div>
 
-        <div v-if="editing === t.id" v-reveal class="ed">
+        <div v-if="editing === t.id" v-reveal class="ed" data-no-open>
           <label class="row">Name <input type="text" :value="t.name" @change="patch(t, { name: ($event.target as HTMLInputElement).value })" /></label>
 
           <div class="lbl">Inputs <span class="muted">— tap one to preview it below; "as" is its table name in the SQL</span></div>

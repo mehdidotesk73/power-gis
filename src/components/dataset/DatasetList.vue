@@ -78,6 +78,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
     reorderable
     :hint="compact ? '' : 'Tap and hold a dataset for options.'"
     @action="onAction"
+    @open="(ds) => (exploring = ds)"
     @reorder="(ids) => emit('reorder', ids)"
   >
     <template #default="{ item: ds }">
@@ -87,7 +88,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
         <span class="muted">{{ stats(ds) }} · {{ ds.origin }}</span>
         <span v-if="copied === ds.id" class="copied">Id copied ✓</span>
       </div>
-      <div v-if="editing === ds.id" class="edit">
+      <div v-if="editing === ds.id" class="edit" data-no-open>
         <label>
           Name
           <input type="text" :value="ds.name" @change="emit('update', ds.id, { name: ($event.target as HTMLInputElement).value })" />

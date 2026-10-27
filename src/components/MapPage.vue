@@ -774,7 +774,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             @run-stale="runAllStale"
           />
         </section>
-        <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
+        <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal.late="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
           <div class="dag-detail-head">
             <strong>{{ dagNewDataset ? 'New dataset' : dagNewViz ? 'New visualization' : dagNode!.kind === 'dataset' ? 'Dataset' : dagNode!.kind === 'transform' ? 'Transform' : 'Visualization' }}</strong>
             <button class="close" aria-label="Close" @click="closeNode">✕</button>
@@ -961,6 +961,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .controls {
   min-width: 0; /* a wide editor must not widen the column past the screen */
+  /* No scroll anchoring: when the card under the graph changes size, the browser would shift the
+     scroll and move the graph between the two clicks of a double-click. */
+  overflow-anchor: none;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1031,6 +1034,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .pop {
   box-sizing: border-box;
+  overflow-anchor: none;
   width: min(72rem, 100%);
   max-height: 95dvh;
   overflow: auto;

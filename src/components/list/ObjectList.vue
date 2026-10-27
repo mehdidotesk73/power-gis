@@ -8,6 +8,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useDragReorder } from './useDragReorder'
 import { useLongPress } from './useLongPress'
+import { useDoubleTap } from './useDoubleTap'
 
 export interface ObjectAction {
   id: string
@@ -35,7 +36,12 @@ const props = withDefaults(
   }>(),
   { reorderable: false, reorderHint: 'Drag ≡ to reorder', itemLabel: () => 'Item', hint: 'Tap and hold for options.' },
 )
-const emit = defineEmits<{ (e: 'action', id: string, item: T): void; (e: 'reorder', ids: string[]): void }>()
+const emit = defineEmits<{
+  (e: 'action', id: string, item: T): void
+  (e: 'reorder', ids: string[]): void
+  /** A double click / double tap on a card (not on its buttons, fields or editors). */
+  (e: 'open', item: T): void
+}>()
 defineSlots<{ default(props: { item: T }): unknown }>()
 
 const REORDER: ObjectAction = { id: 'reorder', label: 'Reorder', icon: '≡' }
@@ -114,6 +120,15 @@ function listen(on: boolean) {
 watch(menuFor, (id, was) => (!!id !== !!was ? listen(!!id) : undefined))
 onBeforeUnmount(() => listen(false))
 
+// ── double click / double tap: the list's main action for the card ─────────
+// Clicks on controls and inside editors (marked data-no-open) don't count.
+const NOT_OPEN = 'input, textarea, select, button, a, .handle, [data-no-open]'
+const isDouble = useDoubleTap()
+function onCardClick(e: MouseEvent, item: T) {
+  if (reordering.value || menuFor.value || (e.target as HTMLElement).closest(NOT_OPEN)) return
+  if (isDouble(props.itemKey(item))) emit('open', item)
+}
+
 defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
 </script>
 
@@ -132,6 +147,7 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
         class="card"
         :class="{ dragging: dragging === itemKey(item), held: menuFor === itemKey(item) }"
         v-on="holdHandlers(itemKey(item))"
+        @click="onCardClick($event, item)"
       >
         <span
           v-if="reordering"
