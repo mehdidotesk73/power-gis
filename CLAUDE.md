@@ -127,7 +127,8 @@ whatever they're actually asking about.
   `datasetIds`, ordered `visualizationIds`), `datasets` (registry: data table name, columns, row
   count, origin, description, `extensions`), `transforms` (SQL, inputs `{datasetId, alias}`, output
   id), `visualizations` (dataset id + settings). **Each dataset is its own data table**
-  (`ds_<uuid>`). Datasets carry standard metadata only — **source and usage policy are not dataset
+  (`ds_<uuid>`). **Stores**: `DatasetRecord.store` `local` (this device) | `remote` (Supabase, later;
+  `moveDataset` says it isn't available yet), missing = local — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
   properties**.
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
@@ -148,7 +149,8 @@ whatever they're actually asking about.
   `WorkspaceBar` — the **Workspace** button in the header, teleported there from `MapPage` into
   `#header-workspace`; amber with a ● while unsaved; it drops down the name, counts, Save / Discard and
   the file actions) until Save sends `saveWorkspace`. **Workspace files** (`lib/workspace/file.ts`):
-  download / load a `.powergis.json` of pointers + settings, never rows; loading replaces the
+  download / load a `.powergis.json` of pointers + settings, never rows (or Copy / Paste the same JSON
+  via the clipboard; Paste opens a box filled from the clipboard); loading replaces the
   working copy (fresh visualization ids, datasets missing from the database dropped and reported).
   Details: `docs/system-design.md` §4.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
@@ -226,7 +228,8 @@ whatever they're actually asking about.
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
-  Menus: datasets — Explore, Edit, Copy id, Reorder, Remove from workspace; visualizations
+  Menus: datasets — Explore, Edit, Copy id, Move to remote storage, Reorder, Remove from workspace,
+  Delete dataset; visualizations
   (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
   data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
   (`useDoubleTap`: two clicks on one card within 350 ms; not on buttons, fields or `[data-no-open]`
@@ -385,4 +388,5 @@ package-lock.json              committed — CI runs `npm ci` and needs it
 - `docs/TODO.md` — current backlog and what's been done.
 - `docs/experience.md` — dead ends (with reasons) + version history.
 - `docs/system-design.md` — developer/system documentation; §2 contains the wrapper template.
+- `docs/agents.md` — the agent design: tools, the local / remote store gate, workflow, runtime.
 - `docs/concepts/*.md` — per-page user docs, also rendered into the Help modal.

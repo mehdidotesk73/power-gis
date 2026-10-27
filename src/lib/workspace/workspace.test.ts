@@ -4,6 +4,7 @@ import {
   addVisualization,
   emptyWorkspace,
   removeDataset,
+  forgetDataset,
   removeVisualization,
   renameWorkspace,
   reorderDatasets,
@@ -54,6 +55,15 @@ describe('workspace operations', () => {
     expect(d.visualizations.map((v) => v.id)).toEqual(['b1'])
     expect(removeDataset(base, 'zz')).toMatchObject({ ok: false, error: { code: 'not_found' } })
     expect(base.datasetIds).toEqual(['a', 'b'])
+  })
+
+  it('forgets a deleted dataset: out of the list, its visualizations gone, outputs no longer written to it', () => {
+    const t = { id: 't', name: 'T', inputs: [{ datasetId: 'b', alias: 'b' }], outputs: [{ key: 'o1', name: 'out', sql: 'SELECT 1', outputId: 'a' }] }
+    const d = doc(forgetDataset({ ...base, transforms: [t] }, 'a'))
+    expect(d.datasetIds).toEqual(['b'])
+    expect(d.visualizations.map((v) => v.id)).toEqual(['b1'])
+    expect(d.transforms[0].outputs[0]).toEqual({ key: 'o1', name: 'out', sql: 'SELECT 1' })
+    expect(forgetDataset({ ...base, transforms: [t] }, 'b')).toMatchObject({ ok: false, error: { code: 'invalid', message: expect.stringContaining('"T"') } })
   })
 
   it('reorders only with a complete permutation', () => {

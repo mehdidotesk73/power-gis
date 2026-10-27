@@ -84,6 +84,25 @@ export function removeDataset(doc: WorkspaceDoc, datasetId: string): OpResult {
   return ok({ ...doc, datasetIds: doc.datasetIds.filter((d) => d !== datasetId), visualizations: doc.visualizations.filter((v) => v.datasetId !== datasetId) })
 }
 
+/**
+ * The workspace without a dataset that is being deleted from the database:
+ * out of the dataset list with its visualizations, and no transform output
+ * writes to it any more (the next Run makes a new dataset). Refused while a
+ * transform reads it.
+ */
+export function forgetDataset(doc: WorkspaceDoc, datasetId: string): OpResult {
+  const user = doc.transforms.find((t) => t.inputs.some((i) => i.datasetId === datasetId))
+  if (user) return fail('invalid', `Transform "${user.name}" uses this dataset as an input — remove it from the transform first`)
+  return ok({
+    ...doc,
+    datasetIds: doc.datasetIds.filter((d) => d !== datasetId),
+    visualizations: doc.visualizations.filter((v) => v.datasetId !== datasetId),
+    transforms: doc.transforms.map((t) =>
+      t.outputs.some((o) => o.outputId === datasetId) ? { ...t, outputs: t.outputs.map(({ outputId, ...o }) => (outputId === datasetId ? o : { ...o, ...(outputId ? { outputId } : {}) })) } : t,
+    ),
+  })
+}
+
 function sameSet(ids: string[], current: string[]): boolean {
   return ids.length === current.length && new Set(ids).size === ids.length && ids.every((id) => current.includes(id))
 }

@@ -3,7 +3,9 @@
 // while there are unsaved changes) that drops down a panel with the name,
 // what the workspace holds, Save / Discard, and the file actions. Edits are
 // a draft (kept on this device across reloads) until Save sends them to the
-// server; a workspace file holds pointers and settings, never rows.
+// server; a workspace file holds pointers and settings, never rows. The same
+// JSON can be copied to the clipboard and pasted back (Paste opens a box,
+// filled from the clipboard where the browser allows; replace it if wrong).
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{
@@ -19,6 +21,8 @@ const emit = defineEmits<{
   (e: 'rename', name: string): void
   (e: 'download'): void
   (e: 'load', file: File): void
+  (e: 'copy'): void
+  (e: 'paste', text: string): void
   (e: 'reset'): void
 }>()
 
@@ -46,6 +50,30 @@ function rename(e: Event) {
   const v = (e.target as HTMLInputElement).value.trim()
   if (v && v !== props.name) emit('rename', v)
 }
+// ── paste a workspace ──────────────────────────────────────────────────────
+
+const pasting = ref(false)
+const pasteText = ref('')
+const pasteBox = ref<HTMLTextAreaElement>()
+async function startPaste() {
+  pasting.value = true
+  pasteText.value = ''
+  // Fill the box from the clipboard (iOS asks with a small Paste bubble; dismissing it leaves the box empty).
+  try {
+    pasteText.value = await navigator.clipboard.readText()
+  } catch {
+    // No permission or no clipboard API: the user pastes by hand.
+  }
+  await nextTick()
+  pasteBox.value?.focus()
+}
+function loadPasted() {
+  const text = pasteText.value.trim()
+  if (!text) return
+  pasting.value = false
+  emit('paste', text)
+}
+
 async function editName() {
   await nextTick()
   nameEl.value?.focus()
@@ -113,8 +141,27 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
         <span class="eyebrow">File</span>
         <button class="item" @click="emit('download')">⤓ Download workspace file</button>
         <button class="item" @click="fileInput?.click()">⤒ Load workspace file…</button>
+        <button class="item" @click="emit('copy')">⧉ Copy workspace</button>
+        <button class="item" :aria-expanded="pasting" @click="pasting ? (pasting = false) : startPaste()">⎘ Paste workspace…</button>
+        <div v-if="pasting" class="paste">
+          <textarea
+            ref="pasteBox"
+            v-model="pasteText"
+            rows="5"
+            placeholder="Paste a copied workspace (its JSON) here"
+            aria-label="Workspace JSON"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+          />
+          <div class="row">
+            <button class="btn" @click="pasteText = ''">Clear</button>
+            <button class="btn" @click="pasting = false">Cancel</button>
+            <button class="btn primary" :disabled="!pasteText.trim()" @click="loadPasted">Load</button>
+          </div>
+        </div>
         <button class="item danger" @click="emit('reset')">↺ Reset to the default map</button>
-        <p class="note">A workspace file holds which datasets it uses, its transforms and its visualizations — not the data itself.</p>
+        <p class="note">A workspace file (or a copied workspace) holds which datasets it uses, its transforms and its visualizations — not the data itself.</p>
       </div>
       <p v-if="message" class="msg">{{ message }}</p>
       <input ref="fileInput" class="hidden" type="file" accept=".json,application/json" @change="onFile" />
@@ -278,6 +325,22 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 }
 .item.danger:hover {
   background: var(--danger-bg);
+}
+.paste {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem 0.4rem;
+}
+.paste textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 0.4rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px; /* below 16px iOS zooms on focus */
+}
+.btn.primary:disabled {
+  opacity: 0.5;
 }
 .note {
   margin: 0.2rem 0 0;

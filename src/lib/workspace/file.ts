@@ -43,23 +43,23 @@ export const fileName = (doc: WorkspaceDoc) => `${doc.name.replace(/[^\w\- ]+/g,
 
 type Parsed = { ok: true; file: WorkspaceFile } | { ok: false; error: string }
 
-/** Validates a workspace file's text; the error says what's wrong. */
+/** Validates a workspace file's text (or a pasted workspace); the error says what's wrong. */
 export function parseWorkspaceFile(text: string): Parsed {
   let o: Partial<WorkspaceFile>
   try {
     o = JSON.parse(text)
   } catch {
-    return { ok: false, error: 'This file is not valid JSON.' }
+    return { ok: false, error: 'This is not valid JSON.' }
   }
-  if (!o || o.format !== FILE_FORMAT) return { ok: false, error: 'This is not a PowerGIS workspace file.' }
-  if (o.version !== FILE_VERSION) return { ok: false, error: `Workspace file version ${o.version} isn't supported (expected ${FILE_VERSION}).` }
+  if (!o || o.format !== FILE_FORMAT) return { ok: false, error: 'This is not a PowerGIS workspace.' }
+  if (o.version !== FILE_VERSION) return { ok: false, error: `Workspace version ${o.version} isn't supported (expected ${FILE_VERSION}).` }
   if (typeof o.name !== 'string' || !Array.isArray(o.datasetIds) || !o.datasetIds.every((d) => typeof d === 'string') || !Array.isArray(o.visualizations)) {
-    return { ok: false, error: 'The workspace file is incomplete or damaged.' }
+    return { ok: false, error: 'The workspace is incomplete or damaged.' }
   }
   for (const v of o.visualizations) {
     const s = v?.settings as Partial<VisualizationSettings> | undefined
     if (typeof v?.name !== 'string' || typeof v.datasetId !== 'string' || !s || (s.kind !== 'scalar' && s.kind !== 'vector') || !s.binding || typeof s.column !== 'string' || !s.style) {
-      return { ok: false, error: 'A visualization in the file is incomplete or damaged.' }
+      return { ok: false, error: 'A visualization in the workspace is incomplete or damaged.' }
     }
   }
   // Transforms: today's outputs list, or (older files) one `sql` + `outputId`.
@@ -68,7 +68,7 @@ export function parseWorkspaceFile(text: string): Parsed {
   for (const t of raw) {
     const outputsOk = Array.isArray(t?.outputs) ? t.outputs.every((x) => typeof x?.sql === 'string' && typeof x.name === 'string' && typeof x.key === 'string') : typeof t?.sql === 'string'
     if (typeof t?.name !== 'string' || !outputsOk || !Array.isArray(t.inputs) || !t.inputs.every((i) => typeof i?.datasetId === 'string' && typeof i.alias === 'string')) {
-      return { ok: false, error: 'A transform in the file is incomplete or damaged.' }
+      return { ok: false, error: 'A transform in the workspace is incomplete or damaged.' }
     }
   }
   return { ok: true, file: { ...(o as WorkspaceFile), transforms: raw.map((t) => normalizeTransform(t)) } }

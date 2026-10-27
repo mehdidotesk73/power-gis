@@ -7,7 +7,7 @@
 import type { ApiError, ApiResult, Payload, RequestType, Response, UploadSource } from '../shared/api'
 import { builtinTable } from '../shared/builtins'
 import type { Database } from '../shared/database'
-import { dataTableName, type DatasetRecord, type TransformInputRef, type TransformRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
+import { dataTableName, storeOf, type DatasetRecord, type TransformInputRef, type TransformRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
 import { featureTable, type DataRecord } from '../lib/data/connectors'
 import { parseCsv } from '../lib/data/csv'
 import { fetchArcGISLayer, importJSON } from '../lib/arcgis'
@@ -152,6 +152,7 @@ export function createServer(db: Database, env: ServerEnv) {
         rowCount: rows.length,
         profile: profileRows(rows, columns),
         origin: src.origin,
+        store: 'local',
         ...(src.description ? { description: src.description } : {}),
         createdAt: t,
         updatedAt: t,
@@ -195,6 +196,13 @@ export function createServer(db: Database, env: ServerEnv) {
       return { datasetId: id }
     },
 
+    async moveDataset({ id, to }) {
+      const ds = await dataset(id)
+      if (storeOf(ds) === to) return { datasetId: id, store: to }
+      // Only the local store exists so far; the remote one comes with the shared database.
+      return fail('unsupported', "Remote storage isn't available yet, so datasets stay on this device for now.")
+    },
+
     async previewTransform({ sql: query, inputs, limit, offset }) {
       return runSql(query, inputs, Math.min(limit ?? 20, 1000), offset)
     },
@@ -219,7 +227,7 @@ export function createServer(db: Database, env: ServerEnv) {
         const id = existing?.id ?? newId()
         const name = o.name.trim() || transform.name.trim()
         const record: DatasetRecord = {
-          ...(existing ?? { id, table: dataTableName(id), origin: `Transform · ${transform.name.trim()}`, name, createdAt: t }),
+          ...(existing ?? { id, table: dataTableName(id), origin: `Transform · ${transform.name.trim()}`, store: 'local' as const, name, createdAt: t }),
           columns: out.columns,
           rowCount: out.rows.length,
           profile: profileRows(out.rows, out.columns),

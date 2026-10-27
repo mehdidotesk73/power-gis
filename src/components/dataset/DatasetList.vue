@@ -2,12 +2,14 @@
 // The workspace's datasets: tables in the database, by pointer, as cards in
 // an ObjectList. Hold a card (right-click with a mouse) for Explore (a SQL
 // window over it, ExploreModal), Edit (rename / describe — a server request — and the profile),
-// Copy id (paste it into a transform's input search), Reorder, and Remove
-// (out of the workspace — the table stays in the database).
+// Copy id (paste it into a transform's input search), Move to remote / local
+// storage, Reorder, Remove (out of the workspace — the table stays in the
+// database) and Delete (the table itself).
 import { ref } from 'vue'
 import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
 import ExploreModal from './ExploreModal.vue'
-import type { DatasetRecord } from '../../shared/records'
+import { request } from '../../client/api'
+import { storeOf, type DatasetRecord } from '../../shared/records'
 
 const props = defineProps<{
   datasets: DatasetRecord[]
@@ -19,6 +21,10 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   (e: 'remove', id: string): void
+  /** Delete the dataset from the database (the page confirms and updates the workspace). */
+  (e: 'delete', id: string): void
+  /** The dataset record changed on the server (moved). */
+  (e: 'changed', id: string): void
   (e: 'reorder', ids: string[]): void
   (e: 'update', id: string, patch: { name?: string; description?: string }): void
 }>()
@@ -29,13 +35,28 @@ const actions = (ds: DatasetRecord): ObjectAction[] => [
   { id: 'explore', icon: '▤', label: 'Explore' },
   { id: 'edit', icon: '✎', label: editing.value === ds.id ? 'Close edit' : 'Edit' },
   { id: 'copy', icon: '⧉', label: 'Copy id' },
+  storeOf(ds) === 'local' ? { id: 'move', icon: '⇡', label: 'Move to remote storage' } : { id: 'move', icon: '⇣', label: 'Move to this device' },
   { id: 'remove', icon: '✕', label: 'Remove from workspace', danger: true },
+  { id: 'delete', icon: '⊗', label: 'Delete dataset', danger: true },
 ]
 function onAction(id: string, ds: DatasetRecord) {
   if (id === 'explore') exploring.value = ds
   else if (id === 'edit') editing.value = editing.value === ds.id ? null : ds.id
   else if (id === 'copy') copyId(ds.id)
+  else if (id === 'move') move(ds)
   else if (id === 'remove') emit('remove', ds.id)
+  else if (id === 'delete') emit('delete', ds.id)
+}
+
+// ── move between stores ────────────────────────────────────────────────────
+
+/** A short note on a card (a move's outcome). */
+const notes = ref(new Map<string, string>())
+async function move(ds: DatasetRecord) {
+  const to = storeOf(ds) === 'local' ? 'remote' : 'local'
+  const r = await request('moveDataset', { id: ds.id, to })
+  notes.value = new Map(notes.value).set(ds.id, r.ok ? `Moved to ${to === 'remote' ? 'remote storage' : 'this device'} ✓` : r.error.message)
+  if (r.ok) emit('changed', ds.id)
 }
 
 // ── copy a dataset id ──────────────────────────────────────────────────────
@@ -85,8 +106,15 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
       <div class="title">
         <strong>{{ ds.name }}</strong>
         <span v-if="ds.description" class="desc">{{ ds.description }}</span>
-        <span class="muted">{{ stats(ds) }} · {{ ds.origin }}</span>
+        <span class="muted">
+          <span class="store" :class="storeOf(ds)" :title="storeOf(ds) === 'local' ? 'Kept on this device' : 'Kept in the shared database'">{{ storeOf(ds) === 'local' ? 'Local' : 'Remote' }}</span>
+          {{ stats(ds) }} · {{ ds.origin }}
+        </span>
         <span v-if="copied === ds.id" class="copied">Id copied ✓</span>
+        <span v-if="notes.get(ds.id)" class="note">
+          {{ notes.get(ds.id) }}
+          <button class="dismiss" aria-label="Dismiss" @click.stop="notes = new Map([...notes].filter(([k]) => k !== ds.id))">✕</button>
+        </span>
       </div>
       <div v-if="editing === ds.id" class="edit" data-no-open>
         <label>
@@ -135,6 +163,36 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
 .copied {
   color: var(--accent-blue);
   font-size: 0.72rem;
+}
+.store {
+  display: inline-block;
+  margin-right: 0.2rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 1rem;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+.store.remote {
+  border-color: var(--kind-dataset);
+  color: var(--kind-dataset);
+}
+.note {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  color: var(--warn);
+}
+.dismiss {
+  padding: 0 0.3rem;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
 }
 .profile {
   display: grid;

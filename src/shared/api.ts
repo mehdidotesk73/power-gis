@@ -9,7 +9,7 @@ import type { Aggregation } from '../lib/dataset/aggregate'
 import type { GeometryBinding } from '../lib/dataset/binding'
 import type { BindingInfo, FindEntry, VizValues } from '../lib/dataset/query'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
-import type { TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
+import type { DatasetStore, TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
 
@@ -51,6 +51,8 @@ export interface Api {
   updateDataset: [{ id: string; name?: string; description?: string; extensions?: Record<string, unknown> }, { datasetId: string }]
   /** Drops the data table and registry row, and every visualization of it. */
   deleteDataset: [{ id: string }, { datasetId: string }]
+  /** Moves a dataset's rows to the other store, keeping its id (remote storage isn't available yet). */
+  moveDataset: [{ id: string; to: DatasetStore }, { datasetId: string; store: DatasetStore }]
   /** How a dataset looks under a binding (features, unmatched rows, defaults). */
   describeBinding: [{ datasetId: string; binding: GeometryBinding }, BindingInfo]
   /** One value per feature for a visualization. */

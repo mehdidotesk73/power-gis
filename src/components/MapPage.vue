@@ -30,7 +30,7 @@ import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
 import { readDb } from '../client/db'
 import { BUILTIN_TABLES } from '../shared/builtins'
-import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
+import { storeOf, type DatasetRecord, type WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { newId, ROW_COUNT } from '../lib/dataset/dataset'
@@ -41,6 +41,7 @@ import {
   addVisualization as addVisualization_,
   emptyWorkspace,
   removeDataset as removeDataset_,
+  forgetDataset,
   removeVisualization as removeVisualization_,
   renameWorkspace,
   reorderDatasets as reorderDatasets_,
@@ -195,10 +196,24 @@ function download() {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }
 
-async function loadFile(f: File) {
-  const parsed = parseWorkspaceFile(await f.text())
+/** Copies the workspace (the same JSON as a workspace file) to the clipboard. */
+async function copyWorkspace() {
+  const text = JSON.stringify(toWorkspaceFile(doc.value), null, 2)
+  try {
+    await navigator.clipboard.writeText(text)
+    barMessage.value = 'Workspace copied — paste it anywhere (Workspace → Paste workspace loads it back).'
+  } catch {
+    barMessage.value = "Couldn't copy to the clipboard on this device — use Download workspace file instead."
+  }
+}
+
+const loadFile = async (f: File) => loadWorkspaceText(await f.text(), 'file')
+
+/** Replaces the working copy with a workspace file's contents (from a file or pasted text). */
+async function loadWorkspaceText(text: string, from: 'file' | 'paste') {
+  const parsed = parseWorkspaceFile(text)
   if (!parsed.ok) return void (barMessage.value = parsed.error)
-  if (dirty.value && !confirm('Replace your unsaved changes with the workspace from this file?')) return
+  if (dirty.value && !confirm(`Replace your unsaved changes with the ${from === 'file' ? 'workspace from this file' : 'pasted workspace'}?`)) return
   for (const id of parsed.file.datasetIds) await loadRecord(id)
   const { doc: next, missing } = fromWorkspaceFile(parsed.file, doc.value, (id) => records.value.has(id))
   resetSelection()
@@ -233,6 +248,21 @@ async function onAddDataset(datasetId: string) {
 function removeDataset(id: string) {
   if (!apply(removeDataset_(doc.value, id))) return
   if (selected.value && vizById.value.get(selected.value.vizId)?.datasetId === id) selected.value = null
+}
+
+/** Deletes a dataset from the database: out of the workspace first (refused while a transform reads it), then the table. */
+async function deleteDataset(id: string) {
+  const ds = records.value.get(id)
+  const where = ds && storeOf(ds) === 'remote' ? 'the shared database' : 'this device'
+  if (!confirm(`Delete "${ds?.name ?? id}" from ${where}? Its rows are gone for good, and its visualizations go with it (in other saved workspaces too).`)) return
+  const next = forgetDataset(doc.value, id)
+  if (!next.ok) return void alert(next.error.message)
+  if (!(await call('delete dataset', request('deleteDataset', { id })))) return void alert("The dataset couldn't be deleted — see View logs.")
+  if (selected.value && vizById.value.get(selected.value.vizId)?.datasetId === id) selected.value = null
+  apply(next)
+  const left = new Map(records.value)
+  left.delete(id)
+  records.value = left
 }
 
 async function updateDataset(id: string, patch: { name?: string; description?: string }) {
@@ -737,6 +767,8 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           @rename="rename"
           @download="download"
           @load="loadFile"
+          @copy="copyWorkspace"
+          @paste="(text: string) => loadWorkspaceText(text, 'paste')"
           @reset="resetWorkspace"
         />
       </Teleport>
@@ -801,6 +833,8 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             :tables="datasets"
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
             @remove="removeDataset"
+            @delete="deleteDataset"
+            @changed="loadRecord"
             @reorder="reorderDatasets"
             @update="updateDataset"
           />
@@ -866,6 +900,8 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             :datasets="datasets"
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
             @remove="removeDataset"
+            @delete="deleteDataset"
+            @changed="loadRecord"
             @reorder="reorderDatasets"
             @update="updateDataset"
           />

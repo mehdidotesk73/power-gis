@@ -37,7 +37,7 @@ describe('workspace files', () => {
   })
 
   it('rejects files that are not workspaces, with a reason', () => {
-    expect(parseWorkspaceFile('{')).toEqual({ ok: false, error: 'This file is not valid JSON.' })
+    expect(parseWorkspaceFile('{')).toEqual({ ok: false, error: 'This is not valid JSON.' })
     expect(parseWorkspaceFile('{"type":"FeatureCollection"}')).toMatchObject({ ok: false, error: expect.stringContaining('not a PowerGIS') })
     expect(parseWorkspaceFile(JSON.stringify({ ...toWorkspaceFile(doc), version: 9 }))).toMatchObject({ ok: false, error: expect.stringContaining('version 9') })
     const broken = { ...toWorkspaceFile(doc), visualizations: [{ name: 'x', datasetId: 'a', settings: { kind: 'scalar' } }] }

@@ -75,6 +75,13 @@ Track feature development, improvements, and known issues here. Move completed w
 - **Workspace in the header** — Workspace button (amber ● when unsaved) with a drop-down panel; list
   panels ordered Visualizations / Transforms / Datasets with the same ＋ pills.
 - **Graph pan / zoom** — drag, Shift + wheel, trackpad pinch; phones: hold then drag, pinch.
+- **Dataset stores + copy / paste workspace** — `DatasetRecord.store` (`local` | `remote`, missing =
+  local; `storeOf`), a Local / Remote chip on dataset cards; dataset menu **Move to remote storage**
+  (`moveDataset`: answers that remote storage isn't available yet) and **Delete dataset**
+  (`deleteDataset` + workspace op `forgetDataset`: refused while a transform reads it; outputs that
+  wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
+  clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
+  design and workflow written up in `docs/agents.md`.
 
 ## Next (Current Sprint)
 
@@ -202,43 +209,24 @@ Three layers; maps and charts are the same kind of thing:
   widget's layers); a tab = an arrangement of widgets.
 - **Keep now:** transforms as pure SELECTs; map selection as an emitted `{visualization, key}`.
 
-**Decided:** DuckDB for SQL · scraped datasets live **on the device** · agents may run only while
-the app is open at first · agents run on **Claude Managed Agents** with a thin **Netlify Function**
-bridge (holds the Anthropic API key, starts sessions, relays clarifications/approvals/results).
-**Postponed:** user login / cloud workspace · split screen.
+**Decided:** DuckDB for SQL · agents run **in the app** (the loop in the page, each user's own
+Anthropic API key on their device, calls straight from the browser) · agents read any dataset and
+change only **local** ones (see `docs/agents.md`).
+**Postponed:** user login / cloud workspace · split screen · PowerGIS as a connector in the Claude apps.
 **Order:** data-finding agents → tabs (widget layout) → static charts → interactivity → agents
 composing displays — each step useful alone, none reworked by the next.
 
 ### Agent workflow (step 5)
 
-- **Orchestrator** — takes a request ("all datacenters and their loads", "temperature");
-  asks clarifying questions when ambiguous (e.g. frequency daily/weekly…, aggregate avg/max/min);
-  decides which base datasets are needed (e.g. datacenter load + county population + county→state
-  map → load-per-capita by state); writes a **scraping request** per base dataset (loose list of
-  intended columns), a **transformation plan** and a **visualization plan**, each with
-  requirements the previous stage must meet. Spawns one scraper per dataset; assesses each
-  scraper's summary against the transformation requirements (approve, or adjust the plan / the
-  scraping request — sometimes waiting on several scrapers first); shares what's already found
-  so agents don't repeat work. Checks every source's **usage policy** and reports at the end
-  whether the data can be shared publicly or is personal-use only. Sources and usage policies live
-  in the **workflow's run records** (per request: plans, agent reports, approvals, sources,
-  policies), linked to the datasets it produced — not as properties of the datasets themselves. Sends one or several parallel
-  transform requests; checks transformer metadata against visualization requirements; sends
-  visualization requests; **orders** the returned visualizations; summarizes and asks the user to
-  approve or adjust (adjustments restart the cycle with updated instructions). **No agent is
-  iterated more than 5 times per cycle** — past that, report exactly what happened.
-- **Scraper agent** — searches the web for one dataset; reports a profile (partial vs complete,
-  matched / missing columns, row count) and sources; saves and returns the data only after
-  approval; its report (part of the run record) lists **all sources** and their usage terms.
-- **Transformer agent** — writes SQL (DuckDB) for its transformation request, creates the
-  transformed datasets, reports their profiles; saves and returns only after approval.
-- **Visualizer agent** — turns visualization requests (strategy + datasets) into visualization
-  specs (the step-1 operations) and returns them.
-- **Runtime** — Managed Agents sessions (orchestrator + sub-agents, built-in web search/fetch,
-  per-session container with DuckDB for transforms, session dollar budgets as a backstop to the
-  5-iteration cap); a Netlify Function bridge; datasets returned as files and stored on device;
-  a chat panel in the app for clarifications, approvals and the final summary; every step logged
-  into the DAG.
+The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
+
+1. ~~Dataset stores, Move / Delete, Copy / Paste workspace~~ (done).
+2. ~~Query speed-up~~: already there (loaded tables stay in DuckDB until their dataset changes).
+3. **Agent**: API key setting, chat panel, the loop with the six tools (`get_workspace`,
+   `query_sql`, `update_workspace`, `run_transform`, `delete_dataset` + web search / fetch), the
+   server-side gate for `caller: 'agent'`, instructions (orchestrator, scout source reports,
+   surveyor, transformer, visualizer), run records.
+4. **Supabase**: login, the remote store (Move to remote / local for real), storage limits.
 
 ### Backlog
 
