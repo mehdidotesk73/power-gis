@@ -102,6 +102,15 @@ describe('server', () => {
     expect(await db.readRows(`ds_${a.replace(/-/g, '')}`)).toBeUndefined()
   })
 
+  it('keeps new datasets in the local store; moving to remote is not available yet', async () => {
+    const { db, server } = setup()
+    const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
+    expect((await db.get('datasets', datasetId))!.store).toBe('local')
+    expect(data(await server.handle('moveDataset', { id: datasetId, to: 'local' }))).toEqual({ datasetId, store: 'local' })
+    expect(await server.handle('moveDataset', { id: datasetId, to: 'remote' })).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+    expect((await db.get('datasets', datasetId))!.store).toBe('local')
+  })
+
   it('renames datasets and reports unknown requests and ids', async () => {
     const { db, server } = setup()
     const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))

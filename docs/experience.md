@@ -312,6 +312,19 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Dataset stores + copy / paste workspace — 2026-10-27
+- **Added:** every dataset has a store, **Local** (this device) or **Remote** (shared database,
+  later), shown on its card. **Move to remote storage** exists and answers that remote storage
+  isn't available yet. **Delete dataset** on the card (not while a transform reads it).
+- **Added:** **Copy workspace** / **Paste workspace…** in the Workspace panel: the workspace file's
+  JSON through the clipboard. Paste opens a box filled from the clipboard (iOS asks with its Paste
+  bubble), so a wrong clipboard is fixed by Clear and paste again.
+- **Docs:** `docs/agents.md`, the agent design: one in-app agent, the user's own API key on the
+  device, six tools (read anything; change only local datasets, also enforced by the server),
+  profiling by `SUMMARIZE` rather than a profile tool. Replaces the Managed Agents plan.
+- **Found:** the planned "query speed-up" was already there: loaded tables stay in DuckDB until
+  their dataset's `updatedAt` changes.
+
 ### Run all stale — 2026-10-26
 - **Added:** ↻ Run all stale (graph toolbar and list Transforms panel): every stale transform plus
   everything downstream, writers before readers, one by one, stopping at the first failure.

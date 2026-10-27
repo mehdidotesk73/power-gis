@@ -141,7 +141,8 @@ backend (Supabase + functions) is a refactor, not a rewrite.
 - **Server** — `src/server/server.ts` (`createServer(db, env)`), run in a **Web Worker** by
   `worker.ts`. Requests (`src/shared/api.ts`): `init`, `uploadDataset` (CSV / GeoJSON-Esri file,
   ArcGIS URL, built-in table → new data table + registry row), `updateDataset`,
-  `deleteDataset` (cleans up visualizations and workspace configs), `describeBinding` (features,
+  `deleteDataset` (cleans up visualizations and workspace configs), `moveDataset` (to the other
+  store, same id; remote isn't available yet, so moving there answers `unsupported`), `describeBinding` (features,
   unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
   `previewTransform`, `runTransform`, `profileDataset`,
   `saveWorkspace` (upserts its visualization and transform records, deletes dropped ones), `deleteWorkspace`.
@@ -153,7 +154,11 @@ backend (Supabase + functions) is a refactor, not a rewrite.
 - **Database** — `src/shared/records.ts`. Base tables `users`, `workspaces`, `datasets`,
   `transforms`, `visualizations`: every record has a uuid `id`, an editable `name`, created/updated.
   A workspace's `config` holds only pointers (`datasetIds`, ordered `visualizationIds`). Each
-  dataset's rows are their own data table (`ds_<uuid>`). IndexedDB (`shared/idb.ts`, database
+  dataset's rows are their own data table (`ds_<uuid>`). Each dataset has a **store**
+  (`DatasetRecord.store`: `local` on this device, `remote` in the shared database later; missing =
+  local; `storeOf`): the same functions on both, and agents may change only local ones
+  (`docs/agents.md`). Deleting a dataset from a card (`forgetDataset` op, then `deleteDataset`) is
+  refused while a draft transform reads it. IndexedDB (`shared/idb.ts`, database
   `powergis-db`: one store per base table + `data`) on this device; `MemoryDatabase` for tests. No
   access control yet — an access layer between users and tables comes later.
 - **Geometry columns.** `point`, `polyline` and `region` are column types (`lib/dataset/columns.ts`):
@@ -348,6 +353,8 @@ requests, not workspace ops, since datasets are shared records.
   anything else with a readable reason. `fromWorkspaceFile` loads into the current workspace (keeps
   its id), gives visualizations fresh ids (so they never collide with another workspace's records),
   and drops datasets the database doesn't have, reporting them. The load is a draft until Save.
+  The same JSON goes to the clipboard (**Copy workspace**) and back (**Paste workspace…**: a box
+  filled from the clipboard where the browser allows it, then Load) through `loadWorkspaceText`.
 - **Reset** replaces the copy with the default utilities map (a draft; datasets stay in the database).
 - On open it calls `init`, opens the last-used (or newest) workspace, or seeds and saves one with the
   built-in utilities dataset (reused if already uploaded). Visualization values are fetched per
