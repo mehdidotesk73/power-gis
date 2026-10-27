@@ -314,8 +314,8 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Assistant: dataset processor agent — 2026-10-27
 - **Added:** ✦ Assistant (header): a chat with an agent that studies the workspace's datasets,
-  writes and runs transforms, and sets up visualizations, through seven tools (`get_workspace`,
-  `list_datasets`, `ask_user`, `query_sql`, `update_workspace`, `run_transform`, `delete_dataset`) that call the page's own
+  writes and runs transforms, and sets up visualizations, through its tools (`get_workspace`,
+  `list_datasets`, `ask_user`, `query_sql`, `update_dataset`, `update_workspace`, `run_transform`, `delete_dataset`) that call the page's own
   functions. The user's own Anthropic API key, stored on the device; calls go straight to Anthropic
   from the browser (`claude-opus-5-5`, streaming, server-side fallbacks, prompt caching).
 - **Added:** one dataset finder, `listDatasets()` (`client/datasets.ts`), behind ＋ Dataset → Saved,

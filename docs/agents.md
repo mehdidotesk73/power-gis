@@ -72,10 +72,11 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
 | `update_workspace(config, version)` | **gated** | Replaces the draft with a modified config | Loading a workspace file into the draft |
 | `run_transform(id)` | **gated** | Runs one transform of the draft; returns row counts or the error | `runTransform` |
+| `update_dataset(id, name?, description?)` | **gated** | Renames / describes a dataset (rows untouched); the agent names and describes what it keeps | `updateDataset` |
 | `delete_dataset(id)` | **gated** | Deletes a dataset and its rows | `deleteDataset` + `forgetDataset` |
 
 **(built)** The dataset processor has `get_workspace`, `list_datasets`, `ask_user`, `query_sql`,
-`update_workspace`, `run_transform` and `delete_dataset`. Notes from building them:
+`update_workspace`, `run_transform`, `update_dataset` and `delete_dataset`. Notes from building them:
 
 - **The workspace comes first.** The user normally adds the datasets they care about to the
   workspace, then asks for something. The agent reports which workspace datasets look relevant

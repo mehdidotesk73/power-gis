@@ -36,6 +36,8 @@ export interface AgentHost {
   values(datasetId: string, binding: GeometryBinding, column: string, aggregation: Aggregation): Promise<VizValues | string>
   runTransform(id: string): Promise<{ ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }>
   deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
+  /** Renames or describes a dataset (its rows are untouched). */
+  updateDataset(id: string, patch: { name?: string; description?: string }): Promise<{ ok: true } | { ok: false; message: string }>
   /** Shows the user a question (and optional details) with Approve / Reject and a notes box; resolves with their answer. */
   ask(question: string, details?: string): Promise<UserAnswer>
 }
@@ -182,6 +184,16 @@ export const TOOLS: ToolSpec[] = [
     description:
       'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns row counts and dataset ids. Refused if an output would write a remote dataset.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  },
+  {
+    name: 'update_dataset',
+    description:
+      "Rename a local dataset and/or set its description (its rows don't change). Refused for remote datasets. Give datasets you create a clear name and a one-line description (what each row is, the source, the period), so they're easy to find later.",
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' } },
+      required: ['id'],
+    },
   },
   {
     name: 'delete_dataset',
@@ -510,6 +522,20 @@ async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   return ok({ outputs: r.outputs, version: workspaceVersion(host.doc()) }, r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · '))
 }
 
+async function updateDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.id), '`id` is required')
+  need(optStr(input.name) && optStr(input.description), '`name` and `description` must be text')
+  need(input.name !== undefined || input.description !== undefined, 'Give a new name, a description, or both')
+  need(input.name === undefined || (input.name as string).trim(), 'A dataset needs a name')
+  const d = await host.dataset(input.id)
+  need(d, `No dataset "${input.id}"`)
+  if (storeOf(d) === 'remote') return err(`"${d.name}" is in remote storage — only the user can change it.`, 'refused: remote dataset')
+  const patch = { ...(input.name !== undefined ? { name: (input.name as string).trim() } : {}), ...(input.description !== undefined ? { description: (input.description as string).trim() } : {}) }
+  const r = await host.updateDataset(d.id, patch)
+  if (!r.ok) return err(r.message)
+  return ok({ id: d.id, ...patch }, patch.name && patch.name !== d.name ? `renamed “${d.name}” → “${patch.name}”` : 'description updated')
+}
+
 async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(str(input.id), '`id` is required')
   const d = await host.dataset(input.id)
@@ -552,6 +578,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await visualizationStats(host, input)
       case 'run_transform':
         return await runTransform(host, input)
+      case 'update_dataset':
+        return await updateDataset(host, input)
       case 'delete_dataset':
         return await deleteDataset(host, input)
       default:

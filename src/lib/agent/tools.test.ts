@@ -45,6 +45,7 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
     },
     runTransform: async (id) => (calls.push(`run ${id}`), { ok: true, outputs: [{ datasetId: 'joined', name: 'JOINED', rowCount: 10, created: false }] }),
     deleteDataset: async (id) => (calls.push(`delete ${id}`), { ok: true }),
+    updateDataset: async (id, patch) => (calls.push(`update ${id} ${JSON.stringify(patch)}`), { ok: true }),
     values: async () => ({
       geometryKind: 'region',
       valueType: 'double',
@@ -90,6 +91,15 @@ describe('agent tools', () => {
     const stats = json((await runTool(host, 'visualization_stats', { id: 'v1' })).content)
     expect(stats).toMatchObject({ visualization: 'Price', features: 7, withValue: 6, nulls: 1, min: 0, max: 10000, atOrBelowZero: 1, belowZero: 0, positiveOrdersOfMagnitude: 4, color: { colormap: 'rdBu', domain: [-5, 5] } })
     expect(await runTool(host, 'visualization_stats', { id: 'nope' })).toMatchObject({ isError: true })
+  })
+
+  it('renames and describes local datasets only', async () => {
+    const { host, calls } = fakeHost()
+    expect((await runTool(host, 'update_dataset', { id: 'prices', name: ' Home prices ', description: 'Zillow ZHVI by county' })).summary).toBe('renamed “PRICES” → “Home prices”')
+    expect(await runTool(host, 'update_dataset', { id: 'shared', name: 'x' })).toMatchObject({ isError: true, summary: 'refused: remote dataset' })
+    expect(await runTool(host, 'update_dataset', { id: 'prices' })).toMatchObject({ isError: true })
+    expect(await runTool(host, 'update_dataset', { id: 'prices', name: '  ' })).toMatchObject({ isError: true })
+    expect(calls).toEqual(['update prices {"name":"Home prices","description":"Zillow ZHVI by county"}'])
   })
 
   it('asks the user and hands the answer and notes back', async () => {

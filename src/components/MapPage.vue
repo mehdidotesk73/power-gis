@@ -279,8 +279,14 @@ async function deleteForGood(id: string, by: Caller = 'user'): Promise<{ ok: tru
   return { ok: true }
 }
 
-async function updateDataset(id: string, patch: { name?: string; description?: string }) {
-  if (await call('update dataset', request('updateDataset', { id, ...patch }))) await loadRecord(id)
+async function updateDataset(id: string, patch: { name?: string; description?: string }, by: Caller = 'user'): Promise<{ ok: true } | { ok: false; message: string }> {
+  const r = await request('updateDataset', { id, ...patch }, by)
+  if (!r.ok) {
+    logDebug(`update dataset: ${r.error.message}`, 'error')
+    return { ok: false, message: r.error.message }
+  }
+  await loadRecord(id)
+  return { ok: true }
 }
 /** New visualization of a dataset column, on top of the list, open for editing. */
 async function addVisualization(datasetId: string, binding: GeometryBinding, column: string) {
@@ -436,6 +442,7 @@ const agentHost: Omit<AgentHost, 'ask'> = {
   },
   runTransform: (id) => runTransform(id, 'agent'),
   deleteDataset: (id) => deleteForGood(id, 'agent'),
+  updateDataset: (id, patch) => updateDataset(id, patch, 'agent'),
 }
 const assistantOpen = ref(false)
 

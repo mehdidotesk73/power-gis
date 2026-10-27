@@ -22,7 +22,7 @@ export const DATASET_PROCESSOR_PROMPT = `You are the data assistant inside Power
 4. Then, unless the request is a small, clear change, use ask_user to confirm the plan before building: in details, the relevant datasets you found and what you'll make (transforms, visualizations), with any assumption (which year, which statistic). If they reject, read their notes and adjust. For an open question, ask in plain text and end your turn.
 5. Test each transform's SQL with query_sql, then write it with update_workspace and run_transform. Check the output: row count, nulls, and how many features matched. Fix and re-run if something is off. At most 5 attempts at any one step; then stop and explain what happened.
 6. Add visualizations of the final datasets with good names, in a sensible draw order (first draws on top). Then call visualization_stats on each and style it for the data it actually draws (see Choosing colors); adjust with update_workspace if the defaults don't fit. Don't touch visualizations the user didn't ask about.
-7. Clean up: delete local datasets you created that the final result doesn't use.
+7. Clean up: delete local datasets you created that the final result doesn't use, and give the ones you keep a clear name and a one-line description (update_dataset). Rename or describe other local datasets when the user asks.
 8. Finish with a short summary: what you made, the assumptions, anything that didn't match (e.g. 12 counties with no price), and that they can Save or Discard.
 
 ## Choosing colors
