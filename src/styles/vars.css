@@ -153,36 +153,4 @@ a:hover {
   filter: invert(1);
 }
 
-/* Compact "add" pills, coloured by the kind they add (as bitcoin-explorer's
-   .toggle): thin border, 12% tint, text in the kind's colour. Used by the
-   graph's toolbar and the list panels alike. */
-.kind-pill {
-  padding: 0.12rem 0.5rem;
-  border: 1px solid var(--pill, var(--accent-blue));
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--pill, var(--accent-blue)) 12%, transparent);
-  color: var(--pill, var(--accent-blue));
-  font-size: 0.68rem;
-  font-weight: 600;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-.kind-pill:not(:disabled):hover {
-  background: color-mix(in srgb, var(--pill, var(--accent-blue)) 24%, transparent);
-}
-.kind-pill:disabled {
-  opacity: 0.45;
-}
-.kind-pill.k-dataset {
-  --pill: var(--kind-dataset);
-}
-.kind-pill.k-transform {
-  --pill: var(--kind-transform);
-}
-.kind-pill.k-viz {
-  --pill: var(--kind-viz);
-}
-/* "Needs attention" actions (↻ Run all stale): amber, always with a mark. */
-.kind-pill.k-attention {
-  --pill: var(--warn);
-}
+/* Buttons: components/ui/UiButton.vue (sizes tag / compact / regular / large, tones by job). */

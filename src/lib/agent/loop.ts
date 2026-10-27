@@ -1,0 +1,94 @@
+// The agent loop, provider-neutral: send the user's message, run the tools the
+// model asks for, send their results back, until the model answers in text
+// (or stops for another reason). Tool calls never throw: every outcome,
+// including a refusal from the gate, goes back to the model to act on.
+
+import { addUsage, emptyUsage, type ChatSession, type ToolCall, type ToolResult, type TurnStop, type Usage, type UserMessage } from './provider'
+
+export interface ToolOutcome {
+  content: string
+  isError: boolean
+  /** One line for the chat ("3,142 rows", "refused: remote dataset"). */
+  summary: string
+}
+
+export interface LoopEvents {
+  onText?(delta: string): void
+  /** A new assistant message starts (after tool results, the model writes again). */
+  onTurnStart?(): void
+  onToolStart?(call: ToolCall): void
+  onToolEnd?(call: ToolCall, outcome: ToolOutcome): void
+  /** Tokens one model turn used, as soon as it ends (so a long or stopped run still counts). */
+  onUsage?(turn: Usage): void
+}
+
+export type LoopEnd = TurnStop | 'step-limit' | 'stopped'
+
+/** Model turns per user message before the loop stops and reports. */
+export const MAX_STEPS = 40
+
+/** The user pressed Stop. */
+export class StoppedError extends Error {
+  constructor() {
+    super('Stopped.')
+  }
+}
+
+/**
+ * Settles with `p`, or rejects with StoppedError the moment `signal` aborts, so Stop never waits
+ * on a slow model call or tool. The work itself may still finish unseen (a transform the engine
+ * already started); its result is ignored.
+ */
+export function untilStopped<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p
+  if (signal.aborted) return Promise.reject(new StoppedError())
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(new StoppedError())
+    signal.addEventListener('abort', onAbort, { once: true })
+    p.then(
+      (v) => (signal.removeEventListener('abort', onAbort), resolve(v)),
+      (e) => (signal.removeEventListener('abort', onAbort), reject(e)),
+    )
+  })
+}
+
+export async function runAgent(
+  session: ChatSession,
+  runTool: (name: string, input: unknown) => Promise<ToolOutcome>,
+  message: string | UserMessage,
+  events: LoopEvents = {},
+  signal?: AbortSignal,
+): Promise<{ end: LoopEnd; usage: Usage }> {
+  let usage = emptyUsage()
+  try {
+    return await loop()
+  } catch (e) {
+    if (e instanceof StoppedError) return { end: 'stopped', usage }
+    throw e
+  }
+
+  async function loop(): Promise<{ end: LoopEnd; usage: Usage }> {
+  let input: Parameters<ChatSession['send']>[0] = typeof message === 'string' ? { text: message } : message
+  for (let step = 0; step < MAX_STEPS; step++) {
+    if (signal?.aborted) return { end: 'stopped', usage }
+    events.onTurnStart?.()
+    const turn = await untilStopped(session.send(input, { onText: events.onText }, signal), signal)
+    usage = addUsage(usage, turn.usage)
+    events.onUsage?.(turn.usage)
+    if (turn.stop !== 'tools') return { end: turn.stop, usage }
+    const results: ToolResult[] = []
+    for (const call of turn.toolCalls) {
+      if (signal?.aborted) {
+        results.push({ id: call.id, content: 'Stopped by the user before this ran.', isError: true })
+        continue
+      }
+      events.onToolStart?.(call)
+      const out = await untilStopped(runTool(call.name, call.input), signal)
+      events.onToolEnd?.(call, out)
+      results.push({ id: call.id, content: out.content, isError: out.isError })
+    }
+    input = { toolResults: results }
+  }
+  return { end: 'step-limit', usage }
+  }
+}

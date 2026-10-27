@@ -3,9 +3,10 @@
 // Esri JSON, ArcGIS URL) — the server stores it as a new table and returns
 // its id — or pick one already in the database. How its rows map to
 // features is chosen per visualization.
+import UiButton from '../ui/UiButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { request } from '../../client/api'
-import { readDb } from '../../client/db'
+import { listDatasets } from '../../client/datasets'
 import type { UploadSource } from '../../shared/api'
 import { BUILTIN_TABLES } from '../../shared/builtins'
 import type { DatasetRecord } from '../../shared/records'
@@ -41,7 +42,7 @@ const stored = ref<DatasetRecord[]>([])
 const available = computed(() => stored.value.filter((d) => !props.inWorkspace.includes(d.id)))
 async function refresh() {
   try {
-    stored.value = (await readDb.list('datasets')).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    stored.value = (await listDatasets()).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   } catch (e) {
     error.value = (e as Error).message
   }
@@ -95,7 +96,7 @@ async function deleteStored(d: DatasetRecord) {
             <span class="muted small">{{ d.rowCount.toLocaleString() }} rows · {{ d.origin }}</span>
           </span>
           <button class="btn primary" @click="emit('add', d.id)">Add</button>
-          <button class="icon" title="Delete from the database" @click="deleteStored(d)">🗑</button>
+          <UiButton size="compact" tone="danger" icon="⊗" aria-label="Delete from the database" title="Delete from the database" @click="deleteStored(d)" />
         </li>
       </ul>
     </template>
@@ -200,11 +201,6 @@ form.row input {
   min-width: 0;
   padding: 0.25rem;
   font-size: 0.8rem;
-}
-.icon {
-  background: none;
-  border: none;
-  color: var(--text-muted);
 }
 .add-vec {
   color: var(--accent-blue);

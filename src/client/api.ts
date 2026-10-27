@@ -2,7 +2,7 @@
 // requests to the server (a Web Worker today, HTTP later). Every call
 // resolves to an ApiResult — check `ok`, never catch.
 import { isProxy, toRaw } from 'vue'
-import type { ApiResult, Payload, RequestMessage, RequestType, Response, ResponseMessage } from '../shared/api'
+import type { ApiResult, Caller, Payload, RequestMessage, RequestType, Response, ResponseMessage } from '../shared/api'
 
 /** Plain data for the wire: Vue's reactive proxies can't be cloned (Files and Blobs pass through). */
 function plain<T>(v: T): T {
@@ -34,10 +34,11 @@ function connect(): Worker {
   return worker
 }
 
-export function request<K extends RequestType>(type: K, payload: Payload<K>): Promise<ApiResult<Response<K>>> {
+/** `caller: 'agent'` marks an agent's request: the server refuses its changes to remote datasets. */
+export function request<K extends RequestType>(type: K, payload: Payload<K>, caller: Caller = 'user'): Promise<ApiResult<Response<K>>> {
   const id = nextId++
   return new Promise((resolve) => {
     pending.set(id, resolve as (r: ApiResult<unknown>) => void)
-    connect().postMessage({ id, type, payload: plain(payload) } satisfies RequestMessage<K>)
+    connect().postMessage({ id, type, payload: plain(payload), ...(caller === 'agent' ? { caller } : {}) } satisfies RequestMessage<K>)
   })
 }

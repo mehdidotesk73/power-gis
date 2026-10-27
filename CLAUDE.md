@@ -128,8 +128,25 @@ whatever they're actually asking about.
   count, origin, description, `extensions`), `transforms` (SQL, inputs `{datasetId, alias}`, output
   id), `visualizations` (dataset id + settings). **Each dataset is its own data table**
   (`ds_<uuid>`). **Stores**: `DatasetRecord.store` `local` (this device) | `remote` (Supabase, later;
-  `moveDataset` says it isn't available yet), missing = local — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
+  `moveDataset` says it isn't available yet), missing = local; **users see "Local" / "Cloud"** — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
   properties**.
+- **Assistant (agents)** (`docs/agents.md`): **✦ Assistant** in the header opens a chat with the
+  dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
+  stays on the device (localStorage `powergis.anthropicKey`); calls go straight to Anthropic
+  (`client/agent/claude.ts`, streaming; the model is picked in ⚙ from `CLAUDE_MODELS`, default
+  `claude-haiku-5-5`, fixed for each chat). Provider-neutral loop and tools in
+  `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`). On desktop the assistant is
+  a column **docked on the right** of the page, resizable (`useSplitter`, `powergis.assistantWidth`;
+  the left panel uses the same composable); on phones a sheet. Screenshots paste or attach (📎),
+  shrunk before sending (`agent/images.ts`). Tools act through an
+  `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. The
+  agent starts from the workspace (`get_workspace`: its datasets' names, descriptions, stores),
+  confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
+  the workspace only with the user's OK, through `list_datasets`, which reads the app's one
+  **dataset finder** (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry
+  later); the prompt names no datasets. Agents
+  read any dataset but change only **local** ones: tools check it, and the server refuses
+  `caller: 'agent'` writes to remote datasets (`request(type, payload, 'agent')`).
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
     device files, in-memory tables, ArcGIS features via `featureTable`).
@@ -228,7 +245,7 @@ whatever they're actually asking about.
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
-  Menus: datasets — Explore, Edit, Copy id, Move to remote storage, Reorder, Remove from workspace,
+  Menus: datasets — Explore, Edit, Copy id, Move to cloud storage, Reorder, Remove from workspace,
   Delete dataset; visualizations
   (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
   data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
@@ -302,7 +319,8 @@ src/
     demo.ts                synthetic vector field for exercising the arrow widget
   shared/                  client ↔ server contract: api, records (tables), database, idb, builtins
   server/                  the server (Web Worker today): server.ts handlers, worker.ts entry, sql.ts + duckdb.ts (transforms)
-  client/                  api.ts (requests to the server), db.ts (read-only database)
+  client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter)
+  lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt
   components/
     map/                   reusable map widgets
       MapView.vue          the map; provides it to child layer widgets
@@ -323,6 +341,7 @@ src/
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
+    agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)
 public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
 scripts/                   data build scripts
 docs/
@@ -350,6 +369,12 @@ package-lock.json              committed — CI runs `npm ci` and needs it
   `u` = east component, `v` = north component.
 - **ArcGIS type mapping** is in `src/lib/arcgis.ts`'s header comment. Composite types travel as JSON
   strings in Esri fields; our full schema rides along under the `x-powergis` key.
+- **Buttons are `UiButton`** (`components/ui/UiButton.vue`): `size` tag (pills: ＋ Dataset, Visible /
+  Hidden) / compact (header controls, small icons) / regular (default; ⤢, tool buttons) / large;
+  `tone` neutral / primary / dataset / transform / viz / attention / ok / danger; `icon` (a glyph,
+  drawn 1.35× the label; icon only = square, give it an aria-label); `active` for toggles. Label
+  and glyph scale with the size, padding stays tight. Use it for new buttons; older text `.btn`
+  buttons are being moved over (`docs/TODO.md`, component audit).
 - **Dark only, colours by job** (`src/styles/vars.css`, table in `docs/system-design.md` §2): blue =
   interaction only; violet = datasets, orange = transforms, green = visualizations / success; amber =
   needs attention, always with a mark (↻, ●, ⚠); red = errors. Components use tokens, never literals;

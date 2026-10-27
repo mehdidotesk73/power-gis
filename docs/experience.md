@@ -312,6 +312,42 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Assistant: dataset processor agent — 2026-10-27
+- **Added:** ✦ Assistant (header): a chat with an agent that studies the workspace's datasets,
+  writes and runs transforms, and sets up visualizations, through its tools (`get_workspace`,
+  `list_datasets`, `ask_user`, `query_sql`, `update_dataset`, `update_workspace`, `run_transform`, `delete_dataset`) that call the page's own
+  functions. The user's own Anthropic API key, stored on the device; calls go straight to Anthropic
+  from the browser (`claude-opus-5-5`, streaming, server-side fallbacks, prompt caching).
+- **Added:** one dataset finder, `listDatasets()` (`client/datasets.ts`), behind ＋ Dataset → Saved,
+  the default map's seeding and the agent's `list_datasets`; the prompt names no datasets. The agent
+  starts from the workspace and confirms its plan with `ask_user` (Approve / Reject card + notes);
+  it looks at datasets outside the workspace only when the user agrees.
+- **Added:** model choice in the assistant's settings (Opus 5.5 default; Fable 5.1, Sonnet, Haiku and
+  older models), fixed for each chat: a new choice applies from the next chat.
+- **Added:** screenshots in the chat (paste or 📎; shrunk to 1,568 px JPEG); `visualization_stats` and
+  data-aware styling rules (log scale as a setting, centered diverging maps, clipping domains;
+  legend marks clipped ends); a log scale now starts at the smallest positive value. Default model
+  Haiku 5.5. The assistant docks on the right on desktop, resizable (`useSplitter`).
+- **Added:** `UiButton` with sizes (tag / compact / regular / large) and tones: glyphs drawn larger
+  than text and tight padding; pills, header, icon and assistant buttons moved to it. **New chat**
+  is a labeled button that confirms (a ＋ read as "add", but it clears the conversation).
+- **Fixed:** a long `update_workspace` input from Haiku ended in stray characters and the step failed
+  with a raw JSON dump. Eager input streaming is off (the API validates tool inputs again), kept
+  items can be sent as `{id}` (smaller inputs), and the error now reads in plain words with the
+  details folded away. "Remote" storage is called **cloud** everywhere users see it.
+- **Fixed:** Stop only took effect between steps, so a hung request or slow tool held the chat (and
+  New chat was disabled while busy). Now every step is raced against Stop (`untilStopped`), and New
+  chat stops the run first.
+- **Added:** the server refuses an agent's (`caller: 'agent'`) changes to remote datasets.
+- **Design:** a provider-neutral loop (`lib/agent/`) with an adapter per AI provider; tool inputs are
+  validated before anything runs, and a workspace update is all-or-nothing with every problem
+  listed for the model. Visualizations travel in a compact form filled from the app's defaults, so
+  the model never writes full style JSON.
+- **Tested:** tools and loop with a fake host and scripted model; the Claude adapter against a fake
+  streaming API (request shape, history, pause / truncation / Stop); end to end in a headless
+  browser with the API stubbed (real DuckDB queries and workspace edits). Not yet tested against
+  the real API from here (no key in the sandbox).
+
 ### Dataset stores + copy / paste workspace — 2026-10-27
 - **Added:** every dataset has a store, **Local** (this device) or **Remote** (shared database,
   later), shown on its card. **Move to remote storage** exists and answers that remote storage

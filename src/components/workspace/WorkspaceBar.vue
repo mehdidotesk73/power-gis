@@ -6,6 +6,7 @@
 // server; a workspace file holds pointers and settings, never rows. The same
 // JSON can be copied to the clipboard and pasted back (Paste opens a box,
 // filled from the clipboard where the browser allows; replace it if wrong).
+import UiButton from '../ui/UiButton.vue'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{
@@ -98,18 +99,19 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
 <template>
   <div ref="root" class="ws">
-    <button
+    <UiButton
+      size="compact"
+      :tone="dirty ? 'attention' : 'neutral'"
+      :icon="dirty ? '●' : undefined"
+      :active="open"
       class="ws-btn"
-      :class="{ dirty }"
       :aria-expanded="open"
       aria-haspopup="dialog"
       :title="dirty ? `${name} — unsaved changes` : name"
       @click="toggle"
     >
-      <span v-if="dirty" class="dot" aria-hidden="true">●</span>
-      <span>Workspace</span>
-      <span class="caret" aria-hidden="true">▾</span>
-    </button>
+      Workspace <span class="caret" aria-hidden="true">▾</span>
+    </UiButton>
 
     <div v-if="open" class="panel" role="dialog" aria-label="Workspace">
       <div class="head">
@@ -122,7 +124,7 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
           @change="rename"
           @keydown.enter="($event.target as HTMLInputElement).blur()"
         />
-        <button class="icon" aria-label="Rename" title="Rename" @click="editName">✎</button>
+        <UiButton size="compact" icon="✎" aria-label="Rename" title="Rename" @click="editName" />
       </div>
       <p class="holds">
         {{ plural(counts.datasets, 'dataset') }} · {{ plural(counts.transforms, 'transform') }} · {{ plural(counts.visualizations, 'visualization') }}
@@ -173,30 +175,8 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 .ws {
   position: relative;
 }
-.ws-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--bg-elev-2);
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  white-space: nowrap;
-}
-.ws-btn:hover,
-.ws-btn[aria-expanded='true'] {
-  color: var(--text);
-  border-color: var(--accent-blue);
-}
-.ws-btn.dirty {
-  color: var(--warn);
-  border-color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 10%, var(--bg-elev-2));
-}
-.dot {
-  font-size: 0.6rem;
+.ws-btn :deep(.glyph) {
+  font-size: 0.7em; /* the unsaved ● is a mark, not an icon */
 }
 .caret {
   font-size: 0.6rem;
@@ -259,14 +239,6 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 .name:focus {
   border-color: var(--border);
   background: var(--bg-input);
-}
-.icon {
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--bg-elev-2);
-  color: var(--text-muted);
 }
 .holds {
   margin: -0.35rem 0 0;

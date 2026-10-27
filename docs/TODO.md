@@ -82,6 +82,13 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Assistant: the dataset processor agent** — ✦ Assistant in the header opens a chat (side panel
+  on desktop, sheet on phones). The user's own Anthropic API key stays on the device; calls go
+  straight to Anthropic (`claude-opus-5-5`, streaming). The agent reads the workspace, queries any
+  dataset (DuckDB), replaces the draft (`update_workspace`, all-or-nothing with every problem
+  listed), runs transforms and deletes local datasets, all through the page's own functions; the
+  server refuses its changes to remote datasets (`caller: 'agent'`). `src/lib/agent/` (provider
+  contract, loop, tools, prompt), `src/client/agent/claude.ts`, `components/agent/AgentPanel.vue`.
 
 ## Next (Current Sprint)
 
@@ -173,7 +180,9 @@ results, because the agent workflow (step 5) drives the same operations as the U
    is imported client-side; `DataExchange` exports in the client). Output: a list of moves, then PRs.
 2. **Component reusability.** Goal: the UI is composed from a small set of shared components, no
    inline one-off panels / buttons / cards / lists / modals / grids. Today: `ObjectList` (cards +
-   hold menu) and `.kind-pill` are shared; duplicated by hand — `.btn` styles in 6 components, modal
+   hold menu) and **`UiButton`** (`components/ui/`, sizes tag / compact / regular / large, tones by
+   job: pills, header, icon and assistant buttons use it) are shared; still by hand — text `.btn`
+   styles in ~6 components (Save, Run, Cancel, Preview…: move them to `UiButton`), modal
    backdrops in 3 (pop-out, Help, Explore), `.close` buttons in 3, chips in 3, a separate
    `PreviewTable` vs `FeatureRows` table. Check: inventory every repeated pattern, then extract
    `Button` (variants: primary / ghost / danger / icon / pill), `Modal`, `Panel` (collapsible, with
@@ -222,11 +231,13 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 
 1. ~~Dataset stores, Move / Delete, Copy / Paste workspace~~ (done).
 2. ~~Query speed-up~~: already there (loaded tables stay in DuckDB until their dataset changes).
-3. **Agent**: API key setting, chat panel, the loop with the six tools (`get_workspace`,
-   `query_sql`, `update_workspace`, `run_transform`, `delete_dataset` + web search / fetch), the
-   server-side gate for `caller: 'agent'`, instructions (orchestrator, scout source reports,
-   surveyor, transformer, visualizer), run records.
-4. **Supabase**: login, the remote store (Move to remote / local for real), storage limits.
+3. ~~**Dataset processor agent**~~ (done): API key setting, chat panel, the loop, the six data
+   tools: `get_workspace` (where it starts), `list_datasets` (the app's dataset finder; only with
+   the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, `update_workspace`,
+   `run_transform`, `update_dataset`, `delete_dataset`, the server-side gate for `caller: 'agent'`.
+4. **Scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
+   size-capped) for data it collects itself, scout source reports, run records.
+5. **Supabase**: login, the remote store (Move to remote / local for real), storage limits.
 
 ### Backlog
 

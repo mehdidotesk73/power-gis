@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { colorExpression, opacityExpression, patternGroups, stopValues, vectorOf } from './style'
+import { colorExpression, colorLegend, colormapDomain, opacityExpression, patternGroups, stopValues, vectorOf } from './style'
 import { patternRaster, arrowSdf } from './rasters'
 import type { LayerFeature } from './schema'
 
@@ -23,6 +23,15 @@ describe('style expressions', () => {
     expect(s.every((v, i) => i === 0 || v > s[i - 1])).toBe(true)
     const log = stopValues([1, 1000], 4, 'log')
     expect(log.map((v) => Math.round(v))).toEqual([1, 10, 100, 1000])
+  })
+
+  it('starts a log scale at the smallest positive value, and honors a fixed domain', () => {
+    const withZero = [0, 2, 2000].map((n) => ({ ...feats[0], properties: { n } }) as LayerFeature)
+    expect(colormapDomain({ kind: 'colormap', field: 'n', colormap: 'blues', scale: 'log' }, withZero)).toEqual([2, 2000])
+    expect(colormapDomain({ kind: 'colormap', field: 'n', colormap: 'blues' }, withZero)).toEqual([0, 2000])
+    expect(colormapDomain({ kind: 'colormap', field: 'n', colormap: 'rdBu', domain: [-5, 5] }, withZero)).toEqual([-5, 5])
+    expect(colorLegend({ kind: 'colormap', field: 'n', colormap: 'blues', domain: [1, 100] }, withZero, 'N')).toMatchObject({ min: 1, max: 100, clippedLow: true, clippedHigh: true })
+    expect(colorLegend({ kind: 'colormap', field: 'n', colormap: 'blues' }, withZero, 'N')).not.toHaveProperty('clippedHigh')
   })
 
   it('assigns categorical colors, honoring explicit ones', () => {

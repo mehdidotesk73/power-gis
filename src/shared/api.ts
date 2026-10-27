@@ -80,11 +80,18 @@ export type RequestType = keyof Api
 export type Payload<K extends RequestType> = Api[K][0]
 export type Response<K extends RequestType> = Api[K][1]
 
+/**
+ * Who sent a request. Agent requests may read anything but change only local
+ * datasets: the server refuses their writes to remote ones (docs/agents.md).
+ */
+export type Caller = 'user' | 'agent'
+
 /** Wire messages between client and worker. */
 export interface RequestMessage<K extends RequestType = RequestType> {
   id: number
   type: K
   payload: Payload<K>
+  caller?: Caller
 }
 export interface ResponseMessage {
   id: number

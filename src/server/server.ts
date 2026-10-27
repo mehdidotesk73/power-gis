@@ -4,7 +4,7 @@
 // they can move behind HTTP later. Errors come back as readable results,
 // never as throws.
 
-import type { ApiError, ApiResult, Payload, RequestType, Response, UploadSource } from '../shared/api'
+import type { ApiError, ApiResult, Caller, Payload, RequestType, Response, UploadSource } from '../shared/api'
 import { builtinTable } from '../shared/builtins'
 import type { Database } from '../shared/database'
 import { dataTableName, storeOf, type DatasetRecord, type TransformInputRef, type TransformRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
@@ -38,7 +38,10 @@ const fail = (code: ApiError['code'], message: string): never => {
   throw new Failure(code, message)
 }
 
-type Handlers = { [K in RequestType]: (p: Payload<K>) => Promise<Response<K>> }
+type Handlers = { [K in RequestType]: (p: Payload<K>, caller: Caller) => Promise<Response<K>> }
+
+/** Requests that change existing datasets; an agent may make them only on local ones. */
+const AGENT_REMOTE_REFUSAL = 'Agents can change only local datasets; this one is in cloud storage. Ask the user to do it, or to move it to this device.'
 
 export function createServer(db: Database, env: ServerEnv) {
   let baseUrl = '/'
@@ -163,8 +166,9 @@ export function createServer(db: Database, env: ServerEnv) {
       return { datasetId: id }
     },
 
-    async updateDataset({ id, name, description, extensions }) {
+    async updateDataset({ id, name, description, extensions }, caller) {
       const ds = await dataset(id)
+      if (caller === 'agent' && storeOf(ds) === 'remote') fail('invalid', AGENT_REMOTE_REFUSAL)
       if (name !== undefined && !name.trim()) fail('invalid', 'A dataset needs a name')
       await db.put('datasets', {
         ...ds,
@@ -176,8 +180,9 @@ export function createServer(db: Database, env: ServerEnv) {
       return { datasetId: id }
     },
 
-    async deleteDataset({ id }) {
+    async deleteDataset({ id }, caller) {
       const ds = await dataset(id)
+      if (caller === 'agent' && storeOf(ds) === 'remote') fail('invalid', AGENT_REMOTE_REFUSAL)
       await db.dropRows(ds.table)
       await db.delete('datasets', id)
       const gone = new Set<string>()
@@ -196,19 +201,26 @@ export function createServer(db: Database, env: ServerEnv) {
       return { datasetId: id }
     },
 
-    async moveDataset({ id, to }) {
+    async moveDataset({ id, to }, caller) {
+      if (caller === 'agent') fail('invalid', 'Only the user moves datasets between stores.')
       const ds = await dataset(id)
       if (storeOf(ds) === to) return { datasetId: id, store: to }
       // Only the local store exists so far; the remote one comes with the shared database.
-      return fail('unsupported', "Remote storage isn't available yet, so datasets stay on this device for now.")
+      return fail('unsupported', "Cloud storage isn't available yet, so datasets stay on this device for now.")
     },
 
     async previewTransform({ sql: query, inputs, limit, offset }) {
       return runSql(query, inputs, Math.min(limit ?? 20, 1000), offset)
     },
 
-    async runTransform({ transform }) {
+    async runTransform({ transform }, caller) {
       if (!transform.name.trim()) fail('invalid', 'A transform needs a name')
+      if (caller === 'agent') {
+        for (const o of transform.outputs ?? []) {
+          const out = o.outputId ? await db.get('datasets', o.outputId) : undefined
+          if (out && storeOf(out) === 'remote') fail('invalid', `${AGENT_REMOTE_REFUSAL} (output "${o.name}" writes "${out.name}")`)
+        }
+      }
       if (!transform.outputs?.length) fail('invalid', 'A transform needs at least one output')
       // Every output's SQL runs first; nothing is written unless all of them succeed.
       const results: { o: (typeof transform.outputs)[number]; out: Awaited<ReturnType<typeof runSql>> }[] = []
@@ -336,11 +348,11 @@ export function createServer(db: Database, env: ServerEnv) {
   }
 
   return {
-    async handle<K extends RequestType>(type: K, payload: Payload<K>): Promise<ApiResult<Response<K>>> {
-      const h = handlers[type] as ((p: Payload<K>) => Promise<Response<K>>) | undefined
+    async handle<K extends RequestType>(type: K, payload: Payload<K>, caller: Caller = 'user'): Promise<ApiResult<Response<K>>> {
+      const h = handlers[type] as ((p: Payload<K>, c: Caller) => Promise<Response<K>>) | undefined
       if (!h) return { ok: false, error: { code: 'unsupported', message: `Unknown request "${String(type)}"` } }
       try {
-        return { ok: true, data: await h(payload) }
+        return { ok: true, data: await h(payload, caller) }
       } catch (e) {
         return { ok: false, error: e instanceof Failure ? { code: e.code, message: e.message } : { code: 'failed', message: (e as Error).message ?? String(e) } }
       }

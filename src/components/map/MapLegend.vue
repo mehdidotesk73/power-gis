@@ -20,9 +20,9 @@ const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 600)
         <template v-if="e.kind === 'ramp'">
           <div class="lg-ramp" :style="{ background: e.gradient }" />
           <div class="lg-ticks">
-            <span>{{ formatCompact(e.min) }}</span>
+            <span>{{ e.clippedLow ? '≤ ' : '' }}{{ formatCompact(e.min) }}</span>
             <span v-if="e.scale === 'log'" class="muted">log</span>
-            <span>{{ formatCompact(e.max) }}</span>
+            <span>{{ e.clippedHigh ? '≥ ' : '' }}{{ formatCompact(e.max) }}</span>
           </div>
         </template>
         <ul v-else class="lg-swatches" :class="{ cols: e.items.length > 12 }">

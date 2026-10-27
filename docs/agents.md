@@ -1,8 +1,22 @@
 # Agents — tool design and workflow
 
 The plan for AI-driven data finding and preparation in PowerGIS (roadmap step 5). Agreed
-2026-10-27; nothing here is built yet except the pieces marked **(built)**. It replaces the
-earlier Managed Agents plan in `docs/TODO.md`.
+2026-10-27; pieces marked **(built)** exist. It replaces the earlier Managed Agents plan in
+`docs/TODO.md`.
+
+**(built) First leg: the dataset processor.** One agent works on data that's already in PowerGIS:
+it studies datasets, writes and runs transforms, and sets up visualizations. Scouting and
+scraping (finding data on the web) come next.
+
+| Piece | File |
+|---|---|
+| Provider-neutral contract: `ChatProvider` / `ChatSession` (text + tool calls in, turn out) | `src/lib/agent/provider.ts` |
+| The loop: send, run tool calls, send results, until a text answer; stop, step limit | `src/lib/agent/loop.ts` |
+| The tools: definitions, input validation, the store gate, over an `AgentHost` | `src/lib/agent/tools.ts` |
+| Instructions (built-ins listed from `shared/builtins.ts`) | `src/lib/agent/prompt.ts` |
+| Claude adapter: Messages API from the browser, streaming, keeps Anthropic-format history | `src/client/agent/claude.ts` |
+| Chat panel: API key (this device), messages, tool steps, Stop, token use | `src/components/agent/AgentPanel.vue` |
+| The host: the page's own functions (draft, `runTransform`, `deleteForGood`, `describeBinding`) | `MapPage.vue` → `agentHost` |
 
 ## What the agent does
 
@@ -35,7 +49,7 @@ their own edits.
 **(built)** Every dataset has a `store` (`DatasetRecord.store`, missing = `local`):
 
 - **local**: on this device (IndexedDB). As many as the device holds.
-- **remote**: the shared database (Supabase, later), within its storage limit.
+- **cloud** (`remote` in code): the shared database (Supabase, later), within its storage limit.
 
 The two stores have the same functions; only the storage behind them differs. The user moves a
 dataset between stores (`moveDataset`; the dataset keeps its id, so pointers stay valid). Until
@@ -50,12 +64,47 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 
 | Tool | Kind | What it does | Built on |
 |---|---|---|---|
-| `web_search`, `web_fetch` | read | Find sources and read their pages | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
-| `get_workspace` | read | The workspace config: datasets (id, name, store, origin), transforms (full spec + ready / not run / needs re-run), visualizations (full settings), plus a **version** stamp | The workspace file format (`lib/workspace/file.ts`) + registry records |
+| `web_search`, `web_fetch` | read | Find sources and read their pages (scouting leg; not given to the dataset processor yet) | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
+| `get_workspace` | read | **Where the agent starts.** The workspace's datasets (id, name, description, store, origin, row count; no columns), transforms (full spec + ready / not run / needs re-run), visualizations, plus a **version** stamp | The workspace draft + registry records |
+| `list_datasets` | read | Every dataset the user can use, outside the workspace too, local and remote (same fields + `inWorkspace`). Used only when the workspace lacks what's needed, **after asking** | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
+| `visualization_stats(id)` | read | The per-feature values a visualization draws (after aggregation): count, nulls, min, percentiles (p2…p98), max, mean, how many ≤ 0 / < 0, orders of magnitude of the positive values; text: distinct count and most common | `queryVisualization` |
+| `ask_user(question, details?)` | read | Shows a card with the question, details (what it found, its plan), **Approve / Reject** and a notes box; waits; returns `{answer, notes}` | The chat panel |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
 | `update_workspace(config, version)` | **gated** | Replaces the draft with a modified config | Loading a workspace file into the draft |
 | `run_transform(id)` | **gated** | Runs one transform of the draft; returns row counts or the error | `runTransform` |
+| `update_dataset(id, name?, description?)` | **gated** | Renames / describes a dataset (rows untouched); the agent names and describes what it keeps | `updateDataset` |
 | `delete_dataset(id)` | **gated** | Deletes a dataset and its rows | `deleteDataset` + `forgetDataset` |
+
+**(built)** The dataset processor has `get_workspace`, `list_datasets`, `ask_user`, `query_sql`,
+`update_workspace`, `run_transform`, `update_dataset` and `delete_dataset`. Notes from building them:
+
+- **The workspace comes first.** The user normally adds the datasets they care about to the
+  workspace, then asks for something. The agent reports which workspace datasets look relevant
+  (by name and description, then queries), confirms its plan with `ask_user` unless the request is
+  small and clear, and only looks outside the workspace if the user approves.
+- **Nothing in the prompt names a dataset.** Outside the workspace the agent uses `list_datasets`,
+  which reads the app's dataset finder (`listDatasets()` in `client/datasets.ts`, also behind
+  ＋ Dataset → Saved and the default map's seeding). Today that's the datasets on this device;
+  with Supabase it becomes these plus the remote registry's datasets the user may access, and the
+  agent sees both without changes. Columns, types and values come from queries (`SUMMARIZE`).
+- Visualizations go in and out in a **compact form**: `{id?, name, datasetId, geometry, label?,
+  column, aggregation?, visible?, color?: {kind: colormap | categorical | constant, …}, opacity?}`.
+  The tool fills the rest from the app's own defaults (`makeVisualization`); a kept id keeps its
+  style (`retarget`).
+- `update_workspace` checks everything and lists **every** problem; nothing applies unless all
+  is valid. A kept transform / visualization can be sent as just `{id}`, which keeps inputs small.
+- Query results hide geometry (`<region>`) and cut long text, so rows stay small.
+- **Styling follows the data.** After adding a visualization the agent calls `visualization_stats`
+  and picks the scale (`color.scale: "log"`, a setting of the visualization, never a computed log
+  column), sequential vs diverging colormap (rdBu centered with a symmetric `domain` for values
+  around a midpoint), and a clipping `domain` (≈ p2–p98) when outliers wash out the map. The
+  legend marks clipped ends (≤ / ≥). A log scale starts at the smallest positive value
+  (`colormapDomain`, `lib/style.ts`).
+- **Images.** The user can paste a screenshot into the message box or attach one (📎); it's shrunk
+  to 1,568 px on the long edge as JPEG (`components/agent/images.ts`) and sent before the text
+  (`UserMessage.images`).
+- A transform the agent runs adds its new outputs to the workspace **without** a first
+  visualization (the user's Run adds one); the agent sets up its own.
 
 **Profiling is a query.** `FROM (SUMMARIZE t)` returns per column: type, min, max, approximate
 distinct count, mean, standard deviation, quartiles, null percentage, count. There is no
@@ -74,8 +123,9 @@ Gated tools are refused, with a message the agent can act on, when:
 - `run_transform`: any of its outputs is remote (its **inputs** may be remote);
 - `delete_dataset`: the dataset is remote, or a transform in the draft still reads it.
 
-The check runs **in the server** too: agent requests carry `caller: 'agent'`, and the server
-refuses remote writes for them. A bug in a tool can't bypass it. The tool wrappers check first,
+**(built)** The check runs **in the server** too: agent requests carry `caller: 'agent'`
+(`request(type, payload, 'agent')`), and the server refuses their `runTransform` into a remote
+output, `deleteDataset` / `updateDataset` of a remote dataset, and any `moveDataset`. A bug in a tool can't bypass it. The tool wrappers check first,
 so the agent gets a clear message.
 
 ### What the user does
@@ -126,10 +176,33 @@ usage policies live **there**, not as dataset properties.
   calls the Messages API **directly from the browser**: no relay function, no function timeouts.
   A relay with the owner's key can be added later for users without one; only the "send" step
   changes.
-- **Model:** `claude-opus-5-5` for every role, streaming, adaptive thinking. Follow the
-  `claude-api` skill's TypeScript docs when writing it; don't guess SDK usage.
-- **Server tool pauses:** a long web-search step can end with `pause_turn`; the loop sends it back
-  to continue.
+- **Model:** the user picks it in the assistant's settings (⚙; `CLAUDE_MODELS` in
+  `client/agent/claude.ts`, remembered per device in `powergis.agentModel`; default
+  `claude-haiku-5-5`: fast, cheap, and good at this work in the user's tests). **A chat keeps the
+  model it started with** (decided: simple, one model per chat). The API would accept a switch
+  mid-chat (same history, new `model`; earlier thinking a model can't read is skipped), but a new
+  choice applies to the next chat ("Start a new chat"). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
+  with `dangerouslyAllowBrowser`, `fallbacks: "default"` on the models that have it (Opus 5.5,
+  Opus 5, Sonnet 5.5; beta `server-side-fallback-2026-07-01`: a declined request is retried on
+  Anthropic's recommended fallback model), automatic prompt
+  caching (`cache_control`). **No `eager_input_streaming`**: the API then checks every tool input is
+  valid JSON (a long Haiku input once ended in stray `}]}` and the step failed); tools still validate.
+  Follow the `claude-api` skill's TypeScript docs when changing it; don't guess SDK usage.
+- **(built) Stop reasons:** `pause_turn` is resumed (up to 5 times); `refusal` and a tool call cut
+  off at `max_tokens` stop the turn without running anything; tool calls left unanswered by Stop
+  get "not run" results before the next message.
+- **(built) Stop is immediate:** `runAgent` races every model call and tool against the abort signal
+  (`untilStopped`), so a hung request or a slow tool never holds the chat; work the engine already
+  started (a transform run) may still finish unseen. **New chat** works while busy (stops first).
+- **(built) Limits:** 40 model turns per user message, then it stops and says "continue" carries on.
+
+## Next: scouting and scraping
+
+Data isn't always a file to download: prices on product pages, shipping quotes from one place
+to each state. The user prefers the agent to **collect and assemble data itself** rather than
+point them to sources. That needs one more gated tool, roughly `create_dataset(name, rows)`
+(local only, size-capped), so data the agent gathered from web pages (`web_search` /
+`web_fetch`) becomes a dataset. Downloadable files still go through the user for now.
 
 ## Later (not decided)
 

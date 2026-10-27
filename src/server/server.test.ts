@@ -111,6 +111,24 @@ describe('server', () => {
     expect((await db.get('datasets', datasetId))!.store).toBe('local')
   })
 
+  it("refuses an agent's changes to remote datasets, and allows them on local ones", async () => {
+    const { db, server } = setup()
+    const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
+    const local = (await db.get('datasets', datasetId))!
+    const remoteId = crypto.randomUUID()
+    await db.put('datasets', { ...local, id: remoteId, table: `ds_${remoteId.replace(/-/g, '')}`, store: 'remote' })
+    await db.writeRows(`ds_${remoteId.replace(/-/g, '')}`, (await db.readRows(local.table))!)
+    const writes = (outputId: string) => ({ transform: { id: 't', name: 'T', inputs: [{ datasetId, alias: 'p' }], outputs: [{ key: 'o', name: 'out', sql: 'SELECT county FROM p', outputId }] } })
+    expect(await server.handle('runTransform', writes(remoteId), 'agent')).toMatchObject({ ok: false, error: { message: expect.stringContaining('only local datasets') } })
+    expect(await server.handle('deleteDataset', { id: remoteId }, 'agent')).toMatchObject({ ok: false })
+    expect(await server.handle('updateDataset', { id: remoteId, name: 'x' }, 'agent')).toMatchObject({ ok: false })
+    expect(await server.handle('moveDataset', { id: datasetId, to: 'local' }, 'agent')).toMatchObject({ ok: false })
+    // Reading a remote dataset is fine; so are changes to local ones, and the user may do anything.
+    expect(data(await server.handle('previewTransform', { sql: 'SELECT count(*) AS n FROM r', inputs: [{ datasetId: remoteId, alias: 'r' }] }, 'agent')).rows[0].n).toBe(4)
+    expect(data(await server.handle('runTransform', { transform: { ...writes(remoteId).transform, outputs: [{ key: 'o', name: 'out', sql: 'SELECT county FROM r' }], inputs: [{ datasetId: remoteId, alias: 'r' }] } }, 'agent')).outputs[0].created).toBe(true)
+    data(await server.handle('deleteDataset', { id: remoteId }))
+  })
+
   it('renames datasets and reports unknown requests and ids', async () => {
     const { db, server } = setup()
     const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))

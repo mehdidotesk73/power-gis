@@ -360,6 +360,41 @@ requests, not workspace ops, since datasets are shared records.
   built-in utilities dataset (reused if already uploaded). Visualization values are fetched per
   (dataset, binding, column, aggregation) and cached; restyling never refetches.
 
+### Assistant (agents)
+
+The design, tools and gate are in **`docs/agents.md`**; in short:
+
+- `lib/agent/provider.ts`: the provider-neutral contract. A `ChatSession.send(text | toolResults)`
+  returns `{text, toolCalls, stop, usage}`; the adapter keeps the provider's own history.
+- `lib/agent/loop.ts`: `runAgent(session, runTool, text, events, signal)`: runs tool calls and sends
+  results until the model answers in text; Stop (`AbortSignal`) and a 40-turn limit.
+- `lib/agent/tools.ts`: `TOOLS` (JSON Schema definitions) and `runTool(host, name, input)`: validates
+  input, applies the store gate, acts through an `AgentHost` (the page supplies it: the draft,
+  `readDb`, the dataset finder `listDatasets()` (`client/datasets.ts`: local datasets today, plus the
+  remote registry later), `request(…, 'agent')`, `describeBinding`, `runTransform`, `deleteForGood`). Never throws;
+  every outcome is a message for the model plus a one-line summary for the chat.
+  `workspaceVersion(doc)` stamps the draft so `update_workspace` refuses stale edits.
+- `lib/agent/prompt.ts`: the dataset processor's instructions.
+- `client/agent/claude.ts`: the Anthropic adapter (`startClaude`, `claudeProvider`, `describeError`).
+  Browser-direct with the user's key, streaming, `fallbacks: "default"`, prompt caching.
+- `components/agent/AgentPanel.vue`: the chat, opened by **✦ Assistant** in the header (teleported
+  with the Workspace button into `#header-workspace`). Key in localStorage `powergis.anthropicKey`.
+  Docked on the right of the page grid on desktop (`.page.assisting` adds a splitter and a
+  `--assist-w` column; `useSplitter`), a fixed sheet on phones. Screenshots: paste / 📎, resized in
+  `components/agent/images.ts`.
+- `visualization_stats` + the prompt's *Choosing colors* rules: log scale (a setting), diverging
+  maps centered with a `domain`, clipping domains; the legend marks clipped ends.
+
+### Buttons (`components/ui/UiButton.vue`)
+
+One button component: `size` tag / compact / regular / large (font, height, radius scale together;
+glyphs 1.35× the label since symbol glyphs draw small; icon-only buttons are square), `tone` by job
+(neutral, primary, dataset, transform, viz, attention, ok, danger), `active` for toggles. Pills
+(＋ Dataset, Visible / Hidden, ↻ Run all stale) are `tag`; the header's Workspace / Assistant and
+small icon buttons `compact`; ⤢ and tool buttons `regular`.
+- **Server gate**: `RequestMessage.caller` (`'user'` default, `'agent'`); `createServer`'s handlers get
+  it and refuse an agent's writes to remote datasets.
+
 ## §5 — Composables
 
 Vue reactive wrappers around data fetches. Example:

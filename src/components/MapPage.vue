@@ -8,6 +8,7 @@
 // visualization list draws on top. The starting workspace comes from a
 // workspace file (public/data/default.powergis.json): built-in datasets, a
 // join transform and its visualizations — nothing here knows what they hold.
+import UiButton from './ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import MapView from './map/MapView.vue'
 import ScalarLayer from './map/ScalarLayer'
@@ -25,10 +26,12 @@ import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import DagView from './dag/DagView.vue'
 import { vReveal } from './reveal'
+import { useSplitter } from './useSplitter'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
 import { readDb } from '../client/db'
+import { listDatasets } from '../client/datasets'
 import { BUILTIN_TABLES } from '../shared/builtins'
 import { storeOf, type DatasetRecord, type WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
@@ -64,6 +67,9 @@ import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
 import { formatPrimitive } from '../lib/format'
 import { logDebug } from '../debug'
+import AgentPanel from './agent/AgentPanel.vue'
+import type { AgentHost } from '../lib/agent/tools'
+import type { Caller } from '../shared/api'
 
 const base = import.meta.env.BASE_URL
 const mapView = ref<InstanceType<typeof MapView>>()
@@ -250,23 +256,37 @@ function removeDataset(id: string) {
   if (selected.value && vizById.value.get(selected.value.vizId)?.datasetId === id) selected.value = null
 }
 
-/** Deletes a dataset from the database: out of the workspace first (refused while a transform reads it), then the table. */
+/** Deletes a dataset from the database (after the user confirms). */
 async function deleteDataset(id: string) {
   const ds = records.value.get(id)
-  const where = ds && storeOf(ds) === 'remote' ? 'the shared database' : 'this device'
+  const where = ds && storeOf(ds) === 'remote' ? 'cloud storage' : 'this device'
   if (!confirm(`Delete "${ds?.name ?? id}" from ${where}? Its rows are gone for good, and its visualizations go with it (in other saved workspaces too).`)) return
+  const r = await deleteForGood(id)
+  if (!r.ok) alert(r.message)
+}
+
+/** Out of the workspace first (refused while a transform reads it), then the table. */
+async function deleteForGood(id: string, by: Caller = 'user'): Promise<{ ok: true } | { ok: false; message: string }> {
   const next = forgetDataset(doc.value, id)
-  if (!next.ok) return void alert(next.error.message)
-  if (!(await call('delete dataset', request('deleteDataset', { id })))) return void alert("The dataset couldn't be deleted — see View logs.")
+  if (!next.ok) return { ok: false, message: next.error.message }
+  const r = await request('deleteDataset', { id }, by)
+  if (!r.ok) return { ok: false, message: r.error.message }
   if (selected.value && vizById.value.get(selected.value.vizId)?.datasetId === id) selected.value = null
   apply(next)
   const left = new Map(records.value)
   left.delete(id)
   records.value = left
+  return { ok: true }
 }
 
-async function updateDataset(id: string, patch: { name?: string; description?: string }) {
-  if (await call('update dataset', request('updateDataset', { id, ...patch }))) await loadRecord(id)
+async function updateDataset(id: string, patch: { name?: string; description?: string }, by: Caller = 'user'): Promise<{ ok: true } | { ok: false; message: string }> {
+  const r = await request('updateDataset', { id, ...patch }, by)
+  if (!r.ok) {
+    logDebug(`update dataset: ${r.error.message}`, 'error')
+    return { ok: false, message: r.error.message }
+  }
+  await loadRecord(id)
+  return { ok: true }
 }
 /** New visualization of a dataset column, on top of the list, open for editing. */
 async function addVisualization(datasetId: string, binding: GeometryBinding, column: string) {
@@ -286,45 +306,10 @@ const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids
 // ── side panel: width (desktop) and popping out ────────────────────────────
 
 // Drag the splitter between the controls and the map; the width is remembered per device.
-const PANEL_W = 'powergis.panelWidth'
-const panelMin = 256
-const panelMax = () => Math.max(panelMin, Math.round(window.innerWidth * 0.7))
-const clampPanel = (w: number) => Math.min(panelMax(), Math.max(panelMin, Math.round(w)))
-const panelWidth = ref(clampPanel(Number(store.get(PANEL_W)) || 336))
-let dragFrom: { x: number; w: number } | null = null
-function splitStart(e: PointerEvent) {
-  dragFrom = { x: e.clientX, w: panelWidth.value }
-  try {
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  } catch {
-    /* the window listeners below still hear it */
-  }
-  window.addEventListener('pointermove', splitMove)
-  window.addEventListener('pointerup', splitEnd, { once: true })
-  window.addEventListener('pointercancel', splitEnd, { once: true })
-}
-function splitMove(e: PointerEvent) {
-  if (dragFrom) panelWidth.value = clampPanel(dragFrom.w + e.clientX - dragFrom.x)
-}
-function splitEnd() {
-  dragFrom = null
-  window.removeEventListener('pointermove', splitMove)
-  window.removeEventListener('pointerup', splitEnd)
-  window.removeEventListener('pointercancel', splitEnd)
-  store.set(PANEL_W, String(panelWidth.value))
-}
-function splitKey(e: KeyboardEvent) {
-  const step = e.shiftKey ? 64 : 16
-  if (e.key === 'ArrowLeft') panelWidth.value = clampPanel(panelWidth.value - step)
-  else if (e.key === 'ArrowRight') panelWidth.value = clampPanel(panelWidth.value + step)
-  else return
-  e.preventDefault()
-  store.set(PANEL_W, String(panelWidth.value))
-}
-function splitReset() {
-  panelWidth.value = 336
-  store.set(PANEL_W, null)
-}
+const panel = useSplitter({ key: 'powergis.panelWidth', initial: 336, min: 256, maxShare: 0.7, side: 'left' })
+const panelWidth = panel.width
+// The assistant docks on the right (desktop), resizable the same way.
+const assist = useSplitter({ key: 'powergis.assistantWidth', initial: 400, min: 300, maxShare: 0.5, side: 'right' })
 
 // The workspace panels (List / Graph and what's under them) can pop out into a
 // large modal. One Teleport moves the same components, so nothing is lost.
@@ -333,10 +318,7 @@ function onEsc(e: KeyboardEvent) {
   if (e.key === 'Escape' && popped.value) popped.value = false
 }
 onMounted(() => window.addEventListener('keydown', onEsc))
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onEsc)
-  splitEnd()
-})
+onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 
 // ── graph (DAG) view of the workspace ──────────────────────────────────────
 
@@ -404,22 +386,30 @@ function newTransformFrom(datasetIds: string[]) {
 const runStatus = ref<Record<string, RunStatus>>({})
 const nameOf = (id: string) => records.value.get(id)?.name
 
-/** Runs a transform on the server (all its outputs together); new output datasets join the workspace (with a first visualization when they have geometry). */
-async function runTransform(id: string) {
+type RunOutcome = { ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }
+
+/**
+ * Runs a transform on the server (all its outputs together); new output
+ * datasets join the workspace — with a first visualization when the user ran
+ * it, without when an agent did (it sets up its own).
+ */
+async function runTransform(id: string, by: Caller = 'user'): Promise<RunOutcome> {
   const t = doc.value.transforms.find((x) => x.id === id)
-  if (!t) return
+  if (!t) return { ok: false, message: `No transform "${id}"` }
   runStatus.value = { ...runStatus.value, [id]: { state: 'running' } }
-  const r = await request('runTransform', { transform: t })
+  const r = await request('runTransform', { transform: t }, by)
   if (!r.ok) {
     runStatus.value = { ...runStatus.value, [id]: { state: 'error', message: r.error.message } }
-    return
+    return { ok: false, message: r.error.message }
   }
   const lines: string[] = []
-  for (const { datasetId, rowCount } of r.data.outputs) {
+  const outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] = []
+  for (const { datasetId, rowCount, created } of r.data.outputs) {
     forgetBindingInfo(datasetId)
     const ds = await loadRecord(datasetId) // a new updatedAt: its visualizations re-query
-    if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, await firstVisualizations(ds)))
+    if (ds && !doc.value.datasetIds.includes(datasetId)) apply(addDataset(doc.value, datasetId, by === 'user' ? await firstVisualizations(ds) : []))
     lines.push(`${rowCount.toLocaleString()} rows → ${ds?.name ?? 'dataset'}`)
+    outputs.push({ datasetId, name: ds?.name ?? 'dataset', rowCount, created })
   }
   // Each output remembers the dataset it wrote.
   const now = doc.value.transforms.find((x) => x.id === id)
@@ -429,7 +419,32 @@ async function runTransform(id: string) {
   }
   runStatus.value = { ...runStatus.value, [id]: { state: 'done', message: lines.join(' · ') } }
   logDebug(`transform "${t.name}": ${lines.join(' · ')}`)
+  return { ok: true, outputs }
 }
+
+// ── the assistant (agent) ──────────────────────────────────────────────────
+// The agent's tools act through the same functions as the UI (lib/agent/tools.ts).
+
+const agentHost: Omit<AgentHost, 'ask'> = {
+  doc: () => doc.value,
+  setDoc(next) {
+    doc.value = next
+    for (const id of next.datasetIds) if (!records.value.has(id)) void loadRecord(id)
+    if (selected.value && !next.visualizations.some((v) => v.id === selected.value?.vizId)) selected.value = null
+  },
+  dataset: (id) => readDb.get('datasets', id),
+  listDatasets,
+  query: (sql, inputs, limit) => request('previewTransform', { sql, inputs, limit }, 'agent'),
+  shape: describeBinding,
+  values: async (datasetId, binding, column, aggregation) => {
+    const r = await request('queryVisualization', { datasetId, binding, column, aggregation })
+    return r.ok ? r.data : r.error.message
+  },
+  runTransform: (id) => runTransform(id, 'agent'),
+  deleteDataset: (id) => deleteForGood(id, 'agent'),
+  updateDataset: (id, patch) => updateDataset(id, patch, 'agent'),
+}
+const assistantOpen = ref(false)
 
 // ── Run all stale ──────────────────────────────────────────────────────────
 // Every transform needing a re-run, plus everything downstream of one, inputs
@@ -473,7 +488,7 @@ async function seedDefault() {
   const res = await fetch(`${base}data/default.powergis.json`)
   const parsed = parseWorkspaceFile(res.ok ? await res.text() : '')
   if (!parsed.ok) throw new Error(`default workspace: ${parsed.error}`)
-  const existing = await readDb.list('datasets')
+  const existing = await listDatasets()
   const ids = new Map<string, string>()
   for (const table of templateBuiltins(parsed.file)) {
     const version = BUILTIN_TABLES.find((b) => b.table === table)?.version
@@ -753,7 +768,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 </script>
 
 <template>
-  <div class="page" :style="{ '--panel-w': `${panelWidth}px` }">
+  <div class="page" :class="{ assisting: assistantOpen }" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.width.value}px` }">
     <section class="controls">
       <Teleport defer to="#header-workspace">
         <WorkspaceBar
@@ -771,6 +786,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           @paste="(text: string) => loadWorkspaceText(text, 'paste')"
           @reset="resetWorkspace"
         />
+        <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
       <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
 
@@ -786,9 +802,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
           <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
         </div>
-        <button class="pop-btn" :aria-label="popped ? 'Close window' : 'Open in a window'" :title="popped ? 'Close (Esc)' : 'Open in a window'" @click="popped = !popped">
-          {{ popped ? '✕' : '⤢' }}
-        </button>
+        <UiButton class="pop-btn" :icon="popped ? '✕' : '⤢'" :aria-label="popped ? 'Close window' : 'Open in a window'" :title="popped ? 'Close (Esc)' : 'Open in a window'" @click="popped = !popped" />
       </div>
 
       <template v-if="view === 'graph'">
@@ -875,7 +889,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         <details class="box">
           <summary>Transforms</summary>
           <div v-if="staleOrder.length || staleProgress" class="stale-row">
-            <button v-if="staleOrder.length && !staleProgress?.running" class="kind-pill k-attention" @click="runAllStale">↻ Run all stale ({{ staleOrder.length }})</button>
+            <UiButton v-if="staleOrder.length && !staleProgress?.running" size="tag" tone="attention" icon="↻" @click="runAllStale">Run all stale ({{ staleOrder.length }})</UiButton>
             <span v-if="staleProgress" class="stale-msg">{{ staleProgress.text }}</span>
           </div>
           <TransformsPanel
@@ -894,7 +908,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
           <summary>Datasets</summary>
           <div class="import-wrap">
             <AddDatasetPanel v-if="importing" v-reveal :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
-            <button v-else class="kind-pill k-dataset" @click="importing = true">＋ Dataset</button>
+            <UiButton v-else size="tag" tone="dataset" icon="＋" @click="importing = true">Dataset</UiButton>
           </div>
           <DatasetList
             :datasets="datasets"
@@ -939,9 +953,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
       :aria-valuenow="panelWidth"
       tabindex="0"
       title="Drag to resize · double-click to reset"
-      @pointerdown.prevent="splitStart"
-      @keydown="splitKey"
-      @dblclick="splitReset"
+      @pointerdown.prevent="panel.start"
+      @keydown="panel.key"
+      @dblclick="panel.reset"
     />
 
     <section class="map-wrap">
@@ -985,6 +999,22 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
         </template>
       </MapView>
     </section>
+
+    <!-- The assistant: a column docked on the right on desktop (a sheet over the page on phones). -->
+    <div
+      v-show="assistantOpen"
+      class="splitter assist-splitter"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the assistant"
+      :aria-valuenow="assist.width.value"
+      tabindex="0"
+      title="Drag to resize · double-click to reset"
+      @pointerdown.prevent="assist.start"
+      @keydown="assist.key"
+      @dblclick="assist.reset"
+    />
+    <AgentPanel v-show="assistantOpen" class="assistant-col" :host="agentHost" @close="assistantOpen = false" />
   </div>
 </template>
 
@@ -1008,6 +1038,12 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   padding-right: 0.15rem;
 }
 .map-wrap {
+  min-height: 0;
+}
+.page.assisting {
+  grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr) 0.75rem var(--assist-w, 25rem);
+}
+.assistant-col {
   min-height: 0;
 }
 .splitter {
@@ -1048,8 +1084,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   color: var(--text-muted);
   font-size: 0.8rem;
 }
-.popped-note button,
-.pop-btn {
+.popped-note button {
   min-height: 2.2rem;
   border: 1px solid var(--border);
   border-radius: 0.4rem;
@@ -1125,8 +1160,10 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   flex: 1;
 }
 .pop-btn {
+  /* as tall as the List | Graph switch beside it; a fixed width (a stretched height can't drive aspect-ratio) */
+  height: auto;
   width: 2.6rem;
-  font-size: 1.05rem;
+  aspect-ratio: auto;
 }
 /* Search is docked to the top of the side panel (and, on phones, of the screen while the
    controls scroll by), above everything else in it. */
@@ -1267,6 +1304,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   .splitter {
     display: none;
   }
+  .page.assisting {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .pop-backdrop {
     padding: 0;
   }
@@ -1284,6 +1324,11 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   .map-wrap {
     order: 1;
     height: 70svh;
+  }
+}
+@media (max-width: 30rem) {
+  .ai-word {
+    display: none;
   }
 }
 </style>
