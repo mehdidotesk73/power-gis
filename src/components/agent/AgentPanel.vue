@@ -6,7 +6,7 @@
 // it may change only local datasets. When it asks for approval (ask_user), a
 // card with Approve / Reject and a notes box waits for the user's answer.
 import { computed, nextTick, ref, watch } from 'vue'
-import { claudeProvider, CLAUDE_MODEL, describeError } from '../../client/agent/claude'
+import { claudeProvider, CLAUDE_MODEL, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
 import { runTool, TOOLS, type AgentHost, type UserAnswer } from '../../lib/agent/tools'
@@ -52,6 +52,29 @@ function forgetKey() {
   session = null
 }
 const maskedKey = computed(() => (apiKey.value ? `${apiKey.value.slice(0, 10)}…${apiKey.value.slice(-4)}` : ''))
+
+// ── the model (this device; fixed for each chat) ───────────────────────────
+
+const MODEL = 'powergis.agentModel'
+const storedModel = (() => {
+  try {
+    return localStorage.getItem(MODEL)
+  } catch {
+    return null
+  }
+})()
+/** The model new chats use. */
+const model = ref(CLAUDE_MODELS.some((m) => m.id === storedModel) ? storedModel! : CLAUDE_MODEL)
+watch(model, (m) => {
+  try {
+    localStorage.setItem(MODEL, m)
+  } catch {
+    /* per-device convenience */
+  }
+})
+/** The model the current chat runs on (set when it starts). */
+const chatModel = ref<string | null>(null)
+const labelOf = (id: string) => CLAUDE_MODELS.find((m) => m.id === id)?.label ?? id
 
 // ── the conversation ───────────────────────────────────────────────────────
 
@@ -115,7 +138,10 @@ async function send() {
   if (!text || busy.value || !apiKey.value) return
   draft.value = ''
   items.value.push({ kind: 'user', text })
-  session ??= claudeProvider.start({ apiKey: apiKey.value, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
+  if (!session) {
+    session = claudeProvider.start({ apiKey: apiKey.value, model: model.value, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
+    chatModel.value = model.value
+  }
   busy.value = true
   controller = new AbortController()
   let current: Extract<Item, { kind: 'assistant' }> | null = null
@@ -169,6 +195,7 @@ function newChat() {
   items.value = []
   usage.value = emptyUsage()
   session = null
+  chatModel.value = null
 }
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.matchMedia('(pointer: fine)').matches) {
@@ -197,8 +224,9 @@ const usageText = computed(() => {
       <div class="title">
         <span class="eyebrow">Assistant</span>
         <strong>Dataset processor</strong>
+        <span class="muted small">{{ labelOf(chatModel ?? model) }}</span>
       </div>
-      <button class="icon" :aria-pressed="settings" title="API key" aria-label="API key settings" @click="settings = !settings">⚙</button>
+      <button class="icon" :aria-pressed="settings" title="API key and model" aria-label="Settings: API key and model" @click="settings = !settings">⚙</button>
       <button class="icon" title="New chat" aria-label="New chat" :disabled="busy || !items.length" @click="newChat">＋</button>
       <button class="icon" title="Close" aria-label="Close" @click="emit('close')">✕</button>
     </header>
@@ -212,8 +240,17 @@ const usageText = computed(() => {
         <button class="btn primary" :disabled="!keyDraft.trim()" @click="saveKey">Save key</button>
       </div>
       <p class="muted small">
-        The key stays on this device and is sent only to Anthropic; usage is billed to your Anthropic account (create a key at console.anthropic.com, and set a spending limit there). Model: <code>{{ CLAUDE_MODEL }}</code>.
+        The key stays on this device and is sent only to Anthropic; usage is billed to your Anthropic account (create a key at console.anthropic.com, and set a spending limit there).
       </p>
+      <label for="agent-model">Model</label>
+      <select id="agent-model" v-model="model">
+        <option v-for="m in CLAUDE_MODELS" :key="m.id" :value="m.id">{{ m.label }} · {{ m.note }}</option>
+      </select>
+      <p class="muted small">Prices are dollars per million tokens, in / out. A chat keeps the model it started with.</p>
+      <div v-if="chatModel && chatModel !== model" class="switch">
+        <span>This chat uses {{ labelOf(chatModel) }}; {{ labelOf(model) }} applies to the next one.</span>
+        <button class="btn" :disabled="busy" @click="newChat">Start a new chat</button>
+      </div>
     </section>
 
     <div ref="scroller" class="chat">
@@ -346,9 +383,18 @@ header {
   border-bottom: 1px solid var(--border);
   background: var(--bg-elev-2);
 }
-.settings input {
+.settings input,
+.settings select {
   font-size: 16px; /* below 16px iOS zooms on focus */
   padding: 0.35rem 0.45rem;
+}
+.switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--warn);
 }
 .chat {
   flex: 1;

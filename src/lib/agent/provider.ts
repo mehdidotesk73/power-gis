@@ -57,7 +57,8 @@ export interface ChatSession {
 export interface ChatProvider {
   id: string
   label: string
-  start(opts: { apiKey: string; system: string; tools: ToolSpec[] }): ChatSession
+  /** A session on one model for its whole length (changing models starts a new chat). */
+  start(opts: { apiKey: string; model: string; system: string; tools: ToolSpec[] }): ChatSession
 }
 
 export const emptyUsage = (): Usage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })

@@ -8,6 +8,21 @@ import Anthropic from '@anthropic-ai/sdk'
 import { emptyUsage, addUsage, type ChatProvider, type ChatSession, type ToolCall, type ToolSpec, type TurnEvents, type TurnInput, type TurnResult, type Usage } from '../../lib/agent/provider'
 
 export const CLAUDE_MODEL = 'claude-opus-5-5'
+
+/** The models offered in the assistant's settings; prices are $ per million tokens in / out. */
+export const CLAUDE_MODELS: { id: string; label: string; note: string }[] = [
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'recommended · $4 / $20' },
+  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', note: 'most capable · $10 / $50' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'balanced · $2 / $10' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'fastest, cheapest · $0.10 / $0.50' },
+  { id: 'claude-opus-5', label: 'Claude Opus 5', note: 'previous Opus · $5 / $25' },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', note: 'previous Sonnet · $2 / $10' },
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', note: 'older' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', note: 'older' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', note: 'older' },
+]
+/** Models whose declined requests Anthropic can retry on its recommended fallback model (server side). */
+const SERVER_FALLBACK = new Set(['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5'])
 const MAX_TOKENS = 32000
 /** Long server-side work can pause a turn; resume it this many times at most. */
 const MAX_RESUMES = 5
@@ -28,6 +43,7 @@ class ClaudeSession implements ChatSession {
 
   constructor(
     private readonly client: Anthropic,
+    private readonly model: string,
     private readonly system: string,
     tools: ToolSpec[],
   ) {
@@ -49,14 +65,13 @@ class ClaudeSession implements ChatSession {
     for (;;) {
       const stream = this.client.beta.messages.stream(
         {
-          model: CLAUDE_MODEL,
+          model: this.model,
           max_tokens: MAX_TOKENS,
           system: this.system,
           tools: this.tools,
           messages: this.history,
           cache_control: { type: 'ephemeral' },
-          betas: ['server-side-fallback-2026-07-01'],
-          fallbacks: 'default',
+          ...(SERVER_FALLBACK.has(this.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
         },
         { signal },
       )
@@ -110,10 +125,10 @@ class ClaudeSession implements ChatSession {
 }
 
 /** A session over the given transport (`fetchImpl` stands in for the network in tests). */
-export function startClaude(opts: { apiKey: string; system: string; tools: ToolSpec[] }, fetchImpl?: typeof fetch): ChatSession {
+export function startClaude(opts: { apiKey: string; model?: string; system: string; tools: ToolSpec[] }, fetchImpl?: typeof fetch): ChatSession {
   // The key is the user's own, entered on this device; calls go straight to Anthropic.
   const client = new Anthropic({ apiKey: opts.apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, ...(fetchImpl ? { fetch: fetchImpl } : {}) })
-  return new ClaudeSession(client, opts.system, opts.tools)
+  return new ClaudeSession(client, opts.model ?? CLAUDE_MODEL, opts.system, opts.tools)
 }
 
 export const claudeProvider: ChatProvider = {

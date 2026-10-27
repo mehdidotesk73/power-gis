@@ -76,6 +76,14 @@ describe('Claude adapter', () => {
     expect(last.at(-1)).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_9', content: 'Not run: the user stopped the work.', is_error: true }, { type: 'text', text: 'never mind' }] })
   })
 
+  it('uses the chosen model, and server-side fallbacks only where the model has them', async () => {
+    const { fetchImpl, requests } = fakeApi([sse([{ type: 'text', text: 'Hi' }], 'end_turn')])
+    await startClaude({ apiKey: 'k', model: 'claude-haiku-5-5', system: 'S', tools }, fetchImpl).send({ text: 'go' }, {})
+    expect(requests[0].body.model).toBe('claude-haiku-5-5')
+    expect(requests[0].body).not.toHaveProperty('fallbacks')
+    expect(requests[0].headers.get('anthropic-beta') ?? '').not.toContain('server-side-fallback')
+  })
+
   it('never hands back a tool call cut off by max_tokens', async () => {
     const { fetchImpl } = fakeApi([sse([{ type: 'tool_use', id: 'tu_1', name: 'get_workspace', input: {} }], 'max_tokens')])
     const s = startClaude({ apiKey: 'k', system: 'S', tools }, fetchImpl)

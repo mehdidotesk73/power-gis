@@ -322,6 +322,8 @@ Two additions from reviewing it here, beyond what the originating project report
   the default map's seeding and the agent's `list_datasets`; the prompt names no datasets. The agent
   starts from the workspace and confirms its plan with `ask_user` (Approve / Reject card + notes);
   it looks at datasets outside the workspace only when the user agrees.
+- **Added:** model choice in the assistant's settings (Opus 5.5 default; Fable 5.1, Sonnet, Haiku and
+  older models), fixed for each chat: a new choice applies from the next chat.
 - **Added:** the server refuses an agent's (`caller: 'agent'`) changes to remote datasets.
 - **Design:** a provider-neutral loop (`lib/agent/`) with an adapter per AI provider; tool inputs are
   validated before anything runs, and a workspace update is all-or-nothing with every problem

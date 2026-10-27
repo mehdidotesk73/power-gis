@@ -165,10 +165,14 @@ usage policies live **there**, not as dataset properties.
   calls the Messages API **directly from the browser**: no relay function, no function timeouts.
   A relay with the owner's key can be added later for users without one; only the "send" step
   changes.
-- **Model:** `claude-opus-5-5` for every role, streaming, adaptive thinking (always on for this
-  model; default effort). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream` with
-  `dangerouslyAllowBrowser`, `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`:
-  a declined request is retried on Anthropic's recommended fallback model), automatic prompt
+- **Model:** the user picks it in the assistant's settings (⚙; `CLAUDE_MODELS` in
+  `client/agent/claude.ts`, remembered per device in `powergis.agentModel`; default
+  `claude-opus-5-5`). **A chat keeps the model it started with**: newer models' thinking is tied to
+  the model that produced it, so switching mid-chat isn't offered; a new choice applies to the
+  next chat ("Start a new chat"). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
+  with `dangerouslyAllowBrowser`, `fallbacks: "default"` on the models that have it (Opus 5.5,
+  Opus 5, Sonnet 5.5; beta `server-side-fallback-2026-07-01`: a declined request is retried on
+  Anthropic's recommended fallback model), automatic prompt
   caching (`cache_control`), `eager_input_streaming` tools (inputs validated before running).
   Follow the `claude-api` skill's TypeScript docs when changing it; don't guess SDK usage.
 - **(built) Stop reasons:** `pause_turn` is resumed (up to 5 times); `refusal` and a tool call cut
