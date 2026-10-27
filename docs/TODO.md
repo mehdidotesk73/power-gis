@@ -154,6 +154,25 @@ results, because the agent workflow (step 5) drives the same operations as the U
 9. **Agents compose displays** — everything above is serializable config, so agents can build
    "map + chart on click" setups as well as datasets.
 
+### Codebase audits (agreed 2026-10-27; schedule before tabs / a real backend)
+
+1. **Client / server separation.** Goal: moving the server to a real backend (Supabase / HTTP) is a
+   transport swap. Everything backend-shaped — reading sources (fetching files, ArcGIS, CSV parsing),
+   writes, grouping / aggregation, SQL, indexing, profiles — lives in `src/server/` (or pure `lib/`
+   used *only* by it); components only `request(…)` or `readDb` and render.
+   Check: every `src/lib` import from `src/components` / `src/client` is type-only or genuinely
+   client-side (styling, layout, search over already-loaded lists); no `fetch` of data outside the
+   server (known: `MapPage.seedDefault` fetches the default workspace file; `lib/data/connectors.ts`
+   is imported client-side; `DataExchange` exports in the client). Output: a list of moves, then PRs.
+2. **Component reusability.** Goal: the UI is composed from a small set of shared components, no
+   inline one-off panels / buttons / cards / lists / modals / grids. Today: `ObjectList` (cards +
+   hold menu) and `.kind-pill` are shared; duplicated by hand — `.btn` styles in 6 components, modal
+   backdrops in 3 (pop-out, Help, Explore), `.close` buttons in 3, chips in 3, a separate
+   `PreviewTable` vs `FeatureRows` table. Check: inventory every repeated pattern, then extract
+   `Button` (variants: primary / ghost / danger / icon / pill), `Modal`, `Panel` (collapsible, with
+   header actions), `Chip`, `DataTable` (paged, typed cells), `Menu`, form `Field` rows, and migrate
+   call sites. Tokens + variants, not per-component CSS.
+
 ### Display model (agreed 2026-10-26)
 
 Three layers; maps and charts are the same kind of thing:
