@@ -455,7 +455,7 @@ async function runTransform(id: string, by: Caller = 'user'): Promise<RunOutcome
 // ── the assistant (agent) ──────────────────────────────────────────────────
 // The agent's tools act through the same functions as the UI (lib/agent/tools.ts).
 
-const agentHost: AgentHost = {
+const agentHost: Omit<AgentHost, 'ask'> = {
   doc: () => doc.value,
   setDoc(next) {
     doc.value = next

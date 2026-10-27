@@ -45,6 +45,7 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
     },
     runTransform: async (id) => (calls.push(`run ${id}`), { ok: true, outputs: [{ datasetId: 'joined', name: 'JOINED', rowCount: 10, created: false }] }),
     deleteDataset: async (id) => (calls.push(`delete ${id}`), { ok: true }),
+    ask: async (question, details) => (calls.push(`ask ${question}${details ? ` | ${details}` : ''}`), { answer: 'reject', notes: 'Use 2024 only' }),
   }
   return { host, state, calls }
 }
@@ -63,7 +64,17 @@ describe('agent tools', () => {
     ])
     expect(json(list.content)[0]).not.toHaveProperty('columns')
     const w = json((await runTool(host, 'get_workspace', {})).content)
-    expect(w).toMatchObject({ version: workspaceVersion(host.doc()), name: 'Test', datasets: [{ id: 'prices', name: 'PRICES' }], transforms: [], visualizations: [] })
+    expect(w).toMatchObject({ version: workspaceVersion(host.doc()), name: 'Test', datasets: [{ id: 'prices', name: 'PRICES', store: 'local', rows: 10 }], transforms: [], visualizations: [] })
+    expect(w.datasets[0]).not.toHaveProperty('columns')
+  })
+
+  it('asks the user and hands the answer and notes back', async () => {
+    const { host, calls } = fakeHost()
+    const out = await runTool(host, 'ask_user', { question: 'Build this?', details: 'Join prices onto counties' })
+    expect(json(out.content)).toEqual({ answer: 'reject', notes: 'Use 2024 only' })
+    expect(out.summary).toBe('rejected · “Use 2024 only”')
+    expect(calls).toEqual(['ask Build this? | Join prices onto counties'])
+    expect(await runTool(host, 'ask_user', {})).toMatchObject({ isError: true })
   })
 
   it('queries any dataset, hides geometry, and reports SQL errors to the model', async () => {

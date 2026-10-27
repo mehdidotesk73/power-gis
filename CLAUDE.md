@@ -136,9 +136,11 @@ whatever they're actually asking about.
   (`client/agent/claude.ts`, `claude-opus-5-5`, streaming). Provider-neutral loop and tools in
   `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`); tools act through an
   `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. The
-  agent finds datasets with `list_datasets`, which reads the app's one **dataset finder**
-  (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry later); the prompt
-  names no datasets. Agents
+  agent starts from the workspace (`get_workspace`: its datasets' names, descriptions, stores),
+  confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
+  the workspace only with the user's OK, through `list_datasets`, which reads the app's one
+  **dataset finder** (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry
+  later); the prompt names no datasets. Agents
   read any dataset but change only **local** ones: tools check it, and the server refuses
   `caller: 'agent'` writes to remote datasets (`request(type, payload, 'agent')`).
 - **Concepts — keep the names straight:**

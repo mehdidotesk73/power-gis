@@ -3,15 +3,17 @@
 // Anthropic API key is kept on this device (localStorage) and calls go
 // straight to Anthropic. The agent works on the workspace through its tools
 // (lib/agent/tools.ts): edits land in the draft (Save / Discard as usual);
-// it may change only local datasets.
+// it may change only local datasets. When it asks for approval (ask_user), a
+// card with Approve / Reject and a notes box waits for the user's answer.
 import { computed, nextTick, ref, watch } from 'vue'
 import { claudeProvider, CLAUDE_MODEL, describeError } from '../../client/agent/claude'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
-import { runTool, TOOLS, type AgentHost } from '../../lib/agent/tools'
+import { runTool, TOOLS, type AgentHost, type UserAnswer } from '../../lib/agent/tools'
 import { addUsage, emptyUsage, type ChatSession, type ToolCall } from '../../lib/agent/provider'
 
-const props = defineProps<{ host: AgentHost }>()
+/** The page's side of the tools; the panel adds asking the user. */
+const props = defineProps<{ host: Omit<AgentHost, 'ask'> }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 // ── the API key (this device only) ─────────────────────────────────────────
@@ -58,6 +60,7 @@ type Item =
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean }
   | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error' }
+  | { kind: 'ask'; question: string; details?: string; notes: string; answer?: UserAnswer }
 
 const items = ref<Item[]>([])
 const draft = ref('')
@@ -66,6 +69,30 @@ const usage = ref(emptyUsage())
 let session: ChatSession | null = null
 let controller: AbortController | null = null
 const scroller = ref<HTMLElement>()
+
+// ── asking the user (the ask_user tool) ────────────────────────────────────
+
+/** Resolves the question the agent is waiting on. */
+let answerPending: ((a: UserAnswer) => void) | null = null
+const waiting = ref(false)
+function ask(question: string, details?: string): Promise<UserAnswer> {
+  return new Promise((resolve) => {
+    items.value.push({ kind: 'ask', question, ...(details ? { details } : {}), notes: '' })
+    const it = items.value[items.value.length - 1] as Extract<Item, { kind: 'ask' }>
+    waiting.value = true
+    answerPending = (a) => {
+      it.answer = a
+      answerPending = null
+      waiting.value = false
+      resolve(a)
+    }
+  })
+}
+function answer(it: Extract<Item, { kind: 'ask' }>, a: UserAnswer['answer']) {
+  const notes = it.notes.trim()
+  answerPending?.({ answer: a, ...(notes ? { notes } : {}) })
+}
+const host: AgentHost = { ...props.host, ask }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
@@ -95,7 +122,7 @@ async function send() {
   try {
     const { end, usage: used } = await runAgent(
       session,
-      (name, input) => runTool(props.host, name, input),
+      (name, input) => runTool(host, name, input),
       text,
       {
         onTurnStart: () => {
@@ -111,6 +138,7 @@ async function send() {
         },
         onToolStart: (call) => {
           current = null
+          if (call.name === 'ask_user') return // its card is the step
           items.value.push({ kind: 'tool', call, state: 'running', summary: '', open: false })
         },
         onToolEnd: (call, out: ToolOutcome) => {
@@ -134,6 +162,7 @@ async function send() {
 }
 function stop() {
   controller?.abort()
+  answerPending?.({ answer: 'reject', notes: 'Stopped by the user.' })
 }
 function newChat() {
   if (busy.value) return
@@ -208,9 +237,23 @@ const usageText = computed(() => {
             <pre v-if="it.result">{{ it.result.length > 4000 ? `${it.result.slice(0, 4000)}…` : it.result }}</pre>
           </div>
         </div>
+        <div v-else-if="it.kind === 'ask'" class="ask" :class="{ done: it.answer }">
+          <p class="q">{{ it.question }}</p>
+          <p v-if="it.details" class="details">{{ it.details }}</p>
+          <template v-if="!it.answer">
+            <textarea v-model="it.notes" rows="2" placeholder="Notes (optional)" aria-label="Notes for the assistant" />
+            <div class="row">
+              <button class="btn" @click="answer(it, 'reject')">Reject</button>
+              <button class="btn approve" @click="answer(it, 'approve')">Approve</button>
+            </div>
+          </template>
+          <p v-else class="answered" :class="it.answer.answer">
+            {{ it.answer.answer === 'approve' ? '✓ Approved' : '✕ Rejected' }}<span v-if="it.answer.notes"> — {{ it.answer.notes }}</span>
+          </p>
+        </div>
         <p v-else class="note" :class="it.tone">{{ it.text }}</p>
       </template>
-      <p v-if="busy" class="muted working">Working…</p>
+      <p v-if="busy" class="muted working">{{ waiting ? 'Waiting for your answer…' : 'Working…' }}</p>
     </div>
 
     <footer>
@@ -218,8 +261,8 @@ const usageText = computed(() => {
         id="agent-input"
         v-model="draft"
         rows="2"
-        :disabled="!apiKey"
-        :placeholder="apiKey ? 'Ask the assistant…' : 'Add your API key (⚙) to start'"
+        :disabled="!apiKey || waiting"
+        :placeholder="!apiKey ? 'Add your API key (⚙) to start' : waiting ? 'Answer the question above' : 'Ask the assistant…'"
         aria-label="Message"
         @keydown="onKey"
       />
@@ -421,6 +464,53 @@ header {
 }
 .note.error {
   color: var(--danger);
+}
+.ask {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--accent-blue);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--accent-blue) 8%, var(--bg-elev-2));
+}
+.ask.done {
+  border-color: var(--border);
+  background: var(--bg-elev-2);
+}
+.ask p {
+  margin: 0;
+}
+.ask .q {
+  font-weight: 600;
+}
+.ask .details {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.ask textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+  font-size: 16px; /* below 16px iOS zooms on focus */
+}
+.btn.approve {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.answered {
+  font-size: 0.8rem;
+}
+.answered.approve {
+  color: var(--ok);
+}
+.answered.reject {
+  color: var(--warn);
 }
 .working {
   margin: 0;

@@ -34,6 +34,13 @@ export interface AgentHost {
   shape(datasetId: string, binding: GeometryBinding): Promise<BindingInfo | string>
   runTransform(id: string): Promise<{ ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }>
   deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
+  /** Shows the user a question (and optional details) with Approve / Reject and a notes box; resolves with their answer. */
+  ask(question: string, details?: string): Promise<UserAnswer>
+}
+
+export interface UserAnswer {
+  answer: 'approve' | 'reject'
+  notes?: string
 }
 
 const PALETTES: PaletteName[] = ['auto', 'p12', 'p24', 'p60', 'many']
@@ -59,16 +66,29 @@ const colorSchema = {
 
 export const TOOLS: ToolSpec[] = [
   {
-    name: 'list_datasets',
+    name: 'get_workspace',
     description:
-      'Every dataset the user can use, local and remote, whether in the workspace or not: id, name, description, store (local / remote), origin, row count, and inWorkspace. No columns or contents: query the ones that look relevant (FROM (SUMMARIZE t) shows the columns, types and value ranges).',
+      "The user's workspace — where to start. Its datasets (id, name, description, store local / remote, origin, row count; no columns: query the ones that look relevant), its transforms (id, inputs, outputs with SQL, state: ready / not-run / stale) and visualizations (id, dataset, geometry column, value column, aggregation, color), plus a version stamp that update_workspace needs. Call it first, and again after the user changes things.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
-    name: 'get_workspace',
+    name: 'list_datasets',
     description:
-      "The user's workspace: which datasets it uses (ids and names), its transforms (id, inputs, outputs with SQL, state: ready / not-run / stale) and visualizations (id, dataset, geometry column, value column, aggregation, color), plus a version stamp that update_workspace needs. Call it before changing the workspace, and again after the user changes things.",
+      "Every dataset the user can use, including those outside the workspace, local and remote: id, name, description, store, origin, row count, inWorkspace. Use it only when the workspace doesn't hold what the request needs, and after asking the user (ask_user) whether to look beyond the workspace.",
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'ask_user',
+    description:
+      "Ask the user to approve or reject something, and wait for the answer. Shows your question (and optional details, such as the datasets you found relevant and your plan) with Approve / Reject buttons and a notes box. Returns {answer: 'approve' | 'reject', notes}. Use it to confirm a plan before building, and before looking outside the workspace. For an open question, ask in plain text and end your turn instead.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'One short question, answerable with approve / reject.' },
+        details: { type: 'string', description: 'Optional: what you found and what you propose, in a few short lines.' },
+      },
+      required: ['question'],
+    },
   },
   {
     name: 'query_sql',
@@ -222,11 +242,16 @@ async function listDatasets(host: AgentHost): Promise<ToolOutcome> {
 
 async function getWorkspace(host: AgentHost): Promise<ToolOutcome> {
   const doc = host.doc()
+  // Transform states need their outputs' records too, which may sit outside the workspace.
   const byId = new Map((await host.listDatasets()).map((d) => [d.id, d]))
   const data = {
     version: workspaceVersion(doc),
     name: doc.name,
-    datasets: doc.datasetIds.map((id) => ({ id, name: byId.get(id)?.name ?? '(missing)' })),
+    datasets: doc.datasetIds.map((id) => {
+      const d = byId.get(id)
+      if (!d) return { id, name: '(missing)' }
+      return { id, name: d.name, ...(d.description ? { description: d.description } : {}), store: storeOf(d), origin: d.origin, rows: d.rowCount }
+    }),
     transforms: doc.transforms.map((t) => ({ id: t.id, name: t.name, state: transformState(t, (id) => byId.get(id)), inputs: t.inputs, outputs: t.outputs })),
     visualizations: doc.visualizations.map((v) => ({
       id: v.id,
@@ -413,6 +438,15 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
   return ok({ deleted: d.id, version: workspaceVersion(host.doc()) }, `deleted ${d.name}`)
 }
 
+// ── ask_user ───────────────────────────────────────────────────────────────
+
+async function askUser(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.question) && input.question.trim(), '`question` is required')
+  need(optStr(input.details), '`details` must be text')
+  const a = await host.ask(input.question.trim(), (input.details as string | undefined)?.trim() || undefined)
+  return ok(a, `${a.answer === 'approve' ? 'approved' : 'rejected'}${a.notes ? ` · “${a.notes.length > 60 ? `${a.notes.slice(0, 60)}…` : a.notes}”` : ''}`)
+}
+
 // ── dispatch ───────────────────────────────────────────────────────────────
 
 /** Runs a tool call: validated, gated, never throwing. */
@@ -424,6 +458,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await listDatasets(host)
       case 'get_workspace':
         return await getWorkspace(host)
+      case 'ask_user':
+        return await askUser(host, input)
       case 'query_sql':
         return await querySql(host, input)
       case 'update_workspace':

@@ -65,17 +65,22 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 | Tool | Kind | What it does | Built on |
 |---|---|---|---|
 | `web_search`, `web_fetch` | read | Find sources and read their pages (scouting leg; not given to the dataset processor yet) | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
-| `list_datasets` | read | Every dataset the user can use, local and remote: id, name, description, store, origin, row count, in the workspace or not. No columns or contents: the agent picks by name and description, then queries | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
-| `get_workspace` | read | The workspace config only: dataset ids and names, transforms (full spec + ready / not run / needs re-run), visualizations, plus a **version** stamp | The workspace draft |
+| `get_workspace` | read | **Where the agent starts.** The workspace's datasets (id, name, description, store, origin, row count; no columns), transforms (full spec + ready / not run / needs re-run), visualizations, plus a **version** stamp | The workspace draft + registry records |
+| `list_datasets` | read | Every dataset the user can use, outside the workspace too, local and remote (same fields + `inWorkspace`). Used only when the workspace lacks what's needed, **after asking** | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
+| `ask_user(question, details?)` | read | Shows a card with the question, details (what it found, its plan), **Approve / Reject** and a notes box; waits; returns `{answer, notes}` | The chat panel |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
 | `update_workspace(config, version)` | **gated** | Replaces the draft with a modified config | Loading a workspace file into the draft |
 | `run_transform(id)` | **gated** | Runs one transform of the draft; returns row counts or the error | `runTransform` |
 | `delete_dataset(id)` | **gated** | Deletes a dataset and its rows | `deleteDataset` + `forgetDataset` |
 
-**(built)** The dataset processor has `list_datasets`, `get_workspace`, `query_sql`,
+**(built)** The dataset processor has `get_workspace`, `list_datasets`, `ask_user`, `query_sql`,
 `update_workspace`, `run_transform` and `delete_dataset`. Notes from building them:
 
-- **Nothing in the prompt names a dataset.** The agent finds what exists with `list_datasets`,
+- **The workspace comes first.** The user normally adds the datasets they care about to the
+  workspace, then asks for something. The agent reports which workspace datasets look relevant
+  (by name and description, then queries), confirms its plan with `ask_user` unless the request is
+  small and clear, and only looks outside the workspace if the user approves.
+- **Nothing in the prompt names a dataset.** Outside the workspace the agent uses `list_datasets`,
   which reads the app's dataset finder (`listDatasets()` in `client/datasets.ts`, also behind
   ＋ Dataset → Saved and the default map's seeding). Today that's the datasets on this device;
   with Supabase it becomes these plus the remote registry's datasets the user may access, and the
