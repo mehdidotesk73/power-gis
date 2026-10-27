@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiButton from './components/ui/UiButton.vue'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import HelpModal from './components/HelpModal.vue'
 import MapPage from './components/MapPage.vue'
@@ -109,9 +110,7 @@ const helpDoc = ref('default')
         <div class="header-actions">
           <!-- the page puts its workspace control here (MapPage → WorkspaceBar) -->
           <div id="header-workspace" />
-          <button class="help-btn" @click="showHelp = true" aria-label="Help" title="Help">
-            ?<span class="help-word"> Help</span>
-          </button>
+          <UiButton size="compact" icon="?" aria-label="Help" title="Help" @click="showHelp = true"><span class="help-word">Help</span></UiButton>
         </div>
       </div>
     </header>
@@ -265,20 +264,6 @@ const helpDoc = ref('default')
   }
 }
 
-.help-btn {
-  background: var(--bg-elev-2, transparent);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  padding: 0.3rem 0.6rem;
-  border-radius: 0.4rem;
-  cursor: pointer;
-}
-
-.help-btn:hover {
-  color: var(--text);
-  border-color: var(--accent-blue);
-}
 
 .content {
   padding: 0.25rem 0;

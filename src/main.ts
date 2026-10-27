@@ -20,4 +20,12 @@ try {
   // Non-fatal — a stray query param is harmless.
 }
 
+// iOS Safari zooms the whole page into any text field under 16px when it's tapped, and doesn't
+// zoom back. maximum-scale=1 stops that on iOS (two-finger pinch zoom still works there); it's
+// left off elsewhere, where it would block pinch zoom and there's no focus zoom to stop.
+if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+  const vp = document.querySelector('meta[name="viewport"]')
+  if (vp && !/maximum-scale/.test(vp.getAttribute('content') ?? '')) vp.setAttribute('content', `${vp.getAttribute('content')}, maximum-scale=1`)
+}
+
 app.mount('#app')

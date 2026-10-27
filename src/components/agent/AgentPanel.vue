@@ -187,7 +187,7 @@ async function send() {
   controller = new AbortController()
   let current: Extract<Item, { kind: 'assistant' }> | null = null
   try {
-    const { end, usage: used } = await runAgent(
+    const { end } = await runAgent(
       session,
       (name, input) => runTool(host, name, input),
       { text, ...(images.length ? { images: images.map(({ mediaType, data }) => ({ mediaType, data })) } : {}) },
@@ -203,6 +203,7 @@ async function send() {
           current.text += delta
           void scrollDown()
         },
+        onUsage: (turn) => (usage.value = addUsage(usage.value, turn)),
         onToolStart: (call) => {
           current = null
           if (call.name === 'ask_user') return // its card is the step
@@ -215,7 +216,6 @@ async function send() {
       },
       controller.signal,
     )
-    usage.value = addUsage(usage.value, used)
     if (end === 'refused') items.value.push({ kind: 'note', tone: 'warn', text: 'Claude declined this request. Try rephrasing it.' })
     else if (end === 'truncated') items.value.push({ kind: 'note', tone: 'warn', text: 'The answer was cut off (too long). Ask it to continue, or to do less at once.' })
     else if (end === 'step-limit') items.value.push({ kind: 'note', tone: 'warn', text: 'Stopped after many steps. Say "continue" to let it carry on.' })
@@ -647,8 +647,8 @@ footer textarea {
   box-sizing: border-box;
   resize: none;
   padding: 0.4rem 0.5rem;
-  font: inherit;
-  font-size: 16px; /* below 16px iOS zooms on focus */
+  font: inherit; /* the panel's text size; iOS's zoom-on-focus is turned off in main.ts */
+  line-height: 1.4;
 }
 .row {
   display: flex;

@@ -18,6 +18,8 @@ export interface LoopEvents {
   onTurnStart?(): void
   onToolStart?(call: ToolCall): void
   onToolEnd?(call: ToolCall, outcome: ToolOutcome): void
+  /** Tokens one model turn used, as soon as it ends (so a long or stopped run still counts). */
+  onUsage?(turn: Usage): void
 }
 
 export type LoopEnd = TurnStop | 'step-limit' | 'stopped'
@@ -39,6 +41,7 @@ export async function runAgent(
     events.onTurnStart?.()
     const turn = await session.send(input, { onText: events.onText }, signal)
     usage = addUsage(usage, turn.usage)
+    events.onUsage?.(turn.usage)
     if (turn.stop !== 'tools') return { end: turn.stop, usage }
     const results: ToolResult[] = []
     for (const call of turn.toolCalls) {
