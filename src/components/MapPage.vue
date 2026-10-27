@@ -1087,6 +1087,19 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   width: 2.6rem;
   font-size: 1.05rem;
 }
+/* Search is docked to the top of the side panel (and, on phones, of the screen while the
+   controls scroll by), above everything else in it. */
+.search {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.6);
+}
+@media (max-width: 48rem) {
+  .search {
+    top: env(safe-area-inset-top, 0px);
+  }
+}
 .view-switch {
   display: flex;
   gap: 4px;

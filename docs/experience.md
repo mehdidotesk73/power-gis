@@ -317,6 +317,9 @@ Two additions from reviewing it here, beyond what the originating project report
   everything downstream, writers before readers, one by one, stopping at the first failure.
 - **Changed:** the transform editor is compact — one line per input / output — with a sticky,
   collapsible preview dock: tap an input for its rows, an output for what its SQL makes.
+- **Fixed:** a card's hold / right-click menu was clipped by its scrolling container (side panel,
+  pop-out detail column). It now floats over the page (teleported, fixed at the press point).
+- **Changed:** Search is docked at the top of the side panel and more compact.
 - **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
 
 ### Graph layout + panel UI — 2026-10-26

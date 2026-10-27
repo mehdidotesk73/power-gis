@@ -192,7 +192,8 @@ whatever they're actually asking about.
   before Export) into a modal via `<Teleport :disabled="!popped">` — same components, state kept.
   Popped out and wide, the open graph item sits beside the graph. **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
-- **Find** (`FindPanel.vue`, a separate card: "Search in [viz] in [All data / column]"): pick a visualization, then search — all data or one column — over its
+- **Find** (`FindPanel.vue`, a separate compact card **docked** at the top of the side panel —
+  `position: sticky` — "Search in [viz] in [All data / column]"; smaller text with a mouse, 16px on touch): pick a visualization, then search — all data or one column — over its
   features' names and every text value in their rows (typo-tolerant). The server builds the index
   (`findIndex` request, `lib/dataset/query.ts`, cached with the grouping; columns with more than
   20k distinct values are left out); `findFeatures` returns the matching features' keys, which the
@@ -213,7 +214,9 @@ whatever they're actually asking about.
   page passes `items`, `itemKey`, the card body (default slot) and `actions(item)` (the hold menu:
   `{id, label, icon, danger, disabled}`), and handles `@action(id, item)`. No buttons on the cards:
   **tap and hold** (right-click with a mouse; `useLongPress`, pointer events + timer since iOS fires
-  no `contextmenu`; moving > 10 px cancels) opens the menu. `reorderable` adds **Reorder** (before the
+  no `contextmenu`; moving > 10 px cancels) opens the menu — teleported to `<body>`, `position:
+  fixed` at the press point and nudged on screen, so scrolling panels / the pop-out can't clip it
+  (scrolling closes it). `reorderable` adds **Reorder** (before the
   first danger action): ≡ handles on every card, vertically centered, until **Done**
   (`useDragReorder`: pointer events, not HTML5 drag-and-drop which iOS lacks; moves and the release
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and

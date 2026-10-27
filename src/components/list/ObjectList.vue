@@ -5,7 +5,7 @@
 // (right-click with a mouse) for its menu; picking an action emits
 // `action(id, item)`. **Reorder** is built in when `reorderable`: it shows a
 // ≡ handle on every card, vertically centered, until Done.
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useDragReorder } from './useDragReorder'
 import { useLongPress } from './useLongPress'
 
@@ -60,9 +60,25 @@ watch(canReorder, (ok) => ok || finishReorder())
 
 const menuFor = ref<string | null>(null)
 let menuEl: HTMLElement | undefined // a function ref: a string ref inside v-for is an array
-const { holdHandlers } = useLongPress((id) => {
-  if (!reordering.value) menuFor.value = id
+// The menu floats over the page (teleported to <body>, position: fixed) where the press
+// happened, so scrolling panels and pop-out windows can't clip it; it's nudged to stay on screen.
+const menuAt = ref({ x: 0, y: 0 })
+const { holdHandlers } = useLongPress((id, at) => {
+  if (reordering.value) return
+  menuAt.value = { x: at.x, y: at.y }
+  menuFor.value = id
+  nextTick(placeMenu)
 })
+function placeMenu() {
+  const el = menuEl
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  const pad = 8
+  const x = Math.min(menuAt.value.x, window.innerWidth - r.width - pad)
+  const below = menuAt.value.y + 4
+  const y = below + r.height > window.innerHeight - pad ? Math.max(pad, menuAt.value.y - r.height - 4) : below
+  menuAt.value = { x: Math.max(pad, x), y }
+}
 function menu(item: T): ObjectAction[] {
   const list = props.actions(item)
   if (!canReorder.value) return list
@@ -79,13 +95,19 @@ function outside(e: PointerEvent) {
   if (!menuEl?.contains(e.target as Node)) menuFor.value = null
 }
 const onKey = (e: KeyboardEvent) => e.key === 'Escape' && (menuFor.value = null)
+// A fixed menu would drift from its card on scroll: close it instead.
+const onScroll = (e: Event) => !menuEl?.contains(e.target as Node) && (menuFor.value = null)
 function listen(on: boolean) {
   if (on) {
     // Next tick: the press that opened the menu mustn't close it.
-    setTimeout(() => document.addEventListener('pointerdown', outside, true))
+    setTimeout(() => {
+      document.addEventListener('pointerdown', outside, true)
+      document.addEventListener('scroll', onScroll, true)
+    })
     document.addEventListener('keydown', onKey)
   } else {
     document.removeEventListener('pointerdown', outside, true)
+    document.removeEventListener('scroll', onScroll, true)
     document.removeEventListener('keydown', onKey)
   }
 }
@@ -122,12 +144,14 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
         <div class="body">
           <slot :item="item" />
         </div>
+        <Teleport to="body">
         <div
           v-if="menuFor === itemKey(item)"
           :ref="(el) => (menuEl = (el as HTMLElement) ?? undefined)"
           class="menu"
           role="menu"
           :aria-label="`${itemLabel(item)} options`"
+          :style="{ left: `${menuAt.x}px`, top: `${menuAt.y}px` }"
         >
           <button
             v-for="a in menu(item)"
@@ -140,6 +164,7 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
             <span class="icon">{{ a.icon }}</span>{{ a.label }}
           </button>
         </div>
+        </Teleport>
       </li>
     </ul>
   </div>
@@ -217,10 +242,8 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
   font-size: 0.8rem;
 }
 .menu {
-  position: absolute;
-  z-index: 5;
-  top: 2rem;
-  right: 0.4rem;
+  position: fixed;
+  z-index: 200; /* above the pop-out window and map overlays */
   display: grid;
   min-width: 12rem;
   background: var(--bg-elev);
