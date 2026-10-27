@@ -73,6 +73,34 @@ describe('sql transforms (DuckDB)', () => {
     expect(nums.rows).toEqual([{ s: -4, d: 12.345, n: -0.5 }])
   })
 
+  it('keeps one engine copy per dataset whatever the alias, reloads it on change, and drops old ones over budget', async () => {
+    let loads = 0
+    const counting = async () => {
+      const e = await nodeDuckDb()
+      return { ...e, insert: (t: string, c: Parameters<NonNullable<typeof e.insert>>[1]) => (t === '__stage' && loads++, e.insert!(t, c)) }
+    }
+    const runner = createSqlRunner(counting, { cellBudget: 20 })
+    const ds = (alias: string, version = 'v1', key = 'plants-id'): SqlInput => ({ ...plants, alias, key, version })
+    expect((await runner.run('SELECT count(*) AS n FROM p', [ds('p')])).rows[0].n).toBe(3)
+    expect((await runner.run('SELECT count(*) AS n FROM q', [ds('q')])).rows[0].n).toBe(3)
+    expect((await runner.run('SELECT a.name FROM a JOIN b USING (name) ORDER BY 1', [ds('a'), ds('b', 'v1', 'other-id')])).rows).toHaveLength(3)
+    expect(loads).toBe(2) // plants once (aliases p, q, a), the other dataset once
+    await runner.run('SELECT * FROM p', [ds('p', 'v2')])
+    expect(loads).toBe(3) // a new version reloads
+    // Budget 20 cells: plants (18) and the other copy (18) can't both stay, so each use evicts the other.
+    await runner.run('SELECT * FROM b', [ds('b', 'v1', 'other-id')])
+    await runner.run('SELECT * FROM p', [ds('p', 'v2')])
+    expect(loads).toBe(5)
+  })
+
+  it('pages with one run, and counts correctly past the end', async () => {
+    const page = await sql.run('SELECT name FROM plants ORDER BY name', [plants], 2, 1)
+    expect(page).toMatchObject({ rowCount: 3, rows: [{ name: 'C' }, { name: "O'Hare" }] })
+    expect(page.columns.map((c) => c.name)).toEqual(['name'])
+    expect(await sql.run('SELECT name FROM plants', [plants], 2, 10)).toMatchObject({ rowCount: 3, rows: [] })
+    expect(await sql.run('SELECT name FROM plants WHERE false', [plants], 2)).toMatchObject({ rowCount: 0, rows: [] })
+  })
+
   it('profiles a table', async () => {
     const rows = await plants.rows()
     const p = profileRows(rows, plants.columns)

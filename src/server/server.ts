@@ -66,6 +66,7 @@ export function createServer(db: Database, env: ServerEnv) {
         return {
           alias: i.alias,
           label: ds.name,
+          key: ds.id,
           version: `${ds.id}|${ds.updatedAt}`,
           columns: ds.columns,
           rows: async () => (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`),
@@ -175,7 +176,7 @@ export function createServer(db: Database, env: ServerEnv) {
         ...(name !== undefined ? { name: name.trim() } : {}),
         ...(description !== undefined ? { description } : {}),
         ...(extensions !== undefined ? { extensions: { ...ds.extensions, ...extensions } } : {}),
-        updatedAt: now(),
+        // updatedAt stays: it marks when the rows changed (transforms compare it to know they're stale).
       })
       return { datasetId: id }
     },

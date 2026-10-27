@@ -82,6 +82,11 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Engine speed** — one DuckDB copy per dataset whatever alias a query uses (aliases are temp
+  views), bulk-loaded as Arrow (3,071 × 330: ~11 s → ~0.5 s), least recently used copies dropped past
+  a cell budget, queries one at a time, paged queries run once. Renaming / describing a dataset no
+  longer marks its transforms stale. The agent re-reads the workspace before saying something's
+  missing.
 - **Assistant: the dataset processor agent** — ✦ Assistant in the header opens a chat (side panel
   on desktop, sheet on phones). The user's own Anthropic API key stays on the device; calls go
   straight to Anthropic (`claude-opus-5-5`, streaming). The agent reads the workspace, queries any
@@ -265,8 +270,6 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 
 ## Known Issues
 
-- Renaming or describing a dataset bumps its `updatedAt`, so downstream transforms show ↻ needs
-  re-run although no rows changed. A separate data timestamp would fix it.
 
 (Bugs, edge cases, platform-specific quirks)
 

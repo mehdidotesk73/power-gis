@@ -110,9 +110,9 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 distinct count, mean, standard deviation, quartiles, null percentage, count. There is no
 separate profile tool.
 
-**Queries are cheap after the first.** **(built)** Loaded tables stay in DuckDB until their dataset
-changes (`createSqlRunner`, keyed by dataset id + `updatedAt`), so repeated queries over the same
-table don't reload it.
+**Queries are cheap after the first.** **(built)** Each dataset is loaded into DuckDB once (bulk,
+as Arrow) and kept until it changes or the memory budget drops it; the aliases a query uses are
+views onto it, so the agent can name tables anything without reloading them.
 
 ### The gate
 
