@@ -7,7 +7,7 @@
 // the bottom row. Within a row nodes are ordered to keep arrows from crossing
 // (orderLayers); positions come from layoutDag, top to bottom or left to right.
 
-import type { WorkspaceDoc } from './workspace'
+import type { TransformSpec, WorkspaceDoc } from './workspace'
 
 export type DagNodeKind = 'dataset' | 'transform' | 'viz'
 
@@ -55,6 +55,52 @@ const dsKey = (id: string) => `ds:${id}`
 const trKey = (id: string) => `tr:${id}`
 const vizKey = (id: string) => `viz:${id}`
 
+/** Not run: an output has never been written. Stale: an input changed after the oldest output. */
+export function transformState(t: TransformSpec, dataset: (id: string) => DagDataset | undefined): 'ready' | 'not-run' | 'stale' {
+  const outs = t.outputs.map((o) => (o.outputId ? dataset(o.outputId) : undefined))
+  if (!outs.length || outs.some((d) => !d)) return 'not-run'
+  const newest = Math.max(0, ...t.inputs.map((i) => Date.parse(dataset(i.datasetId)?.updatedAt ?? '') || 0))
+  const oldest = Math.min(...outs.map((d) => Date.parse(d?.updatedAt ?? '') || 0))
+  return newest > oldest ? 'stale' : 'ready'
+}
+
+/**
+ * What "Run all stale" runs, in order: every transform that needs a re-run,
+ * plus every transform downstream of one (it will be stale once its inputs are
+ * rewritten), each after the transforms that write its inputs. Transforms
+ * never run are left out — they may be unfinished drafts.
+ */
+export function staleRunOrder(doc: WorkspaceDoc, dataset: (id: string) => DagDataset | undefined): string[] {
+  const writer = new Map<string, string>() // dataset id → transform id
+  for (const t of doc.transforms) for (const o of t.outputs) if (o.outputId) writer.set(o.outputId, t.id)
+  const byId = new Map(doc.transforms.map((t) => [t.id, t]))
+  const upstream = (t: TransformSpec) => [...new Set(t.inputs.flatMap((i) => writer.get(i.datasetId) ?? []))].filter((u) => u !== t.id)
+
+  // Pending: stale ones, then anything (already run) reading a pending one's output, to a fixed point.
+  const pending = new Set(doc.transforms.filter((t) => transformState(t, dataset) === 'stale').map((t) => t.id))
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const t of doc.transforms) {
+      if (pending.has(t.id) || transformState(t, dataset) === 'not-run') continue
+      if (upstream(t).some((u) => pending.has(u))) {
+        pending.add(t.id)
+        grew = true
+      }
+    }
+  }
+  // Inputs first (depth-first; a cycle can't recurse forever).
+  const order: string[] = []
+  const seen = new Set<string>()
+  const visit = (id: string) => {
+    if (seen.has(id) || !pending.has(id)) return
+    seen.add(id)
+    for (const u of upstream(byId.get(id)!)) visit(u)
+    order.push(id)
+  }
+  for (const t of doc.transforms) visit(t.id)
+  return order
+}
+
 export function buildDag(doc: WorkspaceDoc, dataset: (id: string) => DagDataset | undefined): Dag {
   const nodes = new Map<string, DagNode>()
   const edges: DagEdge[] = []
@@ -76,11 +122,7 @@ export function buildDag(doc: WorkspaceDoc, dataset: (id: string) => DagDataset 
   }
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
   for (const t of doc.transforms) {
-    // Not run: an output has never been written. Stale: an input changed after the oldest output.
-    const outs = t.outputs.map((o) => (o.outputId ? dataset(o.outputId) : undefined))
-    const newest = Math.max(...t.inputs.map((i) => Date.parse(dataset(i.datasetId)?.updatedAt ?? '') || 0))
-    const oldest = Math.min(...outs.map((d) => Date.parse(d?.updatedAt ?? '') || 0))
-    const state: DagNode['state'] = outs.some((d) => !d) ? 'not-run' : newest > oldest ? 'stale' : 'ready'
+    const state = transformState(t, dataset)
     const detail = state === 'not-run' ? 'not run yet' : state === 'stale' ? 'needs re-run' : `${plural(t.inputs.length, 'input')} → ${plural(t.outputs.length, 'output')}`
     nodes.set(trKey(t.id), { key: trKey(t.id), kind: 'transform', id: t.id, label: t.name, detail, state, row: 0, order: 0 })
     for (const i of t.inputs) edges.push({ from: dsKey(i.datasetId), to: trKey(t.id) })

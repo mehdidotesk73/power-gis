@@ -1,10 +1,16 @@
 <script setup lang="ts">
 // A transform output's preview: its first rows (or the SQL's error), the full row count and column types.
-import type { ColumnInfo } from '../../lib/dataset/columns'
+import { isGeometryColumn, type ColumnInfo } from '../../lib/dataset/columns'
 import type { DataRecord } from '../../lib/data/connectors'
 
 defineProps<{ preview: { columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number } | { error: string }; label?: string }>()
-const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 60)
+/** A cell as short text; geometry as its kind (the full GeoJSON is noise in a table). */
+function cell(v: unknown, type: string): string {
+  if (v === null || v === undefined) return ''
+  // SQL hands geometry back as GeoJSON text; show its kind either way.
+  if (isGeometryColumn(type as never)) return typeof v === 'object' ? String((v as { type?: string }).type ?? type) : (/"type"\s*:\s*"(\w+)"/.exec(String(v))?.[1] ?? String(v).slice(0, 24))
+  return (typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 60)
+}
 </script>
 
 <template>
@@ -20,7 +26,7 @@ const cell = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 
         </thead>
         <tbody>
           <tr v-for="(r, i) in preview.rows" :key="i">
-            <td v-for="c in preview.columns" :key="c.name">{{ cell(r[c.name]) }}</td>
+            <td v-for="c in preview.columns" :key="c.name">{{ cell(r[c.name], c.type) }}</td>
           </tr>
         </tbody>
       </table>

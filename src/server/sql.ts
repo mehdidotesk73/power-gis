@@ -141,8 +141,8 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>) {
     loaded.set(input.alias, input.version)
   }
 
-  /** Runs a SELECT over the inputs. `limit` caps the rows returned (previews); the full count comes back too. */
-  async function run(sql: string, inputs: SqlInput[], limit?: number): Promise<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }> {
+  /** Runs a SELECT over the inputs. `limit` (and `offset`) page the rows returned (previews); the full count comes back too. */
+  async function run(sql: string, inputs: SqlInput[], limit?: number, offset = 0): Promise<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }> {
     const query = checkSelect(sql)
     const aliases = inputs.map((i) => i.alias)
     const dup = aliases.find((a, i) => aliases.indexOf(a) !== i)
@@ -151,7 +151,7 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>) {
     for (const input of inputs) await load(e, input)
     let res: SqlResult
     try {
-      res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}\n) LIMIT ${Math.max(0, Math.floor(limit))}`)
+      res = await e.query(limit === undefined ? query : `SELECT * FROM (${query}\n) LIMIT ${Math.max(0, Math.floor(limit))}${offset > 0 ? ` OFFSET ${Math.floor(offset)}` : ''}`)
     } catch (err) {
       // An unknown table is almost always a name that isn't one of the inputs' table names: list them.
       const missing = /Table with name (\S+) does not exist/.exec((err as Error).message)

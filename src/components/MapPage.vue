@@ -34,7 +34,7 @@ import type { DatasetRecord, WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { newId, ROW_COUNT } from '../lib/dataset/dataset'
-import { buildDag, type DagNode } from '../lib/workspace/dag'
+import { buildDag, staleRunOrder, type DagNode } from '../lib/workspace/dag'
 import { defaultVisualization, makeVisualization, settingsOf, visualizationLayer, VALUE, type VisualizationSpec } from '../lib/dataset/visualization'
 import {
   addDataset,
@@ -225,7 +225,7 @@ async function onAddDataset(datasetId: string) {
   if (!ds) return void logDebug(`dataset ${datasetId} not found in the database`, 'error')
   const first = await firstVisualizations(ds)
   if (!apply(addDataset(doc.value, ds.id, first))) return
-  logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Add visualization'}`)
+  logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Visualization'}`)
   if (first.length) setTimeout(() => zoomToViz(first[0].id), 300)
   if (view.value === 'graph') openNode({ key: `ds:${ds.id}`, kind: 'dataset', id: ds.id })
 }
@@ -401,6 +401,31 @@ async function runTransform(id: string) {
   logDebug(`transform "${t.name}": ${lines.join(' · ')}`)
 }
 
+// ── Run all stale ──────────────────────────────────────────────────────────
+// Every transform needing a re-run, plus everything downstream of one, inputs
+// first (lib/workspace/dag.ts staleRunOrder). Stops at the first failure.
+const staleOrder = computed(() => staleRunOrder(doc.value, (id) => records.value.get(id)))
+/** "2 of 3 · Utilities by county" while running; the outcome after. */
+const staleProgress = ref<{ running: boolean; text: string } | null>(null)
+async function runAllStale() {
+  const order = [...staleOrder.value]
+  if (!order.length || staleProgress.value?.running) return
+  for (const [i, id] of order.entries()) {
+    const t = doc.value.transforms.find((x) => x.id === id)
+    staleProgress.value = { running: true, text: `Running ${i + 1} of ${order.length}${t ? ` · ${t.name}` : ''}…` }
+    await runTransform(id)
+    const st = runStatus.value[id]
+    if (st?.state === 'error') {
+      staleProgress.value = { running: false, text: `⚠ “${t?.name ?? 'transform'}” failed: ${st.message ?? ''} — ${i} of ${order.length} ran.` }
+      return
+    }
+  }
+  staleProgress.value = { running: false, text: `✓ Re-ran ${order.length} transform${order.length === 1 ? '' : 's'}.` }
+  setTimeout(() => {
+    if (!staleProgress.value?.running) staleProgress.value = null
+  }, 6000)
+}
+
 /** Fits the map to a visualization's features (those with rows). */
 function zoomToViz(vizId: string) {
   const r = renderedById.value.get(vizId)
@@ -485,7 +510,7 @@ async function open(w: WorkspaceRecord) {
 
 /** Replaces the working copy with the default map (unsaved until Save). Datasets stay in the database. */
 async function resetWorkspace() {
-  if (!confirm('Reset this workspace to the default map? Nothing changes until you Save; your datasets stay in the database (＋ Add dataset → Saved).')) return
+  if (!confirm('Reset this workspace to the default map? Nothing changes until you Save; your datasets stay in the database (＋ Dataset → Saved).')) return
   resetSelection()
   await seedDefault()
   barMessage.value = ''
@@ -737,9 +762,19 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
       <template v-if="view === 'graph'">
         <div class="graph-wrap" :class="{ split: dagNode || dagNewViz || dagNewDataset }">
         <section class="box">
-          <DagView :dag="dag" :selected="dagKey" @select="openNode" @new-transform="newTransformFrom" @new-viz="newVizFor" @new-dataset="newDataset" />
+          <DagView
+            :dag="dag"
+            :selected="dagKey"
+            :stale-count="staleOrder.length"
+            :stale-progress="staleProgress"
+            @select="openNode"
+            @new-transform="newTransformFrom"
+            @new-viz="newVizFor"
+            @new-dataset="newDataset"
+            @run-stale="runAllStale"
+          />
         </section>
-        <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
+        <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal.late="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
           <div class="dag-detail-head">
             <strong>{{ dagNewDataset ? 'New dataset' : dagNewViz ? 'New visualization' : dagNode!.kind === 'dataset' ? 'Dataset' : dagNode!.kind === 'transform' ? 'Transform' : 'Visualization' }}</strong>
             <button class="close" aria-label="Close" @click="closeNode">✕</button>
@@ -763,6 +798,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             v-else-if="dagNode?.kind === 'dataset'"
             compact
             :datasets="records.has(dagNode.id) ? [records.get(dagNode.id)!] : []"
+            :tables="datasets"
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
             @remove="removeDataset"
             @reorder="reorderDatasets"
@@ -804,6 +840,10 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 
         <details class="box">
           <summary>Transforms</summary>
+          <div v-if="staleOrder.length || staleProgress" class="stale-row">
+            <button v-if="staleOrder.length && !staleProgress?.running" class="kind-pill k-attention" @click="runAllStale">↻ Run all stale ({{ staleOrder.length }})</button>
+            <span v-if="staleProgress" class="stale-msg">{{ staleProgress.text }}</span>
+          </div>
           <TransformsPanel
             :transforms="doc.transforms"
             :datasets="datasets"
@@ -921,6 +961,9 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .controls {
   min-width: 0; /* a wide editor must not widen the column past the screen */
+  /* No scroll anchoring: when the card under the graph changes size, the browser would shift the
+     scroll and move the graph between the two clicks of a double-click. */
+  overflow-anchor: none;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -991,6 +1034,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .pop {
   box-sizing: border-box;
+  overflow-anchor: none;
   width: min(72rem, 100%);
   max-height: 95dvh;
   overflow: auto;
@@ -1048,6 +1092,19 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
   width: 2.6rem;
   font-size: 1.05rem;
 }
+/* Search is docked to the top of the side panel (and, on phones, of the screen while the
+   controls scroll by), above everything else in it. */
+.search {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.6);
+}
+@media (max-width: 48rem) {
+  .search {
+    top: env(safe-area-inset-top, 0px);
+  }
+}
 .view-switch {
   display: flex;
   gap: 4px;
@@ -1098,6 +1155,17 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
 }
 .box[open] summary {
   margin-bottom: 0.45rem;
+}
+.stale-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+.stale-msg {
+  font-size: 0.74rem;
+  color: var(--text-muted);
 }
 .import-wrap {
   margin-bottom: 0.45rem; /* above the list, as the other panels' ＋ buttons */

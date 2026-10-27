@@ -312,6 +312,23 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Run all stale — 2026-10-26
+- **Added:** ↻ Run all stale (graph toolbar and list Transforms panel): every stale transform plus
+  everything downstream, writers before readers, one by one, stopping at the first failure.
+- **Changed:** the transform editor is compact — one line per input / output — with a sticky,
+  collapsible preview dock: tap an input for its rows, an output for what its SQL makes.
+- **Added:** double-click / double-tap a card opens it (Explore / editor); visualizations' checkbox
+  became a Visible / Hidden pill. Decided: **cards only** — graph nodes keep tap = select / tap again = deselect. A single tap already opens the node's
+  card, which shifts the layout between the two clicks (scroll anchoring moved a node 31 px), so a
+  double-tap there was timing-dependent. `overflow-anchor: none` on the side panel and pop-out.
+- **Added:** **Explore** replaces a dataset's Preview: a SQL window over the dataset (and the
+  workspace's others, by table name) with paged results, 200 rows a page. Made for checking joins —
+  e.g. which rows of an upload find no county.
+- **Fixed:** a card's hold / right-click menu was clipped by its scrolling container (side panel,
+  pop-out detail column). It now floats over the page (teleported, fixed at the press point).
+- **Changed:** Search is docked at the top of the side panel and more compact.
+- **Docs:** CLAUDE.md, system-design (Graph view), help overview, TODO.
+
 ### Graph layout + panel UI — 2026-10-26
 - **Changed:** the DAG ordering minimizes arrow crossings — edges that skip rows get virtual points
   (their own lane in each row, drawn through), then alternating barycenter sweeps with neighbour

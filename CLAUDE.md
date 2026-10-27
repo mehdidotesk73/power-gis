@@ -178,8 +178,11 @@ whatever they're actually asking about.
   after the output; returns `{outputs: [{key, datasetId, rowCount, created}]}`). Older single-SQL
   transforms (`sql` + `outputId`) are read through `normalizeTransform` (drafts, files, records).
   Transforms are part of the workspace draft (ops `addTransform` / `updateTransform` /
-  `removeTransform`) and saved with it. The editor sets inputs and outputs first, then one SQL per
-  output with its own Preview; Run writes them all. Inputs are `{datasetId, alias}` pairs: the dataset is picked
+  `removeTransform`) and saved with it. The editor sets inputs and outputs first — **one compact line each**
+  (input: dataset chip · `as` alias · ⤵ Insert · ⇄ change · ✕; output: ▤ · name · → writes to · ✕) —
+  then one SQL per output; Run writes them all. A **preview dock** at the editor's bottom (sticky,
+  collapsible) shows one thing at a time: tap an input chip for its first rows (read from the
+  database), an output's ▤ (or its SQL's **Preview ↓**) for what its SQL would write. Inputs are `{datasetId, alias}` pairs: the dataset is picked
   in a search box (name, typo-tolerant, or a pasted id — a dataset's hold menu → Copy id); the alias is the
   table name in the SQL (Insert puts it at the cursor; renaming it renames it in the SQL; an unknown
   table's error lists the aliases). Tests run real DuckDB through its Node build
@@ -189,7 +192,12 @@ whatever they're actually asking about.
   before Export) into a modal via `<Teleport :disabled="!popped">` — same components, state kept.
   Popped out and wide, the open graph item sits beside the graph. **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
-- **Find** (`FindPanel.vue`, a separate card: "Search in [viz] in [All data / column]"): pick a visualization, then search — all data or one column — over its
+- **Explore** (`dataset/ExploreModal.vue`, a dataset's menu): a window with a SQL box (starts
+  `SELECT * FROM <dataset>`) over a docked results table, **200 rows a page** (Prev / Next) with the
+  total count — `previewTransform` with `limit` + `offset`, nothing stored. Every workspace dataset
+  is usable by its table name (chips insert it); only tables the SQL names are loaded. Ctrl/⌘+Enter runs.
+- **Find** (`FindPanel.vue`, a separate compact card **docked** at the top of the side panel —
+  `position: sticky` — "Search in [viz] in [All data / column]"; smaller text with a mouse, 16px on touch): pick a visualization, then search — all data or one column — over its
   features' names and every text value in their rows (typo-tolerant). The server builds the index
   (`findIndex` request, `lib/dataset/query.ts`, cached with the grouping; columns with more than
   20k distinct values are left out); `findFeatures` returns the matching features' keys, which the
@@ -210,15 +218,20 @@ whatever they're actually asking about.
   page passes `items`, `itemKey`, the card body (default slot) and `actions(item)` (the hold menu:
   `{id, label, icon, danger, disabled}`), and handles `@action(id, item)`. No buttons on the cards:
   **tap and hold** (right-click with a mouse; `useLongPress`, pointer events + timer since iOS fires
-  no `contextmenu`; moving > 10 px cancels) opens the menu. `reorderable` adds **Reorder** (before the
+  no `contextmenu`; moving > 10 px cancels) opens the menu — teleported to `<body>`, `position:
+  fixed` at the press point and nudged on screen, so scrolling panels / the pop-out can't clip it
+  (scrolling closes it). `reorderable` adds **Reorder** (before the
   first danger action): ≡ handles on every card, vertically centered, until **Done**
   (`useDragReorder`: pointer events, not HTML5 drag-and-drop which iOS lacks; moves and the release
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
-  Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
-  (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Preview,
-  Run, Edit, Delete.
+  Menus: datasets — Explore, Edit, Copy id, Reorder, Remove from workspace; visualizations
+  (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
+  data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
+  (`useDoubleTap`: two clicks on one card within 350 ms; not on buttons, fields or `[data-no-open]`
+  editors) opens it: a dataset's Explore, a transform's or visualization's editor (`@open`). **Cards only** —
+  graph nodes stay tap = select / tap again = deselect (a double-tap there raced the card's layout shift).
 - **List view** panels (Visualizations, Transforms, Datasets, then Export) open collapsed; each
   panel's ＋ button sits at its top. All ＋ buttons (graph and lists) are the global `.kind-pill`
   (`k-dataset` / `k-transform` / `k-viz`, in `vars.css`).
@@ -231,7 +244,10 @@ whatever they're actually asking about.
   only the ↓ / → direction is remembered per device, `powergis.dagDirection`). The graph **pans and
   zooms** (`dag/usePanZoom.ts` + `lib/panZoom.ts`): drag; Shift + wheel or pinch; on phones
   touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. Transforms show **not run yet** (no
-  output) or **needs re-run** (an input's `updatedAt` is newer than the output's). `DagView.vue`
+  output) or **needs re-run** (an input's `updatedAt` is newer than the output's; `transformState`).
+  **↻ Run all stale** (graph toolbar + list Transforms panel, only when there's something to run) runs
+  `staleRunOrder`: every stale transform plus everything downstream of one, inputs first, stopping at
+  the first failure; never-run transforms are skipped. `DagView.vue`
   draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
   same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in
   the lists (only new transforms / visualizations open straight into their editors).

@@ -70,6 +70,8 @@ Track feature development, improvements, and known issues here. Move completed w
   [column]"), compact pill ＋ buttons (as bitcoin-explorer's toggles), flows scroll each step into view, clearer visualization-form labels.
 - **Dark theme** — dark only; colour tokens by job (blue interaction, violet datasets, orange
   transforms, green visualizations, amber attention + mark, orchid Search matches); dark basemap.
+- **Run all stale** — ↻ pill (graph + list): stale transforms and everything downstream, inputs
+  first, stops on the first failure (`staleRunOrder`).
 - **Workspace in the header** — Workspace button (amber ● when unsaved) with a drop-down panel; list
   panels ordered Visualizations / Transforms / Datasets with the same ＋ pills.
 - **Graph pan / zoom** — drag, Shift + wheel, trackpad pinch; phones: hold then drag, pinch.
@@ -82,21 +84,21 @@ One-time setup — tick these off as they're done:
       (site: https://powergis.netlify.app)
 - [x] Protect `main` (finish-setup) — required; this is what makes changes arrive as PRs with
       preview links, instead of going straight to the live site
-- [ ] Review the utilities-by-county map on a phone (now built from datasets + a join transform)
+- [x] Review the utilities-by-county map on a phone (now built from datasets + a join transform)
 
 ## Code
 
 ### Roadmap (agreed order)
 
 Everything the UI can do must also be a plain, serializable operation with machine-readable
-results, because the agent workflow (step 6) drives the same operations as the UI.
+results, because the agent workflow (step 5) drives the same operations as the UI.
 
 1. ~~**Workspace document + operations + on-device persistence**~~ (done, see Done; derived datasets and tabs join the document in steps 2 and 5) — one serializable workspace
    (datasets, derived datasets, visualizations, tabs); a single operations layer (add dataset,
    add derived dataset, add/reorder visualization, …) used by both UI and agents. Datasets carry
    only **standard metadata** (name, description, created/updated, columns, profile) plus an
    open-ended extension slot for features to attach their own; **sources and usage policy are not
-   dataset properties** — they belong to the agent workflow's records (step 6). Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
+   dataset properties** — they belong to the agent workflow's records (step 5). Saved on the device (localStorage for specs, IndexedDB for tables). Dataset drag-reordering.
 1b. **Client / server boundary + database** (agreed 2026-10-25; done — see Done) —
    everything is client-side today, but the code is split as if it weren't, so moving to a real
    backend (Supabase) is a refactor, not a rewrite.
@@ -135,18 +137,79 @@ results, because the agent workflow (step 6) drives the same operations as the U
    columns round-trip through transforms.
 4. **DAG** — first version done (see Done): a Graph view of datasets → transforms → outputs →
    visualizations, auto-laid-out, where transforms and visualizations can be added and opened.
-   Still open: saved node positions / dragging, rewiring by dragging edges (computers), Run all
-   stale, and later a live view of agent pipelines (with their source / usage-policy records).
-5. **Tabs** — datasets shared; each tab has its own ordered visualizations, map view and DAG.
-   **Phones: tabs only.**
-6. **Agent workflow** — see below.
+   Still open: saved node positions / dragging, rewiring by dragging edges (computers), and later a live view of agent pipelines (with their source / usage-policy records).
+5. **Agent workflow (data finding)** — see below.
+6. **Tabs, with a widget layout** — see *Display model* below. Datasets are shared; each tab owns
+   its transforms, visualizations and widgets, and has its own map view and DAG. **New** (blank),
+   **Duplicate** (independent copies; duplicated transforms write fresh outputs, since a dataset
+   has one writer) and **Derived** (pick **anchors** — datasets, transforms, visualizations — from
+   another tab: shown locked 🔗, live, editable only in their source tab; "detach a copy" to edit;
+   "Link from another tab…" later in any tab). Even with only a map widget, a tab holds a *list of
+   widgets* so charts slot in without a migration. **Phones: tabs only**; a tab's widgets stack.
+7. **Charts (static)** — a chart widget; visualizations grouped by x (+ series) with y and color
+   encodings, marks line / bar / scatter. Useful before any interactivity.
+8. **Interactivity** — variables, events → variables, views, widget filters (see *Display model*).
+   E.g. a map of 2024 prices by county; tapping a county sets `county`; a view
+   `SELECT year, avg_price FROM prices WHERE county = :county` feeds a time-series chart.
+9. **Agents compose displays** — everything above is serializable config, so agents can build
+   "map + chart on click" setups as well as datasets.
+
+### Codebase audits (agreed 2026-10-27; schedule before tabs / a real backend)
+
+1. **Client / server separation.** Goal: moving the server to a real backend (Supabase / HTTP) is a
+   transport swap. Everything backend-shaped — reading sources (fetching files, ArcGIS, CSV parsing),
+   writes, grouping / aggregation, SQL, indexing, profiles — lives in `src/server/` (or pure `lib/`
+   used *only* by it); components only `request(…)` or `readDb` and render.
+   Check: every `src/lib` import from `src/components` / `src/client` is type-only or genuinely
+   client-side (styling, layout, search over already-loaded lists); no `fetch` of data outside the
+   server (known: `MapPage.seedDefault` fetches the default workspace file; `lib/data/connectors.ts`
+   is imported client-side; `DataExchange` exports in the client). Output: a list of moves, then PRs.
+2. **Component reusability.** Goal: the UI is composed from a small set of shared components, no
+   inline one-off panels / buttons / cards / lists / modals / grids. Today: `ObjectList` (cards +
+   hold menu) and `.kind-pill` are shared; duplicated by hand — `.btn` styles in 6 components, modal
+   backdrops in 3 (pop-out, Help, Explore), `.close` buttons in 3, chips in 3, a separate
+   `PreviewTable` vs `FeatureRows` table. Check: inventory every repeated pattern, then extract
+   `Button` (variants: primary / ghost / danger / icon / pill), `Modal`, `Panel` (collapsible, with
+   header actions), `Chip`, `DataTable` (paged, typed cells), `Menu`, form `Field` rows, and migrate
+   call sites. Tokens + variants, not per-component CSS.
+
+### Display model (agreed 2026-10-26)
+
+Three layers; maps and charts are the same kind of thing:
+
+| Layer | What | Kinds |
+|---|---|---|
+| **Source** (data) | a table of rows | **dataset** (stored, lineage, staleness, run on demand) · **view** (a SELECT computed on the fly, never stored, may use variables, re-evaluates when inputs or variables change) |
+| **Visualization** (encoding) | a source + a **grouping key** (which columns make one mark) + aggregation + channels (columns → color / size / x / y …) | map layer: key = geometry (+ name) · chart series: key = x (+ series) |
+| **Widget** (display) | a coordinate space holding an ordered stack of visualizations | **map** (geographic) · **chart** (axes) · later table, … |
+
+- **A mark is a group of rows** identified by its key values — on maps too (a county in
+  utilities-by-county is many rows). One-row-per-mark is just a unique key.
+- **Selection** on any widget = `{visualizationId, key}` → the rows behind the mark. The map's
+  selected feature already has this shape.
+- **Variables** (per tab: name, type, default, value; editable as a small form) are set by
+  **events** configured in the UI ("when a feature is selected on *Map* → set `county` to its
+  *fips*"), binding either the **key value** or a **column of the selected rows** (one value if all
+  rows agree, else a list for `IN :var`).
+- **Views** take variables as **bound parameters** (never pasted into SQL). Run in the DuckDB
+  worker, debounced, stale answers dropped (the Find `seq` pattern). The common case needs no SQL:
+  a **widget filter** `column = {variable}` on a dataset.
+- **Transforms stay persistent and on-demand — no autorun.** Reactive steps are views; rewriting
+  a stored dataset on every click would churn staleness, lineage and the one-writer rule.
+- **DAG:** variables become nodes; dashed "reactive" edges map → variable → view → chart.
+- **Code shape later:** the geometry binding generalizes to a grouping key; a new `Widget`
+  `{type: 'map' | 'chart', visualizationIds, settings}` (today's visualization list = the map
+  widget's layers); a tab = an arrangement of widgets.
+- **Keep now:** transforms as pure SELECTs; map selection as an emitted `{visualization, key}`.
 
 **Decided:** DuckDB for SQL · scraped datasets live **on the device** · agents may run only while
 the app is open at first · agents run on **Claude Managed Agents** with a thin **Netlify Function**
 bridge (holds the Anthropic API key, starts sessions, relays clarifications/approvals/results).
 **Postponed:** user login / cloud workspace · split screen.
+**Order:** data-finding agents → tabs (widget layout) → static charts → interactivity → agents
+composing displays — each step useful alone, none reworked by the next.
 
-### Agent workflow (step 6)
+### Agent workflow (step 5)
 
 - **Orchestrator** — takes a request ("all datacenters and their loads", "temperature");
   asks clarifying questions when ambiguous (e.g. frequency daily/weekly…, aggregate avg/max/min);
@@ -202,6 +265,9 @@ bridge (holds the Anthropic API key, starts sessions, relays clarifications/appr
 (CI/CD, deployment, build process improvements)
 
 ## Known Issues
+
+- Renaming or describing a dataset bumps its `updatedAt`, so downstream transforms show ↻ needs
+  re-run although no rows changed. A separate data timestamp would fix it.
 
 (Bugs, edge cases, platform-specific quirks)
 

@@ -126,8 +126,8 @@ function clear() {
 .find {
   display: grid;
   grid-template-columns: minmax(0, 1fr); /* never wider than the side panel */
-  gap: 0.45rem;
-  padding: 0.6rem;
+  gap: 0.35rem;
+  padding: 0.45rem 0.5rem;
   border: 1px solid color-mix(in srgb, var(--accent-blue) 45%, var(--border));
   border-radius: 0.6rem;
   background: color-mix(in srgb, var(--accent-blue) 7%, var(--bg));
@@ -136,17 +136,17 @@ function clear() {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem 0.4rem;
+  gap: 0.3rem 0.35rem;
 }
 .lbl {
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: var(--text-muted);
   white-space: nowrap;
 }
 select {
   min-width: 0;
-  padding: 0.3rem 0.4rem;
+  padding: 0.12rem 0.4rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-elev);
@@ -158,6 +158,17 @@ select.viz {
 }
 select.col {
   flex: 1 1 6rem;
+}
+/* Compact search field (SearchBox's own input). */
+.find :deep(input) {
+  padding: 0.28rem 0.5rem;
+}
+/* With a mouse there's no iOS zoom to dodge: smaller text throughout. */
+@media (pointer: fine) {
+  select,
+  .find :deep(input) {
+    font-size: 0.8rem;
+  }
 }
 .err {
   margin: 0;

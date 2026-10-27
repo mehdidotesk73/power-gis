@@ -171,7 +171,7 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   `us_counties` / `us_states` (`lib/data/boundaryTables.ts`: us-atlas TopoJSON → rows with `fips`,
   names and a region `geometry`; read by the worker's `readBuiltin`).
 - **Not dataset properties:** source and usage policy — they belong to the agent workflow's run
-  records (roadmap step 6).
+  records (roadmap step 5).
 
 ### Transforms (SQL that makes datasets)
 
@@ -242,6 +242,19 @@ under the graph using the list components filtered to that item (`compact` props
 buttons and hints); holding the card gives its menu, exactly as in the lists. Only a transform or
 visualization just created from the graph opens straight into its editor.
 
+**Transform editor.** Inputs and outputs are one line each; the dataset picker (SearchBox) only
+opens on ⇄ or for a new input. A **preview dock** (`TransformsPanel.vue`, sticky to the screen
+bottom while the editor is in view, collapsible) shows one input or output at a time: an input's
+first 20 rows via `readDb.readRows`, an output via `previewTransform` on its current SQL (nothing
+stored). Geometry cells show their kind (`PreviewTable`), also for GeoJSON text from SQL.
+
+**↻ Run all stale** (`staleRunOrder` in `dag.ts`): every transform that needs a re-run, plus every
+transform downstream of one (already run, reading a pending one's output — it would be stale once that
+rewrites its input), ordered so writers run before readers (depth-first; a self-reading transform
+can't loop). Never-run transforms are skipped as possible drafts. `MapPage.runAllStale` runs them one
+by one through the ordinary `runTransform`, shows "Running 2 of 3 · name…", and stops at the first
+failure. The pill (amber, `.kind-pill.k-attention`) appears only when the list is non-empty.
+
 Each dataset has at most one writer: each transform output writes a new dataset (made on Run) or
 an existing dataset that isn't one of its transform's inputs and that no other output writes
 (`checkTransform` in `workspace.ts`). Deleting a transform keeps its output dataset; that dataset
@@ -267,6 +280,17 @@ screen, the open graph item sits right of the graph (`.graph-wrap.split`), not u
 into view when it appears or its value changes — just enough, or to its top when it's taller than the
 screen. On: the graph when a pick mode starts, the graph's detail section, the visualization add
 form, the transform editor and the list's add-dataset form.
+
+### Explore
+
+A dataset's menu → **Explore** (`components/dataset/ExploreModal.vue`, teleported modal; full screen
+on phones): a SQL box starting `SELECT *\nFROM <alias>` above a results table that fills the rest of
+the window, 200 rows a page with the total (`previewTransform` takes `offset` as well as `limit`,
+capped at 1000; `server/sql.ts` adds `OFFSET`). Every workspace dataset is a table under
+`aliasFor(name)` (deduplicated, the explored one first); only the ones the SQL mentions (whole-word
+match) are sent as inputs, and the engine reuses tables already loaded for the same dataset version.
+An unknown table's error lists every table you can use. Nothing is stored — for keeping a result,
+write a transform.
 
 ### Find
 

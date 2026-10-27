@@ -1,17 +1,22 @@
 <script setup lang="ts">
 // The workspace's datasets: tables in the database, by pointer, as cards in
-// an ObjectList. Hold a card (right-click with a mouse) for Preview (first
-// rows), Edit (rename / describe — a server request — and the profile),
+// an ObjectList. Hold a card (right-click with a mouse) for Explore (a SQL
+// window over it, ExploreModal), Edit (rename / describe — a server request — and the profile),
 // Copy id (paste it into a transform's input search), Reorder, and Remove
 // (out of the workspace — the table stays in the database).
 import { ref } from 'vue'
 import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
-import { readDb } from '../../client/db'
+import ExploreModal from './ExploreModal.vue'
 import type { DatasetRecord } from '../../shared/records'
-import type { DataRecord } from '../../lib/data/connectors'
-import { isGeometryColumn } from '../../lib/dataset/columns'
 
-defineProps<{ datasets: DatasetRecord[]; vizCount: (id: string) => number; /** Shown under the graph: no hint. */ compact?: boolean }>()
+const props = defineProps<{
+  datasets: DatasetRecord[]
+  vizCount: (id: string) => number
+  /** Shown under the graph: no hint. */
+  compact?: boolean
+  /** Every workspace dataset, usable by name in Explore's SQL (defaults to `datasets`). */
+  tables?: DatasetRecord[]
+}>()
 const emit = defineEmits<{
   (e: 'remove', id: string): void
   (e: 'reorder', ids: string[]): void
@@ -21,13 +26,13 @@ const emit = defineEmits<{
 const editing = ref<string | null>(null)
 
 const actions = (ds: DatasetRecord): ObjectAction[] => [
-  { id: 'preview', icon: '▤', label: previewing.value === ds.id ? 'Hide preview' : 'Preview' },
+  { id: 'explore', icon: '▤', label: 'Explore' },
   { id: 'edit', icon: '✎', label: editing.value === ds.id ? 'Close edit' : 'Edit' },
   { id: 'copy', icon: '⧉', label: 'Copy id' },
   { id: 'remove', icon: '✕', label: 'Remove from workspace', danger: true },
 ]
 function onAction(id: string, ds: DatasetRecord) {
-  if (id === 'preview') togglePreview(ds)
+  if (id === 'explore') exploring.value = ds
   else if (id === 'edit') editing.value = editing.value === ds.id ? null : ds.id
   else if (id === 'copy') copyId(ds.id)
   else if (id === 'remove') emit('remove', ds.id)
@@ -52,30 +57,10 @@ async function copyId(id: string) {
   setTimeout(() => copied.value === id && (copied.value = null), 1500)
 }
 
-// ── preview: the first rows, read straight from the database ──────────────
+// ── explore: a SQL window over the dataset (and the workspace's others) ───
 
-const PREVIEW_ROWS = 20
-const previewing = ref<string | null>(null)
-const previewRows = ref<DataRecord[]>([])
-const previewError = ref('')
-async function togglePreview(ds: DatasetRecord) {
-  if (previewing.value === ds.id) return void (previewing.value = null)
-  previewing.value = ds.id
-  previewRows.value = []
-  previewError.value = ''
-  try {
-    const rows = await readDb.readRows(ds.table)
-    if (previewing.value === ds.id) previewRows.value = (rows ?? []).slice(0, PREVIEW_ROWS)
-  } catch (e) {
-    previewError.value = (e as Error).message
-  }
-}
-/** A cell as short text; geometry as its kind (the full GeoJSON is noise in a table). */
-function cell(v: unknown, type: string): string {
-  if (v === null || v === undefined) return ''
-  if (isGeometryColumn(type as never)) return typeof v === 'object' ? String((v as { type?: string }).type ?? type) : String(v).slice(0, 24)
-  return (typeof v === 'object' ? JSON.stringify(v) : String(v)).slice(0, 60)
-}
+const exploring = ref<DatasetRecord | null>(null)
+
 const stats = (d: DatasetRecord) => `${plural(d.rowCount, 'row')} · ${plural(d.columns.length, 'column')}`
 const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : '—')
 /** Numbers compact, datetimes as dates. */
@@ -93,6 +78,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
     reorderable
     :hint="compact ? '' : 'Tap and hold a dataset for options.'"
     @action="onAction"
+    @open="(ds) => (exploring = ds)"
     @reorder="(ids) => emit('reorder', ids)"
   >
     <template #default="{ item: ds }">
@@ -102,7 +88,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
         <span class="muted">{{ stats(ds) }} · {{ ds.origin }}</span>
         <span v-if="copied === ds.id" class="copied">Id copied ✓</span>
       </div>
-      <div v-if="editing === ds.id" class="edit">
+      <div v-if="editing === ds.id" class="edit" data-no-open>
         <label>
           Name
           <input type="text" :value="ds.name" @change="emit('update', ds.id, { name: ($event.target as HTMLInputElement).value })" />
@@ -139,30 +125,10 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
         <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
         <button class="close" @click="editing = null">Done</button>
       </div>
-      <div v-if="previewing === ds.id" class="preview">
-        <p v-if="previewError" class="warn">{{ previewError }}</p>
-        <template v-else>
-          <span class="muted">First {{ Math.min(PREVIEW_ROWS, ds.rowCount).toLocaleString() }} of {{ ds.rowCount.toLocaleString() }} rows</span>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th v-for="c in ds.columns" :key="c.name">{{ c.name }}<br /><span class="muted">{{ c.type }}</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(r, i) in previewRows" :key="i">
-                  <td v-for="c in ds.columns" :key="c.name">{{ cell(r[c.name], c.type) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </template>
-        <button class="close" @click="previewing = null">Close preview</button>
-      </div>
-      <p class="muted uses">Used by {{ plural(vizCount(ds.id), 'visualization') }}</p>
+            <p class="muted uses">Used by {{ plural(vizCount(ds.id), 'visualization') }}</p>
     </template>
   </ObjectList>
+  <ExploreModal v-if="exploring" :dataset="exploring" :tables="props.tables ?? props.datasets" @close="exploring = null" />
 </template>
 
 <style scoped>
@@ -206,12 +172,6 @@ th {
   font-size: 0.7rem;
   word-break: break-all;
   user-select: all;
-}
-.preview {
-  display: grid;
-  gap: 0.2rem;
-  margin-top: 0.35rem;
-  min-width: 0;
 }
 .desc {
   font-size: 0.76rem;

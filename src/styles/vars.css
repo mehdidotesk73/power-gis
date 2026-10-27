@@ -182,3 +182,7 @@ a:hover {
 .kind-pill.k-viz {
   --pill: var(--kind-viz);
 }
+/* "Needs attention" actions (↻ Run all stale): amber, always with a mark. */
+.kind-pill.k-attention {
+  --pill: var(--warn);
+}

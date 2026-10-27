@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDag, edgePath, layoutDag, NODE_H, NODE_W, type DagDataset } from './dag'
+import { buildDag, edgePath, layoutDag, NODE_H, NODE_W, staleRunOrder, type DagDataset } from './dag'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import type { WorkspaceDoc } from './workspace'
 
@@ -123,5 +123,29 @@ describe('workspace DAG', () => {
     expect(crossings).toBe(0)
     const l = layoutDag(dag)
     expect(edgePath(l, skip)!.split(' C ')).toHaveLength(4) // three curves: through two points
+  })
+})
+
+describe('run all stale', () => {
+  // a → t1 → b → t2 → c ; x → t3 → y (independent) ; t4 never run
+  const tr = (id: string, input: string, output?: string) => ({ id, name: id, inputs: [{ datasetId: input, alias: input }], outputs: [{ key: 'k', name: id, sql: '', outputId: output }] })
+  const chain: WorkspaceDoc = {
+    name: 'c',
+    datasetIds: ['a', 'x'],
+    visualizations: [],
+    // listed out of order on purpose: t2 before t1
+    transforms: [tr('t2', 'b', 'c'), tr('t1', 'a', 'b'), tr('t3', 'x', 'y'), tr('t4', 'c')],
+  }
+  const t = (iso: string): DagDataset => ({ name: 'd', rowCount: 1, updatedAt: iso })
+  it('runs a stale transform, then everything downstream of it, inputs first', () => {
+    // a changed after b was made; c is newer than b, so t2 is "ready" now but will be stale after t1
+    const recs: Record<string, DagDataset> = { a: t('2026-10-05T00:00:00Z'), b: t('2026-10-02T00:00:00Z'), c: t('2026-10-03T00:00:00Z'), x: t('2026-10-01T00:00:00Z'), y: t('2026-10-02T00:00:00Z') }
+    expect(staleRunOrder(chain, (id) => recs[id])).toEqual(['t1', 't2'])
+  })
+  it('is empty when nothing is stale, and skips transforms never run', () => {
+    const recs: Record<string, DagDataset> = { a: t('2026-10-01T00:00:00Z'), b: t('2026-10-02T00:00:00Z'), c: t('2026-10-03T00:00:00Z'), x: t('2026-10-01T00:00:00Z'), y: t('2026-10-02T00:00:00Z') }
+    expect(staleRunOrder(chain, (id) => recs[id])).toEqual([])
+    const changedX: Record<string, DagDataset> = { ...recs, x: t('2026-10-09T00:00:00Z') }
+    expect(staleRunOrder(chain, (id) => changedX[id])).toEqual(['t3'])
   })
 })

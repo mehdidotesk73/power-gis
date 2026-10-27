@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Every visualization on the map, from any dataset, in one ordered list (an
 // ObjectList). Top of the list draws on top (within its geometry kind). The
-// checkbox shows / hides; hold a card (right-click with a mouse) for Edit,
+// Visible / Hidden pill shows / hides (only a tap on the pill itself); double-click /
+// double-tap a card to edit it; hold a card (right-click with a mouse) for Edit,
 // Zoom to data, Reorder and Delete.
 import { vReveal } from '../reveal'
 import { computed, ref } from 'vue'
@@ -135,20 +136,29 @@ defineExpose({
       reorder-hint="Drag ≡ to reorder · top draws on top"
       :hint="compact ? '' : 'Tap and hold a visualization for options · top draws on top.'"
       @action="onAction"
+      @open="(v) => (editing = v.id)"
       @reorder="(ids) => emit('reorder', ids)"
     >
       <template #default="{ item: v }">
-        <label class="name">
-          <input :checked="v.visible" type="checkbox" @change="emit('update', { ...v, visible: ($event.target as HTMLInputElement).checked })" />
+        <div class="name">
+          <button
+            class="vis"
+            :class="{ on: v.visible }"
+            :aria-pressed="v.visible"
+            :title="v.visible ? 'Shown on the map — tap to hide' : 'Hidden — tap to show'"
+            @click="emit('update', { ...v, visible: !v.visible })"
+          >
+            {{ v.visible ? 'Visible' : 'Hidden' }}
+          </button>
           <span>
             {{ v.name }} <span v-if="v.kind === 'vector'" class="tag">➚</span>
             <span class="muted">{{ dsOf(v)?.name }} · {{ summary(v) }}</span>
           </span>
-        </label>
-        <template v-if="editing === v.id && dsOf(v)">
+        </div>
+        <div v-if="editing === v.id && dsOf(v)" data-no-open>
           <VisualizationEditor :dataset="dsOf(v)!" :layer="v" :data="dataFor(v)" @update="(n) => emit('update', n)" @remove="emit('remove', v.id)" />
           <button class="close" @click="editing = null">Done</button>
-        </template>
+        </div>
       </template>
     </ObjectList>
   </div>
@@ -158,6 +168,24 @@ defineExpose({
 .viz {
   display: grid;
   gap: 0.45rem;
+}
+.vis {
+  flex: none;
+  align-self: flex-start;
+  min-width: 3.9rem;
+  padding: 0.08rem 0.45rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 1rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.vis.on {
+  border-color: var(--kind-viz);
+  background: color-mix(in srgb, var(--kind-viz) 14%, transparent);
+  color: var(--kind-viz);
 }
 .name {
   flex: 1;
