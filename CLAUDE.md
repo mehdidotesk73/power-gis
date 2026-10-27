@@ -192,6 +192,10 @@ whatever they're actually asking about.
   before Export) into a modal via `<Teleport :disabled="!popped">` — same components, state kept.
   Popped out and wide, the open graph item sits beside the graph. **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
+- **Explore** (`dataset/ExploreModal.vue`, a dataset's menu): a window with a SQL box (starts
+  `SELECT * FROM <dataset>`) over a docked results table, **200 rows a page** (Prev / Next) with the
+  total count — `previewTransform` with `limit` + `offset`, nothing stored. Every workspace dataset
+  is usable by its table name (chips insert it); only tables the SQL names are loaded. Ctrl/⌘+Enter runs.
 - **Find** (`FindPanel.vue`, a separate compact card **docked** at the top of the side panel —
   `position: sticky` — "Search in [viz] in [All data / column]"; smaller text with a mouse, 16px on touch): pick a visualization, then search — all data or one column — over its
   features' names and every text value in their rows (typo-tolerant). The server builds the index
@@ -222,7 +226,7 @@ whatever they're actually asking about.
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
-  Menus: datasets — Preview, Edit, Copy id, Reorder, Remove from workspace; visualizations
+  Menus: datasets — Explore, Edit, Copy id, Reorder, Remove from workspace; visualizations
   (checkbox on the card shows / hides) — Edit, Zoom to data, Reorder, Delete; transforms — Preview,
   Run, Edit, Delete.
 - **List view** panels (Visualizations, Transforms, Datasets, then Export) open collapsed; each

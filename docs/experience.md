@@ -317,6 +317,9 @@ Two additions from reviewing it here, beyond what the originating project report
   everything downstream, writers before readers, one by one, stopping at the first failure.
 - **Changed:** the transform editor is compact — one line per input / output — with a sticky,
   collapsible preview dock: tap an input for its rows, an output for what its SQL makes.
+- **Added:** **Explore** replaces a dataset's Preview: a SQL window over the dataset (and the
+  workspace's others, by table name) with paged results, 200 rows a page. Made for checking joins —
+  e.g. which rows of an upload find no county.
 - **Fixed:** a card's hold / right-click menu was clipped by its scrolling container (side panel,
   pop-out detail column). It now floats over the page (teleported, fixed at the press point).
 - **Changed:** Search is docked at the top of the side panel and more compact.

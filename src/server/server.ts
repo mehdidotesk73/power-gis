@@ -70,11 +70,11 @@ export function createServer(db: Database, env: ServerEnv) {
       }),
     )
   }
-  async function runSql(query: string, inputs: TransformInputRef[], limit?: number) {
+  async function runSql(query: string, inputs: TransformInputRef[], limit?: number, offset?: number) {
     if (!sql) fail('unsupported', 'SQL transforms are not available here')
     const tables = await sqlInputs(inputs)
     try {
-      return await sql!.run(query, tables, limit)
+      return await sql!.run(query, tables, limit, offset)
     } catch (e) {
       // SQL mistakes (and DuckDB's own messages) come back as readable errors.
       return fail('invalid', (e as Error).message)
@@ -195,8 +195,8 @@ export function createServer(db: Database, env: ServerEnv) {
       return { datasetId: id }
     },
 
-    async previewTransform({ sql: query, inputs, limit }) {
-      return runSql(query, inputs, limit ?? 20)
+    async previewTransform({ sql: query, inputs, limit, offset }) {
+      return runSql(query, inputs, Math.min(limit ?? 20, 1000), offset)
     },
 
     async runTransform({ transform }) {

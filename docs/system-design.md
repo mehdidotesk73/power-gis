@@ -281,6 +281,17 @@ into view when it appears or its value changes — just enough, or to its top wh
 screen. On: the graph when a pick mode starts, the graph's detail section, the visualization add
 form, the transform editor and the list's add-dataset form.
 
+### Explore
+
+A dataset's menu → **Explore** (`components/dataset/ExploreModal.vue`, teleported modal; full screen
+on phones): a SQL box starting `SELECT *\nFROM <alias>` above a results table that fills the rest of
+the window, 200 rows a page with the total (`previewTransform` takes `offset` as well as `limit`,
+capped at 1000; `server/sql.ts` adds `OFFSET`). Every workspace dataset is a table under
+`aliasFor(name)` (deduplicated, the explored one first); only the ones the SQL mentions (whole-word
+match) are sent as inputs, and the engine reuses tables already loaded for the same dataset version.
+An unknown table's error lists every table you can use. Nothing is stored — for keeping a result,
+write a transform.
+
 ### Find
 
 `FindPanel.vue` (its own card above the workspace panels: "Search in [visualization] in [All data /

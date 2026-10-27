@@ -798,6 +798,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             v-else-if="dagNode?.kind === 'dataset'"
             compact
             :datasets="records.has(dagNode.id) ? [records.get(dagNode.id)!] : []"
+            :tables="datasets"
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
             @remove="removeDataset"
             @reorder="reorderDatasets"
