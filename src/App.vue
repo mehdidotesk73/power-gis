@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import UiButton from './components/ui/UiButton.vue'
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import HelpModal from './components/HelpModal.vue'
+import AccountModal from './components/account/AccountModal.vue'
+import { auth, shownName } from './client/auth'
 import MapPage from './components/MapPage.vue'
 import { debugState, logDebug, logAsText } from './debug'
 import { setupPWAUpdates } from './pwa'
@@ -91,6 +93,9 @@ function closeMenuOutside(e: PointerEvent) {
 onMounted(() => document.addEventListener('pointerdown', closeMenuOutside))
 onBeforeUnmount(() => document.removeEventListener('pointerdown', closeMenuOutside))
 const helpDoc = ref('default')
+// The account window (☰ → Sign in / Account); a password-reset link opens it by itself.
+const showAccount = ref(false)
+watch(() => auth.recovering && !!auth.user, (r) => r && (showAccount.value = true), { immediate: true })
 </script>
 
 <template>
@@ -125,6 +130,9 @@ const helpDoc = ref('default')
           <div ref="menuWrap" class="menu-wrap">
             <UiButton size="compact" icon="☰" aria-label="Menu" title="Menu" aria-haspopup="menu" :aria-expanded="menuOpen" :active="menuOpen" @click="menuOpen = !menuOpen" />
             <div v-if="menuOpen" class="app-menu" role="menu">
+              <button role="menuitem" :title="auth.user ? `Signed in as ${auth.user.email}` : 'Sign in or make an account'" @click="(menuOpen = false), (showAccount = true)">
+                <span class="mi-icon" aria-hidden="true">◉</span> <span class="mi-clip">{{ auth.user ? shownName() : 'Sign in' }}</span>
+              </button>
               <button role="menuitem" @click="(menuOpen = false), (showHelp = true)"><span class="mi-icon" aria-hidden="true">?</span> Help</button>
               <button v-if="offerDesktop" role="menuitem" :title="desktopOn ? 'Back to the phone layout' : 'See the desktop layout on this phone (shrunk to fit; pinch to zoom)'" @click="setDesktopView(!desktopOn)">
                 <span class="mi-icon" aria-hidden="true">{{ desktopOn ? '▯' : '▭' }}</span> {{ desktopOn ? 'Phone view' : 'Desktop view' }}
@@ -189,6 +197,7 @@ const helpDoc = ref('default')
     </footer>
 
     <HelpModal :open="showHelp" :initial-doc="helpDoc" @close="showHelp = false" />
+    <AccountModal :open="showAccount" @close="showAccount = false" />
   </main>
 </template>
 
@@ -428,6 +437,12 @@ const helpDoc = ref('default')
   border-radius: 0.5rem;
   background: var(--bg-elev);
   box-shadow: var(--shadow);
+}
+.mi-clip {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .app-menu button {
   display: flex;
