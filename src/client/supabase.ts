@@ -1,10 +1,8 @@
-// The Supabase project: accounts today, cloud datasets and workspaces next.
-// Both values are public by design: the publishable key ships in the app, and
-// the database's row-level security (supabase/schema.sql) is what guards data.
+// The page's Supabase client: accounts (client/auth.ts). The server worker
+// makes its own for data, with the signed-in user's token (server/cloud.ts).
+// The project's values live in shared/supabaseConfig.ts.
 import { createClient } from '@supabase/supabase-js'
-
-export const SUPABASE_URL = 'https://rorqzjnwqwlyusagzcxy.supabase.co'
-const SUPABASE_KEY = 'sb_publishable_ddr8oYy32EprRXhFuaiB3w_tMNUQuIl'
+import { SUPABASE_KEY, SUPABASE_URL } from '../shared/supabaseConfig'
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'powergis.auth' },

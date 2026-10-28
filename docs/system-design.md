@@ -454,6 +454,24 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   `auth.users`, which cascades to profile, access rows and workspaces — then forgets the session
   locally; PR 3 adds removing owned datasets' files first). Account state is the client's own, like the assistant's API key; data still
   goes through the server's requests (PR 3 hands the worker the session's token).
+- **Cloud workspace** (PR 2): the worker reaches Supabase as the signed-in user. `client/auth.ts` sends
+  every new access token (`setAuth`; `null` on sign-out; replayed to a restarted worker with `init`),
+  and the worker makes a `CloudStore` for it (`server/cloud.ts`; the interface is `shared/cloud.ts`, so
+  tests use a fake; the project values are `shared/supabaseConfig.ts`, shared with the page). Requests:
+  `cloudWorkspace` (the account's default workspace), `saveCloudWorkspace({file})` and
+  `openTemplate({file})` → `{file, missing, failed}`.
+  - **Portable files** (`toTemplate`, `lib/workspace/file.ts`): built-in datasets become
+    `builtin:<table>` and every transform output `transform:<n>.<m>` (its own `outputId` too). On save,
+    this device's output datasets get the mark `extensions.madeBy = madeByMark(sql, inputs)`, so opening
+    the same template here reuses them. Uploaded datasets keep their ids (other devices report them
+    missing until cloud datasets, PR 3).
+  - **`openTemplate`** (the default map's `seedDefaultWorkspace` uses it too): uploads or reuses
+    built-ins, then runs each transform once all its inputs are here (any order), reusing outputs by
+    mark; a transform whose inputs aren't on the device, or whose run fails, is reported in `failed`.
+  - **Page** (`MapPage.vue`): Save → `saveHere` (device) then `saveToCloud`. On load and on sign-in,
+    `catchUpWithCloud`: no cloud workspace yet → this device's is saved there; one saved since this
+    device last saw it (`powergis.cloudSeen` = `<user>:<updatedAt>`) → opened (`openTemplate`, then
+    saved here), asking first over unsaved changes. The Workspace panel says where changes are saved.
 - **UI**: ☰ → **Sign in** / your name opens `components/account/AccountModal.vue` (sign in, create
   account, forgot password, choose a new password, your profile, delete account). Sign in and create
   account carry a plain note on what's kept without an account (this browser only; browsers may clear

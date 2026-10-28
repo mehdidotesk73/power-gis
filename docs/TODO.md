@@ -93,6 +93,13 @@ Track feature development, improvements, and known issues here. Move completed w
   above it (`useSplitter` `side: 'bottom'`, `powergis.minimapHeight`). The app is one screen tall
   (`App.vue`), the ☰ menu holds Help and Desktop / Phone view, and the footer is one row. Replaces the ⤢
   pop-out window.
+- **Cloud workspace (Supabase, PR 2 of 4)** — signed in, **Save** also stores the workspace in
+  the account (`saveCloudWorkspace`), made portable (`toTemplate`: built-ins → `builtin:<table>`,
+  outputs → `transform:<n>.<m>`, outputs marked `madeBy` here). On load and sign-in the page catches up
+  (`catchUpWithCloud`): an account with no workspace gets this device's; a newer one opens
+  (`openTemplate`: built-ins uploaded or reused, transforms run in dependency order or reused by mark),
+  asking first over unsaved changes. The worker reaches Supabase with the user's token (`setAuth`,
+  `server/cloud.ts`). The Workspace panel says where changes are saved.
 - **Accounts (Supabase, PR 1 of 4)** — ☰ → **Sign in**: create an account with email + password
   (a confirmation email links back to the app, production or any preview), sign in, **Forgot
   password?** (a reset email opens the app on *Choose a new password*). Signed in, ☰ shows your
@@ -297,8 +304,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 5. **Supabase** (project `rorqzjnwqwlyusagzcxy`; whole schema in `supabase/schema.sql`, already run).
    Four PRs:
    1. ~~Accounts~~ (done, see Done): sign up / in, profile, change / reset password.
-   2. **Cloud workspace**: the signed-in user's default workspace saved in `workspaces` (one
-      default per user; more later, one per app tab).
+   2. ~~Cloud workspace~~ (done, see Done): Save also stores the signed-in user's default workspace
+      (portable: built-ins and transform outputs as templates); other devices open it.
    3. **Cloud datasets**: Move to cloud storage for real: the registry row in `datasets`, rows as
       `<id>/data.parquet` in the private `datasets` bucket (DuckDB writes / reads Parquet); the
       worker carries the session's token; storage limits.

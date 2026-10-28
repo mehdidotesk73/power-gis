@@ -17,7 +17,8 @@ import { newId } from '../lib/dataset/dataset'
 import { bindingInfo, findIndex, groupDataset, queryValues, type FindIndex, type Grouped } from '../lib/dataset/query'
 import { profileRows } from '../lib/dataset/profile'
 import { visualizationLayer } from '../lib/dataset/visualization'
-import { BUILTIN_REF, OUTPUT_REF, parseWorkspaceFile, replacePointers, templateBuiltins } from '../lib/workspace/file'
+import { BUILTIN_REF, isPlaceholder, madeByMark, OUTPUT_REF, parseWorkspaceFile, replacePointers, templateBuiltins, toTemplate, type WorkspaceFile } from '../lib/workspace/file'
+import type { CloudStore } from '../shared/cloud'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
 export interface ServerEnv {
@@ -28,6 +29,8 @@ export interface ServerEnv {
   sql?: () => Promise<SqlEngine>
   /** The default workspace file's text (public/data/default.powergis.json). */
   readDefaultWorkspace?(baseUrl: string): Promise<string>
+  /** The cloud, as the user whose access token it is (Supabase). Without it, cloud requests are unsupported. */
+  cloud?: (accessToken: string) => CloudStore
 }
 
 class Failure extends Error {
@@ -65,6 +68,9 @@ export function createServer(db: Database, env: ServerEnv) {
       throw e
     }))
   const now = () => new Date().toISOString()
+  /** The cloud as the signed-in user (setAuth), or null. */
+  let cloud: CloudStore | null = null
+  const signedIn = () => cloud ?? fail('unsupported', 'Sign in to use the cloud')
 
   // Grouping a table onto features is the expensive part; visualizations of
   // the same dataset and binding share it. Dropped whenever a dataset changes.
@@ -144,6 +150,67 @@ export function createServer(db: Database, env: ServerEnv) {
         return { rows: await env.readBuiltin(b.table, baseUrl), origin: `Built-in · ${b.table}`, name: b.label, description: b.description, extensions: { builtin: b.table, version: b.version } }
       }
     }
+  }
+
+  /**
+   * Makes a template's pointers real on this device (lib/workspace/file.ts): built-ins are
+   * uploaded or reused; each transform runs once all its inputs are here (in any order), or its
+   * outputs are reused when a dataset carries the same mark (SQL + inputs). Whatever can't be made
+   * — datasets not on this device, transforms whose inputs aren't, failed runs — is `missing`.
+   */
+  async function openTemplate(template: WorkspaceFile): Promise<{ file: WorkspaceFile; missing: string[]; failed: string[] }> {
+    const existing = await db.list('datasets')
+    const ids = new Map<string, string>()
+    for (const table of templateBuiltins(template)) {
+      if (!builtinTable(table)) continue
+      const version = BUILTIN_TABLES.find((b) => b.table === table)?.version
+      const have = existing.find((d) => d.extensions?.builtin === table && d.extensions?.version === version)
+      ids.set(BUILTIN_REF + table, have?.id ?? (await handlers.uploadDataset({ source: { kind: 'builtin', table } }, 'user')).datasetId)
+    }
+    let file = replacePointers(template, (p) => ids.get(p))
+    const here = new Set(existing.map((d) => d.id))
+    for (const id of ids.values()) here.add(id)
+    const failed = new Set<number>()
+    const reasons: string[] = []
+    const done = new Set<number>()
+    for (let progress = true; progress; ) {
+      progress = false
+      for (const [i, t] of (file.transforms ?? []).entries()) {
+        if (done.has(i) || failed.has(i)) continue
+        if (t.inputs.some((x) => isPlaceholder(x.datasetId))) continue // waits for another transform
+        if (!t.inputs.every((x) => here.has(x.datasetId))) {
+          reasons.push(`${t.name}: an input dataset isn't on this device`)
+          failed.add(i)
+          continue
+        }
+        const marks = t.outputs.map((o) => madeByMark(o.sql, t.inputs))
+        const found = marks.map((m) => existing.find((d) => d.extensions?.madeBy === m)?.id)
+        if (found.some((id) => !id)) {
+          try {
+            const r = await handlers.runTransform({ transform: { ...t, id: `template-${i}`, outputs: t.outputs.map((o, j) => ({ ...o, outputId: found[j] })) } }, 'user')
+            for (const [j, o] of t.outputs.entries()) {
+              found[j] = r.outputs.find((w) => w.key === o.key)!.datasetId
+              await handlers.updateDataset({ id: found[j]!, extensions: { madeBy: marks[j] } }, 'user')
+            }
+          } catch (e) {
+            reasons.push(`${t.name}: ${(e as Error).message}`)
+            failed.add(i)
+            continue
+          }
+        }
+        found.forEach((id, j) => {
+          ids.set(`${OUTPUT_REF}${i}.${j}`, id!)
+          if (j === 0) ids.set(OUTPUT_REF + i, id!)
+          here.add(id!)
+        })
+        file = replacePointers(file, (p) => ids.get(p))
+        done.add(i)
+        progress = true
+      }
+    }
+    const all = [...file.datasetIds, ...file.visualizations.map((v) => v.datasetId), ...(file.transforms ?? []).flatMap((t) => t.inputs.map((x) => x.datasetId))]
+    for (const [i, t] of (file.transforms ?? []).entries()) if (!done.has(i) && !failed.has(i)) reasons.push(`${t.name}: its inputs come from transforms that couldn't run`)
+    return { file, missing: [...new Set(all.filter((p) => !here.has(p)))], failed: reasons }
   }
 
   const handlers: Handlers = {
@@ -318,33 +385,40 @@ export function createServer(db: Database, env: ServerEnv) {
       if (!env.readDefaultWorkspace) return fail('unsupported', 'No default workspace here')
       const parsed = parseWorkspaceFile(await env.readDefaultWorkspace(baseUrl))
       if (!parsed.ok) return fail('failed', `default workspace: ${parsed.error}`)
-      const existing = await db.list('datasets')
-      const ids = new Map<string, string>()
-      for (const table of templateBuiltins(parsed.file)) {
-        const version = BUILTIN_TABLES.find((b) => b.table === table)?.version
-        const have = existing.find((d) => d.extensions?.builtin === table && d.extensions?.version === version)
-        ids.set(BUILTIN_REF + table, have?.id ?? (await handlers.uploadDataset({ source: { kind: 'builtin', table } }, 'user')).datasetId)
-      }
-      let file = replacePointers(parsed.file, (p) => ids.get(p))
-      for (const [i, t] of (file.transforms ?? []).entries()) {
-        // Each output's dataset is reused when an earlier run made it from the same SQL and inputs.
-        const made = t.outputs.map((o) => JSON.stringify({ sql: o.sql, inputs: t.inputs }))
-        const found = made.map((m) => existing.find((d) => d.extensions?.madeBy === m)?.id)
-        if (found.some((id) => !id)) {
-          const outputs = t.outputs.map((o, j) => ({ ...o, outputId: found[j] }))
-          const r = await handlers.runTransform({ transform: { ...t, id: `seed-${i}`, outputs } }, 'user')
-          for (const [j, o] of t.outputs.entries()) {
-            found[j] = r.outputs.find((w) => w.key === o.key)!.datasetId
-            await handlers.updateDataset({ id: found[j]!, extensions: { madeBy: made[j] } }, 'user')
-          }
-        }
-        found.forEach((id, j) => {
-          ids.set(`${OUTPUT_REF}${i}.${j}`, id!)
-          if (j === 0) ids.set(OUTPUT_REF + i, id!)
-        })
-        file = replacePointers(file, (p) => ids.get(p))
-      }
+      const { file, failed } = await openTemplate(parsed.file)
+      if (failed.length) fail('failed', `default workspace: ${failed.join('; ')}`)
       return { file }
+    },
+
+    async openTemplate({ file }) {
+      return openTemplate(file)
+    },
+
+    async setAuth({ accessToken }) {
+      cloud = accessToken && env.cloud ? env.cloud(accessToken) : null
+      return { signedIn: !!cloud }
+    },
+
+    async cloudWorkspace() {
+      const w = await signedIn().defaultWorkspace()
+      return { workspace: w && { name: w.name, updatedAt: w.updatedAt, file: w.file } }
+    },
+
+    async saveCloudWorkspace({ file }) {
+      const c = signedIn()
+      const records = new Map((await db.list('datasets')).map((d) => [d.id, d]))
+      const builtinOf = (id: string) => {
+        const b = records.get(id)?.extensions?.builtin
+        return typeof b === 'string' ? b : undefined
+      }
+      const t = toTemplate(file, builtinOf)
+      // Mark this device's outputs, so opening the template here reuses them instead of running again.
+      for (const o of t.outputs) {
+        const d = records.get(o.datasetId)
+        if (d && d.extensions?.madeBy !== o.madeBy) await db.put('datasets', { ...d, extensions: { ...d.extensions, madeBy: o.madeBy } })
+      }
+      const { updatedAt } = await c.saveDefaultWorkspace({ name: t.file.name, file: { ...t.file, exportedAt: now() } })
+      return { updatedAt }
     },
 
     async profileDataset({ datasetId }) {

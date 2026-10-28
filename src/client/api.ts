@@ -18,16 +18,16 @@ function plain<T>(v: T): T {
 let worker: Worker | null = null
 let nextId = 1
 const pending = new Map<number, (r: ApiResult<unknown>) => void>()
-/** The page's init, sent again first to a server that restarted. */
-let initPayload: Payload<'init'> | null = null
+/** The page's session requests (init, then the signed-in user's token), sent again first to a server that restarted. */
+const replay = new Map<'init' | 'setAuth', unknown>()
 
 function connect(): Worker {
   if (worker) return worker
   worker = new Worker(new URL('../server/worker.ts', import.meta.url), { type: 'module' })
-  if (initPayload) {
+  for (const [type, payload] of replay) {
     const id = nextId++
-    pending.set(id, (r) => !r.ok && logDebug(`server restart: init failed — ${r.error.message}`, 'warn'))
-    worker.postMessage({ id, type: 'init', payload: initPayload } satisfies RequestMessage<'init'>)
+    pending.set(id, (r) => !r.ok && logDebug(`server restart: ${type} failed — ${r.error.message}`, 'warn'))
+    worker.postMessage({ id, type, payload } as RequestMessage)
   }
   worker.onmessage = (e: MessageEvent<ResponseMessage>) => {
     pending.get(e.data.id)?.(e.data.result)
@@ -45,7 +45,7 @@ function connect(): Worker {
 
 /** `caller: 'agent'` marks an agent's request: the server refuses its changes to remote datasets. */
 export function request<K extends RequestType>(type: K, payload: Payload<K>, caller: Caller = 'user'): Promise<ApiResult<Response<K>>> {
-  if (type === 'init') initPayload = plain(payload) as Payload<'init'>
+  if (type === 'init' || type === 'setAuth') replay.set(type, plain(payload))
   const id = nextId++
   return new Promise((resolve) => {
     pending.set(id, resolve as (r: ApiResult<unknown>) => void)

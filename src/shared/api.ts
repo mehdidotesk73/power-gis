@@ -75,6 +75,19 @@ export interface Api {
   ]
   /** The default map as a workspace file with real dataset ids (built-ins uploaded or reused, transforms run or reused). */
   seedDefaultWorkspace: [Record<string, never>, { file: WorkspaceFile }]
+  /**
+   * A workspace file with template pointers made real on this device: built-ins uploaded or reused,
+   * transforms run (or their outputs reused) once their inputs are here. `missing`: pointers that
+   * couldn't be made real (datasets not on this device, outputs of transforms that couldn't run);
+   * `failed`: why each transform that couldn't run didn't.
+   */
+  openTemplate: [{ file: WorkspaceFile }, { file: WorkspaceFile; missing: string[]; failed: string[] }]
+  /** The signed-in user's session for the cloud (null: signed out). The client sends it again whenever it changes. */
+  setAuth: [{ accessToken: string | null }, { signedIn: boolean }]
+  /** The signed-in user's default workspace in the cloud (a template), or null before their first cloud save. */
+  cloudWorkspace: [Record<string, never>, { workspace: { name: string; updatedAt: string; file: WorkspaceFile } | null }]
+  /** Stores a workspace file as the signed-in user's default cloud workspace, made portable (built-ins and transform outputs as templates). */
+  saveCloudWorkspace: [{ file: WorkspaceFile }, { updatedAt: string }]
   /** A dataset's profile (computed and stored if the record has none yet). */
   profileDataset: [{ datasetId: string }, DatasetProfile]
   /** Every searchable value of a visualization's features: their names and the text in their rows. */

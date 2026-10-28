@@ -164,7 +164,11 @@ whatever they're actually asking about.
   private `datasets` bucket of `<id>/data.parquet`; RLS everywhere, explicit grants). Schema changes
   go in **new** SQL files for the user to run, never edits to the one already run. This sandbox can't
   reach supabase.co: test the SQL on a local Postgres (`/usr/lib/postgresql/16`) with stand-ins, and
-  sign-in on the preview. Next: cloud workspace, cloud datasets, sharing (`docs/TODO.md`).
+  sign-in on the preview. **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
+  token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
+  a portable copy (`toTemplate`: `builtin:` / `transform:` pointers, outputs marked `madeBy`) and the
+  page opens a newer one on load / sign-in (`catchUpWithCloud` → `openTemplate`). Next: cloud
+  datasets, sharing (`docs/TODO.md`).
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
     device files, in-memory tables, ArcGIS features via `featureTable`).

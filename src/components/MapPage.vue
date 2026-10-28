@@ -31,6 +31,7 @@ import { useSplitter } from './useSplitter'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
+import { auth } from '../client/auth'
 import { readDb } from '../client/db'
 import { listDatasets } from '../client/datasets'
 import { BUILTIN_TABLES } from '../shared/builtins'
@@ -160,6 +161,14 @@ async function save() {
   if (saving.value) return
   saving.value = true
   barMessage.value = ''
+  const ok = await saveHere()
+  saving.value = false
+  if (!ok) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
+  await saveToCloud()
+}
+
+/** Saves the working copy on this device (the server's database); true when it worked. */
+async function saveHere(): Promise<boolean> {
   const d = doc.value
   const r = await call(
     'save workspace',
@@ -171,12 +180,86 @@ async function save() {
       transforms: d.transforms,
     }),
   )
-  saving.value = false
-  if (!r) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
+  if (!r) return false
   savedSnap.value = snapshot(d)
   if (!doc.value.id) doc.value = { ...doc.value, id: r.workspaceId }
   store.set(LAST_WORKSPACE, r.workspaceId)
+  return true
 }
+
+// ── the signed-in user's workspace in the cloud ────────────────────────────
+//
+// Signed in, Save also stores the workspace in the account (made portable:
+// built-ins and transform outputs are rebuilt on the device that opens it).
+// On load and on sign-in the page catches up with the account: a cloud
+// workspace saved since this device last saw it opens here (asking first
+// over unsaved changes); an account with none yet gets this device's.
+
+/** `<user id>:<updatedAt>` of the cloud workspace this device last saved or opened. */
+const CLOUD_SEEN = 'powergis.cloudSeen'
+/** The user whose cloud workspace this page has caught up with (null: signed out, or not yet). */
+const cloudUser = ref<string | null>(null)
+const cloudError = ref('')
+const savedWhere = computed(() =>
+  !auth.user ? 'on this device' : cloudUser.value !== auth.user.id ? 'on this device (checking your account…)' : cloudError.value ? 'on this device — not in your account yet' : 'on this device and in your account',
+)
+const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+async function saveToCloud() {
+  const user = auth.user?.id
+  if (!user || cloudUser.value !== user || dirty.value) return
+  const r = await request('saveCloudWorkspace', { file: toWorkspaceFile(doc.value) })
+  if (!r.ok) {
+    cloudError.value = r.error.message
+    logDebug(`save to your account: ${r.error.message}`, 'warn')
+    barMessage.value = `Saved on this device, but not in your account: ${r.error.message}`
+    return
+  }
+  cloudError.value = ''
+  store.set(CLOUD_SEEN, `${user}:${r.data.updatedAt}`)
+}
+
+async function catchUpWithCloud() {
+  const user = auth.user?.id
+  if (!user || !loaded.value || cloudUser.value === user) return
+  const r = await request('cloudWorkspace', {})
+  if (auth.user?.id !== user) return
+  if (!r.ok) {
+    cloudError.value = r.error.message
+    logDebug(`your account's workspace: ${r.error.message}`, 'warn')
+    return
+  }
+  cloudUser.value = user
+  cloudError.value = ''
+  const w = r.data.workspace
+  if (!w) return void (await saveToCloud()) // a new account: this device's workspace becomes its own
+  if (store.get(CLOUD_SEEN) === `${user}:${w.updatedAt}`) return
+  store.set(CLOUD_SEEN, `${user}:${w.updatedAt}`)
+  if (dirty.value && !confirm(`Your account has a workspace saved ${when(w.updatedAt)}. Open it here? Your unsaved changes on this device will be replaced.`)) {
+    barMessage.value = 'Kept your changes here. Save stores them in your account, replacing the one there.'
+    return
+  }
+  status.value = 'loading'
+  loadingMsg.value = 'Opening your workspace from your account…'
+  const o = await call('open your workspace', request('openTemplate', { file: w.file }))
+  if (o) {
+    for (const id of o.file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
+    const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id))
+    resetSelection()
+    doc.value = next.doc
+    await saveHere()
+    const left = next.missing.length + o.failed.length
+    barMessage.value =
+      `Opened your workspace from your account (saved ${when(w.updatedAt)}).` +
+      (left ? ` Some of it isn't on this device: ${[...o.failed, ...next.missing.filter((id) => !isPlaceholder(id)).map(() => 'a dataset uploaded on another device')].filter((x, i, a) => a.indexOf(x) === i).join('; ')}.` : '')
+    if (left) logDebug(`your account's workspace: missing ${next.missing.join(', ')}; ${o.failed.join('; ')}`, 'warn')
+  }
+  status.value = 'ready'
+}
+watch([() => auth.user?.id, loaded], ([user]) => {
+  if (!user) cloudUser.value = null
+  else void catchUpWithCloud()
+})
 
 /** Back to the workspace as last saved. */
 async function revert() {
@@ -813,6 +896,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :dirty="dirty"
           :saving="saving"
           :message="barMessage"
+          :where="savedWhere"
           :counts="{ datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length }"
           @save="save"
           @revert="revert"

@@ -157,3 +157,32 @@ export function replacePointers(file: WorkspaceFile, to: (pointer: string) => st
 
 /** Whether a pointer is still a template placeholder. */
 export const isPlaceholder = (p: string) => p.startsWith(BUILTIN_REF) || p.startsWith(OUTPUT_REF)
+
+/** What marks a dataset as an output's: its SQL and inputs (real ids). Opening a template reuses a dataset with the same mark. */
+export const madeByMark = (sql: string, inputs: { datasetId: string; alias: string }[]) =>
+  JSON.stringify({ sql, inputs: inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })) })
+
+/**
+ * A workspace file made portable, for another device (the cloud workspace):
+ * built-in datasets become `builtin:<table>`, and every transform output
+ * `transform:<n>.<m>`, wherever it's pointed at — the output's own `outputId`
+ * too (made again, or reused by its mark, where it's opened).
+ * Other datasets keep their ids. `outputs` lists the marks to put on this
+ * device's output datasets, so opening the template here reuses them.
+ */
+export function toTemplate(file: WorkspaceFile, builtinOf: (datasetId: string) => string | undefined): { file: WorkspaceFile; outputs: { datasetId: string; madeBy: string }[] } {
+  const to = new Map<string, string>()
+  const outputs: { datasetId: string; madeBy: string }[] = []
+  for (const [i, t] of (file.transforms ?? []).entries()) {
+    t.outputs.forEach((o, j) => {
+      if (!o.outputId || to.has(o.outputId)) return
+      to.set(o.outputId, `${OUTPUT_REF}${i}.${j}`)
+      outputs.push({ datasetId: o.outputId, madeBy: madeByMark(o.sql, t.inputs) })
+    })
+  }
+  for (const p of pointers(file)) {
+    const table = to.has(p) ? undefined : builtinOf(p)
+    if (table) to.set(p, BUILTIN_REF + table)
+  }
+  return { file: replacePointers(file, (p) => to.get(p)), outputs }
+}

@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
 import { parseWorkspaceFile, replacePointers, templateBuiltins } from '../lib/workspace/file'
 import type { ApiResult } from '../shared/api'
+import type { CloudStore, CloudWorkspace } from '../shared/cloud'
 import { defaultScalarStyle, settingsOf, makeVisualization, ROWS } from '../lib/dataset/visualization'
 
 const SQ0 = '"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))"'
@@ -337,5 +338,86 @@ describe('built-in boundary datasets and the default join', () => {
     const again = data(await server.handle('seedDefaultWorkspace', {}))
     expect(again.file.datasetIds).toEqual(file.datasetIds)
     expect((await db.list('datasets')).length).toBe(count)
+  })
+})
+
+describe('cloud workspace', () => {
+  const tables: Record<string, Record<string, unknown>[]> = {
+    us_counties: [{ fips: '01001', name: 'Autauga, AL', county: 'Autauga', state: 'AL', state_fips: '01', geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } }],
+    utility_counties: [{ utility_id_eia: '195', county_fips: '01001' }],
+    utilities: [{ utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned' }],
+    us_states: [{ fips: '01', name: 'Alabama', abbr: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 1], [0, 0]]] } }],
+  }
+  /** One account's cloud, shared by every device that signs in. */
+  function fakeCloud() {
+    let saved: CloudWorkspace | null = null
+    let n = 0
+    const store: CloudStore = {
+      defaultWorkspace: async () => saved,
+      saveDefaultWorkspace: async ({ name, file }) => {
+        saved = { id: saved?.id ?? 'w1', name, file: JSON.parse(JSON.stringify(file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
+        return { id: saved.id, updatedAt: saved.updatedAt }
+      },
+    }
+    return { cloud: () => store, saved: () => saved }
+  }
+  const device = (cloud: () => CloudStore) => {
+    const db = new MemoryDatabase()
+    const server = createServer(db, { readBuiltin: async (t) => tables[t] ?? [], sql: nodeDuckDb, cloud, readDefaultWorkspace: async () => readFileSync('public/data/default.powergis.json', 'utf8') })
+    return { db, server }
+  }
+
+  it('refuses cloud requests until signed in', async () => {
+    const { server } = device(fakeCloud().cloud)
+    expect(await server.handle('cloudWorkspace', {})).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+    expect(data(await server.handle('setAuth', { accessToken: 'token' }))).toEqual({ signedIn: true })
+    expect(data(await server.handle('cloudWorkspace', {}))).toEqual({ workspace: null })
+    expect(data(await server.handle('setAuth', { accessToken: null }))).toEqual({ signedIn: false })
+  })
+
+  it('saves a portable workspace and opens it on another device, rebuilding built-ins and outputs', async () => {
+    const account = fakeCloud()
+    const a = device(account.cloud)
+    data(await a.server.handle('setAuth', { accessToken: 't' }))
+    const seeded = data(await a.server.handle('seedDefaultWorkspace', {})).file
+    const own = data(await a.server.handle('uploadDataset', { source: { kind: 'csv', file: file('mine.csv', 'x\n1\n') } })).datasetId
+    data(await a.server.handle('saveCloudWorkspace', { file: { ...seeded, datasetIds: [...seeded.datasetIds, own] } }))
+
+    // In the cloud: built-ins and the output as templates; the device's own upload by id.
+    const saved = account.saved()!.file
+    expect(saved.datasetIds).toEqual(['transform:0.0', 'builtin:utilities', 'builtin:utility_counties', 'builtin:us_counties', 'builtin:us_states', own])
+    expect(saved.transforms![0].outputs[0].outputId).toBe('transform:0.0')
+    expect(saved.visualizations.every((v) => !v.datasetId.match(/^[0-9a-f-]{36}$/) || v.datasetId === own)).toBe(true)
+
+    // Another device: everything is made there; the upload isn't, and says so.
+    const b = device(account.cloud)
+    data(await b.server.handle('setAuth', { accessToken: 't' }))
+    const { workspace } = data(await b.server.handle('cloudWorkspace', {}))
+    const opened = data(await b.server.handle('openTemplate', { file: workspace!.file }))
+    expect(opened.missing).toEqual([own])
+    expect(opened.failed).toEqual([])
+    for (const id of opened.file.datasetIds.filter((id) => id !== own)) expect(await b.db.get('datasets', id)).toBeTruthy()
+    expect(opened.file.transforms![0].outputs[0].outputId).toBe(opened.file.datasetIds[0])
+
+    // Back on the first device: its output is reused (marked when saved), nothing is made again.
+    const count = (await a.db.list('datasets')).length
+    const back = data(await a.server.handle('openTemplate', { file: saved }))
+    expect(back.file.datasetIds.slice(0, 5)).toEqual(seeded.datasetIds)
+    expect((await a.db.list('datasets')).length).toBe(count)
+  })
+
+  it("runs transforms in whatever order their inputs allow, and reports one it can't run", async () => {
+    const b = device(fakeCloud().cloud)
+    const t = (name: string, input: string, out: string) => ({ name, inputs: [{ datasetId: input, alias: 'x' }], outputs: [{ key: 'o1', name, sql: 'SELECT * FROM x', outputId: out }] })
+    const template = {
+      format: 'powergis-workspace' as const, version: 1 as const, exportedAt: '', name: 'W', visualizations: [],
+      datasetIds: ['transform:0', 'transform:1', 'transform:2'],
+      // 0 reads 1's output; 1 reads a built-in; 2 reads a dataset this device doesn't have.
+      transforms: [t('second', 'transform:1', 'transform:0'), t('first', 'builtin:utilities', 'transform:1'), t('lost', 'not-here', 'transform:2')],
+    }
+    const r = data(await b.server.handle('openTemplate', { file: template }))
+    expect(r.file.datasetIds.slice(0, 2).every((id) => !id.includes(':'))).toBe(true)
+    expect(r.missing).toEqual(['transform:2', 'not-here'])
+    expect(r.failed).toEqual(["lost: an input dataset isn't on this device"])
   })
 })

@@ -9,6 +9,7 @@ import { reactive } from 'vue'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { logDebug } from '../debug'
+import { request } from './api'
 
 export interface Profile {
   id: string
@@ -31,8 +32,15 @@ export const auth = reactive({
 // Supabase reads the link and tidies the address.
 if (typeof location !== 'undefined' && /[#&?]type=recovery\b/.test(location.hash + location.search)) auth.recovering = true
 
+let sentToken: string | null | undefined
 supabase.auth.onAuthStateChange((event, session) => {
   if (event === 'PASSWORD_RECOVERY') auth.recovering = true
+  // The server reaches the cloud as this user: it gets every new token (sign in, refresh) and null on sign out.
+  const token = session?.access_token ?? null
+  if (token !== sentToken) {
+    sentToken = token
+    void request('setAuth', { accessToken: token }).then((r) => !r.ok && logDebug(`cloud sign-in: ${r.error.message}`, 'warn'))
+  }
   const user = session?.user ?? null
   const changed = user?.id !== auth.user?.id
   auth.user = user
