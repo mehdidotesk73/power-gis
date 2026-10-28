@@ -55,17 +55,20 @@ const set = (go: boolean) => props.items.forEach((i) => !i.blocked && (i.go = go
           <div class="line">
             <span class="name">{{ it.name }}</span>
             <span v-if="it.status" class="status" :class="it.status">
-              {{ it.status === 'running' ? '…' : it.status === 'done' ? '✓' : it.status === 'failed' ? '✗' : 'Skipped' }}
+              {{ it.status === 'running' ? 'Working…' : it.status === 'done' ? 'Done' : it.status === 'failed' ? 'Not done' : 'Skipped' }}
             </span>
             <span v-else-if="!it.blocked" class="choice" role="group" :aria-label="`${it.name}: continue or skip`">
               <button :class="{ on: it.go }" @click="it.go = true">Continue</button>
               <button :class="{ on: !it.go }" @click="it.go = false">Skip</button>
             </span>
           </div>
-          <span class="note">{{ it.note }}</span>
-          <span v-if="it.warn" class="warn">⚠ {{ it.warn }}</span>
-          <span v-if="it.blocked" class="blocked">{{ it.blocked }}</span>
+          <!-- Before: what will happen. After: only how it went. -->
           <span v-if="it.result" class="result" :class="it.status">{{ it.result }}</span>
+          <template v-else-if="it.status !== 'skipped'">
+            <span class="note">{{ it.note }}</span>
+            <span v-if="it.warn" class="warn">⚠ {{ it.warn }}</span>
+            <span v-if="it.blocked" class="blocked">{{ it.blocked }}</span>
+          </template>
         </li>
       </ul>
       <div class="row">

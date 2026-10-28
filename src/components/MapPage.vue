@@ -34,7 +34,7 @@ import { useSplitter } from './useSplitter'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
-import { auth } from '../client/auth'
+import { auth, syncCloudAuth } from '../client/auth'
 import { readDb } from '../client/db'
 import { listDatasets } from '../client/datasets'
 import { BUILTIN_TABLES } from '../shared/builtins'
@@ -604,7 +604,7 @@ async function cloudAction(action: CloudAction, id: string) {
     if (!r.ok) noteOn(id, r.message)
     return
   }
-  if (!auth.user) return noteOn(id, SIGN_IN)
+  if (!auth.user || !(await syncCloudAuth())) return noteOn(id, SIGN_IN)
   if (action === 'discard') {
     if (!confirm(`Discard the changes made on this device to "${ds.name}" and take the cloud's version back?`)) return
     const r = await request('fetchFromCloud', { id })
@@ -625,6 +625,7 @@ async function recoverFromCloud() {
   if (!auth.user || !loaded.value) return
   const ids = [...unav.value.datasets.keys()].filter((id) => !present(id) && !triedCloud.has(id))
   if (!ids.length) return
+  if (!(await syncCloudAuth())) return
   ids.forEach((id) => triedCloud.add(id))
   const status = await request('cloudStatus', { ids })
   if (!status.ok) return
@@ -647,7 +648,7 @@ type BatchKind = 'store' | 'save' | 'copy'
 const batch = ref<{ kind: BatchKind; title: string; intro: string; verb: string; items: BatchItem[]; running: boolean } | null>(null)
 
 async function openBatch(kind: BatchKind) {
-  if (kind !== 'copy' && !auth.user) return void (barMessage.value = SIGN_IN)
+  if (kind !== 'copy' && (!auth.user || !(await syncCloudAuth()))) return void (barMessage.value = SIGN_IN)
   const list = kind === 'store' ? localOnly.value : kind === 'save' ? changedInCloud.value : inCloud.value
   let items: BatchItem[] = list.map((d) => ({
     ...d,
@@ -686,13 +687,26 @@ async function runBatch() {
   const b = batch.value
   if (!b) return
   b.running = true
+  if (b.kind !== 'copy' && !(await syncCloudAuth())) {
+    for (const it of b.items) if (it.go && !it.blocked) ((it.status = 'failed'), (it.result = 'Not done: you are signed out. Sign in (☰ → Sign in) and try again.'))
+    b.running = false
+    return
+  }
   for (const it of b.items) {
     if (!it.go || it.blocked) {
       it.status = 'skipped'
       continue
     }
     it.status = 'running'
-    const r = b.kind === 'copy' ? await copyHere(it.id) : await request('storeInCloud', { id: it.id, overwrite: !!it.warn }).then(async (x) => (await loadRecord(it.id), x.ok ? { ok: true, message: b.kind === 'store' ? 'Stored ✓' : 'Saved ✓' } : { ok: false, message: x.error.code === 'conflict' ? 'Changed in the cloud meanwhile: not saved (try again to see it).' : x.error.message }))
+    const verb = b.kind === 'store' ? 'stored' : 'saved'
+    const r =
+      b.kind === 'copy'
+        ? await copyHere(it.id)
+        : await request('storeInCloud', { id: it.id, overwrite: !!it.warn }).then(async (x) => {
+            await loadRecord(it.id)
+            if (x.ok) return { ok: true, message: b.kind === 'store' ? 'Stored in the cloud ✓ — other devices can open it' : 'Saved to the cloud ✓ — other devices get these changes' }
+            return { ok: false, message: x.error.code === 'conflict' ? `Not ${verb}: it changed in the cloud meanwhile. Open Save datasets… again to see it.` : `Not ${verb}: ${x.error.message}` }
+          })
     it.status = r.ok ? 'done' : 'failed'
     it.result = r.message
   }

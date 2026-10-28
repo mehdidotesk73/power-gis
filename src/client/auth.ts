@@ -51,6 +51,18 @@ supabase.auth.onAuthStateChange((event, session) => {
   else if (changed || !auth.profile) setTimeout(() => void loadProfile(), 0)
 })
 
+/**
+ * Hands the server this session's current token (refreshed if it expired, e.g. while the phone
+ * slept), before anything that goes to the cloud. Answers whether it's signed in there.
+ */
+export async function syncCloudAuth(): Promise<boolean> {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token ?? null
+  sentToken = token
+  const r = await request('setAuth', { accessToken: token })
+  return r.ok && r.data.signedIn
+}
+
 /** Where links in our emails come back to: this app, on whichever site (production or a preview). */
 const here = () => `${location.origin}${location.pathname}`
 
