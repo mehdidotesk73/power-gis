@@ -312,6 +312,23 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Explore and setup modes — 2026-10-28
+- **Added:** two page modes. Explore: map first, search above it, export below it; desktop keeps the side
+  panel. Setup: one panel headed by List | Graph | ✕, the open item in its own section (right column on
+  desktop, under List | Graph on phones), and a mini map whose height is dragged. The page fits the
+  screen; only panels scroll. ☰ menu (Help, Desktop / Phone view); one-row footer; legend top-left.
+- **Removed:** the ⤢ pop-out window, and editors opening inline inside cards (they open in the
+  open-item section now, in both views).
+- **Lesson:** stage layouts as screenshots before building. Layout feedback came in several rounds
+  (where the Set up bar goes, where ✕ sits, what scrolls); each round was a CSS change, not a rebuild,
+  because the modes only move the same components between grid areas (`display: contents` on the
+  panel body lets its parts take separate areas in setup).
+- **Gotcha:** a sticky element inside a scrolling page hides what `scrollIntoView` brings in. The
+  phone's setup has a sticky head and a sticky mini map, so the page sets `scroll-padding-top` /
+  `-bottom` to match, or revealed cards land under the map.
+- **Gotcha:** MapView's own `min-height` (meant for the full map) pushed the mini map and an open
+  Export panel off the page; the mini map lifts it.
+
 ### Client / server audit — 2026-10-28
 - **Moved to the server:** seeding the default map (was ~10 client round trips of server logic),
   reading rows for the transform editor's input preview (it read the whole table to show 20 rows),

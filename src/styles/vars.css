@@ -154,3 +154,32 @@ a:hover {
 }
 
 /* Buttons: components/ui/UiButton.vue (sizes tag / compact / regular / large, tones by job). */
+
+/* An editor opened in the setup mode's right column (components/detailTarget.ts): a card of its own,
+   titled with what it edits. */
+.aside {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-elev);
+}
+.aside-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.aside-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aside-title .eyebrow {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}

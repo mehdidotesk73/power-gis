@@ -305,10 +305,22 @@ On desktop the controls column is resizable: a splitter between it and the map (
 double-click resets), width as the `--panel-w` CSS variable on `.page`, remembered per device
 (`powergis.panelWidth`, 256 px to 70% of the window). `MapView` keeps the canvas matched to its
 container with a `ResizeObserver` (the window doesn't resize when the splitter moves). The
-workspace panels — from List | Graph to just before Export — can **pop out** (⤢) into a large modal
-(full screen on phones): one `<Teleport to="body" :disabled="!popped">` moves the same components, so
-open editors and selections survive; ✕, Esc or a backdrop tap brings them back. Popped out on a wide
-screen, the open graph item sits right of the graph (`.graph-wrap.split`), not under it.
+page has two **modes** (`mode`): **explore** (map first: the map column holds Find above the map and
+Export below it; desktop keeps the side panel on the left — List | Graph | ⤢, then List | Graph, then the
+open item, scrolling together in `.panel-body` (the phone's setup, without the mini map); phones show only the map and a sticky **setup
+dock**) and **setup** (⤢ on desktop, the dock on phones; ✕ or Esc goes back): the page becomes one panel headed by the **List | Graph | ✕** row
+(`.view-row`, grid area `head`: the top of the side panel in explore, spanning the page in setup). Desktop
+setup has two columns: List | Graph over a mini map on the left, the open item on the right. Phone setup
+has three rows: List | Graph, the open item, and a mini map sticky at the bottom; the page itself scrolls
+(head sticky, `scroll-padding` top and bottom so revealed items land between them). MapView's
+`min-height` is lifted for the mini map; the bar above it (`.map-splitter`, `useSplitter({side: 'bottom'})`)
+sets its height (`--minimap-h`, remembered as `powergis.minimapHeight`; double-click resets). The modes only change CSS grid areas on `.page`, so the one
+MapLibre map, open editors and selections survive (in setup `.panel-body` is `display: contents`, so
+List | Graph and the open item take their own grid areas). A section, `#setup-detail`, always receives what the user opens:
+the graph's open item (`<Teleport defer :disabled="!asideOn">`) and, through
+`components/detailTarget.ts` (`provideDetailTarget` in the page, `useDetailTarget` in the lists), the list
+editors (dataset / transform / visualization, not in their compact graph form) and Explore
+(`ExploreModal`'s `asideTo`: a panel in the section instead of a window).
 
 **Flows bring their next step into view**: `v-reveal` (`components/reveal.ts`) scrolls an element
 into view when it appears or its value changes — just enough, or to its top when it's taller than the

@@ -90,12 +90,12 @@ function clear() {
 <template>
   <section class="find" aria-label="Search">
     <div class="sentence">
-      <span class="lbl">Search in</span>
+      <span class="lbl">Search within</span>
       <select v-model="vizId" class="viz" aria-label="Visualization to search" @change="picked = true" :disabled="!visualizations.length">
         <option v-if="!visualizations.length" value="">no visualization</option>
         <option v-for="x in visualizations" :key="x.viz.id" :value="x.viz.id">{{ x.label }}</option>
       </select>
-      <span class="lbl">in</span>
+      <span class="lbl">over</span>
       <select v-model="column" class="col" aria-label="Column to search" :disabled="!entries.length">
         <option :value="ALL">All data</option>
         <option v-for="c in columns" :key="c" :value="c">{{ c === LABEL_COLUMN ? 'Feature names' : columnName(c) }}</option>

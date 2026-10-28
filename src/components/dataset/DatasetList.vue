@@ -10,6 +10,8 @@ import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
 import ExploreModal from './ExploreModal.vue'
 import { request } from '../../client/api'
 import { storeOf, type DatasetRecord } from '../../shared/records'
+import { useDetailTarget } from '../detailTarget'
+import { vReveal } from '../reveal'
 
 const props = defineProps<{
   datasets: DatasetRecord[]
@@ -30,6 +32,8 @@ const emit = defineEmits<{
 }>()
 
 const editing = ref<string | null>(null)
+/** Desktop setup mode: the editor (and Explore) open in the page's right column. */
+const detailTarget = useDetailTarget()
 
 const actions = (ds: DatasetRecord): ObjectAction[] => [
   { id: 'explore', icon: '▤', label: 'Explore' },
@@ -116,7 +120,9 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
           <button class="dismiss" aria-label="Dismiss" @click.stop="notes = new Map([...notes].filter(([k]) => k !== ds.id))">✕</button>
         </span>
       </div>
-      <div v-if="editing === ds.id" class="edit" data-no-open>
+      <Teleport defer :to="detailTarget ?? 'body'" :disabled="!!compact || !detailTarget">
+      <div v-if="editing === ds.id" v-reveal class="edit" :class="{ aside: detailTarget && !compact }" data-no-open>
+        <div v-if="detailTarget && !compact" class="aside-title"><span class="eyebrow">Dataset</span> <strong>{{ ds.name }}</strong></div>
         <label>
           Name
           <input type="text" :value="ds.name" @change="emit('update', ds.id, { name: ($event.target as HTMLInputElement).value })" />
@@ -153,10 +159,11 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
         <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
         <button class="close" @click="editing = null">Done</button>
       </div>
+      </Teleport>
             <p class="muted uses">Used by {{ plural(vizCount(ds.id), 'visualization') }}</p>
     </template>
   </ObjectList>
-  <ExploreModal v-if="exploring" :dataset="exploring" :tables="props.tables ?? props.datasets" @close="exploring = null" />
+  <ExploreModal v-if="exploring" :dataset="exploring" :tables="props.tables ?? props.datasets" :aside-to="detailTarget" @close="exploring = null" />
 </template>
 
 <style scoped>

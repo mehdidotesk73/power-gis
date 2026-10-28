@@ -43,7 +43,7 @@ UI structure — one page, the **Map**:
   2025), built like any user's map: built-in datasets (EIA tables + US counties / states polygons), a
   SQL join transform and visualizations, from the workspace file `public/data/default.powergis.json`.
 
-The entire app is wrapped inside a header and footer. The header provides the app title, a Help button that opens the conceptual-docs modal, and an "Update available" affordance that surfaces when a newer PWA build is live. The footer provides the current build id/timestamp, a **Desktop view / Phone view** toggle on touch devices (`src/desktopView.ts`: a 1,280-wide layout shrunk to fit, remembered per device), version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
+The entire app is wrapped inside a header and footer. The header provides the app title, a **☰ menu** (Help, which opens the conceptual-docs modal, and on touch devices **Desktop view / Phone view**), and an "Update available" affordance that surfaces when a newer PWA build is live. The footer (one row, small type) provides the current build id/timestamp, version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
 
 The user previews on a **phone** (mobile Safari), so favour mobile-friendly layouts and remember there's no dev console on device — see Debugging below.
 
@@ -222,9 +222,22 @@ whatever they're actually asking about.
   table's error lists the aliases). Tests run real DuckDB through its Node build
   (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
 - **Side panel**: resizable on desktop (splitter, `--panel-w`, `powergis.panelWidth`; `MapView` resizes
-  the map with a `ResizeObserver`). ⤢ pops the workspace panels (List | Graph through the last panel
-  before Export) into a modal via `<Teleport :disabled="!popped">` — same components, state kept.
-  Popped out and wide, the open graph item sits beside the graph. **New-item flows scroll each step
+  the map with a `ResizeObserver`). **Two modes** (`mode` in `MapPage.vue`; one map, the same components
+  moved by CSS grid areas, so nothing is lost on switching): **explore** puts the map first — Find
+  ("Search within … over …") above it and Export below it in the map column; desktop keeps the side panel
+  on the left (List | Graph | ⤢, then List | Graph, then what you open, scrolling together in `.panel-body`:
+  phone setup without the mini map), phones hide it behind a vertical **Set up** bar left of the search (the legend is always
+  top-left of the map; Export's body scrolls inside at most 45% of the column). The app is one screen tall (`App.vue`: `.app` 100dvh flex column, `.content` fills what
+  header and footer leave); only panels scroll. **Setup** (⤢ on desktop, the
+  dock on phones; ✕ or Esc back) makes the page one panel headed by the **List | Graph | ✕** row
+  (`.view-row`, its own grid area `head`, spanning the page; `.panel-body` turns `display: contents` so
+  its parts take their own areas). What you open — the graph's open item, list
+  editors (dataset / transform / visualization) and Explore — teleports into its own section
+  (`#setup-detail`; `components/detailTarget.ts`: `provideDetailTarget` / `useDetailTarget`). Desktop: two
+  columns, List | Graph over a **mini map** on the left, that section on the right. Phones: List | Graph,
+  then that section, scrolling together (the page scrolls, head sticky) above a mini map anchored at the
+  bottom (sticky; `scroll-padding` keeps revealed items clear of both). The mini map's height is dragged
+  from the bar above it on both (`useSplitter` with `side: 'bottom'`, `--minimap-h`, `powergis.minimapHeight`). **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
 - **Explore** (`dataset/ExploreModal.vue`, a dataset's menu): a window with a SQL box (starts
   `SELECT * FROM <dataset>`) over a docked results table, **200 rows a page** (Prev / Next) with the
