@@ -62,7 +62,7 @@ import {
   type OpResult,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
-import { fileName, fromWorkspaceFile, isPlaceholder, OUTPUT_REF, BUILTIN_REF, parseDraft, parseWorkspaceFile, replacePointers, snapshot, templateBuiltins, toWorkspaceFile, type Draft } from '../lib/workspace/file'
+import { fileName, fromWorkspaceFile, isPlaceholder, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft } from '../lib/workspace/file'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -502,47 +502,16 @@ function zoomToViz(vizId: string) {
 }
 
 /**
- * The starting workspace, from the default workspace file: its built-in
- * datasets are uploaded (or current copies reused), its transforms run in
- * order (or an earlier output of the same SQL over the same inputs reused),
- * then it opens like any loaded file.
+ * The starting workspace: the server prepares the default workspace file
+ * (seedDefaultWorkspace: built-ins uploaded or reused, transforms run or
+ * reused) and it opens like any loaded file.
  */
 async function seedDefault() {
-  const res = await fetch(`${base}data/default.powergis.json`)
-  const parsed = parseWorkspaceFile(res.ok ? await res.text() : '')
-  if (!parsed.ok) throw new Error(`default workspace: ${parsed.error}`)
-  const existing = await listDatasets()
-  const ids = new Map<string, string>()
-  for (const table of templateBuiltins(parsed.file)) {
-    const version = BUILTIN_TABLES.find((b) => b.table === table)?.version
-    const have = existing.find((d) => d.extensions?.builtin === table && d.extensions?.version === version)
-    const id = have?.id ?? (await call(`load built-in ${table}`, request('uploadDataset', { source: { kind: 'builtin', table } })))?.datasetId
-    if (!id) throw new Error(`could not load the built-in table "${table}"`)
-    ids.set(BUILTIN_REF + table, id)
-  }
-  let file = replacePointers(parsed.file, (p) => ids.get(p))
-  for (const [i, t] of (file.transforms ?? []).entries()) {
-    // Each output's dataset is reused when an earlier run made it from the same SQL and inputs.
-    const made = t.outputs.map((o) => JSON.stringify({ sql: o.sql, inputs: t.inputs }))
-    const found = made.map((m) => existing.find((d) => d.extensions?.madeBy === m)?.id)
-    if (found.some((id) => !id)) {
-      loadingMsg.value = `Running "${t.name}" (the first run loads the SQL engine)…`
-      const outputs = t.outputs.map((o, j) => ({ ...o, outputId: found[j] }))
-      const r = await call(`transform "${t.name}"`, request('runTransform', { transform: { ...t, id: `seed-${i}`, outputs } }))
-      if (!r) throw new Error(`the default transform "${t.name}" failed`)
-      for (const [j, o] of t.outputs.entries()) {
-        found[j] = r.outputs.find((w) => w.key === o.key)!.datasetId
-        await request('updateDataset', { id: found[j]!, extensions: { madeBy: made[j] } })
-      }
-    }
-    found.forEach((id, j) => {
-      ids.set(`${OUTPUT_REF}${i}.${j}`, id!)
-      if (j === 0) ids.set(OUTPUT_REF + i, id!)
-    })
-    file = replacePointers(file, (p) => ids.get(p))
-  }
-  for (const id of file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
-  apply({ ok: true, doc: fromWorkspaceFile(file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id)).doc })
+  loadingMsg.value = 'Preparing the default map (the first time runs its transforms)…'
+  const r = await call('default workspace', request('seedDefaultWorkspace', {}))
+  if (!r) throw new Error('the default workspace could not be prepared')
+  for (const id of r.file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
+  apply({ ok: true, doc: fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id)).doc })
   loadingMsg.value = 'Loading data…'
 }
 
@@ -787,7 +756,7 @@ const legend = computed<LegendEntry[]>(() => {
 
 const csvTables = BUILTIN_TABLES.filter((t) => t.source === 'csv').map((t) => t.table)
 const exportTarget = ref<string | null>(null)
-const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ?? '') ?? rendered.value[0])?.data ?? null)
+const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '') ?? rendered.value[0])?.layer ?? null)
 </script>
 
 <template>
@@ -957,7 +926,7 @@ const exportLayer = computed(() => (renderedById.value.get(exportTarget.value ??
             <option v-for="r in rendered" :key="r.layer.id" :value="r.layer.id">{{ r.ds.name }} · {{ r.layer.name }}</option>
           </select>
         </label>
-        <DataExchange :layer="exportLayer" />
+        <DataExchange :visualization="exportViz" />
         <p class="muted small">
           Built-in CSVs:
           <template v-for="(t, i) in csvTables" :key="t">

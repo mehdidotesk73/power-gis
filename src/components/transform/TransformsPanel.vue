@@ -15,7 +15,6 @@ import UiButton from '../ui/UiButton.vue'
 import { vReveal } from '../reveal'
 import { nextTick, ref } from 'vue'
 import { request } from '../../client/api'
-import { readDb } from '../../client/db'
 import SearchBox from '../map/SearchBox.vue'
 import PreviewTable from './PreviewTable.vue'
 import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
@@ -207,12 +206,8 @@ async function showInDock(t: TransformSpec, d: DockTarget) {
     const ds = props.datasets.find((x) => x.id === t.inputs[d.index]?.datasetId)
     if (!ds) result = { error: 'That dataset is not in the workspace.' }
     else {
-      try {
-        const rows = (await readDb.readRows(ds.table)) ?? []
-        result = { columns: ds.columns, rows: rows.slice(0, 20), rowCount: ds.rowCount }
-      } catch (e) {
-        result = { error: (e as Error).message }
-      }
+      const r = await request('datasetRows', { datasetId: ds.id, limit: 20 })
+      result = r.ok ? r.data : { error: r.error.message }
     }
   } else {
     const o = t.outputs.find((x) => x.key === d.key)

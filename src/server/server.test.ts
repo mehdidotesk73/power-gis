@@ -281,6 +281,19 @@ describe('built-in boundary datasets and the default join', () => {
     const rows = data(await server.handle('featureRows', { datasetId: out.datasetId, binding: n.binding, key: values.features[0].key }))
     expect(rows.map((r) => r.utility_name)).toEqual(['Alabama Power Co', 'Central Alabama Electric Coop'])
 
+    // Rows come in pages from the server (the client never reads data tables).
+    const page = data(await server.handle('datasetRows', { datasetId: out.datasetId, limit: 2, offset: 1 }))
+    expect([page.rowCount, page.rows.length, page.columns.length]).toEqual([3, 2, ds.columns.length])
+
+    // Exports are made on the server from its own grouping.
+    const viz = { id: 'v1', name: 'Number of utilities', datasetId: out.datasetId, binding: n.binding, column: n.column, aggregation: n.aggregation }
+    const gj = data(await server.handle('exportVisualization', { visualization: viz, format: 'geojson' }))
+    expect(gj).toMatchObject({ fileName: 'v1.geojson', mimeType: 'application/geo+json' })
+    expect(JSON.parse(gj.text).features).toHaveLength(2)
+    const csv = data(await server.handle('exportVisualization', { visualization: viz, format: 'csv' }))
+    expect(csv.text.trim().split('\n')).toHaveLength(3) // header + one row per feature
+    expect(data(await server.handle('exportVisualization', { visualization: viz, format: 'esri' })).text).toContain('"features"')
+
     // State level: states ⋈ counties ⋈ links ⋈ utilities, grouped by state and utility.
     const states = data(await server.handle('uploadDataset', { source: { kind: 'builtin', table: 'us_states' } })).datasetId
     const byState = data(
@@ -293,5 +306,26 @@ describe('built-in boundary datasets and the default join', () => {
     )
     expect(byState.rows.map((r) => [r.state, r.utility_name, r.counties])).toEqual([['Alabama', 'Alabama Power Co', 1], ['Alabama', 'Central Alabama Electric Coop', 1]])
     expect(byState.columns.find((c) => c.name === 'geometry')!.type).toBe('region')
+  })
+
+  it('prepares the default workspace on the server, reusing what it made before', async () => {
+    const tables: Record<string, Record<string, unknown>[]> = {
+      us_counties: [{ fips: '01001', name: 'Autauga, AL', county: 'Autauga', state: 'AL', state_fips: '01', geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } }],
+      utility_counties: [{ utility_id_eia: '195', county_fips: '01001' }],
+      utilities: [{ utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned' }],
+      us_states: [{ fips: '01', name: 'Alabama', abbr: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 1], [0, 0]]] } }],
+    }
+    const db = new MemoryDatabase()
+    const server = createServer(db, { readBuiltin: async (t) => tables[t] ?? [], sql: nodeDuckDb, readDefaultWorkspace: async () => readFileSync('public/data/default.powergis.json', 'utf8') })
+    data(await server.handle('init', { baseUrl: '/' }))
+    const { file } = data(await server.handle('seedDefaultWorkspace', {}))
+    const pointers = [...file.datasetIds, ...file.visualizations.map((v) => v.datasetId), ...(file.transforms ?? []).flatMap((t) => t.inputs.map((i) => i.datasetId))]
+    expect(pointers.some((p) => p.includes(':'))).toBe(false)
+    for (const id of file.datasetIds) expect(await db.get('datasets', id)).toBeTruthy()
+    const count = (await db.list('datasets')).length
+    // Again: the built-ins and the transforms' outputs are reused, nothing new is made.
+    const again = data(await server.handle('seedDefaultWorkspace', {}))
+    expect(again.file.datasetIds).toEqual(file.datasetIds)
+    expect((await db.list('datasets')).length).toBe(count)
   })
 })

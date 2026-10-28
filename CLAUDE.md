@@ -120,8 +120,12 @@ whatever they're actually asking about.
   - **Contract** (`src/shared/`): `api.ts` (request types), `records.ts` (base tables), `database.ts`
     (`ReadDatabase` / `Database` + in-memory test DB), `idb.ts` (IndexedDB), `builtins.ts`.
   - **Client** (`src/client/`, components): `request(type, payload)` (`api.ts`) for anything that
-    writes or computes; `readDb` (`db.ts`, read-only) to read records and rows. **Components never
-    write the database.** New features that change data add a request type, not client code.
+    writes, computes or reads rows (`datasetRows` pages, `exportVisualization` files,
+    `seedDefaultWorkspace`); `readDb` (`db.ts`, a `RecordReader`: records only, no rows) to read the
+    registry. **Components never write the database or read data tables**, and fetch nothing but
+    `version.json`; `src/client/boundary.test.ts` fails on a client import of server-only code
+    (`server/`, `shared/idb`, `lib/arcgis`, `lib/data/*`, profiles) or a stray `fetch`. New features
+    that change or read data add a request type, not client code.
 - **Database** (IndexedDB `powergis-db` on this device; Supabase later). Base tables, every row with a
   uuid `id` + editable `name`, no access control yet: `users`, `workspaces` (config of **pointers**:
   `datasetIds`, ordered `visualizationIds`), `datasets` (registry: data table name, columns, row
@@ -241,7 +245,8 @@ whatever they're actually asking about.
   `transform:<n>.<m>` its m-th). `seedDefault`
   (`MapPage.vue`) uploads or reuses the built-ins, runs the transforms (reusing an output marked
   `extensions.madeBy` with the same SQL + inputs; the first run loads DuckDB), swaps in the ids
-  (`replacePointers`, `lib/workspace/file.ts`) and opens it like a loaded file. Changing the default
+  (`replacePointers`, `lib/workspace/file.ts`) — all on the server (`seedDefaultWorkspace`; the worker
+  reads the file) — and the page opens it like a loaded file. Changing the default
   map = editing that file. Every dataset's click panel shows its rows (`FeatureRows`).
 - **Object lists** (`components/list/ObjectList.vue`, generic over the item type): datasets,
   visualizations and transforms are cards in one widget, like an object table configuration — the

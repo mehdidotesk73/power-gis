@@ -67,7 +67,7 @@ export function kindFor(columns: ColumnInfo[], column: string, agg: Aggregation)
 }
 
 /** The renderable layer for one visualization from its server-computed values. */
-export function visualizationLayer(values: VizValues, spec: VisualizationSpec, datasetName: string): LayerData {
+export function visualizationLayer(values: VizValues, spec: Pick<VisualizationSpec, 'id' | 'name'>, datasetName: string): LayerData {
   const features: LayerFeature[] = values.features.map((f) => ({
     type: 'Feature',
     id: f.key,
