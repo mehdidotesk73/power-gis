@@ -48,7 +48,13 @@ async function run(action: () => Promise<string | null>, done?: string) {
   return !msg
 }
 
-const submitSignIn = () => run(() => signIn(email.value, password.value)).then((ok) => ok && (password.value = ''))
+// Signed in: the window closes (the menu's dot shows it); your profile is a tap away in ☰.
+async function submitSignIn() {
+  if (await run(() => signIn(email.value, password.value))) {
+    password.value = ''
+    close()
+  }
+}
 async function submitSignUp() {
   if (await run(() => signUp(email.value, password.value))) {
     password.value = ''

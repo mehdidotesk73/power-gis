@@ -312,6 +312,11 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Signed-in indicator — 2026-10-28
+
+- **Added:** signed in, the ☰ menu button is outlined in green (its tooltip names who) and the menu's ◉ account icon turns green.
+- **Changed:** signing in closes the account window instead of showing your profile.
+
 ### Unavailable items — 2026-10-28
 - **Added:** a workspace opened on a device that lacks some of its datasets keeps them, and everything
   waiting on them, in red (graph outline, ⚠ on the missing datasets, a red line in the lists), saved
