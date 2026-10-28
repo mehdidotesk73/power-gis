@@ -128,12 +128,10 @@ watch(() => auth.recovering && !!auth.user, (r) => r && (showAccount.value = tru
           <!-- the page puts its workspace control here (MapPage → WorkspaceBar) -->
           <div id="header-workspace" />
           <div ref="menuWrap" class="menu-wrap">
-            <UiButton size="compact" icon="☰" :aria-label="auth.user ? 'Menu (signed in)' : 'Menu'" :title="auth.user ? `Menu · signed in as ${shownName()}` : 'Menu'" aria-haspopup="menu" :aria-expanded="menuOpen" :active="menuOpen" @click="menuOpen = !menuOpen" />
-            <!-- Signed in: a small green dot on the menu button. -->
-            <span v-if="auth.user" class="signed-in" aria-hidden="true" />
+            <UiButton size="compact" icon="☰" :class="{ 'signed-in': !!auth.user }" :aria-label="auth.user ? 'Menu (signed in)' : 'Menu'" :title="auth.user ? `Menu · signed in as ${shownName()}` : 'Menu'" aria-haspopup="menu" :aria-expanded="menuOpen" :active="menuOpen" @click="menuOpen = !menuOpen" />
             <div v-if="menuOpen" class="app-menu" role="menu">
               <button role="menuitem" :title="auth.user ? `Signed in as ${auth.user.email}` : 'Sign in or create an account'" @click="(menuOpen = false), (showAccount = true)">
-                <span class="mi-icon" aria-hidden="true">◉</span> <span class="mi-clip">{{ auth.user ? shownName() : 'Sign in' }}</span>
+                <span class="mi-icon" :class="{ 'signed-in': !!auth.user }" aria-hidden="true">◉</span> <span class="mi-clip">{{ auth.user ? shownName() : 'Sign in' }}</span>
               </button>
               <button role="menuitem" @click="(menuOpen = false), (showHelp = true)"><span class="mi-icon" aria-hidden="true">?</span> Help</button>
               <button v-if="offerDesktop" role="menuitem" :title="desktopOn ? 'Back to the phone layout' : 'See the desktop layout on this phone (shrunk to fit; pinch to zoom)'" @click="setDesktopView(!desktopOn)">
@@ -427,16 +425,12 @@ watch(() => auth.recovering && !!auth.user, (r) => r && (showAccount.value = tru
 .menu-wrap {
   position: relative;
 }
-.signed-in {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 1.5px var(--bg-elev);
-  pointer-events: none;
+/* Signed in: the menu button gets a green outline, and the account item's ◉ turns green. */
+.ui-btn.signed-in {
+  border-color: var(--ok);
+}
+.mi-icon.signed-in {
+  color: var(--ok);
 }
 .app-menu {
   position: absolute;

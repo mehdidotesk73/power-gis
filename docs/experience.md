@@ -312,9 +312,9 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
-### Signed-in dot — 2026-10-28
+### Signed-in indicator — 2026-10-28
 
-- **Added:** a small green dot on the ☰ menu button while signed in (its tooltip names who).
+- **Added:** signed in, the ☰ menu button is outlined in green (its tooltip names who) and the menu's ◉ account icon turns green.
 - **Changed:** signing in closes the account window instead of showing your profile.
 
 ### Cloud workspace (Supabase, PR 2 of 4) — 2026-10-28
