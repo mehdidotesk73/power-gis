@@ -4,7 +4,7 @@
 //
 // No access control yet: every table is readable and writable by everyone.
 // An access layer between users and these tables comes later.
-
+import type { UnavailableDataset } from '../lib/workspace/workspace'
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
@@ -24,6 +24,8 @@ export interface WorkspaceConfig {
   /** Top of the list draws on top. */
   visualizationIds: string[]
   transformIds?: string[]
+  /** Datasets it points at that this device doesn't have, with what's known of them (kept until replaced or removed). */
+  unavailable?: Record<string, UnavailableDataset>
 }
 export interface WorkspaceRecord extends BaseRecord {
   ownerId: string

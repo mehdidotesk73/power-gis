@@ -24,6 +24,8 @@ export interface DagNode {
   state?: 'ready' | 'not-run' | 'stale'
   /** Visualizations: hidden on the map. */
   muted?: boolean
+  /** Can't work on this device: a missing dataset, or something waiting on one (lib/workspace/unavailable.ts). */
+  problem?: 'missing' | 'waits'
   row: number
   /** Position within the row, 0 = left. */
   order: number
@@ -65,10 +67,12 @@ export function transformState(t: TransformSpec, dataset: (id: string) => DagDat
 }
 
 /**
- * What "Run all stale" runs, in order: every transform that needs a re-run,
- * plus every transform downstream of one (it will be stale once its inputs are
+ * What "Run all stale" runs, in order: every transform that needs a re-run —
+ * stale, or set to write a dataset this device doesn't have (an output of a
+ * workspace opened elsewhere) while its inputs are here — plus every
+ * transform downstream of one (it will be stale once its inputs are
  * rewritten), each after the transforms that write its inputs. Transforms
- * never run are left out — they may be unfinished drafts.
+ * never run (no output dataset yet) are left out — they may be unfinished drafts.
  */
 export function staleRunOrder(doc: WorkspaceDoc, dataset: (id: string) => DagDataset | undefined): string[] {
   const writer = new Map<string, string>() // dataset id → transform id
@@ -77,11 +81,13 @@ export function staleRunOrder(doc: WorkspaceDoc, dataset: (id: string) => DagDat
   const upstream = (t: TransformSpec) => [...new Set(t.inputs.flatMap((i) => writer.get(i.datasetId) ?? []))].filter((u) => u !== t.id)
 
   // Pending: stale ones, then anything (already run) reading a pending one's output, to a fixed point.
-  const pending = new Set(doc.transforms.filter((t) => transformState(t, dataset) === 'stale').map((t) => t.id))
+  const outputMissing = (t: TransformSpec) => t.outputs.some((o) => o.outputId && !dataset(o.outputId))
+  const inputsHere = (t: TransformSpec) => t.inputs.every((i) => dataset(i.datasetId))
+  const pending = new Set(doc.transforms.filter((t) => transformState(t, dataset) === 'stale' || (outputMissing(t) && inputsHere(t))).map((t) => t.id))
   for (let grew = true; grew; ) {
     grew = false
     for (const t of doc.transforms) {
-      if (pending.has(t.id) || transformState(t, dataset) === 'not-run') continue
+      if (pending.has(t.id) || !t.outputs.some((o) => o.outputId)) continue
       if (upstream(t).some((u) => pending.has(u))) {
         pending.add(t.id)
         grew = true

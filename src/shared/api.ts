@@ -97,7 +97,7 @@ export interface Api {
   featureRows: [{ datasetId: string; binding: GeometryBinding; key: string }, DataRecord[]]
   /** Creates or updates a workspace with its visualizations and transforms; ones it no longer lists are deleted (output datasets stay). */
   saveWorkspace: [
-    { id?: string; name: string; config: Pick<WorkspaceConfig, 'datasetIds'>; visualizations: VisualizationInput[]; transforms?: TransformInput[] },
+    { id?: string; name: string; config: Pick<WorkspaceConfig, 'datasetIds' | 'unavailable'>; visualizations: VisualizationInput[]; transforms?: TransformInput[] },
     { workspaceId: string },
   ]
   deleteWorkspace: [{ id: string }, { workspaceId: string }]

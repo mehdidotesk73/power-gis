@@ -486,7 +486,8 @@ export function createServer(db: Database, env: ServerEnv) {
       const existing = id ? await db.get('workspaces', id) : undefined
       if (id && !existing) fail('not_found', `No workspace "${id}"`)
       const listed = new Set(config.datasetIds)
-      for (const d of config.datasetIds) await dataset(d)
+      // Every listed dataset must be here, unless it's one the workspace knows is unavailable on this device.
+      for (const d of config.datasetIds) if (!config.unavailable?.[d]) await dataset(d)
       const t = now()
       for (const v of visualizations) {
         if (!listed.has(v.datasetId)) fail('invalid', `Visualization "${v.name}" uses a dataset that isn't in the workspace`)
@@ -516,7 +517,12 @@ export function createServer(db: Database, env: ServerEnv) {
         id: existing?.id ?? newId(),
         name: name.trim(),
         ownerId: existing?.ownerId ?? (await ensureUser()),
-        config: { datasetIds: [...config.datasetIds], visualizationIds: visualizations.map((v) => v.id), transformIds: transforms.map((x) => x.id) },
+        config: {
+          datasetIds: [...config.datasetIds],
+          visualizationIds: visualizations.map((v) => v.id),
+          transformIds: transforms.map((x) => x.id),
+          ...(config.unavailable && Object.keys(config.unavailable).length ? { unavailable: config.unavailable } : {}),
+        },
         createdAt: existing?.createdAt ?? t,
         updatedAt: t,
       }

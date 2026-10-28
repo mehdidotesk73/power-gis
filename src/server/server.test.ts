@@ -35,6 +35,17 @@ const data = <T,>(r: ApiResult<T>): T => {
 const county = { kind: 'geometry' as const, column: 'area', label: 'county' }
 
 describe('server', () => {
+  it('saves a workspace that points at datasets unavailable here, keeping what is known of them', async () => {
+    const { db, server } = setup()
+    data(await server.handle('init', { baseUrl: '/' }))
+    const here = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('a.csv', 'x\n1\n') } })).datasetId
+    const unavailable = { gone: { name: 'plants', rows: 412, why: 'elsewhere' as const } }
+    // Unknown and not marked unavailable: refused, as before.
+    expect(await server.handle('saveWorkspace', { name: 'W', config: { datasetIds: [here, 'gone'] }, visualizations: [] })).toMatchObject({ ok: false, error: { code: 'not_found' } })
+    const { workspaceId } = data(await server.handle('saveWorkspace', { name: 'W', config: { datasetIds: [here, 'gone'], unavailable }, visualizations: [] }))
+    expect((await db.get('workspaces', workspaceId))!.config).toMatchObject({ datasetIds: [here, 'gone'], unavailable })
+  })
+
   it('saves on a restarted server that missed init, as the same local user', async () => {
     const { db, server } = setup()
     const { userId } = data(await server.handle('init', { baseUrl: '/' }))

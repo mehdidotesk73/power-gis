@@ -275,7 +275,22 @@ whatever they're actually asking about.
   **`openDocument`** (server) makes ids real on this device: present (by id, `sameAs`, or a copy's
   `extensions.copyOf`) → used; built-in → reused or uploaded; output → reused if a copy's
   `extensions.sql` matches, else the transform runs (into that copy), in dependency order; else
-  `missing` with why — `missingReport` words it for the Workspace panel. Every transform output
+  `missing` with why — `missingReport` words it for the Workspace panel. **Nothing is dropped**: a
+  missing dataset stays in the working copy as `doc.unavailable[id]` (its facts + why; saved in the
+  workspace record's `config.unavailable` and in documents), and `lib/workspace/unavailable.ts`
+  works out the rest — `unavailability(doc, present)` (missing roots, and the datasets / transforms /
+  visualizations waiting on them), `replaceDataset` (the replacement takes over every pointer),
+  `removeUnavailable`, `downstreamOrder`. UI: red outlines in the graph (⚠ on roots, "waits for …"),
+  red lines in the lists, nothing drawn on the map; a root opens in the same
+  dataset panel as any dataset (`dataset/DatasetEditor.vue` with `missing`: the same Name / Description, read-only, then a
+  red ⚠ line with why and what waits), on Replace's source choice when tapped in the graph (`replaceOpen`), then **Run them now**; the Workspace panel offers **Show in
+  graph** and **Remove what didn't load**. Run all stale also re-makes outputs missing here.
+  **Replace… on any dataset** (Edit → **⇄ Replace…**, in `DatasetEditor.vue`, the one dataset
+  panel: the button opens the usual add-dataset panel, Cancel closes it): the replacement takes over every pointer (`replaceDataset`, refused when
+  the replacement is made from the one it replaces), a draft until Save; a transform's output can't
+  be replaced (its transform would overwrite it). Signed in, the Workspace panel lists uploads
+  **only on this device** (`onlyOnThisDevice`: not built-ins, outputs or cloud ones) in a short
+  scrolling box, and Save notes them. Every transform output
   records the SQL that wrote it (`extensions.sql`). Agreed next: the same content as the agent's files
   (+ `datasets.json`, full visualization settings), a zip for Download / Load, and dataset name /
   description as draft until Save (`docs/TODO.md`).
@@ -389,7 +404,7 @@ src/
     dag/DagView.vue        the workspace graph: datasets → transforms → outputs → visualizations
     FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
-    dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
+    dataset/            AddDatasetPanel, DatasetList, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
