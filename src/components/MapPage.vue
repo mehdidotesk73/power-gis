@@ -963,7 +963,14 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     />
 
     <section class="map-col">
-    <FindPanel v-show="mode === 'explore'" class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
+    <div v-show="mode === 'explore'" class="top-row">
+      <!-- Phones, explore: setup waits in a vertical bar left of the search. -->
+      <button class="setup-dock" :title="`Set up · ${count(doc.datasetIds.length, 'dataset')} · ${count(doc.transforms.length, 'transform')} · ${count(doc.visualizations.length, 'visualization')}`" aria-label="Set up the workspace" @click="setMode('setup')">
+        <span class="dock-icon" aria-hidden="true">▸</span>
+        <span class="dock-text">Set up</span>
+      </button>
+      <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
+    </div>
     <section class="map-wrap">
       <MapView ref="mapView" @background-click="selected = null">
         <template v-for="r in rendered" :key="`${r.layer.id}-${r.layer.kind}`">
@@ -1004,10 +1011,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           </FeaturePanel>
         </template>
       </MapView>
-      <!-- Phones, explore: setup waits behind a small button at the map's bottom-left. -->
-      <button v-if="mode === 'explore'" class="setup-dock" :title="`${count(doc.datasetIds.length, 'dataset')} · ${count(doc.transforms.length, 'transform')} · ${count(doc.visualizations.length, 'visualization')}`" @click="setMode('setup')">
-        <span class="dock-icon" aria-hidden="true">▴</span> Set up
-      </button>
     </section>
       <details v-show="mode === 'explore'" class="box export">
         <summary>Export (ArcGIS)</summary>
@@ -1207,29 +1210,53 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   width: 2.6rem;
   aspect-ratio: auto;
 }
-/* Phones, explore: a small Set up button floating at the map's bottom-left. */
-.map-wrap {
-  position: relative;
+/* Phones, explore: a vertical Set up bar left of the search (hidden on desktop, where List | Graph shows). */
+.top-row {
+  display: flex;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.top-row .search {
+  flex: 1;
+  min-width: 0;
 }
 .setup-dock {
-  position: absolute;
-  z-index: 4;
-  left: 0.5rem;
-  bottom: 1.8rem;
+  flex: none;
+  width: 2.6rem;
+  flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
-  min-height: 2.4rem;
-  padding: 0.35rem 0.75rem;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0;
   border: 1px solid var(--border-strong);
   border-radius: 0.5rem;
-  background: var(--overlay-bg);
+  background: var(--bg-elev);
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  box-shadow: var(--shadow);
+}
+.dock-text {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  letter-spacing: 0.04em;
 }
 .dock-icon {
   color: var(--accent-blue);
+}
+/* Export below the map: opening it never pushes the map (or its own header) off the page; its body scrolls. */
+.export {
+  flex: none;
+  max-height: 45%;
+  overflow: auto;
+}
+.export summary {
+  position: sticky;
+  top: -0.45rem;
+  z-index: 1;
+  background: var(--bg-elev);
+}
+.map-wrap :deep(.map-root) {
+  min-height: 8rem;
 }
 .view-switch {
   display: flex;

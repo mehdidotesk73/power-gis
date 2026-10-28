@@ -225,8 +225,8 @@ whatever they're actually asking about.
   the map with a `ResizeObserver`). **Two modes** (`mode` in `MapPage.vue`; one map, the same components
   moved by CSS grid areas, so nothing is lost on switching): **explore** puts the map first — Find
   ("Search within … over …") above it and Export below it in the map column; desktop keeps List | Graph
-  on the left, phones hide it behind a **▴ Set up** button floating at the map's bottom-left (the legend
-  is always top-left). The app is one screen tall (`App.vue`: `.app` 100dvh flex column, `.content` fills what
+  on the left, phones hide it behind a vertical **Set up** bar left of the search (the legend is always
+  top-left of the map; Export's body scrolls inside at most 45% of the column). The app is one screen tall (`App.vue`: `.app` 100dvh flex column, `.content` fills what
   header and footer leave); only panels scroll. **Setup** (⤢ on desktop, the
   dock on phones; ✕ or Esc back) makes List | Graph the page with a **mini map** under it (List | Graph scrolls inside, its
   List | Graph / ✕ row sticky). In desktop setup, what you open — the graph's open item, list editors
