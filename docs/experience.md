@@ -312,6 +312,27 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Agent: the workspace as files — 2026-10-28
+- **Changed:** the agent no longer resends the whole workspace (`update_workspace`). With Haiku that
+  payload — SQL inside JSON inside the tool call — came back as one JSON-encoded string twice; the
+  retry that passed had dropped a transform and sent `visualizations: []`, removing every
+  visualization. It now edits small staged files with Anthropic's text editor tool and commits with
+  `apply_workspace`.
+- **Lesson:** don't invent an edit protocol when the model is trained on one. An intermediate design
+  (exact replacements on one JSON text with `${…}` tokens for SQL) worked but had two kinds of token,
+  and the agent named its new SQL `sql:new.o1`, which read as the other kind. Files with naming
+  conventions (`<id>.<key>.sql`) leave nothing to mix up.
+- **Lesson:** return the ids of what a tool creates. Without them the agent called
+  `run_transform("PLACEHOLDER")`.
+- **Gotcha:** an Anthropic-defined tool (the text editor) is declared by type only — any description
+  we write isn't sent. Teach what the model needs elsewhere (here: the overview). And keep refusal
+  hints factual: a suggested path with a guessed output key could send the agent to rename a real one.
+- **Gotcha:** with strict tools, an optional field is one the model may leave out. `query_sql` briefly
+  took `sql` *or* `sqlFile`, both optional; Haiku sent the same call without either three times.
+  Whatever a tool can't work without is `required` — no either/or pairs.
+- **Gotcha:** DuckDB-WASM prints a parser error's "LINE 1: …" excerpt twice, and for a wrapped query
+  (paging) the excerpt shows our wrapper. We re-plan the bare query with `EXPLAIN` for the message.
+
 ### Spatial extension — 2026-10-28
 - **Added:** DuckDB's **spatial** extension (ST_Area_Spheroid, ST_Transform, spatial joins, ST_Read…),
   on an allowlist (`shared/sqlExtensions.json`). A query that names an extension's function fails with

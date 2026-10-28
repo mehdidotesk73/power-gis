@@ -30,7 +30,10 @@ function fakeApi(responses: string[]) {
   return { fetchImpl, requests }
 }
 
-const tools = [{ name: 'get_workspace', description: 'Read it', inputSchema: { type: 'object', properties: {} } }]
+const tools = [
+  { name: 'get_workspace', description: 'Read it', inputSchema: { type: 'object', properties: {} } },
+  { name: 'str_replace_based_edit_tool', description: 'Edit files', builtin: 'text_editor' as const, inputSchema: { type: 'object', properties: {} } },
+]
 
 describe('Claude adapter', () => {
   it('streams text, returns tool calls, and sends results back in Anthropic format', async () => {
@@ -52,7 +55,11 @@ describe('Claude adapter', () => {
     expect(r1.headers.get('anthropic-dangerous-direct-browser-access')).toBe('true')
     expect(r1.headers.get('anthropic-beta')).toContain('server-side-fallback-2026-07-01')
     expect(r1.body).toMatchObject({ model: 'claude-opus-5-5', fallbacks: 'default', stream: true, system: 'SYSTEM', cache_control: { type: 'ephemeral' } })
-    expect(r1.body.tools).toEqual([{ name: 'get_workspace', description: 'Read it', input_schema: { type: 'object', properties: {} } }])
+    // Our tools go strict (every object closed); the text editor is declared by its type.
+    expect(r1.body.tools).toEqual([
+      { name: 'get_workspace', description: 'Read it', strict: true, input_schema: { type: 'object', properties: {}, additionalProperties: false } },
+      { type: 'text_editor_20250728', name: 'str_replace_based_edit_tool' },
+    ])
     expect(r2.body.messages).toEqual([
       { role: 'user', content: [{ type: 'text', text: 'hello' }] },
       { role: 'assistant', content: [{ type: 'text', text: 'Looking. ' }, { type: 'tool_use', id: 'tu_1', name: 'get_workspace', input: {} }] },

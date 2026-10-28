@@ -396,7 +396,16 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   `readDb`, the dataset finder `listDatasets()` (`client/datasets.ts`: local datasets today, plus the
   remote registry later), `request(…, 'agent')`, `describeBinding`, `runTransform`, `deleteForGood`). Never throws;
   every outcome is a message for the model plus a one-line summary for the chat.
-  `workspaceVersion(doc)` stamps the draft so `update_workspace` refuses stale edits.
+  `workspaceVersion(doc)` stamps the draft; the staged files remember the version they were built
+  from, so `apply_workspace` refuses edits made on an older draft.
+- `lib/agent/workspaceFiles.ts`: the workspace as files (`workspaceFiles`), the text editor's commands
+  on them (`runEditor`: view / create / str_replace / insert, only the workspace paths, overview.md
+  read-only), `assembleFiles` (files → a full workspace description, file-level problems listed, new
+  items given ids), `overviewText`, and the item forms (`agentTransform` / `agentVisualization`, also
+  used to keep untouched items exactly). Staging per chat host lives in `tools.ts`.
+- `client/agent/claude.ts` declares the editor as `{type: 'text_editor_20250728', name:
+  'str_replace_based_edit_tool'}` (`ToolSpec.builtin`) and our own tools `strict: true`
+  (`strictSchema`).
 - `lib/agent/prompt.ts`: the dataset processor's instructions.
 - `client/agent/claude.ts`: the Anthropic adapter (`startClaude`, `claudeProvider`, `describeError`).
   Browser-direct with the user's key, streaming, `fallbacks: "default"`, prompt caching.

@@ -65,18 +65,19 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 | Tool | Kind | What it does | Built on |
 |---|---|---|---|
 | `web_search`, `web_fetch` | read | Find sources and read their pages (scouting leg; not given to the dataset processor yet) | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
-| `get_workspace` | read | **Where the agent starts.** The workspace's datasets (id, name, description, store, origin, row count; no columns), transforms (full spec + ready / not run / needs re-run), visualizations, plus a **version** stamp | The workspace draft + registry records |
+| `get_workspace` | read | **Where the agent starts.** (Re)builds the **workspace files** (discarding unapplied edits) and returns `/overview.md`: every dataset, transform (with state and its SQL files) and visualization, one line each, with ids | The workspace draft + registry records (`lib/agent/workspaceFiles.ts`) |
 | `list_datasets` | read | Every dataset the user can use, outside the workspace too, local and remote (same fields + `inWorkspace`). Used only when the workspace lacks what's needed, **after asking** | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
 | `visualization_stats(id)` | read | The per-feature values a visualization draws (after aggregation): count, nulls, min, percentiles (p2…p98), max, mean, how many ≤ 0 / < 0, orders of magnitude of the positive values; text: distinct count and most common | `queryVisualization` |
 | `ask_user(question, details?)` | read | Shows a card with the question, details (what it found, its plan), **Approve / Reject** and a notes box; waits; returns `{answer, notes}` | The chat panel |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
-| `update_workspace(config, version)` | **gated** | Replaces the draft with a modified config | Loading a workspace file into the draft |
+| `str_replace_based_edit_tool` | edits files | Anthropic's **text editor** (`text_editor_20250728`, declared by type; we run it): `view`, `create`, `str_replace`, `insert` on the workspace files only. Changes nothing until `apply_workspace` | `runEditor` over the staged files |
+| `apply_workspace(dryRun?)` | **gated** | Assembles the files, checks the whole workspace (every problem, with its file), replaces the draft; replies with the changes and the **ids of new items**; rebuilds the files | The workspace ops (`addTransform`, `addVisualization`, …) |
 | `run_transform(id)` | **gated** | Runs one transform of the draft; returns row counts or the error | `runTransform` |
 | `update_dataset(id, name?, description?)` | **gated** | Renames / describes a dataset (rows untouched); the agent names and describes what it keeps | `updateDataset` |
 | `delete_dataset(id)` | **gated** | Deletes a dataset and its rows | `deleteDataset` + `forgetDataset` |
 
 **(built)** The dataset processor has `get_workspace`, `list_datasets`, `ask_user`, `query_sql`,
-`update_workspace`, `run_transform`, `update_dataset` and `delete_dataset`. Notes from building them:
+the text editor, `apply_workspace`, `run_transform`, `update_dataset` and `delete_dataset`. Notes from building them:
 
 - **The workspace comes first.** The user normally adds the datasets they care about to the
   workspace, then asks for something. The agent reports which workspace datasets look relevant
@@ -91,8 +92,50 @@ and only the user deletes them. At the start of a chat the agent lists which dat
   column, aggregation?, visible?, color?: {kind: colormap | categorical | constant, …}, opacity?}`.
   The tool fills the rest from the app's own defaults (`makeVisualization`); a kept id keeps its
   style (`retarget`).
-- `update_workspace` checks everything and lists **every** problem; nothing applies unless all
-  is valid. A kept transform / visualization can be sent as just `{id}`, which keeps inputs small.
+- **The workspace is files the agent edits** (`lib/agent/workspaceFiles.ts`). Resending the whole
+  workspace failed with Haiku: a big nested payload with SQL inside JSON came back stringified, and
+  the retry that got through dropped a transform and every visualization. Now the agent edits a
+  **staged copy** with the text editor it's trained on, one small file per item:
+
+  ```
+  /workspace.json              index: name, datasetIds, transform ids, visualization ids (draw order)
+  /transforms/<id>.json        name, inputs, outputs (key, name, outputId)
+  /transforms/<id>.<key>.sql   that output's SQL, plain (found by name: no reference to get wrong)
+  /visualizations/<id>.json    one visualization, compact
+  /overview.md                 generated, read-only: one line per item, pending edits included
+  ```
+
+  An item exists when its id is listed in `workspace.json`; the file name is the id. A new item is a
+  file under a name the agent picks (`by_state`), listed in the index; applying gives it a real id
+  (the reply's `added`) and rebuilds the files under the ids. Removing = taking the id out of the
+  list (the editor has no delete); files nothing uses are reported and dropped.
+- **After an apply, files are rewritten** from the draft: new items move to their ids, and every file
+  is in the standard format (the agent's own compact JSON is gone). The reply lists `renamed`
+  (old path → new path) and says to view a file before editing it; editing an old path afterwards
+  is answered with where the file went (renames are remembered for the chat).
+- **The layout is taught in the overview.** A built-in tool's description is Anthropic's own: ours
+  for the editor is never sent. So `overview.md` opens with "How these files work" (the rules and a
+  labelled placeholder example), and refusals state the rule plus only facts read from the files:
+  a SQL file off the pattern (`/transforms/x.sql`) is answered with the transform's real output
+  keys and their exact paths, or with what a new transform needs — never a guessed key or name.
+- **SQL never sits inside JSON**: it's a `.sql` file, written with `create` or edited with
+  `str_replace`, one ordinary layer of tool-call escaping. A transform file holding `sql` is refused.
+- **Staging rules.** `get_workspace` rebuilds the files from the draft (discarding unapplied edits,
+  and says so). With no pending edits they also rebuild themselves when the draft moves on (a run, a
+  delete). With pending edits, `run_transform` and `delete_dataset` refuse ("apply_workspace first"),
+  and `apply_workspace` refuses if the user changed the draft since the files were built.
+- **Apply** assembles the files (every file-level problem listed with its path: missing files,
+  invalid JSON, unknown fields, SQL in JSON), then checks the whole workspace as before; nothing
+  applies unless all is valid. Items whose files weren't touched are **kept exactly** (style details
+  the compact form doesn't show included). `dryRun` describes the change without applying it.
+- **Ids, always.** Every action on something that exists names its id (`run_transform`,
+  `visualization_stats`, …; no names). The prompt says never to guess one: take it from the overview
+  or from `added`, or call `get_workspace`.
+- **Strict tools.** Our own tools are declared `strict: true` (`strictSchema` closes every object), so
+  the API guarantees their inputs match the schema; the text editor's schema is Anthropic's.
+- **SQL errors read against the agent's own SQL**: a query we wrapped (paging, GeoJSON output) that
+  fails with a "LINE 1: …" excerpt is planned again bare (`EXPLAIN`) to get the excerpt at its own
+  text, and DuckDB's repeated excerpt is printed once (`server/sql.ts` `ownError`, `cleanError`).
 - Query results hide geometry (`<region>`) and cut long text, so rows stay small.
 - **Styling follows the data.** After adding a visualization the agent calls `visualization_stats`
   and picks the scale (`color.scale: "log"`, a setting of the visualization, never a computed log
@@ -118,7 +161,7 @@ views onto it, so the agent can name tables anything without reloading them.
 
 Gated tools are refused, with a message the agent can act on, when:
 
-- `update_workspace`: the draft changed since `version` ("re-read the workspace and try again"),
+- `apply_workspace`: the draft changed since the files were built ("get_workspace, then redo the edits"),
   or a transform in the config writes to a **remote** dataset;
 - `run_transform`: any of its outputs is remote (its **inputs** may be remote);
 - `delete_dataset`: the dataset is remote, or a transform in the draft still reads it.

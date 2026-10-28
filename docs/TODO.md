@@ -82,6 +82,12 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Agent edits the workspace as files** — the agent edits a staged copy of the workspace, one small
+  file per item (`workspace.json` index, `transforms/<id>.json` + `<id>.<key>.sql`,
+  `visualizations/<id>.json`, generated `overview.md`), with Anthropic's text editor tool, then
+  `apply_workspace` checks it all and applies it (replies with the ids of new items). SQL is never
+  written inside JSON. Replaces `update_workspace`. Our tools are strict; SQL errors point at the
+  agent's own SQL, once.
 - **Spatial extension** — DuckDB's spatial extension loads on first use (allowlist in
   `shared/sqlExtensions.json`; a query naming its functions loads it and retries), hosted with the
   app by the Netlify build (falls back to DuckDB's repository). GEOMETRY results come back as GeoJSON.
@@ -247,7 +253,7 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 2. ~~Query speed-up~~: already there (loaded tables stay in DuckDB until their dataset changes).
 3. ~~**Dataset processor agent**~~ (done): API key setting, chat panel, the loop, the six data
    tools: `get_workspace` (where it starts), `list_datasets` (the app's dataset finder; only with
-   the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, `update_workspace`,
+   the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, the text editor + `apply_workspace` (was `update_workspace`),
    `run_transform`, `update_dataset`, `delete_dataset`, the server-side gate for `caller: 'agent'`.
 4. **Scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
    size-capped) for data it collects itself, scout source reports, run records. Options for

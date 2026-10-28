@@ -38,6 +38,18 @@ const usageOf = (u: Anthropic.Beta.BetaUsage): Usage => ({
   cacheWrite: u.cache_creation_input_tokens ?? 0,
 })
 
+/** A JSON Schema as strict tool use needs it: every object closed (`additionalProperties: false`). */
+export function strictSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(strictSchema)
+  if (!schema || typeof schema !== 'object') return schema
+  const o = Object.fromEntries(Object.entries(schema).map(([k, v]) => [k, k === 'enum' || k === 'required' ? v : strictSchema(v)]))
+  if (o.type === 'object') {
+    o.additionalProperties = false
+    o.properties ??= {}
+  }
+  return o
+}
+
 class ClaudeSession implements ChatSession {
   private history: Msg[] = []
   private readonly tools: Anthropic.Beta.BetaToolUnion[]
@@ -51,11 +63,18 @@ class ClaudeSession implements ChatSession {
     // No eager input streaming: the API then checks each tool input is valid JSON before it
     // reaches us (a long input once arrived with stray characters at the end). Tools still
     // validate every input (lib/agent/tools.ts).
-    this.tools = tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema,
-    }))
+    // Strict tools: the API guarantees every input matches its schema (a list can't arrive as a
+    // string). The text editor is Anthropic's own tool: declared by type, its schema built in.
+    this.tools = tools.map((t) =>
+      t.builtin === 'text_editor'
+        ? ({ type: 'text_editor_20250728', name: 'str_replace_based_edit_tool' } as Anthropic.Beta.BetaToolUnion)
+        : {
+            name: t.name,
+            description: t.description,
+            strict: true,
+            input_schema: strictSchema(t.inputSchema) as Anthropic.Beta.BetaTool.InputSchema,
+          },
+    )
   }
 
   async send(input: TurnInput, events: TurnEvents, signal?: AbortSignal): Promise<TurnResult> {
