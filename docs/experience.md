@@ -312,6 +312,11 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Signed-in dot — 2026-10-28
+
+- **Added:** a small green dot on the ☰ menu button while signed in (its tooltip names who).
+- **Changed:** signing in closes the account window instead of showing your profile.
+
 ### Cloud workspace (Supabase, PR 2 of 4) — 2026-10-28
 - **Added:** signed in, Save also stores the workspace in your account; another device opens it,
   rebuilding built-in tables and transform outputs there. The Workspace panel says where changes are

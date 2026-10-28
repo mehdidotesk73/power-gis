@@ -128,7 +128,9 @@ watch(() => auth.recovering && !!auth.user, (r) => r && (showAccount.value = tru
           <!-- the page puts its workspace control here (MapPage → WorkspaceBar) -->
           <div id="header-workspace" />
           <div ref="menuWrap" class="menu-wrap">
-            <UiButton size="compact" icon="☰" aria-label="Menu" title="Menu" aria-haspopup="menu" :aria-expanded="menuOpen" :active="menuOpen" @click="menuOpen = !menuOpen" />
+            <UiButton size="compact" icon="☰" :aria-label="auth.user ? 'Menu (signed in)' : 'Menu'" :title="auth.user ? `Menu · signed in as ${shownName()}` : 'Menu'" aria-haspopup="menu" :aria-expanded="menuOpen" :active="menuOpen" @click="menuOpen = !menuOpen" />
+            <!-- Signed in: a small green dot on the menu button. -->
+            <span v-if="auth.user" class="signed-in" aria-hidden="true" />
             <div v-if="menuOpen" class="app-menu" role="menu">
               <button role="menuitem" :title="auth.user ? `Signed in as ${auth.user.email}` : 'Sign in or create an account'" @click="(menuOpen = false), (showAccount = true)">
                 <span class="mi-icon" aria-hidden="true">◉</span> <span class="mi-clip">{{ auth.user ? shownName() : 'Sign in' }}</span>
@@ -424,6 +426,17 @@ watch(() => auth.recovering && !!auth.user, (r) => r && (showAccount.value = tru
 <style scoped>
 .menu-wrap {
   position: relative;
+}
+.signed-in {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 1.5px var(--bg-elev);
+  pointer-events: none;
 }
 .app-menu {
   position: absolute;
