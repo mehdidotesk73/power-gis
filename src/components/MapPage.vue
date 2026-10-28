@@ -1207,7 +1207,8 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 .pop-btn {
   /* as tall as the List | Graph switch beside it; a fixed width (a stretched height can't drive aspect-ratio) */
   height: auto;
-  width: 2.6rem;
+  min-height: 0;
+  width: 2.2rem;
   aspect-ratio: auto;
 }
 /* Phones, explore: a vertical Set up bar left of the search (hidden on desktop, where List | Graph shows). */
@@ -1260,14 +1261,15 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 }
 .view-switch {
   display: flex;
-  gap: 4px;
-  padding: 3px;
+  gap: 3px;
+  padding: 2px;
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: 0.45rem;
 }
 .view-switch button {
   flex: 1;
-  min-height: 2.2rem;
+  /* Slim: a switch, not a toolbar; ⤢ / ✕ beside it takes the same height. */
+  min-height: 1.65rem;
   border: none;
   border-radius: 0.35rem;
   background: none;
