@@ -305,7 +305,7 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
       read / write levels, owner-only removal of write and delete (all enforced by RLS).
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
-     the sign-in note (drop "coming in the next updates") once storing in the cloud works.
+     the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
      built-in one sends only a few emails an hour.
 
