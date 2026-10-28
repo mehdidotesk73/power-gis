@@ -176,6 +176,8 @@ async function save() {
   const ok = await saveHere()
   saving.value = false
   if (!ok) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
+  // This save is newer than the account's copy until it's sent: a catch-up must send it, never open the older one over it.
+  if (auth.user) store.set(CLOUD_PENDING, auth.user.id)
   if (auth.user && cloudUser.value !== auth.user.id) await catchUpWithCloud() // the last check failed: try again (it saves here when the account has none)
   await saveToCloud()
   // Signed in, say what other devices (and anyone it's shared with) won't have.
@@ -222,6 +224,8 @@ async function saveHere(): Promise<boolean> {
 
 /** `<user id>:<updatedAt>` of the cloud workspace this device last saved or opened. */
 const CLOUD_SEEN = 'powergis.cloudSeen'
+/** `<user id>` when this device's last save didn't reach the account: the next catch-up sends it up instead of opening the account's older one. */
+const CLOUD_PENDING = 'powergis.cloudPending'
 /** The user whose cloud workspace this page has caught up with (null: signed out, or not yet). */
 const cloudUser = ref<string | null>(null)
 const cloudError = ref('')
@@ -243,11 +247,13 @@ async function saveToCloud() {
   const r = await request('saveCloudWorkspace', { file, overview: overviewOf(file) })
   if (!r.ok) {
     cloudError.value = r.error.message
+    store.set(CLOUD_PENDING, user)
     logDebug(`save to your account: ${r.error.message}`, 'warn')
-    barMessage.value = `Saved on this device, but not in your account: ${r.error.message}`
+    barMessage.value = `Saved on this device, but not in your account: ${r.error.message}. Save again to retry; it's also sent next time the app opens.`
     return
   }
   cloudError.value = ''
+  store.set(CLOUD_PENDING, null)
   store.set(CLOUD_SEEN, `${user}:${r.data.updatedAt}`)
 }
 
@@ -265,6 +271,12 @@ async function catchUpWithCloud() {
   cloudError.value = ''
   const w = r.data.workspace
   if (!w) return void (await saveToCloud()) // a new account: this device's workspace becomes its own
+  // This device saved after the account's copy but couldn't send it: send it now, rather than open the older one.
+  if (store.get(CLOUD_PENDING) === user) {
+    await saveToCloud()
+    if (!cloudError.value) barMessage.value = 'Sent your last save to your account (it had not reached it).'
+    return
+  }
   if (store.get(CLOUD_SEEN) === `${user}:${w.updatedAt}`) return
   store.set(CLOUD_SEEN, `${user}:${w.updatedAt}`)
   if (dirty.value && !confirm(`Your account has a workspace saved ${when(w.updatedAt)}. Open it here? Your unsaved changes on this device will be replaced.`)) {
@@ -1223,6 +1235,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :saving="saving"
           :message="barMessage"
           :where="savedWhere"
+          :retry="!!cloudError"
           :problems="problemCount"
           :local-only="localOnly"
           :changed-in-cloud="changedInCloud"

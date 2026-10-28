@@ -13,6 +13,8 @@ const props = defineProps<{
   name: string
   dirty: boolean
   saving: boolean
+  /** Saved here but not in the account: Save stays available to try again. */
+  retry?: boolean
   message: string
   /** Where saved changes live: "on this device", or also "in your account" when signed in. */
   where?: string
@@ -178,7 +180,7 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
         <button class="btn" @click="(open = false), emit('copy-all')">⇣ Make local copies…</button>
       </div>
       <div class="row">
-        <button class="btn primary" :disabled="!dirty || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
+        <button class="btn primary" :disabled="(!dirty && !retry) || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
         <button class="btn" :disabled="!dirty || saving" @click="emit('revert')">Discard changes</button>
       </div>
 

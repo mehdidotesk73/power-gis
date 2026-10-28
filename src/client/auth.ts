@@ -9,7 +9,7 @@ import { reactive } from 'vue'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { logDebug } from '../debug'
-import { request } from './api'
+import { onBeforeCloud, request } from './api'
 import { cloudFilePath } from '../shared/cloud'
 
 export interface Profile {
@@ -60,8 +60,11 @@ export async function syncCloudAuth(): Promise<boolean> {
   const token = data.session?.access_token ?? null
   sentToken = token
   const r = await request('setAuth', { accessToken: token })
-  return r.ok && r.data.signedIn
+  const on = r.ok && r.data.signedIn
+  if (token && !on) logDebug(`cloud sign-in: the server didn't take this session (${r.ok ? 'signed out there' : r.error.message})`, 'warn')
+  return on
 }
+onBeforeCloud(syncCloudAuth)
 
 /** Where links in our emails come back to: this app, on whichever site (production or a preview). */
 const here = () => `${location.origin}${location.pathname}`

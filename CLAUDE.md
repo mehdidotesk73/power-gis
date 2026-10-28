@@ -168,7 +168,10 @@ whatever they're actually asking about.
   sign-in on the preview. **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
   token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
   the workspace **document** (+ `overviewOf` text) and the page opens a newer one on load / sign-in
-  (`catchUpWithCloud` → `openDocument`). **Cloud datasets**: same id in the cloud's `datasets`
+  (`catchUpWithCloud` → `openDocument`) — unless this device's last save didn't reach the account
+  (`powergis.cloudPending`): then it sends that one up instead. Every request that may reach the cloud
+  first re-sends the session's current token (`onBeforeCloud` in `client/api.ts` → `syncCloudAuth`): the
+  worker's copy went stale or missing on iOS and read as signed out. **Cloud datasets**: same id in the cloud's `datasets`
   table, rows as `<id>/data.arrow.gz` in the private bucket (`server/datasetFile.ts`: gzip Arrow IPC,
   read without DuckDB — Parquet needs a DuckDB extension download); this device keeps its copy.
   Requests `storeInCloud` (store, or save changes; `conflict` when the cloud's version moved on, unless
