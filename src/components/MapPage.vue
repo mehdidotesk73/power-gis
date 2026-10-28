@@ -1207,7 +1207,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   width: 2.6rem;
   aspect-ratio: auto;
 }
-/* Phones, explore: a small Set up button floating at the map's bottom-left (the legend moves right). */
+/* Phones, explore: a small Set up button floating at the map's bottom-left. */
 .map-wrap {
   position: relative;
 }
@@ -1366,10 +1366,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   }
   .setup-dock {
     display: flex;
-  }
-  .map-wrap :deep(.legend) {
-    left: auto;
-    right: 0.5rem;
   }
   /* Phones, setup: List | Graph takes the screen and scrolls inside; the mini map stays at the bottom. */
   .page.setup,

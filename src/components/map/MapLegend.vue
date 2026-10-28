@@ -48,8 +48,9 @@ const collapsed = ref(typeof window !== 'undefined' && window.innerWidth < 600)
 .legend {
   position: absolute;
   z-index: 4;
+  /* Top-left of the map, always (zoom buttons are top-right, the feature panel on the right). */
   left: 0.5rem;
-  bottom: 1.8rem;
+  top: 0.5rem;
   max-width: 14rem;
   max-height: calc(100% - 3rem);
   overflow: auto;
