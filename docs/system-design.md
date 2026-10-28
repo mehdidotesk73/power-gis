@@ -453,8 +453,8 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   goes through the server's requests (PR 3 hands the worker the session's token).
 - **UI**: ☰ → **Sign in** / your name opens `components/account/AccountModal.vue` (sign in, create
   account, forgot password, choose a new password, your profile, delete account). Sign in and create
-  account carry a plain note on what's kept without an account (this browser only; Safari may clear
-  it after a week unused) and what an account adds.
+  account carry a plain note on what's kept without an account (this browser only; browsers may clear
+  it on their own) and what an account adds (the option to store them in the cloud).
 - **Schema** (`supabase/schema.sql`, run once in the SQL editor; later changes go in new files):
   - `profiles` (made by a trigger on sign-up; you read only your own),
   - `datasets` (registry: name, description, columns, row count, `meta`, `file_path`, `created_by`),

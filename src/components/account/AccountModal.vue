@@ -119,8 +119,8 @@ function close() {
           <button type="button" class="link" @click="go('signup')">Create account</button>
         </div>
         <div class="about">
-          <p><strong>Without an account</strong>, your workspace and datasets stay only in this browser, on this device. Clearing the browser's data, private browsing or a new device starts you over, and Safari may clear them by itself if you don't open PowerGIS for a week or so.</p>
-          <p><strong>With an account</strong> (coming in the next updates): your workspace and datasets are saved online, so they're there on any device you sign in on, and you can share datasets with people you choose.</p>
+          <p><strong>Without an account</strong>, your workspace and datasets stay only in this browser, on this device. Clearing the browser's data, private browsing or a new device starts you over, and browsers may also clear a site's stored data on their own.</p>
+          <p><strong>With an account</strong> (coming in the next updates), you can store your workspace and datasets in the cloud, so they're there on any device you sign in on, and share datasets with people you choose.</p>
         </div>
       </form>
 
@@ -131,8 +131,8 @@ function close() {
         <UiButton type="submit" tone="primary" :disabled="busy">{{ busy ? 'Creating it…' : 'Create account' }}</UiButton>
         <div class="links"><button type="button" class="link" @click="go('signin')">I have an account — sign in</button></div>
         <div class="about">
-          <p><strong>Without an account</strong>, your workspace and datasets stay only in this browser, on this device. Clearing the browser's data, private browsing or a new device starts you over, and Safari may clear them by itself if you don't open PowerGIS for a week or so.</p>
-          <p><strong>With an account</strong> (coming in the next updates): your workspace and datasets are saved online, so they're there on any device you sign in on, and you can share datasets with people you choose.</p>
+          <p><strong>Without an account</strong>, your workspace and datasets stay only in this browser, on this device. Clearing the browser's data, private browsing or a new device starts you over, and browsers may also clear a site's stored data on their own.</p>
+          <p><strong>With an account</strong> (coming in the next updates), you can store your workspace and datasets in the cloud, so they're there on any device you sign in on, and share datasets with people you choose.</p>
         </div>
       </form>
 
