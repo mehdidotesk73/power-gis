@@ -282,8 +282,8 @@ whatever they're actually asking about.
   visualizations waiting on them), `replaceDataset` (the replacement takes over every pointer),
   `removeUnavailable`, `downstreamOrder`. UI: red outlines in the graph (⚠ on roots, "waits for …"),
   red lines in the lists, nothing drawn on the map; a root opens in the same
-  dataset panel as any dataset (`dataset/DatasetEditor.vue` with `missing`: what's known, why, what
-  waits; red), on Replace's source choice when tapped in the graph (`replaceOpen`), then **Run them now**; the Workspace panel offers **Show in
+  dataset panel as any dataset (`dataset/DatasetEditor.vue` with `missing`: the same Name / Description, read-only, then a
+  red ⚠ line with why and what waits), on Replace's source choice when tapped in the graph (`replaceOpen`), then **Run them now**; the Workspace panel offers **Show in
   graph** and **Remove what didn't load**. Run all stale also re-makes outputs missing here.
   **Replace… on any dataset** (Edit → **⇄ Replace…**, in `DatasetEditor.vue`, the one dataset
   panel: the button opens the usual add-dataset panel, Cancel closes it): the replacement takes over every pointer (`replaceDataset`, refused when

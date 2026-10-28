@@ -38,11 +38,11 @@ function onAdd(ids: string[]) {
 }
 
 const WHY: Record<UnavailableDataset['why'], string> = {
-  elsewhere: 'Uploaded on another device and kept only there.',
-  cloud: "In the cloud, but not reachable from here (not shared with you, or you're signed out).",
-  unknown: 'Not on this device.',
-  builtin: "A built-in table this version of the app doesn't have.",
-  output: "Made by a transform that couldn't run here.",
+  elsewhere: 'uploaded on another device and kept only there.',
+  cloud: "in the cloud, but not reachable from here (not shared with you, or you're signed out).",
+  unknown: 'no copy here.',
+  builtin: "a built-in table this version of the app doesn't have.",
+  output: "made by a transform that couldn't run here.",
 }
 const n = (k: number, w: string) => `${k.toLocaleString()} ${w}${k === 1 ? '' : 's'}`
 const pct = (k: number, of: number) => (of ? `${Math.round((k / of) * 100)}%` : '—')
@@ -52,33 +52,29 @@ const short = (v: unknown) =>
 </script>
 
 <template>
-  <div class="editor" :class="{ missing: !!missing }" data-no-open>
+  <div class="editor" data-no-open>
+    <!-- Same fields as for a dataset that's here; a missing one's can't change (there's nothing here to change). -->
+    <label>
+      Name
+      <input type="text" :value="dataset?.name ?? missing?.info.name ?? ''" :disabled="!dataset" @change="emit('update', { name: ($event.target as HTMLInputElement).value })" />
+    </label>
+    <label>
+      Description
+      <textarea
+        rows="2"
+        :value="dataset?.description ?? missing?.info.description ?? ''"
+        :disabled="!dataset"
+        placeholder="What this data is, where it's from"
+        @change="emit('update', { description: ($event.target as HTMLTextAreaElement).value })"
+      />
+    </label>
     <template v-if="missing">
-      <div class="head">
-        <span class="mark" aria-hidden="true">⚠</span>
-        <strong>{{ missing.info.name }}</strong>
-        <span v-if="missing.info.rows !== undefined" class="muted">{{ n(missing.info.rows, 'row') }}</span>
-      </div>
-      <p class="why">{{ WHY[missing.info.why] }}</p>
-      <p v-if="missing.info.description" class="muted">{{ missing.info.description }}</p>
+      <p class="why"><span aria-hidden="true">⚠</span> Not on this device: {{ WHY[missing.info.why] }}<template v-if="missing.info.rows !== undefined"> ({{ n(missing.info.rows, 'row') }})</template></p>
       <p v-if="missing.waiting.transforms || missing.waiting.visualizations" class="muted">
         Waiting on it: {{ [missing.waiting.transforms ? n(missing.waiting.transforms, 'transform') : '', missing.waiting.visualizations ? n(missing.waiting.visualizations, 'visualization') : ''].filter(Boolean).join(' and ') }}.
       </p>
     </template>
     <template v-else-if="dataset">
-      <label>
-        Name
-        <input type="text" :value="dataset.name" @change="emit('update', { name: ($event.target as HTMLInputElement).value })" />
-      </label>
-      <label>
-        Description
-        <textarea
-          rows="2"
-          :value="dataset.description ?? ''"
-          placeholder="What this data is, where it's from"
-          @change="emit('update', { description: ($event.target as HTMLTextAreaElement).value })"
-        />
-      </label>
       <div v-if="dataset.profile" class="profile">
         <div class="lbl">Profile · {{ Math.round(dataset.profile.completeness * 100) }}% of cells filled</div>
         <div class="scroll">
@@ -123,19 +119,6 @@ const short = (v: unknown) =>
   font-size: 0.8rem;
   min-width: 0;
 }
-.editor.missing {
-  padding: 0.5rem 0.6rem;
-  border: 2px solid var(--danger);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--danger) 8%, var(--bg-elev));
-}
-.head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-.mark,
 .why {
   color: var(--danger);
 }

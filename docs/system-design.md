@@ -488,8 +488,8 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
     missing dataset writes a new one, which takes the old id's place. The Workspace panel shows the
     count with **Show in graph** and **Remove what didn't load** (`removeUnavailable`, a draft edit).
   - **Replace… on any dataset**: a **⇄ Replace…** button in the dataset panel,
-    `DatasetEditor.vue`: the one panel for a dataset, here or missing (`missing`: its facts, why, what
-    waits; red; nothing else to edit; `replaceOpen` when tapped in the graph). `DatasetList`'s Edit
+    `DatasetEditor.vue`: the one panel for a dataset, here or missing (`missing`: the same Name / Description fields, read-only,
+    then a red ⚠ line with why and what waits; `replaceOpen` when tapped in the graph). `DatasetList`'s Edit
     uses it and emits `replace(oldId, newId)`; a transform's output shows why it can't be replaced
     instead. The button opens the usual
     `AddDatasetPanel` (every source, `pickLabel` "Use"; only the replaced dataset is excluded from
