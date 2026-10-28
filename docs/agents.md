@@ -65,18 +65,18 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 | Tool | Kind | What it does | Built on |
 |---|---|---|---|
 | `web_search`, `web_fetch` | read | Find sources and read their pages (scouting leg; not given to the dataset processor yet) | Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) |
-| `get_workspace` | read | **Where the agent starts.** The workspace's datasets (id, name, description, store, origin, row count; no columns), transforms (full spec + ready / not run / needs re-run), visualizations, plus a **version** stamp | The workspace draft + registry records |
+| `get_workspace` | read | **Where the agent starts.** Plain text: a **version** stamp, the workspace's datasets (id, name, description, store, origin, row count; no columns), each transform's state (ready / not run / needs re-run), then the workspace as **JSON text with SQL tokens** (`"sql": ${sql:<transform id>.<output key>}`) followed by the **SQL blocks** as plain SQL | The workspace draft + registry records (`lib/agent/workspaceText.ts`) |
 | `list_datasets` | read | Every dataset the user can use, outside the workspace too, local and remote (same fields + `inWorkspace`). Used only when the workspace lacks what's needed, **after asking** | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
 | `visualization_stats(id)` | read | The per-feature values a visualization draws (after aggregation): count, nulls, min, percentiles (p2…p98), max, mean, how many ≤ 0 / < 0, orders of magnitude of the positive values; text: distinct count and most common | `queryVisualization` |
 | `ask_user(question, details?)` | read | Shows a card with the question, details (what it found, its plan), **Approve / Reject** and a notes box; waits; returns `{answer, notes}` | The chat panel |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
-| `update_workspace(config, version)` | **gated** | Replaces the draft with a modified config | Loading a workspace file into the draft |
+| `edit_workspace(version, edits, values?, dryRun?)` | **gated** | Exact replacements on that text: `{old, new}` in the JSON, or `{sql, old, new}` inside one SQL block; new SQL goes in `values` as plain text and is named `${name}` in the JSON. Checked whole, all-or-nothing; `dryRun` describes the change without applying it | The workspace ops (`addTransform`, `addVisualization`, …) |
 | `run_transform(id)` | **gated** | Runs one transform of the draft; returns row counts or the error | `runTransform` |
 | `update_dataset(id, name?, description?)` | **gated** | Renames / describes a dataset (rows untouched); the agent names and describes what it keeps | `updateDataset` |
 | `delete_dataset(id)` | **gated** | Deletes a dataset and its rows | `deleteDataset` + `forgetDataset` |
 
 **(built)** The dataset processor has `get_workspace`, `list_datasets`, `ask_user`, `query_sql`,
-`update_workspace`, `run_transform`, `update_dataset` and `delete_dataset`. Notes from building them:
+`edit_workspace`, `run_transform`, `update_dataset` and `delete_dataset`. Notes from building them:
 
 - **The workspace comes first.** The user normally adds the datasets they care about to the
   workspace, then asks for something. The agent reports which workspace datasets look relevant
@@ -91,8 +91,22 @@ and only the user deletes them. At the start of a chat the agent lists which dat
   column, aggregation?, visible?, color?: {kind: colormap | categorical | constant, …}, opacity?}`.
   The tool fills the rest from the app's own defaults (`makeVisualization`); a kept id keeps its
   style (`retarget`).
-- `update_workspace` checks everything and lists **every** problem; nothing applies unless all
-  is valid. A kept transform / visualization can be sent as just `{id}`, which keeps inputs small.
+- **Edits, not rewrites** (`edit_workspace`, replacing `update_workspace`): resending the whole
+  workspace failed with Haiku — a big nested payload of SQL inside JSON came back stringified, and
+  the retry that got through dropped a transform and every visualization. Now the agent changes
+  the text `get_workspace` shows with exact `old` → `new` replacements (each `old` must occur once;
+  zero or several matches are refused with a hint), so a small change is a small call.
+- **SQL never travels inside JSON.** In the text each output's SQL is a token, and the SQL itself
+  is listed below as plain SQL. New SQL goes in `values` (plain strings) and the JSON names it
+  (`"sql": ${q1}`, no quotes); the tool inserts `JSON.stringify(value)`. An existing SQL is edited
+  inside its block (`{sql: "<transform id>.<output key>", old, new}`). Tokens are filled in one pass,
+  so an inserted value is never read for tokens again; a literal `${` in a name is shown as
+  `$\u007b`.
+- The edited text is parsed and checked like a whole workspace (every problem listed, nothing
+  applied unless all is valid). Items whose text didn't change are **kept exactly** (as `{id}`),
+  style details the text doesn't show included; changed ones are rebuilt from the app's defaults
+  plus what the text says. The answer lists what changed (`transform changed: "…"`, …);
+  `dryRun: true` gives the same list without applying it.
 - Query results hide geometry (`<region>`) and cut long text, so rows stay small.
 - **Styling follows the data.** After adding a visualization the agent calls `visualization_stats`
   and picks the scale (`color.scale: "log"`, a setting of the visualization, never a computed log
@@ -118,7 +132,7 @@ views onto it, so the agent can name tables anything without reloading them.
 
 Gated tools are refused, with a message the agent can act on, when:
 
-- `update_workspace`: the draft changed since `version` ("re-read the workspace and try again"),
+- `edit_workspace`: the draft changed since `version` ("re-read the workspace and try again"),
   or a transform in the config writes to a **remote** dataset;
 - `run_transform`: any of its outputs is remote (its **inputs** may be remote);
 - `delete_dataset`: the dataset is remote, or a transform in the draft still reads it.

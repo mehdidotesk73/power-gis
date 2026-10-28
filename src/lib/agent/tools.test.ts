@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { runTool, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
+import { renderWorkspace } from './workspaceText'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
 import { emptyWorkspace, type WorkspaceDoc } from '../workspace/workspace'
 import type { DatasetRecord } from '../../shared/records'
@@ -59,8 +60,18 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
 }
 const json = (s: string) => JSON.parse(s)
 
+/**
+ * One edit replacing the whole workspace text with `obj` (its "__SQL__" strings
+ * become a ${q} token for `values.q`): the long way round, to exercise the checks.
+ */
+async function replaceAll(host: AgentHost, obj: object, values?: Record<string, string>) {
+  const { template } = renderWorkspace(host.doc())
+  const text = JSON.stringify(obj, null, 2).replace('"__SQL__"', '${q}')
+  return runTool(host, 'edit_workspace', { version: workspaceVersion(host.doc()), edits: [{ old: template, new: text }], ...(values ? { values } : {}) })
+}
+
 describe('agent tools', () => {
-  it('lists every dataset the user can use, and reads the workspace config with a version', async () => {
+  it('lists every dataset the user can use, and shows the workspace as text with a version', async () => {
     const { host } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices'] })
     const list = await runTool(host, 'list_datasets', {})
     expect(list.summary).toBe('4 datasets (3 local)')
@@ -71,23 +82,20 @@ describe('agent tools', () => {
       ['shared', 'cloud', false],
     ])
     expect(json(list.content)[0]).not.toHaveProperty('columns')
-    const w = json((await runTool(host, 'get_workspace', {})).content)
-    expect(w).toMatchObject({ version: workspaceVersion(host.doc()), name: 'Test', datasets: [{ id: 'prices', name: 'PRICES', store: 'local', rows: 10 }], transforms: [], visualizations: [] })
-    expect(w.datasets[0]).not.toHaveProperty('columns')
+    const w = (await runTool(host, 'get_workspace', {})).content
+    expect(w).toContain(`version: ${workspaceVersion(host.doc())}`)
+    expect(w).toContain('{"id":"prices","name":"PRICES","store":"local","origin":"Device · test.csv","rows":10}')
+    expect(w).toContain('"datasetIds": [\n    "prices"\n  ]')
+    expect(w).not.toContain('columns')
   })
 
   it('reports the drawn values so the agent can pick a scale, and accepts a fixed domain', async () => {
     const { host, state } = fakeHost()
-    const viz = (color: object) => ({
-      version: workspaceVersion(state.doc),
-      datasetIds: ['joined'],
-      transforms: [],
-      visualizations: [{ id: 'v1', name: 'Price', datasetId: 'joined', geometry: 'geometry', column: 'price', color }],
-    })
-    expect((await runTool(host, 'update_workspace', viz({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] }))).isError).toBe(false)
+    const viz = (color: object) => replaceAll(host, { name: 'Test', datasetIds: ['joined'], transforms: [], visualizations: [{ id: 'v1', name: 'Price', datasetId: 'joined', geometry: 'geometry', column: 'price', color }] })
+    expect((await viz({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] })).isError).toBe(false)
     expect(state.doc.visualizations[0].style.color).toMatchObject({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] })
-    expect(await runTool(host, 'update_workspace', viz({ kind: 'colormap', scale: 'log', domain: [0, 5] }))).toMatchObject({ isError: true, content: expect.stringContaining('positive on a log scale') })
-    expect(await runTool(host, 'update_workspace', viz({ kind: 'colormap', domain: [5, 1] }))).toMatchObject({ isError: true })
+    expect(await viz({ kind: 'colormap', scale: 'log', domain: [0, 5] })).toMatchObject({ isError: true, content: expect.stringContaining('positive on a log scale') })
+    expect(await viz({ kind: 'colormap', domain: [5, 1] })).toMatchObject({ isError: true })
     const stats = json((await runTool(host, 'visualization_stats', { id: 'v1' })).content)
     expect(stats).toMatchObject({ visualization: 'Price', features: 7, withValue: 6, nulls: 1, min: 0, max: 10000, atOrBelowZero: 1, belowZero: 0, positiveOrdersOfMagnitude: 4, color: { colormap: 'rdBu', domain: [-5, 5] } })
     expect(await runTool(host, 'visualization_stats', { id: 'nope' })).toMatchObject({ isError: true })
@@ -120,41 +128,68 @@ describe('agent tools', () => {
     expect(await runTool(host, 'query_sql', { inputs: [] })).toMatchObject({ isError: true, summary: 'invalid input' })
   })
 
-  it('builds a workspace: datasets, a transform and a visualization with defaults and a color', async () => {
+  it('builds a workspace with SQL given as values, then edits it surgically', async () => {
     const { host, state } = fakeHost()
-    const out = await runTool(host, 'update_workspace', {
-      version: workspaceVersion(host.doc()),
-      datasetIds: ['prices', 'counties', 'joined'],
-      transforms: [{ name: 'Join', inputs: [{ datasetId: 'prices', alias: 'p' }, { datasetId: 'counties', alias: 'c' }], outputs: [{ name: 'Joined', sql: 'SELECT …', outputId: 'joined' }] }],
-      visualizations: [{ name: 'Price', datasetId: 'joined', geometry: 'geometry', label: 'name', column: 'price', color: { kind: 'colormap', colormap: 'magma' } }],
-    })
-    expect(out.isError).toBe(false)
-    expect(json(out.content).version).toBe(workspaceVersion(state.doc))
-    expect(state.doc.transforms[0]).toMatchObject({ name: 'Join', outputs: [{ name: 'Joined', outputId: 'joined' }] })
+    const sql = `SELECT c.geometry, c.name, p.price\nFROM p JOIN c USING (fips)\nWHERE c.name <> 'O''Brien' AND p.month = "2026-08-31"`
+    const built = await replaceAll(
+      host,
+      {
+        name: 'Test',
+        datasetIds: ['prices', 'counties', 'joined'],
+        transforms: [{ name: 'Join', inputs: [{ datasetId: 'prices', alias: 'p' }, { datasetId: 'counties', alias: 'c' }], outputs: [{ name: 'Joined', sql: '__SQL__', outputId: 'joined' }] }],
+        visualizations: [{ name: 'Price', datasetId: 'joined', geometry: 'geometry', label: 'name', column: 'price', color: { kind: 'colormap', colormap: 'magma' } }],
+      },
+      { q: sql },
+    )
+    expect(built.isError).toBe(false)
+    expect(json(built.content)).toMatchObject({ version: workspaceVersion(state.doc), changed: ['datasets added: prices, counties, joined', 'transform added: "Join"', 'visualization added: "Price"'] })
+    // The SQL arrived exactly as written: quotes and line breaks untouched.
+    expect(state.doc.transforms[0].outputs[0]).toMatchObject({ name: 'Joined', outputId: 'joined', sql })
     const v = state.doc.visualizations[0]
     expect(v).toMatchObject({ kind: 'scalar', name: 'Price', column: 'price', aggregation: 'first', binding: { column: 'geometry', label: 'name' } })
-    expect(v.style.color).toMatchObject({ kind: 'colormap', colormap: 'magma' })
 
-    // Keeping a visualization by id keeps its style; the stamp must be current.
-    const again = { version: workspaceVersion(state.doc), datasetIds: ['prices', 'counties', 'joined'], transforms: [{ ...state.doc.transforms[0] }], visualizations: [{ id: v.id, name: 'Price (latest)', datasetId: 'joined', geometry: 'geometry', label: 'name', column: 'price' }] }
-    expect((await runTool(host, 'update_workspace', again)).isError).toBe(false)
-    expect(state.doc.visualizations[0]).toMatchObject({ id: v.id, name: 'Price (latest)', style: { color: { colormap: 'magma' } } })
-    expect(await runTool(host, 'update_workspace', again)).toMatchObject({ isError: true, summary: 'workspace changed: re-read' })
+    // get_workspace shows the SQL as a plain block, and a token in the JSON.
+    const t = state.doc.transforms[0]
+    const text = (await runTool(host, 'get_workspace', {})).content
+    expect(text).toContain(`"sql": \${sql:${t.id}.${t.outputs[0].key}}`)
+    expect(text).toContain(`--- sql:${t.id}.${t.outputs[0].key} ---\n${sql}`)
 
-    // Just {id} keeps an item exactly as it is.
+    // An edit inside the SQL block, and one in the JSON; everything else stays as it was.
+    const style = v.style
+    const edit = await runTool(host, 'edit_workspace', {
+      version: workspaceVersion(state.doc),
+      edits: [
+        { sql: `${t.id}.${t.outputs[0].key}`, old: `"2026-08-31"`, new: `"2026-09-30"` },
+        { old: '"name": "Price",', new: '"name": "Price (Sept)",' },
+      ],
+    })
+    expect(json(edit.content).changed).toEqual(['transform changed: "Join"', 'visualization changed: "Price (Sept)"'])
+    expect(state.doc.transforms[0].outputs[0].sql).toBe(sql.replace('2026-08-31', '2026-09-30'))
+    expect(state.doc.visualizations[0]).toMatchObject({ id: v.id, name: 'Price (Sept)', style })
+
+    // A stale version, a missing match and a repeated one are refused; nothing changes.
     const before = state.doc
-    const kept = await runTool(host, 'update_workspace', { version: workspaceVersion(before), datasetIds: before.datasetIds, transforms: [{ id: before.transforms[0].id }], visualizations: [{ id: v.id }] })
-    expect(kept.isError).toBe(false)
+    expect(await runTool(host, 'edit_workspace', { version: 'old', edits: [{ old: 'x', new: 'y' }] })).toMatchObject({ isError: true, summary: 'workspace changed: re-read' })
+    const bad = await runTool(host, 'edit_workspace', { version: workspaceVersion(before), edits: [{ old: '"name": "Nope"', new: '' }, { old: '"alias":', new: '' }, { old: '"name": "Test"', new: '"name": ${missing}' }] })
+    expect(bad.isError).toBe(true)
+    for (const bit of ["isn't in the workspace text", 'occurs 2 times', 'no value "missing"']) expect(bad.content).toContain(bit)
+    expect(state.doc).toBe(before)
+
+    // A dry run says what would change and changes nothing; untouched items are kept exactly.
+    const dry = await runTool(host, 'edit_workspace', { version: workspaceVersion(before), dryRun: true, edits: [{ old: '"visible": true', new: '"visible": false' }] })
+    expect(json(dry.content)).toEqual({ dryRun: true, wouldChange: ['visualization changed: "Price (Sept)"'] })
+    expect(state.doc).toBe(before)
+    const kept = await runTool(host, 'edit_workspace', { version: workspaceVersion(before), edits: [{ old: '"name": "Test"', new: '"name": "Renamed"' }] })
+    expect(json(kept.content).changed).toEqual(['name → "Renamed"'])
     expect(state.doc.transforms).toEqual(before.transforms)
     expect(state.doc.visualizations).toEqual(before.visualizations)
-    expect(await runTool(host, 'update_workspace', { version: workspaceVersion(state.doc), datasetIds: [], transforms: [{ id: 'ghost' }], visualizations: [] })).toMatchObject({ isError: true, content: expect.stringContaining('no transform "ghost"') })
   })
 
-  it('refuses the whole update, listing every problem, and changes nothing', async () => {
+  it('refuses the whole edit, listing every problem, and changes nothing', async () => {
     const before = { ...emptyWorkspace('Test'), datasetIds: ['prices'] }
     const { host, state } = fakeHost(before)
-    const out = await runTool(host, 'update_workspace', {
-      version: workspaceVersion(before),
+    const out = await replaceAll(host, {
+      name: 'Test',
       datasetIds: ['prices', 'counties', 'shared', 'ghost'],
       transforms: [{ name: 'Bad', inputs: [{ datasetId: 'prices', alias: 'p' }], outputs: [{ name: 'Out', sql: 'SELECT 1', outputId: 'shared' }] }],
       visualizations: [
@@ -166,6 +201,11 @@ describe('agent tools', () => {
     })
     expect(out.isError).toBe(true)
     for (const bit of ['no dataset "ghost"', 'cloud dataset', 'not a geometry column', '"nope" isn\'t a value column', "sum doesn't apply", 'colormap must be one of']) expect(out.content).toContain(bit)
+    expect(state.doc).toBe(before)
+    // Broken JSON, or a list that's gone, is refused too.
+    const v = workspaceVersion(before)
+    expect(await runTool(host, 'edit_workspace', { version: v, edits: [{ old: '"name": "Test",', new: '"name": "Test"' }] })).toMatchObject({ isError: true, content: expect.stringContaining("isn't valid JSON") })
+    expect(await runTool(host, 'edit_workspace', { version: v, edits: [{ old: '"transforms": [],', new: '' }] })).toMatchObject({ isError: true, content: expect.stringContaining('"transforms" must stay a list') })
     expect(state.doc).toBe(before)
   })
 

@@ -82,6 +82,10 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Agent edits the workspace surgically** — `edit_workspace` replaces `update_workspace`: exact
+  `old` → `new` replacements on the text `get_workspace` shows (JSON with `${sql:…}` tokens, then
+  the SQL as plain blocks); new SQL goes in `values` as plain text, existing SQL is edited inside its
+  block, so SQL is never written inside JSON. Checked whole, unchanged items kept exactly, `dryRun`.
 - **Spatial extension** — DuckDB's spatial extension loads on first use (allowlist in
   `shared/sqlExtensions.json`; a query naming its functions loads it and retries), hosted with the
   app by the Netlify build (falls back to DuckDB's repository). GEOMETRY results come back as GeoJSON.
@@ -247,7 +251,7 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 2. ~~Query speed-up~~: already there (loaded tables stay in DuckDB until their dataset changes).
 3. ~~**Dataset processor agent**~~ (done): API key setting, chat panel, the loop, the six data
    tools: `get_workspace` (where it starts), `list_datasets` (the app's dataset finder; only with
-   the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, `update_workspace`,
+   the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, `edit_workspace` (was `update_workspace`),
    `run_transform`, `update_dataset`, `delete_dataset`, the server-side gate for `caller: 'agent'`.
 4. **Scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
    size-capped) for data it collects itself, scout source reports, run records. Options for

@@ -312,6 +312,15 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Agent: edit_workspace — 2026-10-28
+- **Changed:** the agent edits the workspace with exact text replacements (`edit_workspace`) instead
+  of resending all of it (`update_workspace`). With Haiku the whole-workspace payload — SQL inside
+  JSON inside the tool call — came back as one JSON-encoded string twice; the retry that passed had
+  dropped a transform and sent `visualizations: []`, which removed every visualization.
+- **Lesson:** keep model-written structure small and never nest text that needs escaping (SQL) inside
+  JSON the model writes. SQL now travels only as plain strings (`values`, SQL-block edits) and the
+  tool inserts it (`JSON.stringify`) — the JSON equivalent of a parameterized query.
+
 ### Spatial extension — 2026-10-28
 - **Added:** DuckDB's **spatial** extension (ST_Area_Spheroid, ST_Transform, spatial joins, ST_Read…),
   on an allowlist (`shared/sqlExtensions.json`). A query that names an extension's function fails with

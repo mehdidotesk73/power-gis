@@ -127,7 +127,7 @@ const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
   get_workspace: 'Read the workspace',
   query_sql: 'Query',
-  update_workspace: 'Update the workspace',
+  edit_workspace: 'Edit the workspace',
   visualization_stats: 'Check the values drawn',
   run_transform: 'Run a transform',
   update_dataset: 'Rename / describe a dataset',

@@ -20,6 +20,7 @@ import { addDataset, addTransform, addVisualization, newOutput, type OpContext, 
 import { transformState } from '../workspace/dag'
 import { snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
+import { agentColor, agentTransform, agentVisualization, applyWorkspaceEdits, canonical, renderWorkspace, workspaceTextBlock, type TextEdit } from './workspaceText'
 import type { ToolSpec } from './provider'
 
 /** What the tools act through: the page's workspace copy and the server. */
@@ -78,7 +79,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'get_workspace',
     description:
-      "The user's workspace — where to start. Its datasets (id, name, description, store local / cloud, origin, row count; no columns: query the ones that look relevant), its transforms (id, inputs, outputs with SQL, state: ready / not-run / stale) and visualizations (id, dataset, geometry column, value column, aggregation, color), plus a version stamp that update_workspace needs. Call it first, and again after the user changes things.",
+      "The user's workspace — where to start. Its datasets (id, name, description, store local / cloud, origin, row count; no columns: query the ones that look relevant), its transforms (id, inputs, outputs with SQL, state: ready / not-run / stale) and visualizations (id, dataset, geometry column, value column, aggregation, color), plus a version stamp that edit_workspace needs. The workspace part is JSON text in which each output's SQL is a token ${sql:<transform id>.<output key>}, with the SQL blocks listed after it as plain SQL: edit_workspace edits exactly this text. Call it first, and again after the user changes things.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -118,59 +119,37 @@ export const TOOLS: ToolSpec[] = [
     },
   },
   {
-    name: 'update_workspace',
-    description:
-      "Replace the workspace's contents (the user's unsaved draft: they Save or Discard it). Send the complete lists — anything left out is removed from the workspace (datasets stay stored). For a transform or visualization you keep unchanged, send just {\"id\": …}; for one you change, send its id and all its fields; leave id out for new ones. Transforms: SQL that writes datasets, one SELECT per output; an output without outputId writes a new dataset on its first run, then keep the outputId get_workspace shows. A new or changed transform does nothing until run_transform. Visualizations: draw one value column of a dataset on its features (a geometry column); rows on the same feature are combined by the aggregation. The list order is draw order: first draws on top. Refused if the workspace changed since `version`, or if a transform would write a cloud dataset; nothing is applied when anything is invalid.",
+    name: 'edit_workspace',
+    description: [
+      "Change the workspace (the user's unsaved draft: they Save or Discard it) by exact text replacements on what get_workspace shows. Each edit replaces `old` — text copied exactly, spaces and line breaks included, that occurs once — with `new`. Edits apply in order, then the result is checked as a whole: nothing changes if anything is wrong, and every problem is listed.",
+      'JSON edits (no `sql`): change the JSON text — a name, a color, a column, datasetIds, a whole transform or visualization; remove an item by replacing it (and its comma) with nothing; add one by inserting it into its list. A new item has no id; a new output has no key or outputId (it writes a new dataset on its first run). Items whose text you leave alone stay exactly as they are.',
+      'SQL: never write SQL inside the JSON. Put each new SQL in `values` as plain text and write `"sql": ${name}` in the JSON (no quotes around the token); the tool inserts it. To change part of an existing SQL, give `sql` (the block name, "<transform id>.<output key>") with `old` / `new` inside that SQL. To replace a whole SQL, swap its ${sql:…} token for ${yourValue}.',
+      `Test SQL with query_sql first. Set dryRun to see what would change (and any problems) without changing anything. A new or changed transform does nothing until run_transform. Visualizations draw one value column of a dataset on its features (a geometry column); rows on one feature are combined by the aggregation; list order is draw order (first on top). Visualization fields: name, datasetId, geometry, label (optional), column (or "${ROWS}"), aggregation (${AGG_NAMES.join(', ')}; optional), visible, color, opacity (0–1). Refused if the workspace changed since \`version\`, or if a transform would write a cloud dataset.`,
+    ].join('\n\n'),
     inputSchema: {
       type: 'object',
       properties: {
-        version: { type: 'string', description: 'The version from the latest get_workspace / update_workspace.' },
-        name: { type: 'string' },
-        datasetIds: { type: 'array', items: { type: 'string' } },
-        transforms: {
+        version: { type: 'string', description: 'The version from the latest get_workspace / edit_workspace.' },
+        edits: {
           type: 'array',
           items: {
             type: 'object',
             properties: {
-              id: { type: 'string' },
-              name: { type: 'string' },
-              inputs: {
-                type: 'array',
-                items: { type: 'object', properties: { datasetId: { type: 'string' }, alias: { type: 'string' } }, required: ['datasetId', 'alias'] },
-              },
-              outputs: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: { key: { type: 'string' }, name: { type: 'string' }, sql: { type: 'string' }, outputId: { type: 'string' } },
-                  required: ['name', 'sql'],
-                },
-              },
+              old: { type: 'string', description: 'Exact text to replace (occurs once).' },
+              new: { type: 'string', description: 'Replacement text; may contain ${value} and ${sql:…} tokens.' },
+              sql: { type: 'string', description: 'Optional: edit inside this SQL block ("<transform id>.<output key>") instead of the JSON.' },
             },
-            description: 'Just {id} keeps an existing transform as it is; otherwise give name, inputs and outputs.',
+            required: ['old', 'new'],
           },
         },
-        visualizations: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'string' },
-              name: { type: 'string' },
-              datasetId: { type: 'string' },
-              geometry: { type: 'string', description: 'The geometry column (point / polyline / region) that places each row.' },
-              label: { type: 'string', description: 'Optional column naming each feature (shown on hover and in Find).' },
-              column: { type: 'string', description: `The value column, or "${ROWS}" for the number of rows per feature.` },
-              aggregation: { type: 'string', enum: AGG_NAMES, description: 'How rows on one feature combine. Default: pass-through when each feature has one row, else a summary.' },
-              visible: { type: 'boolean' },
-              color: colorSchema,
-              opacity: { type: 'number', description: '0–1' },
-            },
-            description: 'Just {id} keeps an existing visualization as it is; otherwise give name, datasetId, geometry and column.',
-          },
+        values: {
+          type: 'object',
+          additionalProperties: { type: 'string' },
+          description: 'Plain-text values (SQL) that `new` names as ${name}; each goes in as a JSON string.',
         },
+        dryRun: { type: 'boolean', description: 'Check and describe the change without applying it.' },
       },
-      required: ['version', 'datasetIds', 'transforms', 'visualizations'],
+      required: ['version', 'edits'],
     },
   },
   {
@@ -245,12 +224,6 @@ function cell(v: unknown, type: string | undefined): unknown {
   return v
 }
 
-function compactColor(c: ColorEncoding): Obj {
-  if (c.kind === 'colormap') return { kind: c.kind, colormap: c.colormap, ...(c.reverse ? { reverse: true } : {}), ...(c.scale === 'log' ? { scale: 'log' } : {}), ...(c.domain ? { domain: c.domain } : {}) }
-  if (c.kind === 'categorical') return { kind: c.kind, ...(c.palette ? { palette: c.palette } : {}) }
-  return { kind: c.kind, color: c.color }
-}
-
 // ── list_datasets / get_workspace ──────────────────────────────────────────
 
 async function listDatasets(host: AgentHost): Promise<ToolOutcome> {
@@ -272,29 +245,25 @@ async function getWorkspace(host: AgentHost): Promise<ToolOutcome> {
   const doc = host.doc()
   // Transform states need their outputs' records too, which may sit outside the workspace.
   const byId = new Map((await host.listDatasets()).map((d) => [d.id, d]))
-  const data = {
-    version: workspaceVersion(doc),
-    name: doc.name,
-    datasets: doc.datasetIds.map((id) => {
-      const d = byId.get(id)
-      if (!d) return { id, name: '(missing)' }
-      return { id, name: d.name, ...(d.description ? { description: d.description } : {}), store: storeLabel(d), origin: d.origin, rows: d.rowCount }
-    }),
-    transforms: doc.transforms.map((t) => ({ id: t.id, name: t.name, state: transformState(t, (id) => byId.get(id)), inputs: t.inputs, outputs: t.outputs })),
-    visualizations: doc.visualizations.map((v) => ({
-      id: v.id,
-      name: v.name,
-      datasetId: v.datasetId,
-      geometry: v.binding.column,
-      ...(v.binding.label ? { label: v.binding.label } : {}),
-      column: v.column,
-      aggregation: v.aggregation,
-      visible: v.visible,
-      color: compactColor(v.style.color),
-      ...(v.kind === 'scalar' && v.style.opacity.kind === 'constant' ? { opacity: v.style.opacity.value } : {}),
-    })),
-  }
-  return ok(data, `${plural(data.datasets.length, 'dataset')} · ${plural(data.transforms.length, 'transform')} · ${plural(data.visualizations.length, 'visualization')}`)
+  const datasets = doc.datasetIds.map((id) => {
+    const d = byId.get(id)
+    if (!d) return { id, name: '(missing)' }
+    return { id, name: d.name, ...(d.description ? { description: d.description } : {}), store: storeLabel(d), origin: d.origin, rows: d.rowCount }
+  })
+  const states = doc.transforms.map((t) => `${JSON.stringify(t.name)}: ${transformState(t, (id) => byId.get(id))}`)
+  // Plain text, not JSON: the SQL blocks read as written, with nothing escaped.
+  const text = [
+    `version: ${workspaceVersion(doc)}`,
+    '',
+    `Datasets in the workspace (${datasets.length}; add or remove them in "datasetIds"):`,
+    ...(datasets.length ? datasets.map((d) => JSON.stringify(d)) : ['(none)']),
+    '',
+    `Transform states: ${states.length ? states.join(' · ') : '(no transforms)'}`,
+    '',
+    'Workspace (edit_workspace edits this text; each ${sql:…} token stands for the SQL block of that name below):',
+    workspaceTextBlock(renderWorkspace(doc)),
+  ].join('\n')
+  return { content: text, isError: false, summary: `${plural(datasets.length, 'dataset')} · ${plural(doc.transforms.length, 'transform')} · ${plural(doc.visualizations.length, 'visualization')}` }
 }
 
 // ── query_sql ──────────────────────────────────────────────────────────────
@@ -319,7 +288,7 @@ async function querySql(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   return ok({ rowCount: r.data.rowCount, columns: columnsOf(r.data.columns), rows }, `${plural(r.data.rowCount, 'row')}`)
 }
 
-// ── update_workspace ───────────────────────────────────────────────────────
+// ── edit_workspace ───────────────────────────────────────────────────────
 
 function readColor(v: unknown, kind: VisualizationSpec['kind'], where: string): ColorEncoding | undefined {
   if (v === undefined) return undefined
@@ -353,10 +322,11 @@ function readColor(v: unknown, kind: VisualizationSpec['kind'], where: string): 
   throw new Invalid(`${where}.color.kind must be colormap, categorical or constant`)
 }
 
-async function updateWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  const cur = host.doc()
-  need(str(input.version), '`version` is required (from get_workspace)')
-  if (input.version !== workspaceVersion(cur)) return err('The workspace changed since you read it (the user may have edited it). Call get_workspace and try again.', 'workspace changed: re-read')
+/**
+ * The workspace a full description (the JSON edit_workspace produced) makes,
+ * with every problem listed. Items given as just {id} are kept as they are.
+ */
+async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): Promise<{ doc: WorkspaceDoc; errors: string[] }> {
   need(optStr(input.name), '`name` must be text')
   need(Array.isArray(input.datasetIds) && input.datasetIds.every(str), '`datasetIds` must be a list of dataset ids')
   need(Array.isArray(input.transforms), '`transforms` must be a list (send [] for none)')
@@ -459,13 +429,79 @@ async function updateWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome
     }
   }
 
-  if (errors.length) return err(`Nothing was changed. Fix these and send the whole workspace again:\n- ${errors.join('\n- ')}`, `refused: ${plural(errors.length, 'problem')}`)
-  host.setDoc(doc)
+  return { doc, errors }
+}
+
+/** Items whose text the edits left alone, as {id}: kept exactly (style details the text doesn't show included). */
+function keepUnchanged(input: Obj, cur: WorkspaceDoc): Obj {
+  const same = <T extends { id: string }>(list: unknown, items: T[], show: (x: T) => unknown) => {
+    if (!Array.isArray(list)) return list
+    const shown = new Map(items.map((x) => [x.id, canonical(show(x))]))
+    return list.map((raw) => (isObj(raw) && str(raw.id) && shown.get(raw.id) === canonical(raw) ? { id: raw.id } : raw))
+  }
+  return { ...input, transforms: same(input.transforms, cur.transforms, agentTransform), visualizations: same(input.visualizations, cur.visualizations, agentVisualization) }
+}
+
+/** What changed between two workspaces, an item a line. */
+function describeChanges(a: WorkspaceDoc, b: WorkspaceDoc): string[] {
+  const out: string[] = []
+  if (a.name !== b.name) out.push(`name → "${b.name}"`)
+  const addedDs = b.datasetIds.filter((d) => !a.datasetIds.includes(d))
+  const removedDs = a.datasetIds.filter((d) => !b.datasetIds.includes(d))
+  if (addedDs.length) out.push(`datasets added: ${addedDs.join(', ')}`)
+  if (removedDs.length) out.push(`datasets taken out of the workspace: ${removedDs.join(', ')}`)
+  const items = <T extends { id: string; name: string }>(kind: string, xs: T[], ys: T[], show: (x: T) => unknown) => {
+    const before = new Map(xs.map((x) => [x.id, x]))
+    for (const y of ys) {
+      const x = before.get(y.id)
+      if (!x) out.push(`${kind} added: "${y.name}"`)
+      else if (canonical(show(x)) !== canonical(show(y))) out.push(`${kind} changed: "${y.name}"`)
+      before.delete(y.id)
+    }
+    for (const x of before.values()) out.push(`${kind} removed: "${x.name}"`)
+  }
+  items('transform', a.transforms, b.transforms, agentTransform)
+  items('visualization', a.visualizations, b.visualizations, agentVisualization)
+  const both = (d: WorkspaceDoc) => d.visualizations.map((v) => v.id).filter((id) => a.visualizations.some((v) => v.id === id) && b.visualizations.some((v) => v.id === id)).join()
+  if (both(a) !== both(b)) out.push('visualizations reordered')
+  return out
+}
+
+async function editWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  const cur = host.doc()
+  need(str(input.version), '`version` is required (from get_workspace)')
+  if (input.version !== workspaceVersion(cur)) return err('The workspace changed since you read it (the user may have edited it). Call get_workspace and try again.', 'workspace changed: re-read')
+  need(Array.isArray(input.edits) && input.edits.length, '`edits` must be a list of {old, new} (and optional sql)')
+  const edits = (input.edits as unknown[]).map((e, i): TextEdit => {
+    need(isObj(e) && str(e.old) && str(e.new), `edits[${i}] needs old and new (text)`)
+    need(optStr(e.sql), `edits[${i}].sql must be a SQL block name`)
+    return { old: e.old, new: e.new, ...(e.sql ? { sql: e.sql as string } : {}) }
+  })
+  need(input.values === undefined || isObj(input.values), '`values` must be an object of {name: text}')
+  need(input.dryRun === undefined || typeof input.dryRun === 'boolean', '`dryRun` must be true or false')
+  const refused = (errors: string[]) => err(`Nothing was changed. Fix these and try again:\n- ${errors.join('\n- ')}`, `refused: ${plural(errors.length, 'problem')}`)
+
+  const edited = applyWorkspaceEdits(renderWorkspace(cur), edits, (input.values as Obj | undefined) ?? {})
+  if (!edited.ok) return refused(edited.errors)
+  const value = edited.value
+  if (!isObj(value)) return refused(['After the edits the workspace is not a JSON object'])
+  const lists = ['datasetIds', 'transforms', 'visualizations'].filter((k) => !Array.isArray(value[k]))
+  if (lists.length) return refused(lists.map((k) => `"${k}" must stay a list (it can be empty)`))
+  let built: { doc: WorkspaceDoc; errors: string[] }
+  try {
+    built = await buildWorkspace(host, cur, keepUnchanged(value, cur))
+  } catch (e) {
+    if (!(e instanceof Invalid)) throw e
+    return refused([e.message])
+  }
+  if (built.errors.length) return refused(built.errors)
+  const { doc } = built
+  const changes = describeChanges(cur, doc)
   const notRun = doc.transforms.filter((t) => t.outputs.some((o) => !o.outputId)).map((t) => t.name)
-  return ok(
-    { version: workspaceVersion(doc), datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length, ...(notRun.length ? { notRunYet: notRun } : {}) },
-    `${plural(doc.datasetIds.length, 'dataset')} · ${plural(doc.transforms.length, 'transform')} · ${plural(doc.visualizations.length, 'visualization')}`,
-  )
+  const summary = changes.length ? `${changes[0]}${changes.length > 1 ? ` (+${changes.length - 1} more)` : ''}` : 'no change'
+  if (input.dryRun) return ok({ dryRun: true, wouldChange: changes, ...(notRun.length ? { notRunYet: notRun } : {}) }, `dry run · ${summary}`)
+  host.setDoc(doc)
+  return ok({ version: workspaceVersion(doc), changed: changes, ...(notRun.length ? { notRunYet: notRun } : {}) }, summary)
 }
 
 // ── visualization_stats ────────────────────────────────────────────────────
@@ -525,7 +561,7 @@ async function visualizationStats(host: AgentHost, input: Obj): Promise<ToolOutc
   const values = await host.values(v.datasetId, v.binding, v.column, v.aggregation)
   if (typeof values === 'string') return err(values)
   const stats = valueStats(values)
-  return ok({ visualization: v.name, column: v.column, aggregation: v.aggregation, color: compactColor(v.style.color), ...stats }, `${plural(stats.withValue as number, 'feature')} with a value`)
+  return ok({ visualization: v.name, column: v.column, aggregation: v.aggregation, color: agentColor(v.style.color), ...stats }, `${plural(stats.withValue as number, 'feature')} with a value`)
 }
 
 // ── run_transform / delete_dataset ─────────────────────────────────────────
@@ -593,8 +629,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await askUser(host, input)
       case 'query_sql':
         return await querySql(host, input)
-      case 'update_workspace':
-        return await updateWorkspace(host, input)
+      case 'edit_workspace':
+        return await editWorkspace(host, input)
       case 'visualization_stats':
         return await visualizationStats(host, input)
       case 'run_transform':

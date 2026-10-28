@@ -396,7 +396,11 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   `readDb`, the dataset finder `listDatasets()` (`client/datasets.ts`: local datasets today, plus the
   remote registry later), `request(…, 'agent')`, `describeBinding`, `runTransform`, `deleteForGood`). Never throws;
   every outcome is a message for the model plus a one-line summary for the chat.
-  `workspaceVersion(doc)` stamps the draft so `update_workspace` refuses stale edits.
+  `workspaceVersion(doc)` stamps the draft so `edit_workspace` refuses stale edits.
+- `lib/agent/workspaceText.ts`: the workspace as the agent reads and edits it — `renderWorkspace` (JSON
+  template with `${sql:…}` tokens + SQL blocks), `applyWorkspaceEdits` (exact replacements, values
+  filled in as JSON literals in one pass, parsed), `agentTransform` / `agentVisualization` (the item
+  forms, also used to tell unchanged items, which are kept exactly).
 - `lib/agent/prompt.ts`: the dataset processor's instructions.
 - `client/agent/claude.ts`: the Anthropic adapter (`startClaude`, `claudeProvider`, `describeError`).
   Browser-direct with the user's key, streaming, `fallbacks: "default"`, prompt caching.
