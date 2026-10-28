@@ -419,7 +419,16 @@ describe('cloud workspace', () => {
     const a = device(account.cloud)
     data(await a.server.handle('setAuth', { accessToken: 't' }))
     const own = data(await a.server.handle('uploadDataset', { source: { kind: 'csv', file: file('mine.csv', 'fips,x\n01001,1\n01003,2\n') } })).datasetId
+    // A document saved before the dataset went to the cloud: it says "an upload kept on device A".
+    const local = (await a.db.get('datasets', own))!
+    const savedEarly = toWorkspaceFile({ ...emptyWorkspace('W'), datasetIds: [own] }, (id) => (id === own ? local : undefined))
+    expect(savedEarly.datasets[0]).toMatchObject({ store: 'local', origin: { kind: 'upload' } })
     data(await a.server.handle('storeInCloud', { id: own }))
+    // Opened elsewhere after that, the cloud is asked anyway: downloaded, not missing.
+    const c = device(account.cloud)
+    data(await c.server.handle('setAuth', { accessToken: 't' }))
+    expect(data(await c.server.handle('openDocument', { file: savedEarly })).missing).toEqual([])
+    expect(await c.db.get('datasets', own)).toMatchObject({ store: 'remote', rowCount: 2 })
     const onA = (await a.db.get('datasets', own))!
     expect(onA).toMatchObject({ store: 'remote', cloud: { version: account.datasets.get(own)!.updatedAt } })
     expect(account.datasets.get(own)).toMatchObject({ name: 'mine', rowCount: 2, hasFile: true })

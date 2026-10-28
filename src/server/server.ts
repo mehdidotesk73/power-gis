@@ -203,9 +203,12 @@ export function createServer(db: Database, env: ServerEnv) {
   async function openDocument(doc: WorkspaceFile): Promise<{ file: WorkspaceFile; missing: MissingDataset[]; failed: { name: string; reason: string }[] }> {
     // Signed in: cloud datasets here catch up with newer versions, and ones not here are downloaded.
     if (cloud) await catchUpDatasets(cloud, await db.list('datasets'))
+    // Every dataset not here is looked for in the cloud, whatever the document says of it: it may
+    // have been stored there after the document was saved.
     const fromCloud = new Map<string, CloudDataset>()
     if (cloud) {
-      const wanted = doc.datasets.filter((f) => f.store === 'remote').map((f) => f.id)
+      const here = new Set((await db.list('datasets')).flatMap((d) => [d.id, ...(Array.isArray(d.extensions?.copyOf) ? (d.extensions.copyOf as string[]) : [])]))
+      const wanted = doc.datasets.filter((f) => ![f.id, ...(f.sameAs ?? [])].some((x) => here.has(x))).map((f) => f.id)
       for (const cd of await cloud.datasets(wanted).catch(() => [] as CloudDataset[])) fromCloud.set(cd.id, cd)
     }
     const records = await db.list('datasets')
@@ -243,6 +246,20 @@ export function createServer(db: Database, env: ServerEnv) {
 
     // Outputs: transforms run when all their inputs are resolved, in whatever order that allows.
     const facts = new Map(doc.datasets.map((d) => [d.id, d]))
+    /** A transform that can't run here: its output is still usable if it's here or in the cloud. */
+    const outputFromCloud = async (id: string): Promise<boolean> => {
+      const here = find([id, ...(facts.get(id)?.sameAs ?? [])])
+      if (here) return resolved.set(id, here.id), true
+      const there = fromCloud.get(id)
+      if (!there || !cloud) return false
+      try {
+        records.push(await download(cloud, there))
+        resolved.set(id, there.id)
+        return true
+      } catch {
+        return false
+      }
+    }
     const pending = new Set(doc.transforms.map((t) => t.id))
     for (let progress = true; progress; ) {
       progress = false
@@ -251,7 +268,7 @@ export function createServer(db: Database, env: ServerEnv) {
         const inputs = t.inputs.map((i) => resolved.get(i.datasetId))
         if (t.inputs.some((i) => missing.some((m) => m.id === i.datasetId))) {
           failed.push({ name: t.name, reason: "an input dataset isn't on this device" })
-          for (const o of t.outputs) if (o.outputId && facts.has(o.outputId)) lost(facts.get(o.outputId)!, 'output')
+          for (const o of t.outputs) if (o.outputId && facts.has(o.outputId) && !(await outputFromCloud(o.outputId))) lost(facts.get(o.outputId)!, 'output')
           pending.delete(t.id)
           continue
         }
@@ -275,7 +292,7 @@ export function createServer(db: Database, env: ServerEnv) {
             for (const x of targets) x.use = r.outputs.find((w) => w.key === x.o.key)!.datasetId
           } catch (e) {
             failed.push({ name: t.name, reason: (e as Error).message })
-            for (const { o } of targets) if (o.outputId && facts.has(o.outputId)) lost(facts.get(o.outputId)!, 'output')
+            for (const { o } of targets) if (o.outputId && facts.has(o.outputId) && !(await outputFromCloud(o.outputId))) lost(facts.get(o.outputId)!, 'output')
             continue
           }
         }
@@ -292,7 +309,7 @@ export function createServer(db: Database, env: ServerEnv) {
     for (const t of doc.transforms) {
       if (!pending.has(t.id)) continue
       failed.push({ name: t.name, reason: "its inputs come from transforms that couldn't run" })
-      for (const o of t.outputs) if (o.outputId && facts.has(o.outputId)) lost(facts.get(o.outputId)!, 'output')
+      for (const o of t.outputs) if (o.outputId && facts.has(o.outputId) && !(await outputFromCloud(o.outputId))) lost(facts.get(o.outputId)!, 'output')
     }
     // Pointers the document has no facts for (it always should) are missing too.
     for (const id of pointers(doc)) if (!resolved.has(id) && !missing.some((m) => m.id === id)) missing.push({ id, name: facts.get(id)?.name ?? 'Unknown dataset', why: 'unknown' })

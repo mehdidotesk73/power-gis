@@ -615,6 +615,34 @@ async function cloudAction(action: CloudAction, id: string) {
   noteOn(id, r.ok && action === 'store' ? 'Stored in the cloud ✓ — other devices can open it' : r.message)
 }
 
+/**
+ * Signed in, datasets that didn't load here are looked for in the cloud (they may have been
+ * stored there since the workspace was saved) and downloaded: they stop being red. Each id is
+ * tried once per session; a failure leaves it as it was.
+ */
+const triedCloud = new Set<string>()
+async function recoverFromCloud() {
+  if (!auth.user || !loaded.value) return
+  const ids = [...unav.value.datasets.keys()].filter((id) => !present(id) && !triedCloud.has(id))
+  if (!ids.length) return
+  ids.forEach((id) => triedCloud.add(id))
+  const status = await request('cloudStatus', { ids })
+  if (!status.ok) return
+  const found: string[] = []
+  for (const s of status.data.datasets) {
+    if (s.state === 'notInCloud' || s.state === 'gone') continue
+    const r = await request('fetchFromCloud', { id: s.id })
+    if (r.ok && (await loadRecord(s.id))) found.push(s.id)
+  }
+  if (!found.length) return
+  const left = { ...doc.value.unavailable }
+  const names = found.map((id) => `"${left[id]?.name ?? records.value.get(id)?.name ?? id}"`)
+  for (const id of found) delete left[id]
+  doc.value = { ...doc.value, unavailable: Object.keys(left).length ? left : undefined }
+  barMessage.value = `Downloaded from the cloud: ${names.join(', ')}.${unav.value.roots.length ? '' : ' Everything loads now.'}`
+}
+watch([() => auth.user?.id, loaded, () => unav.value.datasets.size], () => void recoverFromCloud())
+
 type BatchKind = 'store' | 'save' | 'copy'
 const batch = ref<{ kind: BatchKind; title: string; intro: string; verb: string; items: BatchItem[]; running: boolean } | null>(null)
 

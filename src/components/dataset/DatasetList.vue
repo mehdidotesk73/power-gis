@@ -128,7 +128,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
           {{ stats(ds) }} · {{ ds.origin }}
         </span>
         <span v-if="copied === ds.id" class="copied">Id copied ✓</span>
-        <span v-if="notes?.get(ds.id)" class="note">
+        <span v-if="notes?.get(ds.id)" class="note" :class="{ ok: notes.get(ds.id)!.includes('✓') }">
           {{ notes.get(ds.id) }}
           <button class="dismiss" aria-label="Dismiss" @click.stop="emit('dismiss-note', ds.id)">✕</button>
         </span>
@@ -184,6 +184,9 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
   margin-top: 0.2rem;
   font-size: 0.74rem;
   color: var(--warn);
+}
+.note.ok {
+  color: var(--ok);
 }
 .dismiss {
   padding: 0 0.3rem;
