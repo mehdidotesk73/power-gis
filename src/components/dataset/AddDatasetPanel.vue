@@ -13,7 +13,7 @@ import type { DatasetRecord } from '../../shared/records'
 
 const props = defineProps<{
   inWorkspace: string[]
-  /** Which source to show first (Replace with a file → CSV, with a dataset → Saved). */
+  /** Which source to show first. */
   start?: 'builtin' | 'csv' | 'json' | 'arcgis' | 'db'
   /** The Saved list's button (Replace: "Use"). */
   pickLabel?: string

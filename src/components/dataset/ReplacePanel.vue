@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// Picks what takes a dataset's place in the workspace: a file to upload, or a
-// dataset already here (the add-dataset panel, opened on CSV or Saved).
+// Replace… : one button that opens the add-dataset panel (any source: built-in,
+// a file, ArcGIS, or a dataset already here under Saved). What's picked takes
+// the dataset's place everywhere in the workspace; Cancel just closes it.
 import { ref } from 'vue'
 import UiButton from '../ui/UiButton.vue'
 import AddDatasetPanel from './AddDatasetPanel.vue'
@@ -8,24 +9,21 @@ import { vReveal } from '../reveal'
 
 // `exclude`: the dataset being replaced (any other dataset here can take its place, workspace ones too).
 defineProps<{ exclude: string[] }>()
-const emit = defineEmits<{ (e: 'pick', datasetId: string): void; (e: 'cancel'): void }>()
+const emit = defineEmits<{ (e: 'pick', datasetId: string): void }>()
 
-const from = ref<null | 'csv' | 'db'>(null)
+const open = ref(false)
 function onAdd(ids: string[]) {
-  from.value = null
+  open.value = false
   if (ids[0]) emit('pick', ids[0])
 }
 </script>
 
 <template>
   <div class="replace">
-    <div v-if="!from" class="actions">
-      <UiButton size="tag" tone="dataset" icon="⇄" @click="from = 'csv'">Replace with a file…</UiButton>
-      <UiButton size="tag" tone="dataset" icon="⇄" @click="from = 'db'">Replace with a dataset…</UiButton>
-    </div>
+    <UiButton v-if="!open" size="tag" tone="dataset" icon="⇄" @click="open = true">Replace…</UiButton>
     <div v-else v-reveal class="pick">
-      <p class="muted">The replacement takes its place everywhere: transforms read it and visualizations draw it.</p>
-      <AddDatasetPanel :key="from" :in-workspace="exclude" :start="from" pick-label="Use" @add="onAdd" @cancel="(from = null), emit('cancel')" />
+      <p class="muted">Pick what takes its place everywhere in this workspace: its transforms read it and its visualizations draw it.</p>
+      <AddDatasetPanel :in-workspace="exclude" pick-label="Use" @add="onAdd" @cancel="open = false" />
     </div>
   </div>
 </template>
@@ -36,11 +34,10 @@ function onAdd(ids: string[]) {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  align-items: flex-start;
 }
-.actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
+.pick {
+  align-items: stretch;
 }
 .muted {
   margin: 0;

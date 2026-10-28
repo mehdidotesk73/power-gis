@@ -12,6 +12,7 @@ import { request } from '../../client/api'
 import { storeOf, type DatasetRecord } from '../../shared/records'
 import { useDetailTarget } from '../detailTarget'
 import { vReveal } from '../reveal'
+import ReplacePanel from './ReplacePanel.vue'
 
 const props = defineProps<{
   datasets: DatasetRecord[]
@@ -32,7 +33,7 @@ const emit = defineEmits<{
   (e: 'reorder', ids: string[]): void
   (e: 'update', id: string, patch: { name?: string; description?: string }): void
   /** Put another dataset (one here, or a new upload) in this one's place in the workspace. */
-  (e: 'replace', id: string): void
+  (e: 'replace', id: string, newId: string): void
 }>()
 
 const editing = ref<string | null>(null)
@@ -43,9 +44,6 @@ const actions = (ds: DatasetRecord): ObjectAction[] => [
   { id: 'explore', icon: '▤', label: 'Explore' },
   { id: 'edit', icon: '✎', label: editing.value === ds.id ? 'Close edit' : 'Edit' },
   { id: 'copy', icon: '⧉', label: 'Copy id' },
-  props.writtenBy?.(ds.id)
-    ? { id: 'replace', icon: '⇄', label: `Replace… (made by "${props.writtenBy(ds.id)}": change the transform instead)`, disabled: true }
-    : { id: 'replace', icon: '⇄', label: 'Replace…' },
   storeOf(ds) === 'local' ? { id: 'move', icon: '⇡', label: 'Move to cloud storage' } : { id: 'move', icon: '⇣', label: 'Move to this device' },
   { id: 'remove', icon: '✕', label: 'Remove from workspace', danger: true },
   { id: 'delete', icon: '⊗', label: 'Delete dataset', danger: true },
@@ -54,7 +52,6 @@ function onAction(id: string, ds: DatasetRecord) {
   if (id === 'explore') exploring.value = ds
   else if (id === 'edit') editing.value = editing.value === ds.id ? null : ds.id
   else if (id === 'copy') copyId(ds.id)
-  else if (id === 'replace') emit('replace', ds.id)
   else if (id === 'move') move(ds)
   else if (id === 'remove') emit('remove', ds.id)
   else if (id === 'delete') emit('delete', ds.id)
@@ -163,6 +160,8 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
             </table>
           </div>
         </div>
+        <p v-if="writtenBy?.(ds.id)" class="muted">Made by the transform "{{ writtenBy(ds.id) }}": to use other data here, change the transform.</p>
+        <ReplacePanel v-else :exclude="[ds.id]" @pick="(newId) => emit('replace', ds.id, newId)" />
         <span class="muted">Id <code class="id">{{ ds.id }}</code></span>
         <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
         <button class="close" @click="editing = null">Done</button>

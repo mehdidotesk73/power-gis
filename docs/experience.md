@@ -319,7 +319,8 @@ Two additions from reviewing it here, beyond what the originating project report
   Run them now; or Remove what didn't load.
 - **Fixed:** saving on such a device used to drop the missing datasets, and what used them, from the
   account's copy.
-- **Added:** Replace… on any dataset (a file or one here takes its place everywhere, as a draft), and
+- **Added:** Replace… on any dataset (Edit → ⇄ Replace…, the usual add-dataset panel with a working
+  Cancel; what it adds takes the old one's place everywhere, as a draft), and
   the "Only on this device" list and Save note when signed in.
 - **Lesson:** keep what you can't use, with what you know of it. The v2 document's dataset facts made
   this cheap: the missing entries carry their name, rows and origin through any number of saves.

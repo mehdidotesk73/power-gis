@@ -176,7 +176,7 @@ describe('missingReport', () => {
       '• 1 dataset not on this device: "Mystery".',
       `• 1 transform that couldn't run: "Join plants" (an input dataset isn't on this device).`,
       '• Waiting on them: 2 visualizations ("Plants by state", "Price map") and 1 transform ("Averages").',
-      "They're kept, in red. Replace a missing dataset (hold it in the graph), or Remove what didn't load.",
+      "They're kept, in red. Replace a missing dataset (tap it in the graph), or Remove what didn't load.",
     ])
   })
   it('says nothing when everything is here', () => {

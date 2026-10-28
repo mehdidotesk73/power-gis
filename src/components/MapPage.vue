@@ -19,7 +19,6 @@ import FeaturePanel from './map/FeaturePanel.vue'
 import DataExchange from './map/DataExchange.vue'
 import AddDatasetPanel from './dataset/AddDatasetPanel.vue'
 import UnavailableCard from './dataset/UnavailableCard.vue'
-import ReplacePanel from './dataset/ReplacePanel.vue'
 import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
@@ -515,10 +514,6 @@ const waitingOn = (root: string) => ({
 const localOnly = computed(() => (auth.user ? onlyOnThisDevice(doc.value, (id) => records.value.get(id)) : []))
 const problemCount = computed(() => unav.value.datasets.size + unav.value.transforms.size + unav.value.visualizations.size)
 
-/** Replace… on a dataset that's here: the one whose replacement is being picked. */
-const replacing = ref<string | null>(null)
-const replaceError = ref('')
-const startReplace = (id: string) => ((replacing.value = id), (replaceError.value = ''))
 /** The transform writing a dataset, by name (an output can't be replaced: its transform would overwrite it). */
 const writtenBy = (id: string) => doc.value.transforms.find((t) => t.outputs.some((o) => o.outputId === id))?.name
 
@@ -529,9 +524,8 @@ async function replaceDataset(oldId: string, newId: string) {
   const ds = await loadRecord(newId)
   if (!ds) return void logDebug(`replace "${name}": the new dataset isn't in the database`, 'error')
   const r = replaceDataset_(doc.value, oldId, newId)
-  if (!r.ok) return void (replaceError.value = r.error.message)
+  if (!r.ok) return void (barMessage.value = `Couldn't replace "${name}": ${r.error.message}`)
   apply(r)
-  replacing.value = null
   if (dagKey.value === `ds:${oldId}`) dagKey.value = `ds:${newId}`
   const order = downstreamOrder(doc.value, newId)
   afterReplace.value = order.length ? { name: `"${name}" → "${ds.name}"`, order, running: false, message: '' } : null
@@ -1046,11 +1040,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
       <div class="panels" aria-label="Workspace">
-      <div v-if="replacing" v-reveal class="box after-replace">
-        <span>Replace <strong>"{{ records.get(replacing)?.name ?? unavailableInfo(doc, replacing).name }}"</strong> in this workspace — its transforms and visualizations move to the replacement (the old dataset stays in your database).</span>
-        <span v-if="replaceError" class="problem-note">{{ replaceError }}</span>
-        <ReplacePanel :exclude="[replacing]" @pick="(id) => replaceDataset(replacing!, id)" @cancel="replacing = null" />
-      </div>
       <div v-if="afterReplace" v-reveal class="box after-replace">
         <span>Replaced {{ afterReplace.name }}. {{ afterReplace.order.length }} transform{{ afterReplace.order.length === 1 ? '' : 's' }} read{{ afterReplace.order.length === 1 ? 's' : '' }} it and can run now.</span>
         <span v-if="afterReplace.message" class="problem-note">{{ afterReplace.message }}</span>
@@ -1118,7 +1107,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @changed="loadRecord"
             @reorder="reorderDatasets"
             @update="updateDataset"
-            @replace="startReplace"
+            @replace="replaceDataset"
             :written-by="writtenBy"
           />
           <TransformsPanel
@@ -1200,7 +1189,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @changed="loadRecord"
             @reorder="reorderDatasets"
             @update="updateDataset"
-            @replace="startReplace"
+            @replace="replaceDataset"
             :written-by="writtenBy"
           />
         </details>

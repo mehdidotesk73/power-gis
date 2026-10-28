@@ -282,7 +282,7 @@ export function missingReport(missing: MissingDataset[], failed: { name: string;
   const otherTransforms = waiting.transforms.filter((t) => !failedNames.has(t))
   const waits = [waiting.visualizations.length ? `${n(waiting.visualizations.length, 'visualization')} (${list(waiting.visualizations)})` : '', otherTransforms.length ? `${n(otherTransforms.length, 'transform')} (${list(otherTransforms)})` : ''].filter(Boolean)
   if (waits.length) lines.push(`• Waiting on them: ${waits.join(' and ')}.`)
-  if (lines.length) lines.push("They're kept, in red. Replace a missing dataset (hold it in the graph), or Remove what didn't load.")
+  if (lines.length) lines.push("They're kept, in red. Replace a missing dataset (tap it in the graph), or Remove what didn't load.")
   return lines.join('\n')
 }
 

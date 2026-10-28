@@ -487,10 +487,11 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
     then offers **Run them now** (`downstreamOrder`). Running a transform whose output pointed at a
     missing dataset writes a new one, which takes the old id's place. The Workspace panel shows the
     count with **Show in graph** and **Remove what didn't load** (`removeUnavailable`, a draft edit).
-  - **Replace… on any dataset**: every dataset's hold menu (`DatasetList` emits `replace`; disabled
-    with the reason for a transform's output) opens a box at the top of the panels with
-    `ReplacePanel.vue` (`AddDatasetPanel` with `start` CSV or Saved, `pickLabel` "Use"; only the
-    replaced dataset is excluded from Saved). `replaceDataset` moves every pointer (dataset list —
+  - **Replace… on any dataset**: a **⇄ Replace…** button in the dataset's Edit panel
+    (`DatasetList` emits `replace(oldId, newId)`; a transform's output shows why it can't be replaced
+    instead) and on a missing dataset's card. `ReplacePanel.vue` is that button opening the usual
+    `AddDatasetPanel` (every source, `pickLabel` "Use"; only the replaced dataset is excluded from
+    Saved); its Cancel closes it back to the button. `replaceDataset` moves every pointer (dataset list —
     no duplicate if the replacement is already listed —, transform inputs, visualizations) and refuses
     a replacement made downstream of the one it replaces; then **Run them now** as for missing ones.
     Schema isn't checked: a mismatch surfaces when a transform runs or a visualization queries.
