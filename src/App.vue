@@ -6,10 +6,14 @@ import MapPage from './components/MapPage.vue'
 import { debugState, logDebug, logAsText } from './debug'
 import { setupPWAUpdates } from './pwa'
 import { useVersionCheck } from './lib/useVersionCheck'
+import { desktopView, offerDesktopView, setDesktopView } from './desktopView'
 
 const buildId = __BUILD_ID__
 const buildTime = __BUILD_TIME__
 const showDebug = ref(false)
+/** Desktop view on a phone (desktopView.ts): read once, since switching reloads. */
+const desktopOn = desktopView()
+const offerDesktop = offerDesktopView()
 const copied = ref(false)
 
 // Header "Update available" affordance: shown when the live site serves a
@@ -135,6 +139,15 @@ const helpDoc = ref('default')
         >
           {{ showDebug ? 'Hide logs' : 'View logs' }}
           <span v-if="errorCount" class="err-count">{{ errorCount }}</span>
+        </button>
+
+        <button
+          v-if="offerDesktop"
+          class="reload-btn"
+          :title="desktopOn ? 'Back to the phone layout' : 'See the desktop layout on this phone (shrunk to fit; pinch to zoom)'"
+          @click="setDesktopView(!desktopOn)"
+        >
+          {{ desktopOn ? 'Phone view' : 'Desktop view' }}
         </button>
 
         <button

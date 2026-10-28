@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { installErrorCapture } from './debug'
 import './styles/vars.css'
+import { DESKTOP_WIDTH, desktopView } from './desktopView'
 
 const app = createApp(App)
 
@@ -23,7 +24,12 @@ try {
 // iOS Safari zooms the whole page into any text field under 16px when it's tapped, and doesn't
 // zoom back. maximum-scale=1 stops that on iOS (two-finger pinch zoom still works there); it's
 // left off elsewhere, where it would block pinch zoom and there's no focus zoom to stop.
-if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+if (desktopView()) {
+  // Desktop view: a laptop-wide layout, shrunk to fit; pinch zoom stays free (no maximum-scale).
+  // An initial scale that fits the width, so every browser opens it zoomed out to the whole page.
+  const fit = Math.min(1, screen.width / DESKTOP_WIDTH).toFixed(3)
+  document.querySelector('meta[name="viewport"]')?.setAttribute('content', `width=${DESKTOP_WIDTH}, initial-scale=${fit}, viewport-fit=cover`)
+} else if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
   const vp = document.querySelector('meta[name="viewport"]')
   if (vp && !/maximum-scale/.test(vp.getAttribute('content') ?? '')) vp.setAttribute('content', `${vp.getAttribute('content')}, maximum-scale=1`)
 }
