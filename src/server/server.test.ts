@@ -34,6 +34,16 @@ const data = <T,>(r: ApiResult<T>): T => {
 const county = { kind: 'geometry' as const, column: 'area', label: 'county' }
 
 describe('server', () => {
+  it('saves on a restarted server that missed init, as the same local user', async () => {
+    const { db, server } = setup()
+    const { userId } = data(await server.handle('init', { baseUrl: '/' }))
+    // A new worker on the same device database: no init before the save.
+    const restarted = createServer(db, { readBuiltin: async () => [], sql: nodeDuckDb })
+    const { workspaceId } = data(await restarted.handle('saveWorkspace', { name: 'W', config: { datasetIds: [] }, visualizations: [] }))
+    expect((await db.get('workspaces', workspaceId))!.ownerId).toBe(userId)
+    expect(await db.list('users')).toHaveLength(1)
+  })
+
   it('uploads a file into its own data table and registers it', async () => {
     const { db, server } = setup()
     data(await server.handle('init', { baseUrl: '/' }))

@@ -49,7 +49,21 @@ const AGENT_REMOTE_REFUSAL = 'Agents can change only local datasets; this one is
 
 export function createServer(db: Database, env: ServerEnv) {
   let baseUrl = '/'
-  let userId: string | null = null
+  // The device's one local user: found or made once, on first need (init or a save),
+  // so a restarted worker that missed init still knows who saves.
+  let userReady: Promise<string> | null = null
+  const ensureUser = () =>
+    (userReady ??= (async () => {
+      const users = await db.list('users')
+      if (users.length) return users[0].id
+      const t = now()
+      const id = newId()
+      await db.put('users', { id, name: 'Local user', createdAt: t, updatedAt: t })
+      return id
+    })().catch((e) => {
+      userReady = null
+      throw e
+    }))
   const now = () => new Date().toISOString()
 
   // Grouping a table onto features is the expensive part; visualizations of
@@ -135,14 +149,7 @@ export function createServer(db: Database, env: ServerEnv) {
   const handlers: Handlers = {
     async init({ baseUrl: url }) {
       baseUrl = url
-      const users = await db.list('users')
-      if (users.length) userId = users[0].id
-      else {
-        const t = now()
-        userId = newId()
-        await db.put('users', { id: userId, name: 'Local user', createdAt: t, updatedAt: t })
-      }
-      return { userId }
+      return { userId: await ensureUser() }
     },
 
     async uploadDataset({ source, name }) {
@@ -411,7 +418,7 @@ export function createServer(db: Database, env: ServerEnv) {
       const record: WorkspaceRecord = {
         id: existing?.id ?? newId(),
         name: name.trim(),
-        ownerId: existing?.ownerId ?? userId ?? fail('invalid', 'Call init first'),
+        ownerId: existing?.ownerId ?? (await ensureUser()),
         config: { datasetIds: [...config.datasetIds], visualizationIds: visualizations.map((v) => v.id), transformIds: transforms.map((x) => x.id) },
         createdAt: existing?.createdAt ?? t,
         updatedAt: t,

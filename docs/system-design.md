@@ -146,6 +146,9 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
   `previewTransform`, `runTransform`, `profileDataset`,
   `saveWorkspace` (upserts its visualization and transform records, deletes dropped ones), `deleteWorkspace`.
+  The worker can restart (an error makes `client/api.ts` start a new one): the client sends a new
+  worker its `init` again first and logs why the old one stopped, and the server finds or makes the
+  local user on first need (`ensureUser`), so nothing depends on having seen `init`.
   Every answer is an `ApiResult`; errors carry `not_found` / `invalid` / `failed` / `unsupported`.
   Grouping a table onto features (`lib/dataset/query.ts`) is cached per dataset + binding and
   dropped when the dataset changes.
