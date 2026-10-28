@@ -43,7 +43,7 @@ UI structure — one page, the **Map**:
   2025), built like any user's map: built-in datasets (EIA tables + US counties / states polygons), a
   SQL join transform and visualizations, from the workspace file `public/data/default.powergis.json`.
 
-The entire app is wrapped inside a header and footer. The header provides the app title, a **☰ menu** (Help, which opens the conceptual-docs modal, and on touch devices **Desktop view / Phone view**), and an "Update available" affordance that surfaces when a newer PWA build is live. The footer (one row, small type) provides the current build id/timestamp, version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
+The entire app is wrapped inside a header and footer. The header provides the app title, a **☰ menu** (**Sign in** / your name, which opens the account window; Help, which opens the conceptual-docs modal, and on touch devices **Desktop view / Phone view**), and an "Update available" affordance that surfaces when a newer PWA build is live. The footer (one row, small type) provides the current build id/timestamp, version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
 
 The user previews on a **phone** (mobile Safari), so favour mobile-friendly layouts and remember there's no dev console on device — see Debugging below.
 
@@ -155,6 +155,16 @@ whatever they're actually asking about.
   later); the prompt names no datasets. Agents
   read any dataset but change only **local** ones: tools check it, and the server refuses
   `caller: 'agent'` writes to remote datasets (`request(type, payload, 'agent')`).
+- **Accounts (Supabase)**: project `rorqzjnwqwlyusagzcxy`; `client/supabase.ts` (URL + publishable
+  key, committed — public by design), `client/auth.ts` (reactive `auth`; sign up / in / out, reset
+  and change password, display name, delete account via `rpc('delete_my_account')`; actions answer
+  `null` or a message), `components/account/
+  AccountModal.vue` (☰ → Sign in / your name). The whole schema is `supabase/schema.sql` (profiles,
+  datasets registry, `dataset_access` owner | write | read, `workspaces` one default per user, a
+  private `datasets` bucket of `<id>/data.parquet`; RLS everywhere, explicit grants). Schema changes
+  go in **new** SQL files for the user to run, never edits to the one already run. This sandbox can't
+  reach supabase.co: test the SQL on a local Postgres (`/usr/lib/postgresql/16`) with stand-ins, and
+  sign-in on the preview. Next: cloud workspace, cloud datasets, sharing (`docs/TODO.md`).
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
     device files, in-memory tables, ArcGIS features via `featureTable`).
@@ -348,7 +358,8 @@ src/
     demo.ts                synthetic vector field for exercising the arrow widget
   shared/                  client ↔ server contract: api, records (tables), database, idb, builtins, sqlExtensions (+ .json allowlist)
   server/                  the server (Web Worker today): server.ts handlers, worker.ts entry, sql.ts + duckdb.ts (transforms)
-  client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter)
+  client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter),
+                           supabase.ts + auth.ts (the Supabase client; the signed-in account)
   lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt
   components/
     map/                   reusable map widgets
@@ -371,7 +382,9 @@ src/
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
     agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)
+    account/AccountModal.vue  sign in / create account / reset password / your profile
 public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
+supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor
 scripts/                   data build scripts; fetch-duckdb-extensions.mjs (prebuild, Netlify only)
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)

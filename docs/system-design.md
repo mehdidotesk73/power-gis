@@ -438,6 +438,44 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
 - `visualization_stats` + the prompt's *Choosing colors* rules: log scale (a setting), diverging
   maps centered with a `domain`, clipping domains; the legend marks clipped ends.
 
+### Accounts and Supabase
+
+- **Project** `rorqzjnwqwlyusagzcxy` (https://rorqzjnwqwlyusagzcxy.supabase.co). `client/supabase.ts`
+  makes the one client; the URL and **publishable key** are committed (they ship in the bundle either
+  way; the database's RLS guards the data). The session lives in localStorage `powergis.auth`.
+- **Accounts** (`client/auth.ts`): a reactive `auth` (`ready`, `user`, `profile`, `recovering`) kept by
+  `onAuthStateChange`, and actions that answer `null` or a message to show (Supabase's messages said
+  plainly; failures also go to the debug log): `signUp` (confirmation email back to `here()` — the
+  current site, production or a preview), `signIn`, `signOut`, `sendPasswordReset` (the link opens the
+  app with `type=recovery`; `auth.recovering` opens *Choose a new password*), `setNewPassword`,
+  `changePassword` (re-checks the current password with `signInWithPassword`, then `updateUser`),
+  `updateDisplayName`, `deleteAccount` (re-checks the password, then `rpc('delete_my_account')` —
+  `supabase/002_delete_account.sql`, security definer: deletes the datasets the caller owns, then
+  `auth.users`, which cascades to profile, access rows and workspaces — then forgets the session
+  locally; PR 3 adds removing owned datasets' files first). Account state is the client's own, like the assistant's API key; data still
+  goes through the server's requests (PR 3 hands the worker the session's token).
+- **UI**: ☰ → **Sign in** / your name opens `components/account/AccountModal.vue` (sign in, create
+  account, forgot password, choose a new password, your profile, delete account). Sign in and create
+  account carry a plain note on what's kept without an account (this browser only; browsers may clear
+  it on their own) and what an account adds (the option to store them in the cloud).
+- **Schema** (`supabase/schema.sql`, run once in the SQL editor; later changes go in new files):
+  - `profiles` (made by a trigger on sign-up; you read only your own),
+  - `datasets` (registry: name, description, columns, row count, `meta`, `file_path`, `created_by`),
+  - `dataset_access` (`dataset_id`, `user_id`, `access` owner | write | read, `granted_by`; one owner,
+    made by a trigger with the dataset),
+  - `workspaces` (`owner_id`, `name`, `config` = the `.powergis.json` JSON, `is_default`; one default
+    per user),
+  - a private storage bucket `datasets`, one file per dataset at `<dataset id>/data.parquet`.
+- **Rules** (RLS; the app's role gets only explicit grants — new tables aren't exposed automatically):
+  you see a dataset with any access; owners and writers change it and grant read or write; writers
+  only raise read to write and remove readers; only the owner removes write, deletes the dataset or
+  its file; anyone but the owner can leave. `access_level(ds)` (security definer) is the one check
+  the policies share. Sharing looks people up one exact email at a time (`find_user_by_email`), so
+  no one can list every user; `dataset_members(ds)` lists a dataset's people to its members.
+- **Tested** against a local Postgres 16 with stand-ins for `auth` and `storage` (three users through
+  grant / upgrade / refused downgrade / refused owner removal / file upload / delete). This sandbox
+  can't reach supabase.co, so sign-in itself is tested on the preview.
+
 ### Buttons (`components/ui/UiButton.vue`)
 
 One button component: `size` tag / compact / regular / large (font, height, radius scale together;
