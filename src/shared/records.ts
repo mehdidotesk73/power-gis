@@ -53,12 +53,27 @@ export interface DatasetRecord extends BaseRecord {
   origin: string
   /** Where the rows are kept; records from before stores existed are local. */
   store?: DatasetStore
+  /** A cloud dataset's copy on this device: the cloud version it came from, and whether its rows changed here since. */
+  cloud?: CloudCopy
   description?: string
   /** What's in each column; computed whenever the data table is written. */
   profile?: DatasetProfile
   /** Open slot for features to attach their own metadata (e.g. `builtin`, the table a built-in copy came from). */
   extensions?: Record<string, unknown>
 }
+
+/**
+ * A cloud dataset as this device holds it. `version` is the cloud row's `updated_at` when this
+ * copy was downloaded or uploaded; `changed`: the rows here differ from the cloud's (a transform
+ * rewrote them), until Save dataset uploads them or Discard local changes downloads the cloud's.
+ */
+export interface CloudCopy {
+  version: string
+  changed?: boolean
+}
+
+/** A cloud dataset whose rows changed on this device and aren't saved to the cloud yet. */
+export const changedHere = (d: Pick<DatasetRecord, 'store' | 'cloud'>) => d.store === 'remote' && !!d.cloud?.changed
 
 /** An input of a transform: a dataset, and the table name the SQL calls it by. */
 export interface TransformInputRef {

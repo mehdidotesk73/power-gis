@@ -9,13 +9,14 @@ import type { Aggregation } from '../lib/dataset/aggregate'
 import type { GeometryBinding } from '../lib/dataset/binding'
 import type { BindingInfo, FindEntry, VizValues } from '../lib/dataset/query'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
-import type { DatasetStore, TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
+import type { TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
 import type { MissingDataset, WorkspaceFile } from '../lib/workspace/file'
 
 export interface ApiError {
-  code: 'not_found' | 'invalid' | 'failed' | 'unsupported'
+  /** `conflict`: a cloud dataset changed in the cloud since this device got it. */
+  code: 'not_found' | 'invalid' | 'failed' | 'unsupported' | 'conflict'
   message: string
 }
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: ApiError }
@@ -54,8 +55,18 @@ export interface Api {
   updateDataset: [{ id: string; name?: string; description?: string; extensions?: Record<string, unknown> }, { datasetId: string }]
   /** Drops the data table and registry row, and every visualization of it. */
   deleteDataset: [{ id: string }, { datasetId: string }]
-  /** Moves a dataset's rows to the other store, keeping its id (remote storage isn't available yet). */
-  moveDataset: [{ id: string; to: DatasetStore }, { datasetId: string; store: DatasetStore }]
+  /**
+   * Stores a dataset in the cloud (same id; this device keeps its copy), or saves a cloud dataset's
+   * changes made here. Refused with `conflict` when the cloud's copy changed since this device got
+   * it, unless `overwrite`. Signed in only; never an agent.
+   */
+  storeInCloud: [{ id: string; overwrite?: boolean }, { datasetId: string; updatedAt: string }]
+  /** Downloads a cloud dataset onto this device: a new copy here, a newer version, or the cloud's rows back over changes made here. */
+  fetchFromCloud: [{ id: string }, { datasetId: string; rowCount: number }]
+  /** An independent local dataset with a dataset's rows (a new id); the original is untouched. */
+  copyToLocal: [{ id: string }, { datasetId: string }]
+  /** How these datasets stand in the cloud: not stored there, the same version as here, newer there, or gone. */
+  cloudStatus: [{ ids: string[] }, { datasets: { id: string; state: 'notInCloud' | 'same' | 'cloudNewer' | 'gone'; sizeBytes?: number; updatedAt?: string }[] }]
   /** How a dataset looks under a binding (features, unmatched rows, defaults). */
   describeBinding: [{ datasetId: string; binding: GeometryBinding }, BindingInfo]
   /** One value per feature for a visualization. */

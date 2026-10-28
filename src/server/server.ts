@@ -18,7 +18,8 @@ import { bindingInfo, findIndex, groupDataset, queryValues, type FindIndex, type
 import { profileRows } from '../lib/dataset/profile'
 import { visualizationLayer } from '../lib/dataset/visualization'
 import { parseWorkspaceFile, parseWorkspaceObject, pointers, replaceDatasetIds, type MissingDataset, type WorkspaceFile } from '../lib/workspace/file'
-import type { CloudStore } from '../shared/cloud'
+import { MAX_CLOUD_FILE, type CloudDataset, type CloudStore } from '../shared/cloud'
+import { decodeDatasetFile, encodeDatasetFile } from './datasetFile'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
 export interface ServerEnv {
@@ -113,6 +114,45 @@ export function createServer(db: Database, env: ServerEnv) {
     return (await db.get('datasets', id)) ?? fail('not_found', `No dataset "${id}"`)
   }
 
+  // ── cloud datasets ─────────────────────────────────────────────────────────
+  // A cloud dataset keeps its id; this device keeps a copy of its rows (the
+  // same data table as a local one), with the cloud version it came from.
+
+  /** Writes a cloud dataset's rows and details here, from its cloud row. */
+  async function download(c: CloudStore, cd: CloudDataset): Promise<DatasetRecord> {
+    if (!cd.hasFile) fail('not_found', `"${cd.name}" has no rows in the cloud yet`)
+    const rows = await decodeDatasetFile(await c.readFile(cd.id), cd.columns)
+    const have = await db.get('datasets', cd.id)
+    const t = now()
+    const record: DatasetRecord = {
+      id: cd.id,
+      table: have?.table ?? dataTableName(cd.id),
+      name: cd.name,
+      ...(cd.description ? { description: cd.description } : {}),
+      columns: cd.columns,
+      rowCount: rows.length,
+      profile: profileRows(rows, cd.columns),
+      origin: cd.meta.origin ?? have?.origin ?? 'Cloud',
+      ...(cd.meta.extensions ? { extensions: cd.meta.extensions } : {}),
+      store: 'remote',
+      cloud: { version: cd.updatedAt },
+      createdAt: have?.createdAt ?? t,
+      updatedAt: t,
+    }
+    await db.writeRows(record.table, rows)
+    await db.put('datasets', record)
+    forget(cd.id)
+    return record
+  }
+
+  /** Cloud datasets this device has (unchanged here) whose cloud version is newer: downloaded again. Failures are left for later. */
+  async function catchUpDatasets(c: CloudStore, records: DatasetRecord[]) {
+    const mine = records.filter((d) => storeOf(d) === 'remote' && !d.cloud?.changed)
+    if (!mine.length) return
+    const there = await c.datasets(mine.map((d) => d.id)).catch(() => [] as CloudDataset[])
+    for (const cd of there) if (cd.updatedAt !== mine.find((d) => d.id === cd.id)?.cloud?.version) await download(c, cd).catch(() => undefined)
+  }
+
   function grouped(datasetId: string, binding: GeometryBinding) {
     const key = `${datasetId}|${JSON.stringify(binding)}`
     let p = groupedCache.get(key)
@@ -161,6 +201,13 @@ export function createServer(db: Database, env: ServerEnv) {
    * (`extensions.copyOf`), so opening the same document again reuses them.
    */
   async function openDocument(doc: WorkspaceFile): Promise<{ file: WorkspaceFile; missing: MissingDataset[]; failed: { name: string; reason: string }[] }> {
+    // Signed in: cloud datasets here catch up with newer versions, and ones not here are downloaded.
+    if (cloud) await catchUpDatasets(cloud, await db.list('datasets'))
+    const fromCloud = new Map<string, CloudDataset>()
+    if (cloud) {
+      const wanted = doc.datasets.filter((f) => f.store === 'remote').map((f) => f.id)
+      for (const cd of await cloud.datasets(wanted).catch(() => [] as CloudDataset[])) fromCloud.set(cd.id, cd)
+    }
     const records = await db.list('datasets')
     const copyOf = (d: DatasetRecord) => (Array.isArray(d.extensions?.copyOf) ? (d.extensions.copyOf as string[]) : [])
     /** This device's dataset for a fact: the same id, or a copy made for it (or for one it's the same as). */
@@ -175,8 +222,16 @@ export function createServer(db: Database, env: ServerEnv) {
       const o = fact.origin
       if (o.kind === 'output') continue // below, with its transform
       const here = find(ids)
+      const there = fromCloud.get(fact.id)
       if (here) resolved.set(fact.id, here.id)
-      else if (o.kind === 'builtin') {
+      else if (there && cloud) {
+        try {
+          records.push(await download(cloud, there))
+          resolved.set(fact.id, there.id)
+        } catch {
+          lost(fact, 'cloud')
+        }
+      } else if (o.kind === 'builtin') {
         const b = BUILTIN_TABLES.find((x) => x.table === o.table)
         if (!b) lost(fact, 'builtin')
         else {
@@ -280,8 +335,18 @@ export function createServer(db: Database, env: ServerEnv) {
       const ds = await dataset(id)
       if (caller === 'agent' && storeOf(ds) === 'remote') fail('invalid', AGENT_REMOTE_REFUSAL)
       if (name !== undefined && !name.trim()) fail('invalid', 'A dataset needs a name')
+      // A cloud dataset's name and description live in the cloud: changed there first.
+      let cloudCopy = ds.cloud
+      const details = { ...(name !== undefined && name.trim() !== ds.name ? { name: name.trim() } : {}), ...(description !== undefined && description !== (ds.description ?? '') ? { description } : {}) }
+      if (storeOf(ds) === 'remote' && Object.keys(details).length) {
+        const c = cloud ?? fail('unsupported', `"${ds.name}" is in the cloud: sign in to rename or describe it`)
+        const { updatedAt } = await c.updateDetails(id, details)
+        // Still the same version as here unless someone else changed it meanwhile (then it's caught up on the next open).
+        cloudCopy = ds.cloud && { ...ds.cloud, version: updatedAt }
+      }
       await db.put('datasets', {
         ...ds,
+        ...(cloudCopy ? { cloud: cloudCopy } : {}),
         ...(name !== undefined ? { name: name.trim() } : {}),
         ...(description !== undefined ? { description } : {}),
         ...(extensions !== undefined ? { extensions: { ...ds.extensions, ...extensions } } : {}),
@@ -293,6 +358,12 @@ export function createServer(db: Database, env: ServerEnv) {
     async deleteDataset({ id }, caller) {
       const ds = await dataset(id)
       if (caller === 'agent' && storeOf(ds) === 'remote') fail('invalid', AGENT_REMOTE_REFUSAL)
+      if (storeOf(ds) === 'remote') {
+        const c = cloud ?? fail('unsupported', `"${ds.name}" is in the cloud: sign in to delete it`)
+        const [cd] = await c.datasets([id])
+        if (cd && !cd.owned) fail('invalid', `"${ds.name}" isn't yours to delete`)
+        if (cd) await c.deleteDataset(id)
+      }
       await db.dropRows(ds.table)
       await db.delete('datasets', id)
       const gone = new Set<string>()
@@ -311,12 +382,56 @@ export function createServer(db: Database, env: ServerEnv) {
       return { datasetId: id }
     },
 
-    async moveDataset({ id, to }, caller) {
-      if (caller === 'agent') fail('invalid', 'Only the user moves datasets between stores.')
+    async storeInCloud({ id, overwrite }, caller) {
+      if (caller === 'agent') fail('invalid', 'Only the user stores datasets in the cloud.')
+      const c = signedIn()
       const ds = await dataset(id)
-      if (storeOf(ds) === to) return { datasetId: id, store: to }
-      // Only the local store exists so far; the remote one comes with the shared database.
-      return fail('unsupported', "Cloud storage isn't available yet, so datasets stay on this device for now.")
+      if (storeOf(ds) === 'remote' && !ds.cloud?.changed) return { datasetId: id, updatedAt: ds.cloud?.version ?? '' }
+      const [there] = await c.datasets([id])
+      if (there && !overwrite && there.updatedAt !== ds.cloud?.version) fail('conflict', `"${ds.name}" changed in the cloud since this device got it`)
+      if (there && !there.owned) fail('invalid', `"${ds.name}" isn't yours to change in the cloud`)
+      const rows = (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`)
+      const file = await encodeDatasetFile(ds.columns, rows)
+      if (file.byteLength > MAX_CLOUD_FILE) {
+        fail('invalid', `"${ds.name}" is too large for cloud storage (${(file.byteLength / 1e6).toFixed(1)} MB compressed; files can be up to ${MAX_CLOUD_FILE / 1024 / 1024} MB)`)
+      }
+      const { updatedAt } = await c.putDataset({ id, name: ds.name, description: ds.description ?? '', columns: ds.columns, rowCount: ds.rowCount, meta: { origin: ds.origin, ...(ds.extensions ? { extensions: ds.extensions } : {}) } }, file)
+      await db.put('datasets', { ...(await dataset(id)), store: 'remote', cloud: { version: updatedAt } })
+      return { datasetId: id, updatedAt }
+    },
+
+    async fetchFromCloud({ id }, caller) {
+      if (caller === 'agent') fail('invalid', 'Only the user downloads cloud datasets.')
+      const c = signedIn()
+      const [cd] = await c.datasets([id])
+      if (!cd) fail('not_found', 'That dataset is no longer in the cloud (or not shared with you)')
+      const r = await download(c, cd)
+      return { datasetId: id, rowCount: r.rowCount }
+    },
+
+    async copyToLocal({ id }) {
+      const ds = await dataset(id)
+      const rows = (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`)
+      const copy = newId()
+      const t = now()
+      const { cloud: _c, store: _s, ...rest } = ds
+      await db.writeRows(dataTableName(copy), rows)
+      await db.put('datasets', { ...rest, id: copy, table: dataTableName(copy), name: `${ds.name} (local copy)`, store: 'local', createdAt: t, updatedAt: t })
+      return { datasetId: copy }
+    },
+
+    async cloudStatus({ ids }) {
+      const c = signedIn()
+      const there = new Map((await c.datasets(ids)).map((cd) => [cd.id, cd]))
+      const datasets = await Promise.all(
+        ids.map(async (id) => {
+          const here = await db.get('datasets', id)
+          const cd = there.get(id)
+          if (!cd) return { id, state: here && storeOf(here) === 'remote' ? ('gone' as const) : ('notInCloud' as const) }
+          return { id, state: cd.updatedAt === here?.cloud?.version ? ('same' as const) : ('cloudNewer' as const), updatedAt: cd.updatedAt, ...(cd.sizeBytes !== undefined ? { sizeBytes: cd.sizeBytes } : {}) }
+        }),
+      )
+      return { datasets }
     },
 
     async previewTransform({ sql: query, inputs, limit, offset }) {
@@ -364,6 +479,8 @@ export function createServer(db: Database, env: ServerEnv) {
           profile: profileRows(out.rows, out.columns),
           // The SQL that wrote these rows: opening a workspace elsewhere compares it to tell a current copy from a stale one.
           extensions: { ...existing?.extensions, sql: o.sql },
+          // A cloud dataset rewritten here: changed here until Save dataset uploads it (or Discard takes the cloud's back).
+          ...(existing?.cloud ? { cloud: { ...existing.cloud, changed: true } } : {}),
           updatedAt: t,
         }
         await db.writeRows(record.table, out.rows)

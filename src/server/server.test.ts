@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { emptyWorkspace } from '../lib/workspace/workspace'
 import { createServer } from './server'
 import { nodeDuckDb } from './testEngine'
 import { MemoryDatabase } from '../shared/database'
@@ -6,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
 import { parseWorkspaceFile, replaceDatasetIds, toWorkspaceFile, type WorkspaceFile } from '../lib/workspace/file'
 import type { ApiResult } from '../shared/api'
-import type { CloudStore, CloudWorkspace } from '../shared/cloud'
+import type { CloudDataset, CloudStore, CloudWorkspace } from '../shared/cloud'
 import { defaultScalarStyle, settingsOf, makeVisualization, ROWS } from '../lib/dataset/visualization'
 
 const SQ0 = '"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))"'
@@ -124,12 +125,11 @@ describe('server', () => {
     expect(await db.readRows(`ds_${a.replace(/-/g, '')}`)).toBeUndefined()
   })
 
-  it('keeps new datasets in the local store; moving to remote is not available yet', async () => {
+  it('keeps new datasets in the local store; storing one in the cloud needs a signed-in user', async () => {
     const { db, server } = setup()
     const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
     expect((await db.get('datasets', datasetId))!.store).toBe('local')
-    expect(data(await server.handle('moveDataset', { id: datasetId, to: 'local' }))).toEqual({ datasetId, store: 'local' })
-    expect(await server.handle('moveDataset', { id: datasetId, to: 'remote' })).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+    expect(await server.handle('storeInCloud', { id: datasetId })).toMatchObject({ ok: false, error: { code: 'unsupported' } })
     expect((await db.get('datasets', datasetId))!.store).toBe('local')
   })
 
@@ -144,11 +144,13 @@ describe('server', () => {
     expect(await server.handle('runTransform', writes(remoteId), 'agent')).toMatchObject({ ok: false, error: { message: expect.stringContaining('only local datasets') } })
     expect(await server.handle('deleteDataset', { id: remoteId }, 'agent')).toMatchObject({ ok: false })
     expect(await server.handle('updateDataset', { id: remoteId, name: 'x' }, 'agent')).toMatchObject({ ok: false })
-    expect(await server.handle('moveDataset', { id: datasetId, to: 'local' }, 'agent')).toMatchObject({ ok: false })
+    expect(await server.handle('storeInCloud', { id: datasetId }, 'agent')).toMatchObject({ ok: false })
+    expect(await server.handle('fetchFromCloud', { id: remoteId }, 'agent')).toMatchObject({ ok: false })
     // Reading a remote dataset is fine; so are changes to local ones, and the user may do anything.
     expect(data(await server.handle('previewTransform', { sql: 'SELECT count(*) AS n FROM r', inputs: [{ datasetId: remoteId, alias: 'r' }] }, 'agent')).rows[0].n).toBe(4)
     expect(data(await server.handle('runTransform', { transform: { ...writes(remoteId).transform, outputs: [{ key: 'o', name: 'out', sql: 'SELECT county FROM r' }], inputs: [{ datasetId: remoteId, alias: 'r' }] } }, 'agent')).outputs[0].created).toBe(true)
-    data(await server.handle('deleteDataset', { id: remoteId }))
+    // Deleting a cloud dataset deletes it from the cloud too: signed out, the user is asked to sign in.
+    expect(await server.handle('deleteDataset', { id: remoteId })).toMatchObject({ ok: false, error: { code: 'unsupported', message: expect.stringContaining('sign in') } })
   })
 
   it('renames datasets and reports unknown requests and ids', async () => {
@@ -364,7 +366,25 @@ describe('cloud workspace', () => {
     let saved: CloudWorkspace | null = null
     let overview = ''
     let n = 0
+    const datasets = new Map<string, CloudDataset>()
+    const files = new Map<string, Uint8Array>()
+    let v = 0
+    const version = () => `2026-10-29T00:00:${String(++v).padStart(2, '0')}Z`
     const store: CloudStore = {
+      datasets: async (ids) => ids.flatMap((id) => (datasets.has(id) ? [structuredClone(datasets.get(id)!)] : [])),
+      putDataset: async (d, f) => {
+        const updatedAt = version()
+        datasets.set(d.id, { ...structuredClone(d), updatedAt, sizeBytes: f.byteLength, hasFile: true, owned: true })
+        files.set(d.id, f)
+        return { updatedAt }
+      },
+      updateDetails: async (id, patch) => {
+        const updatedAt = version()
+        datasets.set(id, { ...datasets.get(id)!, ...patch, updatedAt })
+        return { updatedAt }
+      },
+      readFile: async (id) => files.get(id) ?? Promise.reject(new Error('no file')),
+      deleteDataset: async (id) => void (datasets.delete(id), files.delete(id)),
       defaultWorkspace: async () => saved,
       saveDefaultWorkspace: async (w) => {
         saved = { id: saved?.id ?? 'w1', name: w.name, file: JSON.parse(JSON.stringify(w.file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
@@ -372,7 +392,7 @@ describe('cloud workspace', () => {
         return { id: saved.id, updatedAt: saved.updatedAt }
       },
     }
-    return { cloud: () => store, saved: () => saved?.file as WorkspaceFile, overview: () => overview }
+    return { cloud: () => store, saved: () => saved?.file as WorkspaceFile, overview: () => overview, datasets }
   }
   const device = (cloud: () => CloudStore) => {
     const db = new MemoryDatabase()
@@ -392,6 +412,57 @@ describe('cloud workspace', () => {
     expect(data(await server.handle('setAuth', { accessToken: 'token' }))).toEqual({ signedIn: true })
     expect(data(await server.handle('cloudWorkspace', {}))).toEqual({ workspace: null })
     expect(data(await server.handle('setAuth', { accessToken: null }))).toEqual({ signedIn: false })
+  })
+
+  it('stores a dataset in the cloud; another device downloads it, and changes made there are saved, with conflicts caught', async () => {
+    const account = fakeCloud()
+    const a = device(account.cloud)
+    data(await a.server.handle('setAuth', { accessToken: 't' }))
+    const own = data(await a.server.handle('uploadDataset', { source: { kind: 'csv', file: file('mine.csv', 'fips,x\n01001,1\n01003,2\n') } })).datasetId
+    data(await a.server.handle('storeInCloud', { id: own }))
+    const onA = (await a.db.get('datasets', own))!
+    expect(onA).toMatchObject({ store: 'remote', cloud: { version: account.datasets.get(own)!.updatedAt } })
+    expect(account.datasets.get(own)).toMatchObject({ name: 'mine', rowCount: 2, hasFile: true })
+    // Storing it again does nothing: it's the same version.
+    expect(data(await a.server.handle('cloudStatus', { ids: [own] })).datasets).toEqual([{ id: own, state: 'same', updatedAt: onA.cloud!.version, sizeBytes: expect.any(Number) }])
+
+    // Device B opens a workspace using it: downloaded, not missing; same id, same rows.
+    const sent = toWorkspaceFile({ ...emptyWorkspace('W'), datasetIds: [own] }, (id) => (id === own ? onA : undefined))
+    const b = device(account.cloud)
+    data(await b.server.handle('setAuth', { accessToken: 't' }))
+    const opened = data(await b.server.handle('openDocument', { file: sent }))
+    expect(opened.missing).toEqual([])
+    expect(await b.db.readRows(onA.table)).toEqual([{ fips: '01001', x: 1 }, { fips: '01003', x: 2 }])
+    expect((await b.db.get('datasets', own))!.store).toBe('remote')
+
+    // A rewrites it with a transform: changed here (not in the cloud), and saving it uploads it.
+    const rewrite = (srv: typeof a.server) => srv.handle('runTransform', { transform: { id: 't', name: 'T', inputs: [{ datasetId: own, alias: 'm' }], outputs: [{ key: 'o', name: 'mine', sql: 'SELECT fips, x * 10 AS x FROM m', outputId: own }] } })
+    data(await rewrite(a.server))
+    expect((await a.db.get('datasets', own))!.cloud?.changed).toBe(true)
+    data(await a.server.handle('storeInCloud', { id: own }))
+    expect((await a.db.get('datasets', own))!.cloud?.changed).toBeUndefined()
+
+    // B changed it too, from the old version: saving is a conflict until B overwrites; or B takes the cloud's back.
+    data(await rewrite(b.server))
+    expect(data(await b.server.handle('cloudStatus', { ids: [own] })).datasets[0].state).toBe('cloudNewer')
+    expect(await b.server.handle('storeInCloud', { id: own })).toMatchObject({ ok: false, error: { code: 'conflict' } })
+    data(await b.server.handle('fetchFromCloud', { id: own }))
+    expect((await b.db.get('datasets', own))!.cloud?.changed).toBeUndefined()
+    expect((await b.db.readRows(onA.table))!.map((r) => r.x)).toEqual([10, 20])
+    data(await rewrite(b.server))
+    data(await b.server.handle('storeInCloud', { id: own, overwrite: true }))
+    expect((await b.db.get('datasets', own))!.cloud?.version).toBe(account.datasets.get(own)!.updatedAt)
+
+    // A renames it (on Save): the cloud's name changes, and A's copy stays current.
+    data(await a.server.handle('updateDataset', { id: own, name: 'Mine, renamed' }))
+    expect(account.datasets.get(own)!.name).toBe('Mine, renamed')
+    // A local copy is independent; deleting the cloud dataset deletes it from the cloud.
+    const copy = data(await a.server.handle('copyToLocal', { id: own })).datasetId
+    expect(await a.db.get('datasets', copy)).toMatchObject({ store: 'local', name: 'Mine, renamed (local copy)' })
+    expect((await a.db.get('datasets', copy))!.cloud).toBeUndefined()
+    data(await a.server.handle('deleteDataset', { id: own }))
+    expect(account.datasets.has(own)).toBe(false)
+    expect(data(await b.server.handle('cloudStatus', { ids: [own] })).datasets[0].state).toBe('gone')
   })
 
   it('opens a document on another device: built-ins and outputs made there, an upload reported by name', async () => {
