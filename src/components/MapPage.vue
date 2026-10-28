@@ -31,6 +31,7 @@ import { useSplitter } from './useSplitter'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
+import { auth } from '../client/auth'
 import { readDb } from '../client/db'
 import { listDatasets } from '../client/datasets'
 import { BUILTIN_TABLES } from '../shared/builtins'
@@ -63,7 +64,7 @@ import {
   type OpResult,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
-import { fileName, fromWorkspaceFile, isPlaceholder, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft } from '../lib/workspace/file'
+import { fileName, fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft, type WorkspaceFile } from '../lib/workspace/file'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -160,6 +161,15 @@ async function save() {
   if (saving.value) return
   saving.value = true
   barMessage.value = ''
+  const ok = await saveHere()
+  saving.value = false
+  if (!ok) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
+  if (auth.user && cloudUser.value !== auth.user.id) await catchUpWithCloud() // the last check failed: try again (it saves here when the account has none)
+  await saveToCloud()
+}
+
+/** Saves the working copy on this device (the server's database); true when it worked. */
+async function saveHere(): Promise<boolean> {
   const d = doc.value
   const r = await call(
     'save workspace',
@@ -171,12 +181,104 @@ async function save() {
       transforms: d.transforms,
     }),
   )
-  saving.value = false
-  if (!r) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
+  if (!r) return false
   savedSnap.value = snapshot(d)
   if (!doc.value.id) doc.value = { ...doc.value, id: r.workspaceId }
   store.set(LAST_WORKSPACE, r.workspaceId)
+  return true
 }
+
+// ── the signed-in user's workspace in the cloud ────────────────────────────
+//
+// Signed in, Save also stores the workspace in the account (made portable:
+// built-ins and transform outputs are rebuilt on the device that opens it).
+// On load and on sign-in the page catches up with the account: a cloud
+// workspace saved since this device last saw it opens here (asking first
+// over unsaved changes); an account with none yet gets this device's.
+
+/** `<user id>:<updatedAt>` of the cloud workspace this device last saved or opened. */
+const CLOUD_SEEN = 'powergis.cloudSeen'
+/** The user whose cloud workspace this page has caught up with (null: signed out, or not yet). */
+const cloudUser = ref<string | null>(null)
+const cloudError = ref('')
+const savedWhere = computed(() =>
+  !auth.user
+    ? 'on this device'
+    : cloudError.value
+      ? `on this device — not in your account (${cloudError.value}; Save tries again)`
+      : cloudUser.value !== auth.user.id
+        ? 'on this device (checking your account…)'
+        : 'on this device and in your account',
+)
+const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+async function saveToCloud() {
+  const user = auth.user?.id
+  if (!user || cloudUser.value !== user || dirty.value) return
+  const file = documentOf(doc.value)
+  const r = await request('saveCloudWorkspace', { file, overview: overviewOf(file) })
+  if (!r.ok) {
+    cloudError.value = r.error.message
+    logDebug(`save to your account: ${r.error.message}`, 'warn')
+    barMessage.value = `Saved on this device, but not in your account: ${r.error.message}`
+    return
+  }
+  cloudError.value = ''
+  store.set(CLOUD_SEEN, `${user}:${r.data.updatedAt}`)
+}
+
+async function catchUpWithCloud() {
+  const user = auth.user?.id
+  if (!user || !loaded.value || cloudUser.value === user) return
+  const r = await request('cloudWorkspace', {})
+  if (auth.user?.id !== user) return
+  if (!r.ok) {
+    cloudError.value = r.error.message
+    logDebug(`your account's workspace: ${r.error.message}`, 'warn')
+    return
+  }
+  cloudUser.value = user
+  cloudError.value = ''
+  const w = r.data.workspace
+  if (!w) return void (await saveToCloud()) // a new account: this device's workspace becomes its own
+  if (store.get(CLOUD_SEEN) === `${user}:${w.updatedAt}`) return
+  store.set(CLOUD_SEEN, `${user}:${w.updatedAt}`)
+  if (dirty.value && !confirm(`Your account has a workspace saved ${when(w.updatedAt)}. Open it here? Your unsaved changes on this device will be replaced.`)) {
+    barMessage.value = 'Kept your changes here. Save stores them in your account, replacing the one there.'
+    return
+  }
+  const report = await openHere(w.file, 'Opening your workspace from your account…')
+  if (report === null) return
+  await saveHere()
+  barMessage.value = `Opened your workspace from your account (saved ${when(w.updatedAt)}).` + (report ? `\n${report}` : '')
+}
+
+/** The workspace as a document: its setup plus the facts of every dataset it points at (Copy, files, the cloud). */
+const documentOf = (d: WorkspaceDoc): WorkspaceFile => toWorkspaceFile(d, (id) => records.value.get(id))
+
+/**
+ * Opens a workspace document (any version) as the working copy: the server makes its datasets real
+ * here (built-ins, transform outputs) and says what it couldn't. Answers the report of what's
+ * missing ('' when nothing is), or null when it couldn't open at all.
+ */
+async function openHere(file: unknown, loading: string): Promise<string | null> {
+  status.value = 'loading'
+  loadingMsg.value = loading
+  const o = await call('open the workspace', request('openDocument', { file }))
+  status.value = 'ready'
+  if (!o) return null
+  for (const id of o.file.datasetIds) await loadRecord(id)
+  const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id))
+  resetSelection()
+  doc.value = next.doc
+  const report = missingReport(o.missing, o.failed, next.droppedVisualizations, next.droppedTransforms)
+  if (report) logDebug(`workspace "${next.doc.name}": ${report.replace(/\n/g, ' ')}`, 'warn')
+  return report
+}
+watch([() => auth.user?.id, loaded], ([user]) => {
+  if (!user) cloudUser.value = null
+  else void catchUpWithCloud()
+})
 
 /** Back to the workspace as last saved. */
 async function revert() {
@@ -196,7 +298,7 @@ function resetSelection() {
 const rename = (name: string) => apply(renameWorkspace(doc.value, name))
 
 function download() {
-  const blob = new Blob([JSON.stringify(toWorkspaceFile(doc.value), null, 2)], { type: 'application/json' })
+  const blob = new Blob([JSON.stringify(documentOf(doc.value), null, 2)], { type: 'application/json' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = fileName(doc.value)
@@ -206,7 +308,7 @@ function download() {
 
 /** Copies the workspace (the same JSON as a workspace file) to the clipboard. */
 async function copyWorkspace() {
-  const text = JSON.stringify(toWorkspaceFile(doc.value), null, 2)
+  const text = JSON.stringify(documentOf(doc.value), null, 2)
   try {
     await navigator.clipboard.writeText(text)
     barMessage.value = 'Workspace copied — paste it anywhere (Workspace → Paste workspace loads it back).'
@@ -222,14 +324,9 @@ async function loadWorkspaceText(text: string, from: 'file' | 'paste') {
   const parsed = parseWorkspaceFile(text)
   if (!parsed.ok) return void (barMessage.value = parsed.error)
   if (dirty.value && !confirm(`Replace your unsaved changes with the ${from === 'file' ? 'workspace from this file' : 'pasted workspace'}?`)) return
-  for (const id of parsed.file.datasetIds) await loadRecord(id)
-  const { doc: next, missing } = fromWorkspaceFile(parsed.file, doc.value, (id) => records.value.has(id))
-  resetSelection()
-  doc.value = next
-  barMessage.value =
-    `Loaded "${next.name}" (${next.visualizations.length} visualizations) — Save to keep it.` +
-    (missing.length ? ` ${missing.length} dataset${missing.length === 1 ? ' is' : 's are'} not in this database and ${missing.length === 1 ? 'was' : 'were'} left out.` : '')
-  if (missing.length) logDebug(`workspace file: datasets not in the database: ${missing.join(', ')}`, 'warn')
+  const report = await openHere(parsed.file, 'Opening the workspace…')
+  if (report === null) return void (barMessage.value = "Couldn't open that workspace — see View logs.")
+  barMessage.value = `Loaded "${doc.value.name}" (${doc.value.visualizations.length} visualizations) — Save to keep it.` + (report ? `\n${report}` : '')
 }
 
 
@@ -539,7 +636,7 @@ async function seedDefault() {
   loadingMsg.value = 'Preparing the default map (the first time runs its transforms)…'
   const r = await call('default workspace', request('seedDefaultWorkspace', {}))
   if (!r) throw new Error('the default workspace could not be prepared')
-  for (const id of r.file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
+  for (const id of r.file.datasetIds) await loadRecord(id)
   apply({ ok: true, doc: fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id)).doc })
   loadingMsg.value = 'Loading data…'
 }
@@ -813,6 +910,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :dirty="dirty"
           :saving="saving"
           :message="barMessage"
+          :where="savedWhere"
           :counts="{ datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length }"
           @save="save"
           @revert="revert"

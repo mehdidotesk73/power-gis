@@ -355,11 +355,11 @@ visualization it follows the top visible one (they load one by one).
 
 ### Default workspace
 
-The first visit (and Workspace → Reset) opens `public/data/default.powergis.json`, a workspace file used as a
-template: dataset pointers are `builtin:<table>` or `transform:<n>` (the output of the file's n-th
-transform). The server's `seedDefaultWorkspace` (the worker reads the file: `env.readDefaultWorkspace`; `MapPage.seedDefault` only asks and opens the result) uploads each built-in (or reuses a copy marked
-`extensions.builtin` with the built-in's current `extensions.version`), runs each transform in order (or reuses an output marked `extensions.madeBy`
-= its SQL + resolved inputs), swaps ids in with `replacePointers` and returns the file; the page opens it with
+The first visit (and Workspace → Reset) opens `public/data/default.powergis.json`, a v2 workspace document
+with readable ids: four built-in datasets (`origin: builtin`) and the transform output
+`default-utilities-by-county` (`origin: output`). The server's `seedDefaultWorkspace` (the worker reads the
+file: `env.readDefaultWorkspace`; `MapPage.seedDefault` only asks and opens the result) runs `openDocument`
+on it — built-ins reused or uploaded, the transform run once (or its earlier copy reused) — and the page opens it with
 `fromWorkspaceFile`, unsaved like any loaded file (the very first one is saved at once). Today's file:
 `utilities` + `utility_counties` (links) + `us_counties` + `us_states`; the transform **Utilities by
 county** (`counties LEFT JOIN links LEFT JOIN utilities` — counties no utility reports keep one empty
@@ -454,6 +454,30 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   `auth.users`, which cascades to profile, access rows and workspaces — then forgets the session
   locally; PR 3 adds removing owned datasets' files first). Account state is the client's own, like the assistant's API key; data still
   goes through the server's requests (PR 3 hands the worker the session's token).
+- **Cloud workspace** (PR 2): the worker reaches Supabase as the signed-in user. `client/auth.ts` sends
+  every new access token (`setAuth`; `null` on sign-out; replayed to a restarted worker with `init`),
+  and the worker makes a `CloudStore` for it (`server/cloud.ts`; the interface is `shared/cloud.ts`, so
+  tests use a fake; the project values are `shared/supabaseConfig.ts`, shared with the page). Requests:
+  `cloudWorkspace` (the account's default workspace, any version), `saveCloudWorkspace({file, overview})`
+  (the cloud row keeps `config` = the document and `overview` = `overviewOf(file)`, rewritten on every
+  save; `supabase/003_workspace_overview.sql`) and `openDocument({file})` → `{file, missing, failed}`.
+  - **Documents (v2, `lib/workspace/file.ts`)**: the setup plus `datasets`, the facts of every dataset
+    pointed at (id, name, description, store, rows, `origin` builtin | output | upload | unknown, and
+    `sameAs`: ids of the same dataset elsewhere). `toWorkspaceFile(doc, record)` builds one from this
+    device's registry; Copy / Paste, Download / Load and the cloud all carry it. Version 1 documents
+    (ids or `builtin:` / `transform:` placeholders, an optional `names` map) are read and converted.
+  - **`openDocument`** (server; `seedDefaultWorkspace` uses it too), dataset by dataset: here by id,
+    by `sameAs`, or by a copy that remembers it (`extensions.copyOf`) → used; a built-in → reused or
+    uploaded; an output → its transform runs once all inputs are resolved (any order), unless a copy
+    here was written by the same SQL (`extensions.sql`, recorded by every `runTransform`) — a stale
+    copy is rewritten in place; anything else → `missing` with why (`elsewhere`, `cloud`, `unknown`,
+    `builtin`, `output`). Copies record the ids they stand for, so the next open reuses them, on this
+    device or after a round trip through another. `missingReport` words the result for the Workspace
+    panel: datasets by name and why, transforms that couldn't run and why, what was left out with them.
+  - **Page** (`MapPage.vue`): Save → `saveHere` (device) then `saveToCloud`. On load and on sign-in,
+    `catchUpWithCloud`: no cloud workspace yet → this device's is saved there; one saved since this
+    device last saw it (`powergis.cloudSeen` = `<user>:<updatedAt>`) → opened (`openDocument`, then
+    saved here), asking first over unsaved changes. The Workspace panel says where changes are saved.
 - **UI**: ☰ → **Sign in** / your name opens `components/account/AccountModal.vue` (sign in, create
   account, forgot password, choose a new password, your profile, delete account). Sign in and create
   account carry a plain note on what's kept without an account (this browser only; browsers may clear

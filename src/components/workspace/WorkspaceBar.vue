@@ -14,6 +14,8 @@ const props = defineProps<{
   dirty: boolean
   saving: boolean
   message: string
+  /** Where saved changes live: "on this device", or also "in your account" when signed in. */
+  where?: string
   counts: { datasets: number; transforms: number; visualizations: number }
 }>()
 const emit = defineEmits<{
@@ -132,7 +134,7 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
       <div class="state" :class="{ dirty }">
         <span v-if="dirty">● Unsaved changes — kept on this device until you save</span>
-        <span v-else>✓ All changes saved</span>
+        <span v-else>✓ All changes saved {{ where ?? '' }}</span>
       </div>
       <div class="row">
         <button class="btn primary" :disabled="!dirty || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
@@ -321,6 +323,7 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 }
 .msg {
   margin: 0;
+  white-space: pre-line; /* reports come as lines */
   font-size: 0.76rem;
   color: var(--warn);
 }

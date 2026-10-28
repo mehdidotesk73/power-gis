@@ -312,6 +312,21 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Cloud workspace (Supabase, PR 2 of 4) — 2026-10-28
+- **Added:** signed in, Save also stores the workspace in your account; another device opens it,
+  rebuilding built-in tables and transform outputs there. The Workspace panel says where changes are
+  saved. Uploaded datasets don't travel yet (PR 3).
+- **Decision (revised before merge):** the first version saved a *template* (`builtin:` / `transform:`
+  placeholders, a `names` side table, outputs marked with SQL + inputs). Replaced by a v2 document that
+  simply states each dataset's facts (name, store, rows, origin) next to the real ids; opening reflects
+  what's here and what isn't, without tricks. Copies remember the ids they stand for (`copyOf`), and
+  every output records the SQL that wrote it, so reuse is checked rather than guessed.
+- **Decision:** the worker, not the page, talks to Supabase for data (lasting changes stay server
+  side); the page hands it each access token. Accounts stay in the page.
+- **Gotcha:** the default map's transforms ran in file order; a template saved from a real workspace
+  can list a transform before the one whose output it reads, so `openDocument` runs whatever's ready
+  until nothing more is.
+
 ### Accounts (Supabase, PR 1 of 4) — 2026-10-28
 - **Added:** sign up / sign in with email and password, forgot password (reset email), your profile
   (display name, change password, sign out, delete account) under ☰, and a note on the sign-in screen

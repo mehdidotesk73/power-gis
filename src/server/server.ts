@@ -17,7 +17,8 @@ import { newId } from '../lib/dataset/dataset'
 import { bindingInfo, findIndex, groupDataset, queryValues, type FindIndex, type Grouped } from '../lib/dataset/query'
 import { profileRows } from '../lib/dataset/profile'
 import { visualizationLayer } from '../lib/dataset/visualization'
-import { BUILTIN_REF, OUTPUT_REF, parseWorkspaceFile, replacePointers, templateBuiltins } from '../lib/workspace/file'
+import { parseWorkspaceFile, parseWorkspaceObject, pointers, replaceDatasetIds, type MissingDataset, type WorkspaceFile } from '../lib/workspace/file'
+import type { CloudStore } from '../shared/cloud'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
 export interface ServerEnv {
@@ -28,6 +29,8 @@ export interface ServerEnv {
   sql?: () => Promise<SqlEngine>
   /** The default workspace file's text (public/data/default.powergis.json). */
   readDefaultWorkspace?(baseUrl: string): Promise<string>
+  /** The cloud, as the user whose access token it is (Supabase). Without it, cloud requests are unsupported. */
+  cloud?: (accessToken: string) => CloudStore
 }
 
 class Failure extends Error {
@@ -65,6 +68,9 @@ export function createServer(db: Database, env: ServerEnv) {
       throw e
     }))
   const now = () => new Date().toISOString()
+  /** The cloud as the signed-in user (setAuth), or null. */
+  let cloud: CloudStore | null = null
+  const signedIn = () => cloud ?? fail('unsupported', 'Sign in to use the cloud')
 
   // Grouping a table onto features is the expensive part; visualizations of
   // the same dataset and binding share it. Dropped whenever a dataset changes.
@@ -144,6 +150,98 @@ export function createServer(db: Database, env: ServerEnv) {
         return { rows: await env.readBuiltin(b.table, baseUrl), origin: `Built-in · ${b.table}`, name: b.label, description: b.description, extensions: { builtin: b.table, version: b.version } }
       }
     }
+  }
+
+  /**
+   * Makes a workspace document's dataset ids real on this device, dataset by dataset:
+   * an id (or one it's the same as) that's here is used; a built-in is reused or
+   * uploaded; a transform's output is reused when a copy made from the same SQL is
+   * here, or made by running the transform once its inputs are (in any order);
+   * anything else is `missing`, with why. Copies remember the ids they stand for
+   * (`extensions.copyOf`), so opening the same document again reuses them.
+   */
+  async function openDocument(doc: WorkspaceFile): Promise<{ file: WorkspaceFile; missing: MissingDataset[]; failed: { name: string; reason: string }[] }> {
+    const records = await db.list('datasets')
+    const copyOf = (d: DatasetRecord) => (Array.isArray(d.extensions?.copyOf) ? (d.extensions.copyOf as string[]) : [])
+    /** This device's dataset for a fact: the same id, or a copy made for it (or for one it's the same as). */
+    const find = (ids: string[]) => records.find((d) => ids.includes(d.id)) ?? records.find((d) => copyOf(d).some((x) => ids.includes(x)))
+    const resolved = new Map<string, string>()
+    const missing: MissingDataset[] = []
+    const failed: { name: string; reason: string }[] = []
+    const lost = (fact: WorkspaceFile['datasets'][number], why: MissingDataset['why']) => missing.push({ id: fact.id, name: fact.name, ...(fact.rows !== undefined ? { rows: fact.rows } : {}), why })
+
+    for (const fact of doc.datasets) {
+      const ids = [fact.id, ...(fact.sameAs ?? [])]
+      const o = fact.origin
+      if (o.kind === 'output') continue // below, with its transform
+      const here = find(ids)
+      if (here) resolved.set(fact.id, here.id)
+      else if (o.kind === 'builtin') {
+        const b = BUILTIN_TABLES.find((x) => x.table === o.table)
+        if (!b) lost(fact, 'builtin')
+        else {
+          const have = records.find((d) => d.extensions?.builtin === o.table && d.extensions?.version === b.version)
+          resolved.set(fact.id, have?.id ?? (await handlers.uploadDataset({ source: { kind: 'builtin', table: o.table } }, 'user')).datasetId)
+        }
+      } else lost(fact, o.kind === 'upload' ? (fact.store === 'remote' ? 'cloud' : 'elsewhere') : 'unknown')
+    }
+
+    // Outputs: transforms run when all their inputs are resolved, in whatever order that allows.
+    const facts = new Map(doc.datasets.map((d) => [d.id, d]))
+    const pending = new Set(doc.transforms.map((t) => t.id))
+    for (let progress = true; progress; ) {
+      progress = false
+      for (const t of doc.transforms) {
+        if (!pending.has(t.id)) continue
+        const inputs = t.inputs.map((i) => resolved.get(i.datasetId))
+        if (t.inputs.some((i) => missing.some((m) => m.id === i.datasetId))) {
+          failed.push({ name: t.name, reason: "an input dataset isn't on this device" })
+          for (const o of t.outputs) if (o.outputId && facts.has(o.outputId)) lost(facts.get(o.outputId)!, 'output')
+          pending.delete(t.id)
+          continue
+        }
+        if (inputs.some((x) => !x)) continue // waits for another transform's output
+        pending.delete(t.id)
+        progress = true
+        // Each output: a dataset here made from the same SQL is used as is; otherwise the transform runs (into a stale copy, if there is one).
+        const targets = t.outputs.map((o) => {
+          if (!o.outputId) return { o, use: undefined, run: false }
+          const fact = facts.get(o.outputId)
+          const here = find([o.outputId, ...(fact?.sameAs ?? [])])
+          const sql = here?.extensions?.sql
+          return { o, use: here?.id, run: !here || (typeof sql === 'string' && sql !== o.sql) }
+        })
+        if (targets.some((x) => x.run)) {
+          try {
+            const r = await handlers.runTransform(
+              { transform: { ...t, id: `open-${t.id}`, inputs: t.inputs.map((i, k) => ({ ...i, datasetId: inputs[k]! })), outputs: targets.map(({ o, use }) => ({ ...o, outputId: use })) } },
+              'user',
+            )
+            for (const x of targets) x.use = r.outputs.find((w) => w.key === x.o.key)!.datasetId
+          } catch (e) {
+            failed.push({ name: t.name, reason: (e as Error).message })
+            for (const { o } of targets) if (o.outputId && facts.has(o.outputId)) lost(facts.get(o.outputId)!, 'output')
+            continue
+          }
+        }
+        for (const { o, use } of targets) {
+          if (!o.outputId || !use) continue
+          resolved.set(o.outputId, use)
+          // Remember which ids this dataset stands for, so the next open reuses it.
+          const d = (await db.get('datasets', use))!
+          const stands = [...new Set([...copyOf(d), ...[o.outputId, ...(facts.get(o.outputId)?.sameAs ?? [])].filter((x) => x !== use)])]
+          if (stands.length !== copyOf(d).length) await db.put('datasets', { ...d, extensions: { ...d.extensions, copyOf: stands } })
+        }
+      }
+    }
+    for (const t of doc.transforms) {
+      if (!pending.has(t.id)) continue
+      failed.push({ name: t.name, reason: "its inputs come from transforms that couldn't run" })
+      for (const o of t.outputs) if (o.outputId && facts.has(o.outputId)) lost(facts.get(o.outputId)!, 'output')
+    }
+    // Pointers the document has no facts for (it always should) are missing too.
+    for (const id of pointers(doc)) if (!resolved.has(id) && !missing.some((m) => m.id === id)) missing.push({ id, name: facts.get(id)?.name ?? 'Unknown dataset', why: 'unknown' })
+    return { file: replaceDatasetIds(doc, (id) => resolved.get(id)), missing, failed }
   }
 
   const handlers: Handlers = {
@@ -264,6 +362,8 @@ export function createServer(db: Database, env: ServerEnv) {
           columns: out.columns,
           rowCount: out.rows.length,
           profile: profileRows(out.rows, out.columns),
+          // The SQL that wrote these rows: opening a workspace elsewhere compares it to tell a current copy from a stale one.
+          extensions: { ...existing?.extensions, sql: o.sql },
           updatedAt: t,
         }
         await db.writeRows(record.table, out.rows)
@@ -318,33 +418,30 @@ export function createServer(db: Database, env: ServerEnv) {
       if (!env.readDefaultWorkspace) return fail('unsupported', 'No default workspace here')
       const parsed = parseWorkspaceFile(await env.readDefaultWorkspace(baseUrl))
       if (!parsed.ok) return fail('failed', `default workspace: ${parsed.error}`)
-      const existing = await db.list('datasets')
-      const ids = new Map<string, string>()
-      for (const table of templateBuiltins(parsed.file)) {
-        const version = BUILTIN_TABLES.find((b) => b.table === table)?.version
-        const have = existing.find((d) => d.extensions?.builtin === table && d.extensions?.version === version)
-        ids.set(BUILTIN_REF + table, have?.id ?? (await handlers.uploadDataset({ source: { kind: 'builtin', table } }, 'user')).datasetId)
-      }
-      let file = replacePointers(parsed.file, (p) => ids.get(p))
-      for (const [i, t] of (file.transforms ?? []).entries()) {
-        // Each output's dataset is reused when an earlier run made it from the same SQL and inputs.
-        const made = t.outputs.map((o) => JSON.stringify({ sql: o.sql, inputs: t.inputs }))
-        const found = made.map((m) => existing.find((d) => d.extensions?.madeBy === m)?.id)
-        if (found.some((id) => !id)) {
-          const outputs = t.outputs.map((o, j) => ({ ...o, outputId: found[j] }))
-          const r = await handlers.runTransform({ transform: { ...t, id: `seed-${i}`, outputs } }, 'user')
-          for (const [j, o] of t.outputs.entries()) {
-            found[j] = r.outputs.find((w) => w.key === o.key)!.datasetId
-            await handlers.updateDataset({ id: found[j]!, extensions: { madeBy: made[j] } }, 'user')
-          }
-        }
-        found.forEach((id, j) => {
-          ids.set(`${OUTPUT_REF}${i}.${j}`, id!)
-          if (j === 0) ids.set(OUTPUT_REF + i, id!)
-        })
-        file = replacePointers(file, (p) => ids.get(p))
-      }
+      const { file, missing, failed } = await openDocument(parsed.file)
+      if (failed.length || missing.length) fail('failed', `default workspace: ${[...failed.map((f) => `${f.name}: ${f.reason}`), ...missing.map((m) => `${m.name}: ${m.why}`)].join('; ')}`)
       return { file }
+    },
+
+    async openDocument({ file }) {
+      const parsed = parseWorkspaceObject(file)
+      if (!parsed.ok) return fail('invalid', parsed.error)
+      return openDocument(parsed.file)
+    },
+
+    async setAuth({ accessToken }) {
+      cloud = accessToken && env.cloud ? env.cloud(accessToken) : null
+      return { signedIn: !!cloud }
+    },
+
+    async cloudWorkspace() {
+      const w = await signedIn().defaultWorkspace()
+      return { workspace: w && { name: w.name, updatedAt: w.updatedAt, file: w.file } }
+    },
+
+    async saveCloudWorkspace({ file, overview }) {
+      const { updatedAt } = await signedIn().saveDefaultWorkspace({ name: file.name, file: { ...file, exportedAt: now() }, overview })
+      return { updatedAt }
     },
 
     async profileDataset({ datasetId }) {

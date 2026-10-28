@@ -3,6 +3,7 @@
 import countiesUrl from 'us-atlas/counties-10m.json?url'
 import statesUrl from 'us-atlas/states-10m.json?url'
 import { createServer } from './server'
+import { supabaseCloud } from './cloud'
 import { IndexedDbDatabase } from '../shared/idb'
 import { StaticFileConnector } from '../lib/data/connectors'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
@@ -24,6 +25,7 @@ const server = createServer(new IndexedDbDatabase(), {
     if (!r.ok) throw new Error(`default workspace: HTTP ${r.status}`)
     return r.text()
   },
+  cloud: supabaseCloud,
   async readBuiltin(table, baseUrl) {
     if (table === 'demo_vectors') return demoVectorRows()
     if (table === 'us_counties') return countyRows(await topo(countiesUrl))

@@ -93,6 +93,14 @@ Track feature development, improvements, and known issues here. Move completed w
   above it (`useSplitter` `side: 'bottom'`, `powergis.minimapHeight`). The app is one screen tall
   (`App.vue`), the ☰ menu holds Help and Desktop / Phone view, and the footer is one row. Replaces the ⤢
   pop-out window.
+- **Cloud workspace (Supabase, PR 2 of 4)** — signed in, **Save** also stores the workspace in
+  the account (`saveCloudWorkspace`: the v2 document + its overview). Documents (v2) carry each
+  dataset's facts (name, store, rows, origin), so opening anywhere (`openDocument`) uses what's here,
+  rebuilds built-ins and outputs (reused when a copy has the same SQL), and names what's missing and
+  why. Copy / Paste and Download / Load carry the same document; v1 files still open. On load and
+  sign-in the page catches up (`catchUpWithCloud`): an account with no workspace gets this device's; a
+  newer one opens, asking first over unsaved changes. The worker reaches Supabase with the user's token (`setAuth`,
+  `server/cloud.ts`). The Workspace panel says where changes are saved.
 - **Accounts (Supabase, PR 1 of 4)** — ☰ → **Sign in**: create an account with email + password
   (a confirmation email links back to the app, production or any preview), sign in, **Forgot
   password?** (a reset email opens the app on *Choose a new password*). Signed in, ☰ shows your
@@ -297,13 +305,27 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 5. **Supabase** (project `rorqzjnwqwlyusagzcxy`; whole schema in `supabase/schema.sql`, already run).
    Four PRs:
    1. ~~Accounts~~ (done, see Done): sign up / in, profile, change / reset password.
-   2. **Cloud workspace**: the signed-in user's default workspace saved in `workspaces` (one
-      default per user; more later, one per app tab).
+   2. ~~Cloud workspace~~ (done, see Done): Save also stores the signed-in user's default workspace
+      (portable: built-ins and transform outputs as templates); other devices open it.
    3. **Cloud datasets**: Move to cloud storage for real: the registry row in `datasets`, rows as
       `<id>/data.parquet` in the private `datasets` bucket (DuckDB writes / reads Parquet); the
       worker carries the session's token; storage limits.
    4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
       read / write levels, owner-only removal of write and delete (all enforced by RLS).
+   - **Agreed next (before PR 3):** (a) dataset name / description become draft until Save, like
+     everything but data; the agent edits them in `datasets.json` (name, description editable;
+     id, store, rows, origin read-only) and `update_dataset` goes for those fields. (b) the agent's
+     files become the file form of the v2 document (+ `datasets.json`, full visualization settings),
+     and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) **Unavailable
+     items** (agreed; the PR right after #28): a missing dataset stays in the working copy as an
+     unavailable entry with its facts (name, rows, origin, why), and so does everything downstream
+     (transforms reading it, their outputs, visualizations); saved with them, so no device's save
+     drops them. Red outlines in the graph (⚠ on the missing roots, "waits for …" downstream) and red
+     marks in the lists; their visualizations don't draw. Workspace panel report: **Remove what
+     didn't load** (a draft edit) and **Show in graph**. A missing root's menu: **Replace with a
+     file…** / **Replace with a dataset…** — the new dataset takes over every pointer, then **Run
+     them now** runs the downstream transforms in order; Run all stale includes transforms whose
+     outputs are unavailable.
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
