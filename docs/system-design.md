@@ -313,7 +313,8 @@ dock**) and **setup** (⤢ on desktop, the dock on phones; ✕ or Esc goes back)
 setup has two columns: List | Graph over a mini map on the left, the open item on the right. Phone setup
 has three rows: List | Graph, the open item, and a mini map sticky at the bottom; the page itself scrolls
 (head sticky, `scroll-padding` top and bottom so revealed items land between them). MapView's
-`min-height` is lifted for the mini map. The modes only change CSS grid areas on `.page`, so the one
+`min-height` is lifted for the mini map; the bar above it (`.map-splitter`, `useSplitter({side: 'bottom'})`)
+sets its height (`--minimap-h`, remembered as `powergis.minimapHeight`; double-click resets). The modes only change CSS grid areas on `.page`, so the one
 MapLibre map, open editors and selections survive (in setup `.panel-body` is `display: contents`, so
 List | Graph and the open item take their own grid areas). A section, `#setup-detail`, always receives what the user opens:
 the graph's open item (`<Teleport defer :disabled="!asideOn">`) and, through

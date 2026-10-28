@@ -319,9 +319,11 @@ const reorderDatasets = (ids: string[]) => apply(reorderDatasets_(doc.value, ids
 
 // Drag the splitter between the controls and the map; the width is remembered per device.
 const panel = useSplitter({ key: 'powergis.panelWidth', initial: 336, min: 256, maxShare: 0.7, side: 'left' })
-const panelWidth = panel.width
+const panelWidth = panel.size
 // The assistant docks on the right (desktop), resizable the same way.
 const assist = useSplitter({ key: 'powergis.assistantWidth', initial: 400, min: 300, maxShare: 0.5, side: 'right' })
+// Setup's mini map: drag the bar above it to make it taller or shorter.
+const minimap = useSplitter({ key: 'powergis.minimapHeight', initial: 220, min: 96, maxShare: 0.7, side: 'bottom' })
 
 // Two modes. Explore puts the map first: on desktop the List | Graph panel on
 // the left, search above the map and export below it; on phones the map fills
@@ -787,7 +789,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 </script>
 
 <template>
-  <div ref="pageEl" class="page" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.width.value}px` }">
+  <div ref="pageEl" class="page" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.size.value}px`, '--minimap-h': `${minimap.size.value}px` }">
     <!-- List | Graph and ⤢ / ✕: the top of the side panel in explore, of the whole page in setup. -->
     <div class="view-row">
       <div class="view-switch" role="group" aria-label="Show as">
@@ -966,6 +968,19 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     />
 
     <section class="map-col">
+    <div
+      v-show="mode === 'setup'"
+      class="splitter map-splitter"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize the mini map"
+      :aria-valuenow="minimap.size.value"
+      tabindex="0"
+      title="Drag to resize · double-click to reset"
+      @pointerdown.prevent="minimap.start"
+      @keydown="minimap.key"
+      @dblclick="minimap.reset"
+    />
     <div v-show="mode === 'explore'" class="top-row">
       <!-- Phones, explore: setup waits in a vertical bar left of the search. -->
       <button class="setup-dock" :title="`Set up · ${count(doc.datasetIds.length, 'dataset')} · ${count(doc.transforms.length, 'transform')} · ${count(doc.visualizations.length, 'visualization')}`" aria-label="Set up the workspace" @click="setMode('setup')">
@@ -1043,7 +1058,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize the assistant"
-      :aria-valuenow="assist.width.value"
+      :aria-valuenow="assist.size.value"
       tabindex="0"
       title="Drag to resize · double-click to reset"
       @pointerdown.prevent="assist.start"
@@ -1137,7 +1152,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 @media (min-width: 48.0625rem) {
   .page.setup {
     grid-template-columns: minmax(0, 1fr) 0.75rem minmax(22rem, 32rem);
-    grid-template-rows: auto minmax(0, 1fr) minmax(11rem, 30%);
+    grid-template-rows: auto minmax(0, 1fr) var(--minimap-h, 14rem);
     grid-template-areas:
       'head head head'
       'controls . detail'
@@ -1182,6 +1197,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 }
 .page.setup .map-col {
   overflow: hidden;
+  gap: 0;
 }
 .setup-detail:has(> :not(.aside-hint)) .aside-hint {
   display: none;
@@ -1205,6 +1221,20 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   border-radius: 2px;
   background: var(--border);
   transition: background 0.15s;
+}
+/* Setup: the bar above the mini map; drag up for a taller map. Tall enough to grab with a thumb. */
+.map-splitter {
+  flex: none;
+  height: 1rem;
+  cursor: row-resize;
+}
+.map-splitter::after {
+  top: 50%;
+  bottom: auto;
+  left: 50%;
+  width: 3rem;
+  height: 4px;
+  transform: translate(-50%, -50%);
 }
 .splitter:hover::after,
 .splitter:focus-visible::after,
@@ -1413,6 +1443,9 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   .splitter {
     display: none;
   }
+  .page.setup .map-splitter {
+    display: block;
+  }
   .assistant-col,
   .assist-splitter {
     grid-area: auto;
@@ -1438,7 +1471,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     overflow-anchor: none;
     /* what opens scrolls into view between the sticky head and the mini map */
     scroll-padding-top: 3rem;
-    scroll-padding-bottom: calc(max(9rem, 30dvh) + 0.6rem);
+    scroll-padding-bottom: calc(var(--minimap-h, 14rem) + 0.6rem);
   }
   .page.setup .view-row {
     display: flex;
@@ -1451,8 +1484,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     position: sticky;
     bottom: 0;
     z-index: 5;
-    height: max(9rem, 30dvh);
-    padding-top: 0.4rem;
+    height: var(--minimap-h, 14rem);
     background: var(--bg);
   }
 }

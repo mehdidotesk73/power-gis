@@ -236,7 +236,8 @@ whatever they're actually asking about.
   (`#setup-detail`; `components/detailTarget.ts`: `provideDetailTarget` / `useDetailTarget`). Desktop: two
   columns, List | Graph over a **mini map** on the left, that section on the right. Phones: List | Graph,
   then that section, scrolling together (the page scrolls, head sticky) above a mini map anchored at the
-  bottom (sticky; `scroll-padding` keeps revealed items clear of both). **New-item flows scroll each step
+  bottom (sticky; `scroll-padding` keeps revealed items clear of both). The mini map's height is dragged
+  from the bar above it on both (`useSplitter` with `side: 'bottom'`, `--minimap-h`, `powergis.minimapHeight`). **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
 - **Explore** (`dataset/ExploreModal.vue`, a dataset's menu): a window with a SQL box (starts
   `SELECT * FROM <dataset>`) over a docked results table, **200 rows a page** (Prev / Next) with the
