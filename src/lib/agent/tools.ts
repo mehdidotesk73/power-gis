@@ -87,15 +87,14 @@ export const TOOLS: ToolSpec[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        sql: { type: 'string', description: 'The SELECT to run. Or give sqlFile instead.' },
-        sqlFile: { type: 'string', description: 'Run the SQL in this workspace file (e.g. /transforms/<id>.<key>.sql), edits not yet applied included.' },
+        sql: { type: 'string' },
         inputs: {
           type: 'array',
           items: { type: 'object', properties: { datasetId: { type: 'string' }, alias: { type: 'string' } }, required: ['datasetId', 'alias'] },
         },
         limit: { type: 'integer', description: `Rows to return, at most ${QUERY_LIMIT} (default 20).` },
       },
-      required: ['inputs'],
+      required: ['sql', 'inputs'],
     },
   },
   {
@@ -297,13 +296,7 @@ function readInputs(v: unknown): TransformInputRef[] {
 }
 
 async function querySql(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  if (input.sql === undefined && str(input.sqlFile)) {
-    const path = input.sqlFile.replace(/^\/+/, '')
-    const text = staged(host).files.get(path)
-    need(text !== undefined && path.endsWith('.sql'), `No SQL file ${input.sqlFile} in the workspace files (view / to list them)`)
-    input = { ...input, sql: text }
-  }
-  need(str(input.sql) && input.sql.trim(), 'Give `sql` (a SELECT) or `sqlFile`')
+  need(str(input.sql) && input.sql.trim(), '`sql` must be a SELECT')
   const inputs = readInputs(input.inputs)
   for (const i of inputs) need(await host.dataset(i.datasetId), `No dataset "${i.datasetId}"`)
   const limit = Math.max(1, Math.min(QUERY_LIMIT, Number.isInteger(input.limit) ? (input.limit as number) : 20))

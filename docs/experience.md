@@ -324,6 +324,9 @@ Two additions from reviewing it here, beyond what the originating project report
   conventions (`<id>.<key>.sql`) leave nothing to mix up.
 - **Lesson:** return the ids of what a tool creates. Without them the agent called
   `run_transform("PLACEHOLDER")`.
+- **Gotcha:** with strict tools, an optional field is one the model may leave out. `query_sql` briefly
+  took `sql` *or* `sqlFile`, both optional; Haiku sent the same call without either three times.
+  Whatever a tool can't work without is `required` — no either/or pairs.
 - **Gotcha:** DuckDB-WASM prints a parser error's "LINE 1: …" excerpt twice, and for a wrapped query
   (paging) the excerpt shows our wrapper. We re-plan the bare query with `EXPLAIN` for the message.
 
