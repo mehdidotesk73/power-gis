@@ -228,11 +228,13 @@ whatever they're actually asking about.
   on the left, phones hide it behind a vertical **Set up** bar left of the search (the legend is always
   top-left of the map; Export's body scrolls inside at most 45% of the column). The app is one screen tall (`App.vue`: `.app` 100dvh flex column, `.content` fills what
   header and footer leave); only panels scroll. **Setup** (⤢ on desktop, the
-  dock on phones; ✕ or Esc back) makes List | Graph the page with a **mini map** under it (List | Graph scrolls inside, its
-  List | Graph / ✕ row sticky). In desktop setup, what you open — the graph's open item, list editors
-  (dataset / transform / visualization) and Explore — teleports into a right column
-  (`#setup-detail`; `components/detailTarget.ts`: `provideDetailTarget` / `useDetailTarget`); on phones
-  it opens in place, under the graph. **New-item flows scroll each step
+  dock on phones; ✕ or Esc back) makes the page one panel headed by the **List | Graph | ✕** row
+  (`.view-row`, its own grid area `head`, spanning the page). What you open — the graph's open item, list
+  editors (dataset / transform / visualization) and Explore — teleports into its own section
+  (`#setup-detail`; `components/detailTarget.ts`: `provideDetailTarget` / `useDetailTarget`). Desktop: two
+  columns, List | Graph over a **mini map** on the left, that section on the right. Phones: List | Graph,
+  then that section, scrolling together (the page scrolls, head sticky) above a mini map anchored at the
+  bottom (sticky; `scroll-padding` keeps revealed items clear of both). **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
 - **Explore** (`dataset/ExploreModal.vue`, a dataset's menu): a window with a SQL box (starts
   `SELECT * FROM <dataset>`) over a docked results table, **200 rows a page** (Prev / Next) with the

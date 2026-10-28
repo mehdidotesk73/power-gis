@@ -325,27 +325,22 @@ const assist = useSplitter({ key: 'powergis.assistantWidth', initial: 400, min: 
 
 // Two modes. Explore puts the map first: on desktop the List | Graph panel on
 // the left, search above the map and export below it; on phones the map fills
-// the page and setup waits in a dock at the bottom. Setup puts building first:
-// List | Graph fills the page with a mini map under it, and on desktop what you
-// open (cards, editors, Explore) goes in a column on the right. The same
-// components and the one map change places, so nothing is lost on switching.
+// the page and setup waits in a bar left of the search. Setup puts building
+// first: the page becomes one panel topped by List | Graph and ✕ — on desktop
+// List | Graph over a mini map on the left and what you open (cards, editors,
+// Explore) on the right; on phones List | Graph, then what you open, scrolling
+// above a mini map anchored at the bottom. The same components and the one map
+// change places, so nothing is lost on switching.
 const mode = ref<'explore' | 'setup'>('explore')
-const wide = ref(typeof matchMedia === 'function' && matchMedia('(min-width: 48.0625rem)').matches)
-let wideQuery: MediaQueryList | null = null
-const onWide = (e: MediaQueryListEvent) => (wide.value = e.matches)
-onMounted(() => {
-  wideQuery = typeof matchMedia === 'function' ? matchMedia('(min-width: 48.0625rem)') : null
-  wideQuery?.addEventListener('change', onWide)
-})
-onBeforeUnmount(() => wideQuery?.removeEventListener('change', onWide))
-/** Desktop setup: editors, the graph's open item and Explore open in the right column. */
-const asideOn = computed(() => mode.value === 'setup' && wide.value)
+const pageEl = ref<HTMLElement | null>(null)
+/** Setup: editors, the graph's open item and Explore open in their own section (right column on desktop, under List | Graph on phones). */
+const asideOn = computed(() => mode.value === 'setup')
 provideDetailTarget(computed(() => (asideOn.value ? `#${DETAIL_ID}` : null)))
 const count = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 function setMode(m: 'explore' | 'setup') {
   mode.value = m
-  // Phones: the page itself changes; start the new mode at its top.
-  if (!wide.value) nextTick(() => window.scrollTo({ top: 0 }))
+  // Phones: the page itself changes (and scrolls in setup); start the new mode at its top.
+  nextTick(() => pageEl.value?.scrollTo({ top: 0 }))
 }
 function onEsc(e: KeyboardEvent) {
   if (e.key === 'Escape' && mode.value === 'setup' && !document.querySelector('[role="dialog"]')) setMode('explore')
@@ -792,7 +787,21 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 </script>
 
 <template>
-  <div class="page" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.width.value}px` }">
+  <div ref="pageEl" class="page" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.width.value}px` }">
+    <!-- List | Graph and ⤢ / ✕: the top of the side panel in explore, of the whole page in setup. -->
+    <div class="view-row">
+      <div class="view-switch" role="group" aria-label="Show as">
+        <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
+        <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
+      </div>
+      <UiButton
+        class="pop-btn"
+        :icon="mode === 'setup' ? '✕' : '⤢'"
+        :aria-label="mode === 'setup' ? 'Back to the map' : 'Set up the workspace (full page)'"
+        :title="mode === 'setup' ? 'Back to the map (Esc)' : 'Set up the workspace (full page)'"
+        @click="setMode(mode === 'setup' ? 'explore' : 'setup')"
+      />
+    </div>
     <section class="controls">
       <Teleport defer to="#header-workspace">
         <WorkspaceBar
@@ -813,19 +822,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
       <div class="panels" aria-label="Workspace">
-      <div class="view-row">
-        <div class="view-switch" role="group" aria-label="Show as">
-          <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
-          <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
-        </div>
-        <UiButton
-          class="pop-btn"
-          :icon="mode === 'setup' ? '✕' : '⤢'"
-          :aria-label="mode === 'setup' ? 'Back to the map' : 'Set up the workspace (full page)'"
-          :title="mode === 'setup' ? 'Back to the map (Esc)' : 'Set up the workspace (full page)'"
-          @click="setMode(mode === 'setup' ? 'explore' : 'setup')"
-        />
-      </div>
 
       <template v-if="view === 'graph'">
         <div class="graph-wrap" :class="{ split: dagNode || dagNewViz || dagNewDataset }">
@@ -1059,7 +1055,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 .page {
   display: grid;
   grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr);
-  grid-template-areas: 'controls split map';
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'head split map'
+    'controls split map';
   /* The page fits the screen (App.vue sizes .content to what header and footer leave); only panels scroll. */
   height: 100%;
   min-height: 0;
@@ -1097,7 +1096,9 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 }
 .page.assisting {
   grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr) 0.75rem var(--assist-w, 25rem);
-  grid-template-areas: 'controls split map asplit assist';
+  grid-template-areas:
+    'head split map asplit assist'
+    'controls split map asplit assist';
 }
 .assistant-col {
   grid-area: assist;
@@ -1112,8 +1113,9 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 @media (min-width: 48.0625rem) {
   .page.setup {
     grid-template-columns: minmax(0, 1fr) 0.75rem minmax(22rem, 32rem);
-    grid-template-rows: minmax(0, 1fr) minmax(11rem, 30%);
+    grid-template-rows: auto minmax(0, 1fr) minmax(11rem, 30%);
     grid-template-areas:
+      'head head head'
       'controls . detail'
       'map . detail';
     row-gap: 0.6rem;
@@ -1121,6 +1123,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   .page.setup.assisting {
     grid-template-columns: minmax(0, 1fr) 0.75rem minmax(20rem, 28rem) 0.75rem var(--assist-w, 25rem);
     grid-template-areas:
+      'head head head asplit assist'
       'controls . detail asplit assist'
       'map . detail asplit assist';
   }
@@ -1143,13 +1146,11 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     background: var(--bg-elev);
   }
 }
-/* Setup: List | Graph and ✕ stay at the top while the panel scrolls under them. */
+/* Setup: List | Graph and ✕ head the whole page, a rule under them. */
 .page.setup .view-row {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  padding-bottom: 0.3rem;
-  background: var(--bg);
+  margin-bottom: 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
 }
 /* Setup: the map is a mini map, as small as its slot (MapView's own minimum is for the full map). */
 .page.setup .map-wrap :deep(.map-root) {
@@ -1197,9 +1198,11 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   gap: 0.6rem;
 }
 .view-row {
+  grid-area: head;
   display: flex;
   gap: 0.4rem;
   align-items: stretch;
+  margin-bottom: 0.6rem;
 }
 .view-row .view-switch {
   flex: 1;
@@ -1223,12 +1226,12 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 }
 .setup-dock {
   flex: none;
-  width: 2.6rem;
+  width: 1.8rem;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0;
+  justify-content: flex-start;
+  gap: 0.35rem;
+  padding: 0.45rem 0;
   border: 1px solid var(--border-strong);
   border-radius: 0.5rem;
   background: var(--bg-elev);
@@ -1390,23 +1393,53 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   .assist-splitter {
     grid-area: auto;
   }
-  .controls {
+  .controls,
+  .view-row {
     display: none;
   }
   .setup-dock {
     display: flex;
   }
-  /* Phones, setup: List | Graph takes the screen and scrolls inside; the mini map stays at the bottom. */
+  /* Phones, setup: List | Graph and ✕ on top, then List | Graph, then what you open — scrolling
+     together above a mini map anchored at the bottom. */
   .page.setup,
   .page.setup.assisting {
-    grid-template-rows: minmax(0, 1fr) 30%;
+    grid-template-rows: auto auto 1fr auto;
     grid-template-areas:
+      'head'
       'controls'
+      'detail'
       'map';
+    overflow: auto;
+    overflow-anchor: none;
+    /* what opens scrolls into view between the sticky head and the mini map */
+    scroll-padding-top: 3rem;
+    scroll-padding-bottom: calc(max(9rem, 30dvh) + 0.6rem);
+  }
+  .page.setup .view-row {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--bg);
   }
   .page.setup .controls {
     display: flex;
-    overflow: auto;
+    overflow: visible;
+  }
+  .page.setup .setup-detail {
+    grid-area: detail;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .page.setup .map-col {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    height: max(9rem, 30dvh);
+    padding-top: 0.4rem;
+    background: var(--bg);
   }
 }
 @media (max-width: 30rem) {

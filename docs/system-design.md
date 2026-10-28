@@ -307,15 +307,17 @@ double-click resets), width as the `--panel-w` CSS variable on `.page`, remember
 container with a `ResizeObserver` (the window doesn't resize when the splitter moves). The
 page has two **modes** (`mode`): **explore** (map first: the map column holds Find above the map and
 Export below it; desktop keeps List | Graph on the left; phones show only the map and a sticky **setup
-dock**) and **setup** (⤢ on desktop, the dock on phones; ✕ or Esc goes back): List | Graph fills the page,
-with a mini map under it on desktop and sticky at the bottom on phones (MapView's `min-height` is
-lifted there). The modes only change CSS grid areas on `.page`, so the one MapLibre map, open editors and
-selections survive. In **desktop setup** a right column, `#setup-detail`, receives what the user opens:
+dock**) and **setup** (⤢ on desktop, the dock on phones; ✕ or Esc goes back): the page becomes one panel headed by the **List | Graph | ✕** row
+(`.view-row`, grid area `head`: the top of the side panel in explore, spanning the page in setup). Desktop
+setup has two columns: List | Graph over a mini map on the left, the open item on the right. Phone setup
+has three rows: List | Graph, the open item, and a mini map sticky at the bottom; the page itself scrolls
+(head sticky, `scroll-padding` top and bottom so revealed items land between them). MapView's
+`min-height` is lifted for the mini map. The modes only change CSS grid areas on `.page`, so the one
+MapLibre map, open editors and selections survive. In **setup** a section, `#setup-detail`, receives what the user opens:
 the graph's open item (`<Teleport defer :disabled="!asideOn">`) and, through
 `components/detailTarget.ts` (`provideDetailTarget` in the page, `useDetailTarget` in the lists), the list
 editors (dataset / transform / visualization, not in their compact graph form) and Explore
-(`ExploreModal`'s `asideTo`: a panel in the column instead of a window). On phones they open in place,
-and everything a flow reveals keeps `scroll-margin-bottom` clear of the mini map.
+(`ExploreModal`'s `asideTo`: a panel in the section instead of a window). In explore they open in place.
 
 **Flows bring their next step into view**: `v-reveal` (`components/reveal.ts`) scrolls an element
 into view when it appears or its value changes — just enough, or to its top when it's taller than the
