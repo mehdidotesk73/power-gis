@@ -312,6 +312,14 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Dataset details as a draft — 2026-10-28
+
+- **Changed:** a dataset's new name and description are an unsaved change like any workspace edit:
+  shown at once, written to the dataset on Save, undone by Discard (`doc.datasetEdits`).
+- **Changed (assistant):** it renames and describes datasets in `/datasets.json` (name and
+  description editable; store, rows and origin read-only; cloud datasets refused), applied with
+  `apply_workspace`. The `update_dataset` tool is gone.
+
 ### Signed-in indicator — 2026-10-28
 
 - **Added:** signed in, the ☰ menu button is outlined in green (its tooltip names who) and the menu's ◉ account icon turns green.

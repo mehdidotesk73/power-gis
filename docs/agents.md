@@ -73,11 +73,13 @@ and only the user deletes them. At the start of a chat the agent lists which dat
 | `str_replace_based_edit_tool` | edits files | Anthropic's **text editor** (`text_editor_20250728`, declared by type; we run it): `view`, `create`, `str_replace`, `insert` on the workspace files only. Changes nothing until `apply_workspace` | `runEditor` over the staged files |
 | `apply_workspace(dryRun?)` | **gated** | Assembles the files, checks the whole workspace (every problem, with its file), replaces the draft; replies with the changes and the **ids of new items**; rebuilds the files | The workspace ops (`addTransform`, `addVisualization`, …) |
 | `run_transform(id)` | **gated** | Runs one transform of the draft; returns row counts or the error | `runTransform` |
-| `update_dataset(id, name?, description?)` | **gated** | Renames / describes a dataset (rows untouched); the agent names and describes what it keeps | `updateDataset` |
 | `delete_dataset(id)` | **gated** | Deletes a dataset and its rows | `deleteDataset` + `forgetDataset` |
 
 **(built)** The dataset processor has `get_workspace`, `list_datasets`, `ask_user`, `query_sql`,
-the text editor, `apply_workspace`, `run_transform`, `update_dataset` and `delete_dataset`. Notes from building them:
+the text editor, `apply_workspace`, `run_transform` and `delete_dataset`. Datasets are renamed and described in
+`/datasets.json` (each workspace dataset by id: `name`, `description` editable; `store`, `rows`, `origin` read-only;
+cloud ones refused), applied like any edit — a draft (`WorkspaceDoc.datasetEdits`) written to the datasets on Save.
+(`update_dataset` is gone.) Notes from building them:
 
 - **The workspace comes first.** The user normally adds the datasets they care about to the
   workspace, then asks for something. The agent reports which workspace datasets look relevant

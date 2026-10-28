@@ -16,6 +16,8 @@ import {
   aliasFor,
   type OpResult,
   type WorkspaceDoc,
+  editDataset,
+  withEdits,
 } from './workspace'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 
@@ -121,5 +123,34 @@ describe('workspace operations', () => {
   it('renames the workspace', () => {
     expect(doc(renameWorkspace(base, ' Grid ')).name).toBe('Grid')
     expect(renameWorkspace(base, '').ok).toBe(false)
+  })
+})
+
+describe('dataset details as a draft', () => {
+  const base = { ...emptyWorkspace(), datasetIds: ['a', 'b'] }
+  const stored = { name: 'Plants', description: 'From EIA' }
+  it('keeps a new name / description in the draft and shows it over the stored one', () => {
+    const r = editDataset(base, 'a', { name: ' Power plants ' }, stored)
+    if (!r.ok) throw new Error(r.error.message)
+    expect(r.doc.datasetEdits).toEqual({ a: { name: 'Power plants' } })
+    expect(withEdits(r.doc, { id: 'a', ...stored })).toEqual({ id: 'a', name: 'Power plants', description: 'From EIA' })
+    expect(withEdits(r.doc, { id: 'b', name: 'B' })).toEqual({ id: 'b', name: 'B' })
+  })
+  it('drops a change back to what the dataset has', () => {
+    const r1 = editDataset(base, 'a', { name: 'X', description: 'Y' }, stored)
+    if (!r1.ok) throw new Error()
+    const r2 = editDataset(r1.doc, 'a', { name: 'Plants', description: 'From EIA' }, stored)
+    if (!r2.ok) throw new Error()
+    expect(r2.doc.datasetEdits).toBeUndefined()
+  })
+  it('refuses an empty name', () => {
+    expect(editDataset(base, 'a', { name: '  ' }, stored).ok).toBe(false)
+  })
+  it('forgets the change when the dataset leaves the workspace', () => {
+    const r1 = editDataset(base, 'a', { name: 'X' }, stored)
+    if (!r1.ok) throw new Error()
+    const r2 = removeDataset(r1.doc, 'a')
+    if (!r2.ok) throw new Error()
+    expect(r2.doc.datasetEdits).toBeUndefined()
   })
 })

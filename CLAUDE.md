@@ -146,7 +146,8 @@ whatever they're actually asking about.
   `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. The
   agent starts from the workspace (`get_workspace`: its datasets' names, descriptions, stores),
   edits it as **files** with Anthropic's text editor tool (`str_replace_based_edit_tool`, run by us on
-  a staged copy: `workspace.json` index, `transforms/<id>.json` + `<id>.<key>.sql`,
+  a staged copy: `workspace.json` index, `datasets.json` (name / description editable; store, rows,
+  origin read-only), `transforms/<id>.json` + `<id>.<key>.sql`,
   `visualizations/<id>.json`, generated `overview.md`; SQL never inside JSON) and commits with
   `apply_workspace` (checks everything, returns new ids; `lib/agent/workspaceFiles.ts`). Everything
   existing is targeted by id. Our tools are `strict`. It confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
@@ -184,7 +185,8 @@ whatever they're actually asking about.
 - **Workspace** (`src/lib/workspace/workspace.ts`): the client's working copy (dataset pointers +
   ordered visualizations); **every edit is an operation** returning `{ok, doc}` or
   `{ok:false, error}` — the UI uses them and agents will too. **Explicit Save**: edits are a
-  draft (localStorage `powergis.draft`, restored on reload, "Unsaved changes" + Discard in
+  draft — dataset names / descriptions too (`doc.datasetEdits`, shown over the records via `withEdits`;
+  Save writes them with `updateDataset` before saving the workspace) (localStorage `powergis.draft`, restored on reload, "Unsaved changes" + Discard in
   `WorkspaceBar` — the **Workspace** button in the header, teleported there from `MapPage` into
   `#header-workspace`; amber with a ● while unsaved; it drops down the name, counts, Save / Discard and
   the file actions) until Save sends `saveWorkspace`. **Workspace files** (`lib/workspace/file.ts`):
@@ -292,8 +294,7 @@ whatever they're actually asking about.
   **only on this device** (`onlyOnThisDevice`: not built-ins, outputs or cloud ones) in a short
   scrolling box, and Save notes them. Every transform output
   records the SQL that wrote it (`extensions.sql`). Agreed next: the same content as the agent's files
-  (+ `datasets.json`, full visualization settings), a zip for Download / Load, and dataset name /
-  description as draft until Save (`docs/TODO.md`).
+  (+ full visualization settings) and a zip for Download / Load (`docs/TODO.md`).
 - **Default workspace** (`public/data/default.powergis.json`): a v2 document with readable ids
   (`default-utilities`, …, the output `default-utilities-by-county`). `seedDefault` (`MapPage.vue`)
   asks the server (`seedDefaultWorkspace` → `openDocument`; the first run loads DuckDB) and opens the
