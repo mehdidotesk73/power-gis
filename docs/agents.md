@@ -109,6 +109,10 @@ the text editor, `apply_workspace`, `run_transform`, `update_dataset` and `delet
   file under a name the agent picks (`by_state`), listed in the index; applying gives it a real id
   (the reply's `added`) and rebuilds the files under the ids. Removing = taking the id out of the
   list (the editor has no delete); files nothing uses are reported and dropped.
+- **After an apply, files are rewritten** from the draft: new items move to their ids, and every file
+  is in the standard format (the agent's own compact JSON is gone). The reply lists `renamed`
+  (old path → new path) and says to view a file before editing it; editing an old path afterwards
+  is answered with where the file went (renames are remembered for the chat).
 - **The layout is taught in the overview.** A built-in tool's description is Anthropic's own: ours
   for the editor is never sent. So `overview.md` opens with "How these files work" (the rules and a
   labelled placeholder example), and refusals state the rule plus only facts read from the files:

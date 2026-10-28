@@ -161,6 +161,13 @@ describe('agent tools', () => {
     expect(t.outputs[0]).toMatchObject({ key: 'o1', name: 'Joined', outputId: 'joined', sql })
     expect(v).toMatchObject({ kind: 'scalar', name: 'Price', column: 'price', aggregation: 'first', binding: { column: 'geometry', label: 'name' } })
 
+    expect(out.renamed).toEqual({
+      '/transforms/join.json': `/transforms/${t.id}.json`,
+      '/transforms/join.o1.sql': `/transforms/${t.id}.o1.sql`,
+      '/visualizations/price.json': `/visualizations/${v.id}.json`,
+    })
+    // Editing a file by its old name says where it went.
+    expect(await edit(host, { command: 'view', path: '/visualizations/price.json' })).toMatchObject({ isError: true, content: expect.stringContaining(`its file is now /visualizations/${v.id}.json`) })
     // The files are rebuilt under the real ids; the overview lists them.
     const overview = (await edit(host, { command: 'view', path: '/overview.md' })).content
     expect(overview).toContain(`- ${t.id}  "Join"`)

@@ -20,7 +20,7 @@ import { addDataset, addTransform, addVisualization, newOutput, type OpContext, 
 import { transformState } from '../workspace/dag'
 import { snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
-import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, workspaceFiles, type Files } from './workspaceFiles'
+import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
 
 /** What the tools act through: the page's workspace copy and the server. */
@@ -234,6 +234,8 @@ interface Staging {
   dirty: boolean
 }
 const staging = new WeakMap<AgentHost, Staging>()
+/** Files an apply renamed (a new item's placeholder name → its id), per host: old path → what it became. */
+const renames = new WeakMap<AgentHost, Map<string, { path: string; kind: string; id: string }>>()
 
 /** The host's files, rebuilt from the draft when nothing is pending and the draft changed. */
 function staged(host: AgentHost, fresh = false): Staging {
@@ -278,6 +280,12 @@ async function editor(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   let overview = ''
   // overview.md is rendered from the files as they are (async: it reads dataset records).
   if (input.command === 'view' && String(input.path ?? '').replace(/^\/+/, '') === OVERVIEW) overview = await renderOverview(host, s)
+  // A file an apply renamed: say where it went (a fact this session recorded), not just "missing".
+  const key = String(input.path ?? '').replace(/^\/+/, '')
+  const moved = input.command !== 'create' && !s.files.has(key) ? renames.get(host)?.get(key) : undefined
+  if (moved) {
+    return err(`/${key} was applied as ${moved.kind} ${moved.id}; its file is now /${moved.path}. Applying rewrites files in the standard format, so view it before editing.`, `${input.command ?? 'edit'}: file renamed`)
+  }
   const r = runEditor(s.files, input, () => overview)
   if (!r.ok) return err(r.error, `${input.command ?? 'edit'}: refused`)
   if (r.changed) s.dirty = true
@@ -523,7 +531,24 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
   host.setDoc(doc)
   // The files start again from the new draft: new items under their ids.
   staged(host, true)
-  return ok({ ...result, ...(added.length ? { files: 'Rebuilt: new items now have files named by their ids.' } : {}) }, summary)
+  // New items' files move to their ids; record it so a later edit of the old path is told where it went.
+  const moved: Record<string, string> = {}
+  const known = renames.get(host) ?? new Map()
+  for (const c of created) {
+    const pairs: [string, string][] =
+      c.kind === 'visualization'
+        ? [[vizPath(c.file), vizPath(c.id)]]
+        : [[transformPath(c.file), transformPath(c.id)], ...(doc.transforms.find((t) => t.id === c.id)?.outputs ?? []).map((o): [string, string] => [sqlPath(c.file, o.key), sqlPath(c.id, o.key)])]
+    for (const [from, to] of pairs) {
+      moved[`/${from}`] = `/${to}`
+      known.set(from, { path: to, kind: c.kind, id: c.id })
+    }
+  }
+  renames.set(host, known)
+  return ok(
+    { ...result, ...(added.length ? { renamed: moved } : {}), files: 'Rewritten from the workspace in the standard format: view a file before editing it.' },
+    summary,
+  )
 }
 
 // ── visualization_stats ────────────────────────────────────────────────────
