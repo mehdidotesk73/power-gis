@@ -109,6 +109,11 @@ the text editor, `apply_workspace`, `run_transform`, `update_dataset` and `delet
   file under a name the agent picks (`by_state`), listed in the index; applying gives it a real id
   (the reply's `added`) and rebuilds the files under the ids. Removing = taking the id out of the
   list (the editor has no delete); files nothing uses are reported and dropped.
+- **The layout is taught in the overview.** A built-in tool's description is Anthropic's own: ours
+  for the editor is never sent. So `overview.md` opens with "How these files work" (the rules and a
+  labelled placeholder example), and refusals state the rule plus only facts read from the files:
+  a SQL file off the pattern (`/transforms/x.sql`) is answered with the transform's real output
+  keys and their exact paths, or with what a new transform needs — never a guessed key or name.
 - **SQL never sits inside JSON**: it's a `.sql` file, written with `create` or edited with
   `str_replace`, one ordinary layer of tool-call escaping. A transform file holding `sql` is refused.
 - **Staging rules.** `get_workspace` rebuilds the files from the draft (discarding unapplied edits,

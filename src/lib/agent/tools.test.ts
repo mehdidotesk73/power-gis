@@ -202,6 +202,20 @@ describe('agent tools', () => {
     expect((await edit(host, { command: 'insert', path: '/workspace.json', insert_line: 1, insert_text: '  "x": 1,' })).isError).toBe(false)
     expect((await edit(host, { command: 'view', path: '/workspace.json', view_range: [1, 2] })).content).toBe('     1\t{\n     2\t  "x": 1,')
     expect(await edit(host, { command: 'delete', path: '/workspace.json' })).toMatchObject({ isError: true })
+
+
+    // A SQL file off the naming pattern is refused with the rule and only facts from the files.
+    const off = await edit(host, { command: 'create', path: '/transforms/county_home_income.sql', file_text: 'SELECT 1' })
+    expect(off.content).toContain('named <transform>.<output key>.sql')
+    expect(off.content).toContain('There is no /transforms/county_home_income.json')
+    expect(off.content).not.toContain('o1')
+    await edit(host, { command: 'create', path: '/transforms/t.json', file_text: JSON.stringify({ name: 'T', inputs: [], outputs: [{ key: 'a3f9', name: 'A' }, { key: 'b2', name: 'B' }] }) })
+    expect((await edit(host, { command: 'create', path: '/transforms/t.sql', file_text: 'SELECT 1' })).content).toContain('/transforms/t.json has output keys "a3f9", "b2": /transforms/t.a3f9.sql, /transforms/t.b2.sql.')
+    expect((await edit(host, { command: 'view', path: '/transforms/t.o1.sql' })).content).toContain('output keys "a3f9", "b2"')
+    // A SQL file may come before its transform's JSON.
+    expect((await edit(host, { command: 'create', path: '/transforms/later.o1.sql', file_text: 'SELECT 1' })).isError).toBe(false)
+    // The overview starts with how the files work.
+    expect((await runTool(host, 'get_workspace', {})).content).toContain('## How these files work')
   })
 
   it('refuses the whole apply, listing every problem with its file, and changes nothing', async () => {

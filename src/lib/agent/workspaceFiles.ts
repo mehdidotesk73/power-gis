@@ -126,6 +126,33 @@ function listing(files: Files, dir: string): string {
 }
 
 /**
+ * For a .sql path under /transforms that isn't `<transform>.<output key>.sql` (or names a file that
+ * doesn't exist): the rule, plus only facts taken from the files — never a guessed key or name.
+ */
+function sqlHint(files: Files, path: string): string | null {
+  const m = /^transforms\/([^/]+?)(?:\.([^./]+))?\.sql$/.exec(path)
+  if (!m) return null
+  const rule = 'SQL files are named <transform>.<output key>.sql, one per output in the transform\'s JSON.'
+  // The transform the agent likely meant: the whole stem, or the part before the last dot.
+  const stems = [m[2] ? `${m[1]}.${m[2]}` : m[1], m[1]].filter((x, i, a) => a.indexOf(x) === i)
+  for (const stem of stems) {
+    const text = files.get(transformPath(stem))
+    if (text === undefined) continue
+    let keys: string[] = []
+    try {
+      const t = JSON.parse(text)
+      keys = Array.isArray(t?.outputs) ? t.outputs.flatMap((o: unknown) => (isObj(o) && typeof o.key === 'string' ? [o.key] : [])) : []
+    } catch {
+      return `${rule} /${transformPath(stem)} isn't valid JSON right now, so its output keys can't be read.`
+    }
+    return keys.length
+      ? `${rule} /${transformPath(stem)} has output key${keys.length > 1 ? 's' : ''} ${keys.map((k) => `"${k}"`).join(', ')}: ${keys.map((k) => `/${sqlPath(stem, k)}`).join(', ')}.`
+      : `${rule} /${transformPath(stem)} has no output with a "key" yet.`
+  }
+  return `${rule} There is no /${transformPath(stems[stems.length - 1])}: a new transform needs its JSON file (each output with a "key" you choose) and one .sql file per output key, named after them; then list the transform in /workspace.json.`
+}
+
+/**
  * Runs one editor command on the files (changing them in place). `overview`
  * renders overview.md from the files as they are now.
  */
@@ -138,7 +165,7 @@ export function runEditor(files: Files, input: Obj, overview: () => string): Edi
     case 'view': {
       if (path === '' || DIRS.includes(path)) return done(listing(files, path))
       const text = path === OVERVIEW ? overview() : files.get(path)
-      if (text === undefined) return fail(`${where} does not exist. ${known()}`)
+      if (text === undefined) return fail(`${where} does not exist. ${sqlHint(files, path) ?? known()}`)
       const range = input.view_range
       if (Array.isArray(range) && range.length === 2 && range.every(Number.isInteger)) {
         const lines = text.replace(/\n$/, '').split('\n')
@@ -152,7 +179,12 @@ export function runEditor(files: Files, input: Obj, overview: () => string): Edi
     case 'create': {
       if (typeof input.file_text !== 'string') return fail('`file_text` is required for create.')
       if (path === OVERVIEW) return fail(`${where} is generated from the other files and can't be edited; edit the item's own file instead.`)
-      if (!writable(path)) return fail(`Can't create ${where}. Files are /workspace.json, /transforms/<id>.json, /transforms/<id>.<output key>.sql and /visualizations/<id>.json (ids: letters, digits, _ and -).`)
+      if (!writable(path)) {
+        // A SQL file may come before its transform's JSON; only a name off the pattern is refused.
+        const hint = sqlHint(files, path)
+        if (hint) return fail(`Can't create ${where}. ${hint}`)
+        return fail(`Can't create ${where}. Files are /workspace.json, /transforms/<id>.json, /transforms/<id>.<output key>.sql and /visualizations/<id>.json (ids: letters, digits, _ and -).`)
+      }
       const before = files.get(path)
       files.set(path, input.file_text)
       return done(`${before === undefined ? 'Created' : 'Overwrote'} ${where}.`, before !== input.file_text)
@@ -160,7 +192,7 @@ export function runEditor(files: Files, input: Obj, overview: () => string): Edi
     case 'str_replace': {
       if (path === OVERVIEW) return fail(`${where} is generated from the other files and can't be edited; edit the item's own file instead.`)
       const text = files.get(path)
-      if (text === undefined) return fail(`${where} does not exist. ${known()}`)
+      if (text === undefined) return fail(`${where} does not exist. ${sqlHint(files, path) ?? known()}`)
       if (typeof input.old_str !== 'string' || !input.old_str) return fail('`old_str` is required for str_replace.')
       const next = typeof input.new_str === 'string' ? input.new_str : ''
       const parts = text.split(input.old_str)
@@ -303,6 +335,21 @@ export interface OverviewInfo {
   pending: boolean
 }
 
+/**
+ * How the files work, at the top of every overview: the editor's own description is Anthropic's,
+ * so this (and the prompt) is where the model learns the layout. Rules plus a labelled example
+ * only — nothing here is a suggestion about the current workspace.
+ */
+const GUIDE = [
+  '## How these files work',
+  '- /workspace.json lists what exists: "datasetIds", "transforms" and "visualizations" (ids; visualizations in draw order, first on top).',
+  '- /transforms/<id>.json is one transform: {"name", "inputs": [{"datasetId", "alias"}], "outputs": [{"key", "name", "outputId"?}]}.',
+  '- /transforms/<id>.<output key>.sql is one output\'s SQL, plain text. SQL never goes inside JSON.',
+  '- /visualizations/<id>.json is one visualization. A file\'s name is its id.',
+  '- Example (placeholder names): to add a transform, create /transforms/by_state.json with outputs [{"key": "o1", "name": "State values"}], create /transforms/by_state.o1.sql, add "by_state" to "transforms" in /workspace.json, then apply_workspace; its reply gives the real id.',
+  '- To remove an item, take its id out of /workspace.json. Nothing changes until apply_workspace.',
+]
+
 /** overview.md: one line per item, from the files as they are now (pending edits included). */
 export function overviewText(files: Files, doc: WorkspaceDoc, info: OverviewInfo): string {
   const lines: string[] = []
@@ -326,6 +373,7 @@ export function overviewText(files: Files, doc: WorkspaceDoc, info: OverviewInfo
   const ds = (id: unknown) => (typeof id === 'string' ? (dsName.has(id) ? `${id} (${dsName.get(id)})` : id) : '?')
 
   lines.push(`# Workspace "${typeof index.name === 'string' ? index.name : doc.name}" · version ${info.version}${info.pending ? ' · edits not applied yet (apply_workspace)' : ''}`, '')
+  lines.push(...GUIDE, '')
   const dsIds = list('datasetIds')
   lines.push(`## Datasets (${dsIds.length})`)
   for (const id of dsIds) {

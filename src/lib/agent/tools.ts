@@ -100,8 +100,9 @@ export const TOOLS: ToolSpec[] = [
   {
     name: EDITOR_TOOL,
     builtin: 'text_editor',
-    description:
-      'View and edit the workspace files (get_workspace builds them). Commands: view (a file, or / for the list), create (write a whole file), str_replace (replace text that occurs exactly once), insert (after a line). Edits change only the files; apply_workspace makes them the workspace.',
+    // Not sent to Claude: Anthropic's editor brings its own definition. The file layout is taught in
+    // overview.md (get_workspace) and the prompt. Other providers would see this.
+    description: 'View and edit the workspace files: view (a file, or / for the list), create, str_replace (text that occurs once), insert. Changes nothing until apply_workspace.',
     inputSchema: {
       type: 'object',
       properties: {

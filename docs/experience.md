@@ -324,6 +324,9 @@ Two additions from reviewing it here, beyond what the originating project report
   conventions (`<id>.<key>.sql`) leave nothing to mix up.
 - **Lesson:** return the ids of what a tool creates. Without them the agent called
   `run_transform("PLACEHOLDER")`.
+- **Gotcha:** an Anthropic-defined tool (the text editor) is declared by type only — any description
+  we write isn't sent. Teach what the model needs elsewhere (here: the overview). And keep refusal
+  hints factual: a suggested path with a guessed output key could send the agent to rename a real one.
 - **Gotcha:** with strict tools, an optional field is one the model may leave out. `query_sql` briefly
   took `sql` *or* `sqlFile`, both optional; Haiku sent the same call without either three times.
   Whatever a tool can't work without is `required` — no either/or pairs.
