@@ -28,6 +28,8 @@ export interface TransformSpec {
   name: string
   inputs: { datasetId: string; alias: string }[]
   outputs: TransformOutput[]
+  /** SQL engine extensions its SQL uses (e.g. spatial), recorded from its last successful run. */
+  requires?: string[]
 }
 export interface TransformOutput {
   /** Stable within the transform. */
@@ -49,6 +51,9 @@ export function normalizeTransform<T extends { name: string; inputs: TransformSp
   if (Array.isArray(t.outputs)) return { ...rest, outputs: t.outputs }
   return { ...rest, outputs: [{ key: 'o1', name: t.name, sql: sql ?? '', ...(outputId ? { outputId } : {}) }] }
 }
+
+/** The SQL engine extensions a workspace's transforms need (loaded ahead when it opens). */
+export const workspaceRequires = (doc: Pick<WorkspaceDoc, 'transforms'>): string[] => [...new Set(doc.transforms.flatMap((t) => t.requires ?? []))].sort()
 
 export interface OpError {
   code: 'not_found' | 'duplicate' | 'invalid'

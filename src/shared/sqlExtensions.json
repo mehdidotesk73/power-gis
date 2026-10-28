@@ -1,0 +1,13 @@
+{
+  "duckdbVersion": "v1.4.3",
+  "platform": "wasm_eh",
+  "extensions": [
+    {
+      "name": "spatial",
+      "purpose": "Geometry functions: areas and lengths (ST_Area_Spheroid, ST_Length_Spheroid), projections (ST_Transform), spatial joins (ST_Intersects, ST_Contains, ST_DWithin), buffers, centroids, simplification, and reading geographic files (ST_Read).",
+      "size": "large (GEOS, PROJ and GDAL inside)",
+      "hosted": true,
+      "conflictsWith": []
+    }
+  ]
+}

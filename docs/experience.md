@@ -312,6 +312,23 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Spatial extension — 2026-10-28
+- **Added:** DuckDB's **spatial** extension (ST_Area_Spheroid, ST_Transform, spatial joins, ST_Read…),
+  on an allowlist (`shared/sqlExtensions.json`). A query that names an extension's function fails with
+  "…exists in the spatial extension"; the runner loads it (if allowed) and runs the query again.
+  `autoload_known_extensions` is off, so nothing loads outside the allowlist. GEOMETRY results come
+  back as GeoJSON text (`DESCRIBE`, then `ST_AsGeoJSON` in a wrapping SELECT), so they're geometry
+  columns like any other.
+- **Workspace dependencies:** a run records the extensions its SQL used (`transform.requires`, from
+  the functions each extension added that the SQL calls — not type names: `geometry` is our usual column
+  name, and matching it made every transform "need" spatial); the workspace's are the union (in workspace files as
+  `requires`), loaded in the background as soon as a workspace needs them.
+- **Hosting:** the Netlify build downloads the extension into `public/duckdb-ext/` (`prebuild`,
+  `scripts/fetch-duckdb-extensions.mjs`); the app falls back to `extensions.duckdb.org` when the copy
+  is missing (a missing file comes back as the SPA's HTML, so the check looks at the content type).
+- **Not verifiable from the dev sandbox:** `extensions.duckdb.org` is blocked here, so the real load
+  was only tested on the preview. Tests use a stand-in extension.
+
 ### Engine speed — 2026-10-27
 - **Fixed:** queries slowed down over a session. The engine cached loaded tables **by alias**, and the
   agent invents a new alias for nearly every query, so each one reloaded the whole dataset (a 3,071 ×

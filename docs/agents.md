@@ -200,12 +200,41 @@ usage policies live **there**, not as dataset properties.
 
 Data isn't always a file to download: prices on product pages, shipping quotes from one place
 to each state. The user prefers the agent to **collect and assemble data itself** rather than
-point them to sources. That needs one more gated tool, roughly `create_dataset(name, rows)`
-(local only, size-capped), so data the agent gathered from web pages (`web_search` /
-`web_fetch`) becomes a dataset. Downloadable files still go through the user for now.
+point them to sources. Two stages, both ending in the same gated tool, `create_dataset(name, rows)`
+(local only, size-capped, typed like an upload): the agent's data goes **straight into the app**,
+not through a CSV the user downloads and uploads again (Export already covers "give me the file").
+
+### D1 — fetch and create (the agent writes no code)
+
+- `web_search` / `web_fetch` (Anthropic's server tools) for pages and small tables.
+- `fetch_data(url)`: our code downloads a CSV / JSON / Parquet file and parses it. Browsers can't read
+  most government sites directly (CORS), so it goes through a **small Netlify function proxy** that
+  only reaches an allowlist of hosts (census.gov, eia.gov, the PUDL bucket, …) with a size cap — never
+  an open proxy.
+- Likely covers most requests. Example: county income needs only the ACS table from the Census API
+  (~3,200 rows) joined to the built-in counties on FIPS in a transform — not the census shapefiles.
+
+### D2 — agent-written scripts (messy sources: zips, scraping, reshaping)
+
+The agent writes a Python script; the user approves it (an `ask_user` card listing the hosts it will
+reach); it runs; its CSV becomes a dataset through `create_dataset`. The script is saved as a
+**source script** record — like a transform with no inputs: in the workspace and the graph,
+re-runnable when new data comes out, one writer per dataset. Where it runs:
+
+- **Option A (preferred): Anthropic Managed Agents.** A container on Anthropic's side with Python and
+  pandas installed, `pip` allowed, networking `limited` to the allowlisted hosts. The app (the user's
+  own key) starts a session, the script writes to `/mnt/session/outputs/`, the app downloads the file
+  through the Files API (`files.list({scope_id: session.id})`). Nothing big downloads to the phone; no
+  CORS; no server of ours. To check first: whether those endpoints accept browser calls (as Messages
+  does; else a small relay function), the cost per run (container time + the runner's tokens), and
+  that it's a beta API. Proof of concept: one session that fetches one Census API table and writes a
+  CSV.
+- **Option B: Pyodide** (Python in WebAssembly) in a worker, loaded on first use like DuckDB. Runs on
+  the device (tens of MB to download, pandas included), fetches through the D1 proxy.
+- Not an option: the plain code-execution tool (it has no internet access); running agent code on a
+  server of our own (needs real sandboxing; not before Supabase).
 
 ## Later (not decided)
 
-- Agent-written download / parse functions (in the app, or on a real backend).
 - PowerGIS as a connector inside the Claude apps: postponed; revisit after Supabase.
 - Live agent activity in the graph (which agent made what) and a token-usage view.

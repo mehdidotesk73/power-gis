@@ -209,9 +209,25 @@ its output dataset (`outputId`), or a new one when it has none. DuckDB-WASM is t
   macros: `point(lat, lon)` → GeoJSON point text, `vector(u, v)` → `{u, v}`. Results are normalized
   (BigInt → number, timestamps → ISO text) and typed with `inferColumns`, so GeoJSON text becomes a
   geometry column and `{u, v}` a vector column; all-null columns fall back to DuckDB's type.
-- **Requests** — `previewTransform` (first rows + columns + full count; nothing stored),
+- **Extensions** — allowlist in `shared/sqlExtensions.json` (+ `sqlExtensions.ts`): name, purpose,
+  size, `hosted`, `conflictsWith`, and the DuckDB version / platform the files are built for (a test
+  checks `version()`). `autoload_known_extensions` is off; when a query fails with "…exists in the X
+  extension", the runner loads X if allowed (`engine.loadExtension`), noting the function names it
+  added (`duckdb_functions()` before and after), and runs the query again. Each run reports the loaded
+  extensions whose functions the SQL calls (`name(`; not type names — GEOMETRY is also a common column
+  name) as `SqlRun.extensions`. With spatial
+  loaded, a `DESCRIBE` finds GEOMETRY result columns and a wrapping SELECT turns them into GeoJSON
+  (`geometryAsGeoJson`). `duckdb.ts` loads from `<base>duckdb-ext/<version>/<platform>/<name>.duckdb_extension.wasm`
+  when that file exists (a HEAD that isn't the SPA's HTML), else from `extensions.duckdb.org`. The
+  Netlify build fetches hosted ones (`prebuild` → `scripts/fetch-duckdb-extensions.mjs`, only with
+  `NETLIFY` or `FETCH_DUCKDB_EXT`; git-ignored; excluded from the PWA precache; a failed download
+  doesn't fail the build).
+- **Requests** — `previewTransform` (first rows + columns + full count + extensions used; nothing stored),
   `runTransform` (writes the output table, profile and record; updates a saved transform's
-  `outputId`). SQL errors come back as `invalid` with DuckDB's message. Deleting an output dataset
+  `outputId` and `requires`; returns `requires`), `loadSqlExtensions` (load ahead; answers what's loaded
+  and from where). **Workspace dependencies:** `TransformSpec.requires` comes from the last
+  successful run; `workspaceRequires(doc)` is their union, written into workspace files as `requires`;
+  `MapPage` loads it in the background whenever it gains a name. SQL errors come back as `invalid` with DuckDB's message. Deleting an output dataset
   clears transforms' `outputId` (next run makes a new one).
 - **Client** — transforms live in the workspace draft (`TransformSpec`; ops `addTransform`,
   `updateTransform`, `removeTransform`; `removeDataset` refuses while a transform reads the dataset),

@@ -5,6 +5,7 @@
   "description": "Power-sector data on a map: reusable scalar/vector map widgets with ArcGIS interop",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/fetch-duckdb-extensions.mjs",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "type-check": "vue-tsc --noEmit",

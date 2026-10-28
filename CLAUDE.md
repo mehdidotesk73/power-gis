@@ -192,11 +192,16 @@ whatever they're actually asking about.
   used copies dropped past `CELL_BUDGET`), bulk-loaded as an Arrow IPC stream (`server/arrowStage.ts`;
   ~0.5 s for 3,071 × 330, was ~11 s as INSERT … VALUES); each query's aliases are temp views onto those
   copies, queries run one at a time; runs one SELECT (paged ones once, with `count(*) OVER ()`), and types the result again (GeoJSON text → geometry, `{u, v}` →
-  vector). Helpers in SQL: `point(lat, lon)`, `vector(u, v)`. A transform is **inputs + outputs**:
+  vector). Helpers in SQL: `point(lat, lon)`, `vector(u, v)`. **Extensions** (allowlist
+  `shared/sqlExtensions.json`, today only `spatial`): a query that needs one loads it and retries;
+  GEOMETRY results come back as GeoJSON; a run records what the SQL used (`transform.requires`), and a
+  workspace's are loaded ahead on open and saved in its files. The Netlify build hosts the extension
+  files (`scripts/fetch-duckdb-extensions.mjs` → `public/duckdb-ext/`, git-ignored); otherwise they
+  come from `extensions.duckdb.org`. Bump `duckdbVersion` there when upgrading DuckDB-WASM (a test checks). A transform is **inputs + outputs**:
   `TransformSpec {id, name, inputs, outputs: {key, name, sql, outputId?}[]}` — one SELECT per output.
   Requests: `previewTransform` (one SQL's first rows, nothing stored), `runTransform` (runs every
   output's SQL, then — only if all succeed — writes each into its `outputId` or a new dataset named
-  after the output; returns `{outputs: [{key, datasetId, rowCount, created}]}`). Older single-SQL
+  after the output; returns `{outputs: [{key, datasetId, rowCount, created}], requires}`). Older single-SQL
   transforms (`sql` + `outputId`) are read through `normalizeTransform` (drafts, files, records).
   Transforms are part of the workspace draft (ops `addTransform` / `updateTransform` /
   `removeTransform`) and saved with it. The editor sets inputs and outputs first — **one compact line each**
@@ -319,7 +324,7 @@ src/
     search.ts              ranked type-ahead search (optional typo-tolerant `fuzzy`)
     data/csv.ts            CSV → records
     demo.ts                synthetic vector field for exercising the arrow widget
-  shared/                  client ↔ server contract: api, records (tables), database, idb, builtins
+  shared/                  client ↔ server contract: api, records (tables), database, idb, builtins, sqlExtensions (+ .json allowlist)
   server/                  the server (Web Worker today): server.ts handlers, worker.ts entry, sql.ts + duckdb.ts (transforms)
   client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter)
   lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt
@@ -345,7 +350,7 @@ src/
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
     agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)
 public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
-scripts/                   data build scripts
+scripts/                   data build scripts; fetch-duckdb-extensions.mjs (prebuild, Netlify only)
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)
   experience.md            what didn't work + per-merge version history

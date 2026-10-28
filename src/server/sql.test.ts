@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { checkSelect, createSqlRunner, type SqlInput } from './sql'
+import { checkSelect, createSqlRunner, geometryAsGeoJson, missingExtension, type SqlEngine, type SqlInput } from './sql'
+import { DUCKDB_VERSION, conflictOf } from '../shared/sqlExtensions'
 import { nodeDuckDb } from './testEngine'
 import { profileRows } from '../lib/dataset/profile'
 
@@ -109,5 +110,68 @@ describe('sql transforms (DuckDB)', () => {
     expect(p.columns.find((c) => c.name === 'lat')).toMatchObject({ filled: 2 })
     expect(p.columns.find((c) => c.name === 'fips')).toMatchObject({ distinct: 2 })
     expect(p.completeness).toBeCloseTo(16 / 18)
+  })
+})
+
+/**
+ * The Node engine with a stand-in "spatial" extension (no download here):
+ * st_double(x) fails the way DuckDB fails for a function of an unloaded
+ * extension until loadExtension defines it.
+ */
+async function withFakeSpatial(log: string[]): Promise<SqlEngine> {
+  const e = await nodeDuckDb()
+  let on = false
+  return {
+    ...e,
+    async query(q) {
+      if (!on && /st_double/i.test(q)) throw new Error('Catalog Error: Scalar Function with name "st_double" is not in the catalog, but it exists in the spatial extension.')
+      return e.query(q)
+    },
+    async loadExtension(name) {
+      log.push(name)
+      if (name !== 'spatial') throw new Error('no such extension')
+      await e.query('CREATE OR REPLACE MACRO st_double(x) AS x * 2')
+      on = true
+      return 'test'
+    },
+  }
+}
+
+describe('sql engine extensions', () => {
+  it('runs the DuckDB version the extension allowlist names', async () => {
+    const e = await nodeDuckDb()
+    expect((await e.query('SELECT version() AS v')).rows[0].v).toBe(DUCKDB_VERSION)
+  })
+
+  it('loads an allowed extension when a query needs it, retries, and reports what the SQL uses', async () => {
+    const log: string[] = []
+    const sql = createSqlRunner(() => withFakeSpatial(log))
+    const plain = await sql.run('SELECT mw FROM plants', [plants])
+    expect(plain.extensions).toEqual([])
+    const r = await sql.run('SELECT ST_Double(mw) AS d FROM plants ORDER BY d', [plants])
+    expect(r.rows.map((x) => x.d)).toEqual([600, 1000, 2400])
+    expect(r.extensions).toEqual(['spatial'])
+    // Loaded once; later queries say whether they use it.
+    expect((await sql.run('SELECT st_double(1) AS d', [plants])).extensions).toEqual(['spatial'])
+    expect((await sql.run("SELECT 'st_double' AS name -- st_double(1)", [plants])).extensions).toEqual([])
+    expect(log).toEqual(['spatial'])
+    expect(await sql.load(['spatial'])).toEqual([{ name: 'spatial', from: 'test' }])
+  })
+
+  it("refuses extensions that aren't allowed, and engines that can't load any", async () => {
+    const e = await nodeDuckDb()
+    await expect(createSqlRunner(async () => e).run("SELECT * FROM read_parquet('x.parquet')", [plants])).rejects.toThrow(/parquet extension, which PowerGIS doesn't load/)
+    await expect(createSqlRunner(async () => e).load(['spatial'])).rejects.toThrow(/can't be loaded here/)
+  })
+
+  it('reads the extension a DuckDB error names, and turns GEOMETRY results into GeoJSON', () => {
+    expect(missingExtension('Catalog Error: Type with name "GEOMETRY" is not in the catalog, but it exists in the spatial extension.')).toBe('spatial')
+    expect(missingExtension('Scalar Function with name foo does not exist!')).toBeUndefined()
+    const q = 'SELECT name, geom FROM t'
+    expect(geometryAsGeoJson(q, [{ column_name: 'name', column_type: 'VARCHAR' }])).toBe(q)
+    expect(geometryAsGeoJson(q, [{ column_name: 'name', column_type: 'VARCHAR' }, { column_name: 'geom', column_type: 'GEOMETRY' }])).toBe(
+      'SELECT * REPLACE (CAST(ST_AsGeoJSON("geom") AS VARCHAR) AS "geom") FROM (SELECT name, geom FROM t\n)',
+    )
+    expect(conflictOf('spatial', [])).toBeUndefined()
   })
 })

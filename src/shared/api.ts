@@ -33,6 +33,8 @@ export interface TransformInput {
   inputs: TransformInputRef[]
   /** Each written on Run: into its `outputId`, or a new dataset (whose id it then gets). */
   outputs: TransformOutputRef[]
+  /** SQL engine extensions its SQL uses (recorded from its last successful run). */
+  requires?: string[]
 }
 
 export interface VisualizationInput {
@@ -58,9 +60,11 @@ export interface Api {
   /** One value per feature for a visualization. */
   queryVisualization: [{ datasetId: string; binding: GeometryBinding; column: string; aggregation: Aggregation }, VizValues]
   /** Runs a transform's SQL without storing anything: the first rows, the columns and the full count. */
-  previewTransform: [{ sql: string; inputs: TransformInputRef[]; limit?: number; offset?: number }, { columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }]
+  previewTransform: [{ sql: string; inputs: TransformInputRef[]; limit?: number; offset?: number }, { columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number; extensions: string[] }]
   /** Runs every output's SQL, then (only if all succeed) stores each: into its `outputId`'s table, or a new dataset. Returns the pointers. */
-  runTransform: [{ transform: TransformInput }, { outputs: { key: string; datasetId: string; rowCount: number; created: boolean }[] }]
+  runTransform: [{ transform: TransformInput }, { outputs: { key: string; datasetId: string; rowCount: number; created: boolean }[]; requires: string[] }]
+  /** Loads SQL engine extensions ahead of need (a workspace's transforms use them); answers what's loaded and from where. */
+  loadSqlExtensions: [{ names: string[] }, { loaded: { name: string; from: string }[] }]
   /** A dataset's profile (computed and stored if the record has none yet). */
   profileDataset: [{ datasetId: string }, DatasetProfile]
   /** Every searchable value of a visualization's features: their names and the text in their rows. */

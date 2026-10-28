@@ -18,7 +18,7 @@ async function topo(url: string) {
 
 const server = createServer(new IndexedDbDatabase(), {
   // DuckDB (and its ~34 MB of wasm) loads only when a transform first runs.
-  sql: () => import('./duckdb').then((m) => m.openDuckDb()),
+  sql: () => import('./duckdb').then((m) => m.openDuckDb({ extensionRepository: new URL(`${import.meta.env.BASE_URL}duckdb-ext`, self.location.origin).href })),
   async readBuiltin(table, baseUrl) {
     if (table === 'demo_vectors') return demoVectorRows()
     if (table === 'us_counties') return countyRows(await topo(countiesUrl))

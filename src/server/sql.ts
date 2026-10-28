@@ -8,11 +8,18 @@
 //   point / polyline / region → VARCHAR holding GeoJSON (typed again on the way out).
 // Helpers available in SQL: point(lat, lon) → a point geometry; vector(u, v) → a vector.
 //
+// Extensions (shared/sqlExtensions.ts): when a query fails because a function
+// or type lives in an allowed extension (spatial), the engine loads it and runs
+// the query again. Each result says which loaded extensions the SQL uses, so a
+// transform can record what it needs. With spatial loaded, GEOMETRY results
+// come back as GeoJSON text (and so as our geometry columns).
+//
 // The engine is anything that runs SQL and returns rows — DuckDB-WASM in the
 // browser (duckdb.ts), its Node build in tests.
 
 import type { DataRecord } from '../lib/data/connectors'
 import { inferColumns, isGeometryColumn, type ColumnInfo, type ColumnType } from '../lib/dataset/columns'
+import { SQL_EXTENSIONS, conflictOf, sqlExtension } from '../shared/sqlExtensions'
 
 export interface SqlResult {
   /** Result column names and the engine's type names (Arrow), in order. */
@@ -24,6 +31,8 @@ export interface SqlEngine {
   query(sql: string): Promise<SqlResult>
   /** Bulk-loads plain columns into a new table (Arrow). Engines without it get INSERT … VALUES. */
   insert?(table: string, columns: StagedColumn[]): Promise<void>
+  /** Loads an extension (from the app's own copy, else DuckDB's repository); resolves with where from. Engines without it can't load any. */
+  loadExtension?(name: string): Promise<string>
 }
 
 /** One column of plain values for a bulk load; sql.ts casts it to its final type afterwards. */
@@ -89,6 +98,8 @@ function literal(v: unknown, type: ColumnType): string {
 }
 
 const MACROS = [
+  // Extensions load only through the allowlist (loadExtension), never on DuckDB's own initiative.
+  'SET autoload_known_extensions = false',
   // Latitude first, as people say coordinates; GeoJSON stores longitude first.
   `CREATE OR REPLACE MACRO point(lat, lon) AS CASE WHEN lon IS NULL OR lat IS NULL THEN NULL ELSE '{"type":"Point","coordinates":[' || CAST(lon AS DOUBLE) || ',' || CAST(lat AS DOUBLE) || ']}' END`,
   `CREATE OR REPLACE MACRO vector(u, v) AS CASE WHEN u IS NULL OR v IS NULL THEN NULL ELSE {'u': CAST(u AS DOUBLE), 'v': CAST(v AS DOUBLE)} END`,
@@ -108,13 +119,27 @@ function plain(v: unknown, type: string): unknown {
   return v
 }
 
+/** The SQL with strings and comments blanked out (positions kept), to look at the code alone: they may hold anything (a ";", a "don't"). */
+const codeOnly = (sql: string) => sql.replace(/'(?:[^']|'')*'|--[^\n]*|\/\*[\s\S]*?\*\//g, (m) => (m.startsWith("'") ? `'${' '.repeat(m.length - 2)}'` : ' '.repeat(m.length)))
+
+/** The extension a DuckDB error says the query needs ("… but it exists in the spatial extension"). */
+export const missingExtension = (message: string): string | undefined => /exists in the (\w+) extension/.exec(message)?.[1]
+
+/**
+ * The query with its GEOMETRY columns (from DESCRIBE) turned into GeoJSON
+ * text, which our column inference reads as geometry; unchanged without any.
+ */
+export function geometryAsGeoJson(query: string, described: { column_name: string; column_type: string }[]): string {
+  const geo = described.filter((d) => /^GEOMETRY\b/i.test(d.column_type)).map((d) => d.column_name)
+  if (!geo.length) return query
+  return `SELECT * REPLACE (${geo.map((c) => `CAST(ST_AsGeoJSON(${ident(c)}) AS VARCHAR) AS ${ident(c)}`).join(', ')}) FROM (${query}\n)`
+}
+
 /** One SELECT (or WITH … SELECT) statement, trailing semicolon trimmed; anything else is rejected with a reason. */
 export function checkSelect(sql: string): string {
   let s = sql.trim()
   if (!s) throw new Error('The SQL is empty')
-  // Strings and comments may hold anything (a ";", a "don't"): blank them out,
-  // keeping positions, to look at the code alone.
-  const code = s.replace(/'(?:[^']|'')*'|--[^\n]*|\/\*[\s\S]*?\*\//g, (m) => (m.startsWith("'") ? `'${' '.repeat(m.length - 2)}'` : ' '.repeat(m.length)))
+  const code = codeOnly(s)
   const end = /;\s*$/.exec(code)
   if (end) s = s.slice(0, end.index) + s.slice(end.index + 1)
   if (/;\s*\S/.test(code.slice(0, end?.index))) throw new Error('Write one SELECT statement (no semicolons between statements)')
@@ -192,6 +217,11 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>, opts: { cellBu
   // One query at a time: aliases are views that each query points at its own datasets.
   let queue: Promise<unknown> = Promise.resolve()
 
+  /** Extensions loaded in the engine, each with the (lowercase) function names it added. */
+  const loaded = new Map<string, Set<string>>()
+  /** Where each loaded extension came from (for the debug log). */
+  const sources = new Map<string, string>()
+
   async function connect() {
     ready ??= (async () => {
       const e = await engine()
@@ -202,6 +232,48 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>, opts: { cellBu
       throw err
     })
     return ready
+  }
+
+  /** Every function name the engine knows, lowercase. */
+  async function catalog(e: SqlEngine): Promise<Set<string>> {
+    const r = await e.query('SELECT DISTINCT lower(function_name) AS n FROM duckdb_functions()')
+    return new Set(r.rows.map((x) => String(x.n)))
+  }
+
+  /** Loads an allowed extension once (noting what it adds); the error says why not otherwise. */
+  async function ensure(e: SqlEngine, name: string) {
+    if (loaded.has(name)) return
+    if (!sqlExtension(name)) throw new Error(`This needs DuckDB's ${name} extension, which PowerGIS doesn't load. Extensions it loads: ${SQL_EXTENSIONS.map((x) => x.name).join(', ')}.`)
+    const clash = conflictOf(name, loaded.keys())
+    if (clash) throw new Error(`The ${name} extension can't load alongside ${clash} in one SQL engine.`)
+    if (!e.loadExtension) throw new Error(`Extensions (${name}) can't be loaded here.`)
+    const before = await catalog(e)
+    try {
+      sources.set(name, await e.loadExtension(name))
+    } catch (err) {
+      throw new Error(`Couldn't load the ${name} extension: ${(err as Error).message}`)
+    }
+    loaded.set(name, new Set([...(await catalog(e))].filter((n) => !before.has(n))))
+  }
+
+  /**
+   * The loaded extensions whose functions the SQL calls. Calls only (`name(`): a type name like
+   * GEOMETRY is also a common column name.
+   */
+  function uses(sql: string): string[] {
+    const words = new Set([...codeOnly(sql).toLowerCase().matchAll(/([a-z_][a-z0-9_]*)\s*\(/g)].map((m) => m[1]))
+    return [...loaded].filter(([, names]) => [...names].some((n) => words.has(n))).map(([name]) => name)
+  }
+
+  /** Loads extensions ahead of need (a workspace's transforms use them). Queued like queries. */
+  function load(names: string[]): Promise<{ name: string; from: string }[]> {
+    const job = queue.then(async () => {
+      const e = await connect()
+      for (const n of names) await ensure(e, n)
+      return [...loaded.keys()].map((name) => ({ name, from: sources.get(name) ?? '' }))
+    })
+    queue = job.catch(() => undefined)
+    return job
   }
 
   /** The engine table holding a dataset's rows, loading it (once per version) if needed. */
@@ -245,13 +317,13 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>, opts: { cellBu
   }
 
   /** Runs a SELECT over the inputs. `limit` (and `offset`) page the rows returned (previews); the full count comes back too. */
-  function run(sql: string, inputs: SqlInput[], limit?: number, offset = 0): Promise<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }> {
+  function run(sql: string, inputs: SqlInput[], limit?: number, offset = 0): Promise<SqlRun> {
     const job = queue.then(() => runNow(sql, inputs, limit, offset))
     queue = job.catch(() => undefined)
     return job
   }
 
-  async function runNow(sql: string, inputs: SqlInput[], limit?: number, offset = 0): Promise<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }> {
+  async function runNow(sql: string, inputs: SqlInput[], limit?: number, offset = 0): Promise<SqlRun> {
     const query = checkSelect(sql)
     const aliases = inputs.map((i) => i.alias)
     const dup = aliases.find((a, i) => aliases.indexOf(a) !== i)
@@ -265,36 +337,56 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>, opts: { cellBu
     }
     await evict(e, new Set(inputs.map((i) => i.key ?? i.alias)))
     let res: SqlResult
+    let final = query
     const paged = limit !== undefined
-    try {
-      // One run: the page, plus the full count alongside every row.
-      res = await e.query(
-        paged ? `SELECT *, count(*) OVER () AS "__total" FROM (${query}\n) LIMIT ${Math.max(0, Math.floor(limit))}${offset > 0 ? ` OFFSET ${Math.floor(offset)}` : ''}` : query,
-      )
-    } catch (err) {
-      // An unknown table is almost always a name that isn't one of the inputs' table names: list them.
-      const missing = /Table with name (\S+) does not exist/.exec((err as Error).message)
-      if (missing) {
-        const have = inputs.map((i) => (i.label ? `${i.alias} (${i.label})` : i.alias)).join(', ')
-        throw new Error(`No table ${missing[1]}. Tables you can use: ${have}.`)
+    // A query that names something from an allowed extension loads it and runs again.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        final = loaded.has('spatial') ? geometryAsGeoJson(query, (await e.query(`DESCRIBE SELECT * FROM (${query}\n)`)).rows as never) : query
+        // One run: the page, plus the full count alongside every row.
+        res = await e.query(
+          paged ? `SELECT *, count(*) OVER () AS "__total" FROM (${final}\n) LIMIT ${Math.max(0, Math.floor(limit))}${offset > 0 ? ` OFFSET ${Math.floor(offset)}` : ''}` : final,
+        )
+        break
+      } catch (err) {
+        const message = (err as Error).message
+        const ext = missingExtension(message)
+        if (ext && !loaded.has(ext) && attempt < 3) {
+          await ensure(e, ext)
+          continue
+        }
+        // An unknown table is almost always a name that isn't one of the inputs' table names: list them.
+        const missing = /Table with name (\S+) does not exist/.exec(message)
+        if (missing) {
+          const have = inputs.map((i) => (i.label ? `${i.alias} (${i.label})` : i.alias)).join(', ')
+          throw new Error(`No table ${missing[1]}. Tables you can use: ${have}.`)
+        }
+        throw err
       }
-      throw err
     }
     const fields = paged ? res.fields.filter((f) => f.name !== '__total') : res.fields
     const rows = res.rows.map((r) => Object.fromEntries(fields.map((f) => [f.name, plain(r[f.name], f.type)])))
     let rowCount = rows.length
     if (paged) {
       if (res.rows.length) rowCount = Number(res.rows[0].__total)
-      else rowCount = offset > 0 ? Number((await e.query(`SELECT count(*) AS n FROM (${query}\n)`)).rows[0].n) : 0
+      else rowCount = offset > 0 ? Number((await e.query(`SELECT count(*) AS n FROM (${final}\n)`)).rows[0].n) : 0
     }
     // Our types from the values (GeoJSON text → geometry, {u, v} → vector, ISO text → datetime);
     // columns with no values fall back to the engine's type.
     const inferred = new Map(inferColumns(rows).map((c) => [c.name, c.type]))
     const columns = fields.map((f) => ({ name: f.name, type: rows.some((r) => r[f.name] !== null) ? (inferred.get(f.name) ?? 'string') : fromEngineType(f.type) }))
-    return { columns, rows, rowCount }
+    return { columns, rows, rowCount, extensions: uses(query) }
   }
 
-  return { run }
+  return { run, load }
+}
+
+export interface SqlRun {
+  columns: ColumnInfo[]
+  rows: DataRecord[]
+  rowCount: number
+  /** The loaded extensions this SQL uses (what a transform records as its needs). */
+  extensions: string[]
 }
 
 function fromEngineType(t: string): ColumnType {

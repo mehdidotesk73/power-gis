@@ -77,6 +77,8 @@ export interface TransformOutputRef {
 export interface TransformRecord extends BaseRecord {
   inputs: TransformInputRef[]
   outputs: TransformOutputRef[]
+  /** SQL engine extensions its SQL uses (shared/sqlExtensions.ts), recorded from its last successful run. */
+  requires?: string[]
 }
 
 /** A dataset pointer plus visualization settings (binding, column, aggregation, style). */
