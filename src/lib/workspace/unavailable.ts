@@ -65,6 +65,9 @@ export function unavailableInfo(doc: WorkspaceDoc, id: string): UnavailableDatas
  */
 export function replaceDataset(doc: WorkspaceDoc, oldId: string, newId: string): OpResult {
   if (oldId === newId) return { ok: true, doc }
+  // The replacement can't be something made from the dataset it replaces (a transform would then read its own output).
+  const downstream = new Set(downstreamOrder(doc, oldId).flatMap((id) => doc.transforms.find((t) => t.id === id)!.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))))
+  if (downstream.has(newId)) return { ok: false, error: { code: 'invalid', message: "That dataset is made from the one it would replace; pick another (or a file)" } }
   const r = (id: string) => (id === oldId ? newId : id)
   const datasetIds = doc.datasetIds.includes(newId) ? doc.datasetIds.filter((d) => d !== oldId) : doc.datasetIds.map(r)
   const { [oldId]: _gone, ...unavailable } = doc.unavailable ?? {}
@@ -134,4 +137,22 @@ export function downstreamOrder(doc: WorkspaceDoc, datasetId: string): string[] 
   }
   for (const t of doc.transforms) visit(t.id)
   return order
+}
+
+/**
+ * The workspace's datasets that exist only on this device: uploads kept here.
+ * Built-ins (made anywhere) and transform outputs (re-run anywhere) aren't
+ * among them, nor cloud datasets. Other devices, and anyone the workspace is
+ * shared with, see these as missing.
+ */
+export function onlyOnThisDevice(
+  doc: WorkspaceDoc,
+  record: (id: string) => { id: string; name: string; store?: 'local' | 'remote'; extensions?: Record<string, unknown> } | undefined,
+): { id: string; name: string }[] {
+  const written = new Set(doc.transforms.flatMap((t) => t.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))))
+  return doc.datasetIds.flatMap((id) => {
+    const d = record(id)
+    if (!d || written.has(id) || (d.store ?? 'local') !== 'local' || typeof d.extensions?.builtin === 'string') return []
+    return [{ id, name: d.name }]
+  })
 }

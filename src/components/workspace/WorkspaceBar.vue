@@ -18,6 +18,8 @@ const props = defineProps<{
   where?: string
   /** How many items can't work on this device (missing datasets and what waits on them). */
   problems?: number
+  /** Signed in: the workspace's uploads kept only on this device. */
+  localOnly?: { id: string; name: string }[]
   counts: { datasets: number; transforms: number; visualizations: number }
 }>()
 const emit = defineEmits<{
@@ -147,6 +149,13 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
           <button class="btn danger" @click="emit('remove-unavailable')">Remove what didn't load</button>
         </span>
       </div>
+      <div v-if="localOnly?.length" class="local-only">
+        <span class="lo-title">Only on this device ({{ localOnly.length }})</span>
+        <ul>
+          <li v-for="d in localOnly" :key="d.id">{{ d.name }}</li>
+        </ul>
+        <span class="lo-note">Other devices, and anyone you share with, see these as missing. Storing datasets in the cloud comes next.</span>
+      </div>
       <div class="row">
         <button class="btn primary" :disabled="!dirty || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
         <button class="btn" :disabled="!dirty || saving" @click="emit('revert')">Discard changes</button>
@@ -185,6 +194,27 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 </template>
 
 <style scoped>
+.local-only {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.76rem;
+}
+.lo-title {
+  font-weight: 600;
+}
+.local-only ul {
+  margin: 0;
+  padding: 0.3rem 0.5rem 0.3rem 1.3rem;
+  max-height: 5.5rem; /* a short list that scrolls, so the panel never grows tall */
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--bg);
+}
+.lo-note {
+  color: var(--text-muted);
+}
 .problems {
   display: flex;
   flex-direction: column;

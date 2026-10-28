@@ -2,10 +2,7 @@
 // A dataset the workspace points at that this device doesn't have: what's
 // known of it, what waits on it, and the way out — replace it with a file or
 // a dataset that's here (the replacement takes over every pointer to it).
-import { ref } from 'vue'
-import UiButton from '../ui/UiButton.vue'
-import AddDatasetPanel from './AddDatasetPanel.vue'
-import { vReveal } from '../reveal'
+import ReplacePanel from './ReplacePanel.vue'
 import type { UnavailableDataset } from '../../lib/workspace/workspace'
 
 const props = defineProps<{
@@ -13,7 +10,6 @@ const props = defineProps<{
   info: UnavailableDataset
   /** What waits on it here. */
   waiting: { transforms: number; visualizations: number }
-  inWorkspace: string[]
 }>()
 const emit = defineEmits<{ (e: 'replace', oldId: string, newId: string): void }>()
 
@@ -24,13 +20,7 @@ const WHY: Record<UnavailableDataset['why'], string> = {
   builtin: "A built-in table this version of the app doesn't have.",
   output: "Made by a transform that couldn't run here.",
 }
-const replacing = ref<null | 'csv' | 'db'>(null)
 const n = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`
-
-function onAdd(ids: string[]) {
-  replacing.value = null
-  if (ids[0]) emit('replace', props.id, ids[0])
-}
 </script>
 
 <template>
@@ -45,14 +35,7 @@ function onAdd(ids: string[]) {
     <p v-if="waiting.transforms || waiting.visualizations" class="muted">
       Waiting on it: {{ [waiting.transforms ? n(waiting.transforms, 'transform') : '', waiting.visualizations ? n(waiting.visualizations, 'visualization') : ''].filter(Boolean).join(' and ') }}.
     </p>
-    <div v-if="!replacing" class="actions">
-      <UiButton size="tag" tone="dataset" icon="⇄" @click="replacing = 'csv'">Replace with a file…</UiButton>
-      <UiButton size="tag" tone="dataset" icon="⇄" @click="replacing = 'db'">Replace with a dataset…</UiButton>
-    </div>
-    <div v-else v-reveal class="replace">
-      <p class="muted">The replacement takes its place everywhere: its transforms read the new one and its visualizations draw it. Columns the SQL expects should match.</p>
-      <AddDatasetPanel :key="replacing" :in-workspace="inWorkspace" :start="replacing" @add="onAdd" @cancel="replacing = null" />
-    </div>
+    <ReplacePanel :exclude="[id]" @pick="(newId) => emit('replace', props.id, newId)" />
   </div>
 </template>
 
@@ -83,15 +66,5 @@ function onAdd(ids: string[]) {
 }
 .muted {
   color: var(--text-muted);
-}
-.actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-.replace {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
 }
 </style>

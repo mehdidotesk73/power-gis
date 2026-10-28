@@ -19,6 +19,7 @@ import FeaturePanel from './map/FeaturePanel.vue'
 import DataExchange from './map/DataExchange.vue'
 import AddDatasetPanel from './dataset/AddDatasetPanel.vue'
 import UnavailableCard from './dataset/UnavailableCard.vue'
+import ReplacePanel from './dataset/ReplacePanel.vue'
 import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
@@ -66,7 +67,7 @@ import {
   type UnavailableDataset,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
-import { downstreamOrder, removeUnavailable as removeUnavailable_, replaceDataset as replaceDataset_, unavailability, unavailableInfo } from '../lib/workspace/unavailable'
+import { downstreamOrder, onlyOnThisDevice, removeUnavailable as removeUnavailable_, replaceDataset as replaceDataset_, unavailability, unavailableInfo } from '../lib/workspace/unavailable'
 import { fileName, fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft, type WorkspaceFile } from '../lib/workspace/file'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
@@ -169,6 +170,11 @@ async function save() {
   if (!ok) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
   if (auth.user && cloudUser.value !== auth.user.id) await catchUpWithCloud() // the last check failed: try again (it saves here when the account has none)
   await saveToCloud()
+  // Signed in, say what other devices (and anyone it's shared with) won't have.
+  const local = localOnly.value
+  if (local.length && !barMessage.value) {
+    barMessage.value = `Saved. ${local.length === 1 ? '1 dataset is' : `${local.length} datasets are`} only on this device (${local.map((d) => `"${d.name}"`).join(', ')}): other devices, and anyone you share with, will see ${local.length === 1 ? 'it' : 'them'} as missing.`
+  }
 }
 
 /** Saves the working copy on this device (the server's database); true when it worked. */
@@ -505,15 +511,27 @@ const waitingOn = (root: string) => ({
   transforms: [...unav.value.transforms.values()].filter((r) => r.includes(root)).length,
   visualizations: [...unav.value.visualizations.values()].filter((r) => r.includes(root)).length,
 })
+/** Uploads kept only on this device (signed in, they're what other devices and other people won't have). */
+const localOnly = computed(() => (auth.user ? onlyOnThisDevice(doc.value, (id) => records.value.get(id)) : []))
 const problemCount = computed(() => unav.value.datasets.size + unav.value.transforms.size + unav.value.visualizations.size)
+
+/** Replace… on a dataset that's here: the one whose replacement is being picked. */
+const replacing = ref<string | null>(null)
+const replaceError = ref('')
+const startReplace = (id: string) => ((replacing.value = id), (replaceError.value = ''))
+/** The transform writing a dataset, by name (an output can't be replaced: its transform would overwrite it). */
+const writtenBy = (id: string) => doc.value.transforms.find((t) => t.outputs.some((o) => o.outputId === id))?.name
 
 /** After a replace: the transforms that read the new dataset, offered to run now. */
 const afterReplace = ref<{ name: string; order: string[]; running: boolean; message: string } | null>(null)
 async function replaceDataset(oldId: string, newId: string) {
-  const name = unavailableInfo(doc.value, oldId).name
+  const name = records.value.get(oldId)?.name ?? unavailableInfo(doc.value, oldId).name
   const ds = await loadRecord(newId)
   if (!ds) return void logDebug(`replace "${name}": the new dataset isn't in the database`, 'error')
-  if (!apply(replaceDataset_(doc.value, oldId, newId))) return
+  const r = replaceDataset_(doc.value, oldId, newId)
+  if (!r.ok) return void (replaceError.value = r.error.message)
+  apply(r)
+  replacing.value = null
   if (dagKey.value === `ds:${oldId}`) dagKey.value = `ds:${newId}`
   const order = downstreamOrder(doc.value, newId)
   afterReplace.value = order.length ? { name: `"${name}" → "${ds.name}"`, order, running: false, message: '' } : null
@@ -1012,6 +1030,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :message="barMessage"
           :where="savedWhere"
           :problems="problemCount"
+          :local-only="localOnly"
           @remove-unavailable="removeUnavailable"
           @show-unavailable="showUnavailable"
           :counts="{ datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length }"
@@ -1027,6 +1046,11 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
       <div class="panels" aria-label="Workspace">
+      <div v-if="replacing" v-reveal class="box after-replace">
+        <span>Replace <strong>"{{ records.get(replacing)?.name ?? unavailableInfo(doc, replacing).name }}"</strong> in this workspace — its transforms and visualizations move to the replacement (the old dataset stays in your database).</span>
+        <span v-if="replaceError" class="problem-note">{{ replaceError }}</span>
+        <ReplacePanel :exclude="[replacing]" @pick="(id) => replaceDataset(replacing!, id)" @cancel="replacing = null" />
+      </div>
       <div v-if="afterReplace" v-reveal class="box after-replace">
         <span>Replaced {{ afterReplace.name }}. {{ afterReplace.order.length }} transform{{ afterReplace.order.length === 1 ? '' : 's' }} read{{ afterReplace.order.length === 1 ? 's' : '' }} it and can run now.</span>
         <span v-if="afterReplace.message" class="problem-note">{{ afterReplace.message }}</span>
@@ -1078,7 +1102,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :id="dagNode.id"
             :info="unavailableInfo(doc, dagNode.id)"
             :waiting="waitingOn(dagNode.id)"
-            :in-workspace="doc.datasetIds"
             @replace="replaceDataset"
           />
           <p v-else-if="dagNode?.kind === 'dataset' && unav.datasets.has(dagNode.id)" class="problem-note">
@@ -1095,6 +1118,8 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @changed="loadRecord"
             @reorder="reorderDatasets"
             @update="updateDataset"
+            @replace="startReplace"
+            :written-by="writtenBy"
           />
           <TransformsPanel
             v-else-if="dagNode?.kind === 'transform'"
@@ -1165,7 +1190,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             class="list-unavailable"
             :info="unavailableInfo(doc, root)"
             :waiting="waitingOn(root)"
-            :in-workspace="doc.datasetIds"
             @replace="replaceDataset"
           />
           <DatasetList
@@ -1176,6 +1200,8 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @changed="loadRecord"
             @reorder="reorderDatasets"
             @update="updateDataset"
+            @replace="startReplace"
+            :written-by="writtenBy"
           />
         </details>
 

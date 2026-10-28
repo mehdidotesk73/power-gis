@@ -100,6 +100,9 @@ Track feature development, improvements, and known issues here. Move completed w
   nothing drawn on the map. A root's card (`UnavailableCard.vue`): Replace with a file / a dataset,
   then Run them now. Workspace panel: Show in graph, Remove what didn't load. Run all stale re-makes
   outputs missing here.
+- **Replace… on any dataset** — hold menu → Replace…: a file or a dataset here takes its place
+  everywhere in the workspace (draft until Save; outputs excluded). **Only on this device** list in
+  the Workspace panel (signed in) and a note on Save.
 - **Cloud workspace (Supabase, PR 2 of 4)** — signed in, **Save** also stores the workspace in
   the account (`saveCloudWorkspace`: the v2 document + its overview). Documents (v2) carry each
   dataset's facts (name, store, rows, origin), so opening anywhere (`openDocument`) uses what's here,
@@ -324,6 +327,12 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
      id, store, rows, origin read-only) and `update_dataset` goes for those fields. (b) the agent's
      files become the file form of the v2 document (+ `datasets.json`, full visualization settings),
      and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) ~~Unavailable items~~ (done, see Done).
+   - **Cloud datasets (agreed shape):** local edits to a cloud dataset make a **draft linked to it**
+     ("Cloud · changed here"; others keep the cloud version) until **Save dataset** uploads it, or
+     **Discard local changes**; **Make a local copy** gives an independent dataset; saving datasets is
+     its own act, apart from Save workspace (which reminds about unsaved dataset changes); **Store
+     all in the cloud** on the Workspace panel's "Only on this device" list (ids kept, so pointers
+     don't change).
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's

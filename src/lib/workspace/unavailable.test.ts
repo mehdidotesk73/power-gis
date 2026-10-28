@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { downstreamOrder, removeUnavailable, replaceDataset, unavailability } from './unavailable'
+import { downstreamOrder, onlyOnThisDevice, removeUnavailable, replaceDataset, unavailability } from './unavailable'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import type { TransformSpec, WorkspaceDoc } from './workspace'
 
@@ -57,5 +57,28 @@ describe('unavailable items', () => {
   it('orders the transforms downstream of a dataset, inputs first', () => {
     expect(downstreamOrder(doc, 'plants')).toEqual(['join', 'summary'])
     expect(downstreamOrder(doc, 'counties')).toEqual(['join', 'summary', 'other', 'remake'])
+  })
+})
+
+describe('replacing a dataset that is here', () => {
+  it('moves every pointer, and refuses a replacement made from the dataset it replaces', () => {
+    const r = replaceDataset(doc, 'counties', 'other-counties')
+    if (!r.ok) throw new Error()
+    expect(r.doc.datasetIds[1]).toBe('other-counties')
+    expect(r.doc.transforms.filter((t) => t.inputs.some((i) => i.datasetId === 'other-counties')).map((t) => t.id)).toEqual(['join', 'other', 'remake'])
+    expect(replaceDataset(doc, 'counties', 'joined')).toMatchObject({ ok: false, error: { code: 'invalid' } })
+  })
+})
+
+describe('datasets only on this device', () => {
+  it('lists uploads kept here, not built-ins (rebuilt anywhere), outputs (re-run anywhere) or cloud ones', () => {
+    const records: Record<string, { id: string; name: string; store?: 'local' | 'remote'; extensions?: Record<string, unknown> }> = {
+      plants: { id: 'plants', name: 'plants' },
+      counties: { id: 'counties', name: 'US counties', extensions: { builtin: 'us_counties' } },
+      joined: { id: 'joined', name: 'Joined' },
+      sums: { id: 'sums', name: 'Sums', store: 'remote' },
+      mine: { id: 'mine', name: 'Mine' },
+    }
+    expect(onlyOnThisDevice(doc, (id) => records[id] as never)).toEqual([{ id: 'plants', name: 'plants' }])
   })
 })

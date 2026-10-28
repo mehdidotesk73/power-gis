@@ -487,6 +487,17 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
     then offers **Run them now** (`downstreamOrder`). Running a transform whose output pointed at a
     missing dataset writes a new one, which takes the old id's place. The Workspace panel shows the
     count with **Show in graph** and **Remove what didn't load** (`removeUnavailable`, a draft edit).
+  - **Replace… on any dataset**: every dataset's hold menu (`DatasetList` emits `replace`; disabled
+    with the reason for a transform's output) opens a box at the top of the panels with
+    `ReplacePanel.vue` (`AddDatasetPanel` with `start` CSV or Saved, `pickLabel` "Use"; only the
+    replaced dataset is excluded from Saved). `replaceDataset` moves every pointer (dataset list —
+    no duplicate if the replacement is already listed —, transform inputs, visualizations) and refuses
+    a replacement made downstream of the one it replaces; then **Run them now** as for missing ones.
+    Schema isn't checked: a mismatch surfaces when a transform runs or a visualization queries.
+  - **Only on this device** (signed in): `onlyOnThisDevice(doc, record)` — the workspace's uploads
+    kept locally (not built-ins, not transform outputs, not cloud datasets). The Workspace panel
+    lists them in a short scrolling box; Save adds a note that other devices and people you share
+    with will see them as missing. Storing them in the cloud is the cloud-datasets PR.
   - **Page** (`MapPage.vue`): Save → `saveHere` (device) then `saveToCloud`. On load and on sign-in,
     `catchUpWithCloud`: no cloud workspace yet → this device's is saved there; one saved since this
     device last saw it (`powergis.cloudSeen` = `<user>:<updatedAt>`) → opened (`openDocument`, then

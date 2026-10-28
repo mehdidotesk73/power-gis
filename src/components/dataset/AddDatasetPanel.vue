@@ -15,6 +15,8 @@ const props = defineProps<{
   inWorkspace: string[]
   /** Which source to show first (Replace with a file → CSV, with a dataset → Saved). */
   start?: 'builtin' | 'csv' | 'json' | 'arcgis' | 'db'
+  /** The Saved list's button (Replace: "Use"). */
+  pickLabel?: string
 }>()
 const emit = defineEmits<{ (e: 'add', datasetIds: string[]): void; (e: 'cancel'): void }>()
 
@@ -131,7 +133,7 @@ async function deleteStored(d: DatasetRecord) {
             <strong class="clip">{{ d.name }}</strong>
             <span class="muted small clip">{{ d.rowCount.toLocaleString() }} rows · {{ d.origin }}</span>
           </span>
-          <button class="btn primary" @click="emit('add', [d.id])">Add</button>
+          <button class="btn primary" @click="emit('add', [d.id])">{{ pickLabel ?? 'Add' }}</button>
           <UiButton size="compact" tone="danger" icon="⊗" aria-label="Delete from the database" title="Delete from the database" @click="deleteStored(d)" />
         </li>
       </ul>
