@@ -82,11 +82,18 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
-- **Explore and setup modes** — explore puts the map first (Find above, Export below; desktop keeps
-  List | Graph on the left, phones a setup dock at the bottom); setup makes List | Graph the page with a
-  mini map, and on desktop opens cards, editors and Explore in a right column (`detailTarget.ts`).
-  Replaces the ⤢ pop-out window. Find reads "Search within … over …".
-- **Desktop view on a phone** — footer button (touch devices; remembered on the device): lays the page
+- **Explore and setup modes** (`mode` in `MapPage.vue`, CSS grid areas, one map) — explore puts the map
+  first: Find ("Search within … over …") above it, Export below it (capped at 45%, its body scrolls), the
+  legend always top-left. Desktop keeps the side panel: List | Graph | ⤢, then List | Graph, then what you
+  open, scrolling together (`.panel-body`). Phones hide setup behind a slim vertical **Set up** bar left of
+  the search. Setup (⤢ / the bar; ✕ or Esc back) makes the page one panel headed by List | Graph | ✕:
+  desktop has List | Graph over a mini map on the left and the open item on the right; phones have List |
+  Graph, then the open item, scrolling above a sticky mini map. Cards, editors and Explore always open in
+  that one section (`#setup-detail`, `detailTarget.ts`). The mini map's height is dragged from the bar
+  above it (`useSplitter` `side: 'bottom'`, `powergis.minimapHeight`). The app is one screen tall
+  (`App.vue`), the ☰ menu holds Help and Desktop / Phone view, and the footer is one row. Replaces the ⤢
+  pop-out window.
+- **Desktop view on a phone** — ☰ menu item (touch devices; remembered on the device): lays the page
   out 1,280 wide and shrinks it to fit (`src/desktopView.ts`, viewport set in `main.ts`; pinch zoom
   stays free), to see and test desktop-only layout on the phone. Turning the phone sideways keeps the
   phone layout on purpose.
