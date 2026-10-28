@@ -82,6 +82,9 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Several files at once** — ＋ Dataset → CSV / GeoJSON takes multiple files; each is uploaded in
+  turn as its own dataset (progress per file; a failed file is listed with its reason and the rest
+  still go in). Long dataset and file names in the add panel end in … instead of widening the page.
 - **Client / server audit (E)** — the three server-shaped jobs left in the client moved behind
   requests: seeding the default map (`seedDefaultWorkspace`), reading rows for a preview
   (`datasetRows`; the client's `readDb` is now a `RecordReader` with no `readRows`), and building
