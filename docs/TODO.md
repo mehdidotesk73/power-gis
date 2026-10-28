@@ -316,9 +316,16 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
      everything but data; the agent edits them in `datasets.json` (name, description editable;
      id, store, rows, origin read-only) and `update_dataset` goes for those fields. (b) the agent's
      files become the file form of the v2 document (+ `datasets.json`, full visualization settings),
-     and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) a
-     workspace saved on a device missing some datasets drops them (and what uses them) from the
-     account's copy — keep them as unavailable entries that ride along instead.
+     and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) **Unavailable
+     items** (agreed; the PR right after #28): a missing dataset stays in the working copy as an
+     unavailable entry with its facts (name, rows, origin, why), and so does everything downstream
+     (transforms reading it, their outputs, visualizations); saved with them, so no device's save
+     drops them. Red outlines in the graph (⚠ on the missing roots, "waits for …" downstream) and red
+     marks in the lists; their visualizations don't draw. Workspace panel report: **Remove what
+     didn't load** (a draft edit) and **Show in graph**. A missing root's menu: **Replace with a
+     file…** / **Replace with a dataset…** — the new dataset takes over every pointer, then **Run
+     them now** runs the downstream transforms in order; Run all stale includes transforms whose
+     outputs are unavailable.
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
