@@ -489,7 +489,7 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
     count with **Show in graph** and **Remove what didn't load** (`removeUnavailable`, a draft edit).
   - **Replace… on any dataset**: a **⇄ Replace…** button in the dataset's Edit panel
     (`DatasetList` emits `replace(oldId, newId)`; a transform's output shows why it can't be replaced
-    instead) and on a missing dataset's card. `ReplacePanel.vue` is that button opening the usual
+    instead) and on a missing dataset's card (tapped in the graph, the card opens on the source choice: `replaceOpen` → `ReplacePanel startOpen`). `ReplacePanel.vue` is that button opening the usual
     `AddDatasetPanel` (every source, `pickLabel` "Use"; only the replaced dataset is excluded from
     Saved); its Cancel closes it back to the button. `replaceDataset` moves every pointer (dataset list —
     no duplicate if the replacement is already listed —, transform inputs, visualizations) and refuses

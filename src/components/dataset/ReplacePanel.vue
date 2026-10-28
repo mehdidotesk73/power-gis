@@ -8,10 +8,11 @@ import AddDatasetPanel from './AddDatasetPanel.vue'
 import { vReveal } from '../reveal'
 
 // `exclude`: the dataset being replaced (any other dataset here can take its place, workspace ones too).
-defineProps<{ exclude: string[] }>()
+// `startOpen`: open on the source choice straight away (a missing dataset tapped in the graph).
+const props = defineProps<{ exclude: string[]; startOpen?: boolean }>()
 const emit = defineEmits<{ (e: 'pick', datasetId: string): void }>()
 
-const open = ref(false)
+const open = ref(!!props.startOpen)
 function onAdd(ids: string[]) {
   open.value = false
   if (ids[0]) emit('pick', ids[0])

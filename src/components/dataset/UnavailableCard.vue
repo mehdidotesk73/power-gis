@@ -10,6 +10,8 @@ const props = defineProps<{
   info: UnavailableDataset
   /** What waits on it here. */
   waiting: { transforms: number; visualizations: number }
+  /** Open on Replace's source choice (tapped in the graph: replacing is all there is to do). */
+  replaceOpen?: boolean
 }>()
 const emit = defineEmits<{ (e: 'replace', oldId: string, newId: string): void }>()
 
@@ -35,7 +37,7 @@ const n = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`
     <p v-if="waiting.transforms || waiting.visualizations" class="muted">
       Waiting on it: {{ [waiting.transforms ? n(waiting.transforms, 'transform') : '', waiting.visualizations ? n(waiting.visualizations, 'visualization') : ''].filter(Boolean).join(' and ') }}.
     </p>
-    <ReplacePanel :exclude="[id]" @pick="(newId) => emit('replace', props.id, newId)" />
+    <ReplacePanel :key="id" :exclude="[id]" :start-open="replaceOpen" @pick="(newId) => emit('replace', props.id, newId)" />
   </div>
 </template>
 

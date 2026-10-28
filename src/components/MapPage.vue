@@ -1091,6 +1091,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :id="dagNode.id"
             :info="unavailableInfo(doc, dagNode.id)"
             :waiting="waitingOn(dagNode.id)"
+            replace-open
             @replace="replaceDataset"
           />
           <p v-else-if="dagNode?.kind === 'dataset' && unav.datasets.has(dagNode.id)" class="problem-note">
