@@ -8,12 +8,18 @@ import UiButton from '../ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { request } from '../../client/api'
 import PreviewTable from '../transform/PreviewTable.vue'
+import { vReveal } from '../reveal'
 import { aliasFor } from '../../lib/workspace/workspace'
 import type { DatasetRecord } from '../../shared/records'
 import type { ColumnInfo } from '../../lib/dataset/columns'
 import type { DataRecord } from '../../lib/data/connectors'
 
-const props = defineProps<{ dataset: DatasetRecord; tables: DatasetRecord[] }>()
+const props = defineProps<{
+  dataset: DatasetRecord
+  tables: DatasetRecord[]
+  /** Desktop setup mode: open in this column (a selector) instead of a window over the page. */
+  asideTo?: string | null
+}>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const PAGE = 200
@@ -95,9 +101,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <Teleport to="body">
-    <div class="backdrop" @click.self="emit('close')">
-      <section class="explore" role="dialog" aria-modal="true" :aria-label="`Explore ${dataset.name}`">
+  <Teleport defer :to="asideTo || 'body'">
+    <div :class="asideTo ? 'aside-wrap' : 'backdrop'" @click.self="!asideTo && emit('close')">
+      <section v-reveal class="explore" :class="{ aside: asideTo }" :role="asideTo ? 'region' : 'dialog'" :aria-modal="asideTo ? undefined : true" :aria-label="`Explore ${dataset.name}`">
         <header>
           <div class="title">
             <span class="eyebrow">Explore</span>
@@ -155,6 +161,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   place-items: center;
   padding: 2.5vh 3vw;
   background: var(--backdrop);
+}
+.aside-wrap {
+  display: contents;
+}
+/* In the setup column: part of the page, as tall as the column allows. */
+.explore.aside {
+  width: 100%;
+  height: min(80dvh, 46rem);
+  box-shadow: none;
 }
 .explore {
   box-sizing: border-box;

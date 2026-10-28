@@ -23,6 +23,7 @@ import type { ColumnInfo } from '../../lib/dataset/columns'
 import type { DataRecord } from '../../lib/data/connectors'
 import { aliasFor, newOutput, type TransformOutput, type TransformSpec } from '../../lib/workspace/workspace'
 import { newId } from '../../lib/dataset/dataset'
+import { useDetailTarget } from '../detailTarget'
 
 export type RunStatus = { state: 'running' } | { state: 'done'; message: string } | { state: 'error'; message: string }
 
@@ -46,6 +47,8 @@ const emit = defineEmits<{
 }>()
 
 const editing = ref<string | null>(null)
+/** Desktop setup mode: the editor opens in the page's right column. */
+const detailTarget = useDetailTarget()
 const message = (id: string) => {
   const s = props.status[id]
   return s && 'message' in s ? s.message : ''
@@ -257,7 +260,9 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
           <span v-else-if="status[t.id]?.state === 'error'" class="bad">{{ message(t.id) }}</span>
         </div>
 
-        <div v-if="editing === t.id" v-reveal class="ed" data-no-open>
+        <Teleport defer :to="detailTarget ?? 'body'" :disabled="!!compact || !detailTarget">
+        <div v-if="editing === t.id" v-reveal class="ed" :class="{ aside: detailTarget && !compact }" data-no-open>
+          <div v-if="detailTarget && !compact" class="aside-title"><span class="eyebrow">Transform</span> <strong>{{ t.name }}</strong></div>
           <label class="row">Name <input type="text" :value="t.name" @change="patch(t, { name: ($event.target as HTMLInputElement).value })" /></label>
 
           <div class="lbl">Inputs <span class="muted">— tap one to preview it below; "as" is its table name in the SQL</span></div>
@@ -365,9 +370,10 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
             </div>
           </section>
         </div>
+        </Teleport>
 
         <!-- Previews from the card's menu, while not editing -->
-        <template v-else>
+        <template v-if="editing !== t.id">
           <PreviewTable v-for="o in t.outputs.filter((x) => previews[sk(t, x)])" :key="o.key" :preview="previews[sk(t, o)]" :label="outName(o)" />
         </template>
       </template>

@@ -222,9 +222,15 @@ whatever they're actually asking about.
   table's error lists the aliases). Tests run real DuckDB through its Node build
   (`server/testEngine.ts`). Every written data table gets a **profile** (`lib/dataset/profile.ts`).
 - **Side panel**: resizable on desktop (splitter, `--panel-w`, `powergis.panelWidth`; `MapView` resizes
-  the map with a `ResizeObserver`). ⤢ pops the workspace panels (List | Graph through the last panel
-  before Export) into a modal via `<Teleport :disabled="!popped">` — same components, state kept.
-  Popped out and wide, the open graph item sits beside the graph. **New-item flows scroll each step
+  the map with a `ResizeObserver`). **Two modes** (`mode` in `MapPage.vue`; one map, the same components
+  moved by CSS grid areas, so nothing is lost on switching): **explore** puts the map first — Find
+  ("Search within … over …") above it and Export below it in the map column; desktop keeps List | Graph
+  on the left, phones hide it behind a **setup dock** (sticky at the bottom). **Setup** (⤢ on desktop, the
+  dock on phones; ✕ or Esc back) makes List | Graph the page with a **mini map** under it (desktop) or
+  docked at the bottom (phones). In desktop setup, what you open — the graph's open item, list editors
+  (dataset / transform / visualization) and Explore — teleports into a right column
+  (`#setup-detail`; `components/detailTarget.ts`: `provideDetailTarget` / `useDetailTarget`); on phones
+  it opens in place, under the graph. **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
 - **Explore** (`dataset/ExploreModal.vue`, a dataset's menu): a window with a SQL box (starts
   `SELECT * FROM <dataset>`) over a docked results table, **200 rows a page** (Prev / Next) with the

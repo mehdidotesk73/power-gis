@@ -26,6 +26,7 @@ import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import DagView from './dag/DagView.vue'
 import { vReveal } from './reveal'
+import { DETAIL_ID, provideDetailTarget } from './detailTarget'
 import { useSplitter } from './useSplitter'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
@@ -322,11 +323,32 @@ const panelWidth = panel.width
 // The assistant docks on the right (desktop), resizable the same way.
 const assist = useSplitter({ key: 'powergis.assistantWidth', initial: 400, min: 300, maxShare: 0.5, side: 'right' })
 
-// The workspace panels (List / Graph and what's under them) can pop out into a
-// large modal. One Teleport moves the same components, so nothing is lost.
-const popped = ref(false)
+// Two modes. Explore puts the map first: on desktop the List | Graph panel on
+// the left, search above the map and export below it; on phones the map fills
+// the page and setup waits in a dock at the bottom. Setup puts building first:
+// List | Graph fills the page with a mini map under it, and on desktop what you
+// open (cards, editors, Explore) goes in a column on the right. The same
+// components and the one map change places, so nothing is lost on switching.
+const mode = ref<'explore' | 'setup'>('explore')
+const wide = ref(typeof matchMedia === 'function' && matchMedia('(min-width: 48.0625rem)').matches)
+let wideQuery: MediaQueryList | null = null
+const onWide = (e: MediaQueryListEvent) => (wide.value = e.matches)
+onMounted(() => {
+  wideQuery = typeof matchMedia === 'function' ? matchMedia('(min-width: 48.0625rem)') : null
+  wideQuery?.addEventListener('change', onWide)
+})
+onBeforeUnmount(() => wideQuery?.removeEventListener('change', onWide))
+/** Desktop setup: editors, the graph's open item and Explore open in the right column. */
+const asideOn = computed(() => mode.value === 'setup' && wide.value)
+provideDetailTarget(computed(() => (asideOn.value ? `#${DETAIL_ID}` : null)))
+const count = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
+function setMode(m: 'explore' | 'setup') {
+  mode.value = m
+  // Phones: the page itself changes; start the new mode at its top.
+  if (!wide.value) nextTick(() => window.scrollTo({ top: 0 }))
+}
 function onEsc(e: KeyboardEvent) {
-  if (e.key === 'Escape' && popped.value) popped.value = false
+  if (e.key === 'Escape' && mode.value === 'setup' && !document.querySelector('[role="dialog"]')) setMode('explore')
 }
 onMounted(() => window.addEventListener('keydown', onEsc))
 onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
@@ -770,7 +792,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 </script>
 
 <template>
-  <div class="page" :class="{ assisting: assistantOpen }" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.width.value}px` }">
+  <div class="page" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.width.value}px` }">
     <section class="controls">
       <Teleport defer to="#header-workspace">
         <WorkspaceBar
@@ -790,21 +812,19 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         />
         <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
-      <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
-
-      <div v-if="popped" class="popped-note">
-        <span>Workspace panels are open in a window.</span>
-        <button @click="popped = false">Bring back</button>
-      </div>
-      <Teleport to="body" :disabled="!popped">
-      <div :class="popped ? 'pop-backdrop' : 'panels'" @click.self="popped = false">
-      <div :class="popped ? 'pop' : 'panels'" :role="popped ? 'dialog' : undefined" :aria-modal="popped || undefined" aria-label="Workspace">
+      <div class="panels" aria-label="Workspace">
       <div class="view-row">
         <div class="view-switch" role="group" aria-label="Show as">
           <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
           <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
         </div>
-        <UiButton class="pop-btn" :icon="popped ? '✕' : '⤢'" :aria-label="popped ? 'Close window' : 'Open in a window'" :title="popped ? 'Close (Esc)' : 'Open in a window'" @click="popped = !popped" />
+        <UiButton
+          class="pop-btn"
+          :icon="mode === 'setup' ? '✕' : '⤢'"
+          :aria-label="mode === 'setup' ? 'Back to the map' : 'Set up the workspace (full page)'"
+          :title="mode === 'setup' ? 'Back to the map (Esc)' : 'Set up the workspace (full page)'"
+          @click="setMode(mode === 'setup' ? 'explore' : 'setup')"
+        />
       </div>
 
       <template v-if="view === 'graph'">
@@ -822,6 +842,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @run-stale="runAllStale"
           />
         </section>
+        <Teleport defer :to="`#${DETAIL_ID}`" :disabled="!asideOn">
         <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal.late="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
           <div class="dag-detail-head">
             <strong>{{ dagNewDataset ? 'New dataset' : dagNewViz ? 'New visualization' : dagNode!.kind === 'dataset' ? 'Dataset' : dagNode!.kind === 'transform' ? 'Transform' : 'Visualization' }}</strong>
@@ -869,6 +890,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @run="runTransform"
           />
         </section>
+        </Teleport>
         </div>
       </template>
 
@@ -925,30 +947,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 
       </template>
       </div>
-      </div>
-      </Teleport>
-
-      <details class="box">
-        <summary>Export (ArcGIS)</summary>
-        <label class="row">
-          Visualization
-          <select :value="exportTarget ?? rendered[0]?.layer.id" @change="exportTarget = ($event.target as HTMLSelectElement).value">
-            <option v-for="r in rendered" :key="r.layer.id" :value="r.layer.id">{{ r.ds.name }} · {{ r.layer.name }}</option>
-          </select>
-        </label>
-        <DataExchange :visualization="exportViz" />
-        <p class="muted small">
-          Built-in CSVs:
-          <template v-for="(t, i) in csvTables" :key="t">
-            <template v-if="i"> · </template>
-            <a :href="`${base}data/${t}.csv`" download>{{ t }}.csv</a>
-          </template>
-        </p>
-      </details>
     </section>
 
     <div
-      class="splitter"
+      class="splitter panel-splitter"
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize the side panel"
@@ -960,6 +962,8 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       @dblclick="panel.reset"
     />
 
+    <section class="map-col">
+    <FindPanel v-show="mode === 'explore'" class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
     <section class="map-wrap">
       <MapView ref="mapView" @background-click="selected = null">
         <template v-for="r in rendered" :key="`${r.layer.id}-${r.layer.kind}`">
@@ -1001,6 +1005,36 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         </template>
       </MapView>
     </section>
+      <details v-show="mode === 'explore'" class="box export">
+        <summary>Export (ArcGIS)</summary>
+        <label class="row">
+          Visualization
+          <select :value="exportTarget ?? rendered[0]?.layer.id" @change="exportTarget = ($event.target as HTMLSelectElement).value">
+            <option v-for="r in rendered" :key="r.layer.id" :value="r.layer.id">{{ r.ds.name }} · {{ r.layer.name }}</option>
+          </select>
+        </label>
+        <DataExchange :visualization="exportViz" />
+        <p class="muted small">
+          Built-in CSVs:
+          <template v-for="(t, i) in csvTables" :key="t">
+            <template v-if="i"> · </template>
+            <a :href="`${base}data/${t}.csv`" download>{{ t }}.csv</a>
+          </template>
+        </p>
+      </details>
+    </section>
+
+    <!-- Desktop setup: what you open (cards, editors, Explore) goes here. -->
+    <aside :id="DETAIL_ID" class="setup-detail" aria-label="Open item">
+      <p class="muted aside-hint">Open a dataset, transform or visualization — tap a node, or double-tap a card — and it shows here.</p>
+    </aside>
+
+    <!-- Phones, explore mode: the workspace setup waits in a dock at the bottom. -->
+    <button v-if="mode === 'explore'" class="setup-dock" @click="setMode('setup')">
+      <span class="dock-icon" aria-hidden="true">▴</span>
+      <span class="dock-label"><strong>Set up</strong> · {{ count(doc.datasetIds.length, 'dataset') }} · {{ count(doc.transforms.length, 'transform') }} · {{ count(doc.visualizations.length, 'visualization') }}</span>
+      <span class="dock-view muted">{{ view === 'graph' ? 'Graph' : 'List' }}</span>
+    </button>
 
     <!-- The assistant: a column docked on the right on desktop (a sheet over the page on phones). -->
     <div
@@ -1024,10 +1058,12 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 .page {
   display: grid;
   grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr);
+  grid-template-areas: 'controls split map';
   height: calc(100svh - 9rem);
   min-height: 32rem;
 }
 .controls {
+  grid-area: controls;
   min-width: 0; /* a wide editor must not widen the column past the screen */
   /* No scroll anchoring: when the card under the graph changes size, the browser would shift the
      scroll and move the graph between the two clicks of a double-click. */
@@ -1039,14 +1075,84 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   font-size: 0.85rem;
   padding-right: 0.15rem;
 }
-.map-wrap {
+/* The map column: search above the map, export below it (explore mode). */
+.map-col {
+  grid-area: map;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.map-wrap {
+  flex: 1;
+  min-height: 0;
+}
+.panel-splitter {
+  grid-area: split;
+}
+.assist-splitter {
+  grid-area: asplit;
 }
 .page.assisting {
   grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr) 0.75rem var(--assist-w, 25rem);
+  grid-template-areas: 'controls split map asplit assist';
 }
 .assistant-col {
+  grid-area: assist;
   min-height: 0;
+}
+.setup-detail,
+.setup-dock {
+  display: none;
+}
+
+/* Desktop setup: List | Graph fills the page, a mini map under it, what you open on the right. */
+@media (min-width: 48.0625rem) {
+  .page.setup {
+    grid-template-columns: minmax(0, 1fr) 0.75rem minmax(22rem, 32rem);
+    grid-template-rows: minmax(0, 1fr) minmax(11rem, 30%);
+    grid-template-areas:
+      'controls . detail'
+      'map . detail';
+    row-gap: 0.6rem;
+  }
+  .page.setup.assisting {
+    grid-template-columns: minmax(0, 1fr) 0.75rem minmax(20rem, 28rem) 0.75rem var(--assist-w, 25rem);
+    grid-template-areas:
+      'controls . detail asplit assist'
+      'map . detail asplit assist';
+  }
+  .page.setup .panel-splitter {
+    display: none;
+  }
+  .page.setup .setup-detail {
+    grid-area: detail;
+    min-height: 0;
+    overflow: auto;
+    overflow-anchor: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .page.setup .setup-detail .dag-detail-head {
+    position: sticky;
+    top: -0.45rem;
+    z-index: 1;
+    background: var(--bg-elev);
+  }
+}
+/* Setup: the map is a mini map, as small as its slot (MapView's own minimum is for the full map). */
+.page.setup .map-wrap :deep(.map-root) {
+  min-height: 0;
+}
+.page.setup .map-col {
+  overflow: hidden;
+}
+.setup-detail:has(> :not(.aside-hint)) .aside-hint {
+  display: none;
+}
+.aside-hint {
+  margin: 0.5rem 0.2rem;
 }
 .splitter {
   position: relative;
@@ -1075,83 +1181,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   flex-direction: column;
   gap: 0.6rem;
 }
-.popped-note {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.5rem 0.6rem;
-  border: 1px dashed var(--border);
-  border-radius: 0.45rem;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-}
-.popped-note button {
-  min-height: 2.2rem;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--bg-elev);
-  color: var(--text);
-}
-.popped-note button {
-  padding: 0 0.7rem;
-}
-.pop-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  place-items: center;
-  padding: 2.5vh 3vw;
-  background: var(--backdrop);
-}
-.pop {
-  box-sizing: border-box;
-  overflow-anchor: none;
-  width: min(72rem, 100%);
-  max-height: 95dvh;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 0.7rem;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 0.85rem;
-  box-shadow: var(--shadow);
-}
-.pop :deep(.scroll) {
-  max-height: 60dvh;
-}
 .graph-wrap {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-}
-/* Popped out on a wide screen: the open item sits right of the graph, not under it. */
-@media (min-width: 56rem) {
-  .pop .graph-wrap.split {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(22rem, 30rem);
-    align-items: start;
-  }
-  .pop .graph-wrap.split :deep(.scroll) {
-    max-height: calc(95dvh - 10rem);
-  }
-  .pop .graph-wrap.split .dag-detail {
-    position: sticky;
-    top: 0;
-    max-height: calc(95dvh - 6rem);
-    overflow: auto;
-  }
-  .pop .graph-wrap.split .dag-detail-head {
-    position: sticky;
-    top: -0.45rem;
-    z-index: 1;
-    background: var(--bg-elev);
-  }
 }
 .view-row {
   display: flex;
@@ -1167,18 +1200,33 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   width: 2.6rem;
   aspect-ratio: auto;
 }
-/* Search is docked to the top of the side panel (and, on phones, of the screen while the
-   controls scroll by), above everything else in it. */
-.search {
+/* Phones, explore: the setup dock, kept at the bottom of the screen as the page scrolls. */
+.setup-dock {
   position: sticky;
-  top: 0;
-  z-index: 6;
-  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.6);
+  bottom: calc(0.4rem + env(safe-area-inset-bottom, 0px));
+  z-index: 8;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.6rem;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: left;
+  box-shadow: var(--shadow);
 }
-@media (max-width: 48rem) {
-  .search {
-    top: env(safe-area-inset-top, 0px);
-  }
+.dock-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-icon {
+  color: var(--accent-blue);
 }
 .view-switch {
   display: flex;
@@ -1295,37 +1343,62 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   border-color: var(--danger);
 }
 @media (max-width: 48rem) {
-  .page {
+  /* Phones, explore: the map first (search above, export below), setup in a dock at the bottom. */
+  .page,
+  .page.assisting {
     grid-template-columns: minmax(0, 1fr);
-    /* svh, not dvh: the small viewport stays put while iOS Safari's bars collapse,
-       so the map doesn't grow under your finger as you scroll */
-    grid-template-rows: 70svh auto;
+    grid-template-rows: auto;
+    grid-template-areas:
+      'map'
+      'dock';
     gap: 0.75rem;
     height: auto;
   }
   .splitter {
     display: none;
   }
-  .page.assisting {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .pop-backdrop {
-    padding: 0;
-  }
-  .pop {
-    width: 100%;
-    height: 100dvh;
-    max-height: none;
-    border-radius: 0;
-    padding: 0.7rem 0.75rem calc(0.7rem + env(safe-area-inset-bottom));
+  .assistant-col,
+  .assist-splitter {
+    grid-area: auto;
   }
   .controls {
-    order: 2;
+    display: none;
     overflow: visible;
   }
   .map-wrap {
-    order: 1;
+    /* svh, not dvh: the small viewport stays put while iOS Safari's bars collapse,
+       so the map doesn't grow under your finger as you scroll */
+    flex: none;
     height: 70svh;
+  }
+  .setup-dock {
+    grid-area: dock;
+    display: flex;
+  }
+  /* Phones, setup: List | Graph is the page; the map shrinks to a mini map docked at the bottom. */
+  .page.setup,
+  .page.setup.assisting {
+    grid-template-areas:
+      'controls'
+      'map';
+  }
+  .page.setup .controls {
+    display: flex;
+  }
+  .page.setup .map-col {
+    position: sticky;
+    bottom: 0;
+    z-index: 7;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--bg);
+  }
+  .page.setup .map-wrap {
+    height: 26svh;
+    border-top: 1px solid var(--border-strong);
+  }
+  /* What reveals itself while a flow runs clears the mini map. */
+  .page.setup .controls :deep(*) {
+    scroll-margin-bottom: 28svh;
   }
 }
 @media (max-width: 30rem) {

@@ -305,10 +305,17 @@ On desktop the controls column is resizable: a splitter between it and the map (
 double-click resets), width as the `--panel-w` CSS variable on `.page`, remembered per device
 (`powergis.panelWidth`, 256 px to 70% of the window). `MapView` keeps the canvas matched to its
 container with a `ResizeObserver` (the window doesn't resize when the splitter moves). The
-workspace panels — from List | Graph to just before Export — can **pop out** (⤢) into a large modal
-(full screen on phones): one `<Teleport to="body" :disabled="!popped">` moves the same components, so
-open editors and selections survive; ✕, Esc or a backdrop tap brings them back. Popped out on a wide
-screen, the open graph item sits right of the graph (`.graph-wrap.split`), not under it.
+page has two **modes** (`mode`): **explore** (map first: the map column holds Find above the map and
+Export below it; desktop keeps List | Graph on the left; phones show only the map and a sticky **setup
+dock**) and **setup** (⤢ on desktop, the dock on phones; ✕ or Esc goes back): List | Graph fills the page,
+with a mini map under it on desktop and sticky at the bottom on phones (MapView's `min-height` is
+lifted there). The modes only change CSS grid areas on `.page`, so the one MapLibre map, open editors and
+selections survive. In **desktop setup** a right column, `#setup-detail`, receives what the user opens:
+the graph's open item (`<Teleport defer :disabled="!asideOn">`) and, through
+`components/detailTarget.ts` (`provideDetailTarget` in the page, `useDetailTarget` in the lists), the list
+editors (dataset / transform / visualization, not in their compact graph form) and Explore
+(`ExploreModal`'s `asideTo`: a panel in the column instead of a window). On phones they open in place,
+and everything a flow reveals keeps `scroll-margin-bottom` clear of the mini map.
 
 **Flows bring their next step into view**: `v-reveal` (`components/reveal.ts`) scrolls an element
 into view when it appears or its value changes — just enough, or to its top when it's taller than the

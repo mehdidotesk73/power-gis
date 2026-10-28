@@ -82,6 +82,10 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Explore and setup modes** — explore puts the map first (Find above, Export below; desktop keeps
+  List | Graph on the left, phones a setup dock at the bottom); setup makes List | Graph the page with a
+  mini map, and on desktop opens cards, editors and Explore in a right column (`detailTarget.ts`).
+  Replaces the ⤢ pop-out window. Find reads "Search within … over …".
 - **Desktop view on a phone** — footer button (touch devices; remembered on the device): lays the page
   out 1,280 wide and shrinks it to fit (`src/desktopView.ts`, viewport set in `main.ts`; pinch zoom
   stays free), to see and test desktop-only layout on the phone. Turning the phone sideways keeps the

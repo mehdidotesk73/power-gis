@@ -16,6 +16,7 @@ import { bindingColumns, guessBinding, type GeometryBinding } from '../../lib/da
 import { columnLabel, dataColumns, ROWS, type VisualizationSpec } from '../../lib/dataset/visualization'
 import type { DatasetRecord } from '../../shared/records'
 import type { LayerData } from '../../lib/schema'
+import { useDetailTarget } from '../detailTarget'
 
 const props = defineProps<{
   visualizations: VisualizationSpec[]
@@ -34,6 +35,8 @@ const emit = defineEmits<{
 }>()
 
 const editing = ref<string | null>(null)
+/** Desktop setup mode: the editor opens in the page's right column. */
+const detailTarget = useDetailTarget()
 const dsOf = (v: VisualizationSpec) => props.datasets.find((d) => d.id === v.datasetId)
 
 function summary(v: VisualizationSpec): string {
@@ -157,10 +160,13 @@ defineExpose({
             <span class="muted">{{ dsOf(v)?.name }} · {{ summary(v) }}</span>
           </span>
         </div>
-        <div v-if="editing === v.id && dsOf(v)" data-no-open>
+        <Teleport defer :to="detailTarget ?? 'body'" :disabled="!!compact || !detailTarget">
+        <div v-if="editing === v.id && dsOf(v)" v-reveal :class="{ aside: detailTarget && !compact }" data-no-open>
+          <div v-if="detailTarget && !compact" class="aside-title"><span class="eyebrow">Visualization</span> <strong>{{ v.name }}</strong></div>
           <VisualizationEditor :dataset="dsOf(v)!" :layer="v" :data="dataFor(v)" @update="(n) => emit('update', n)" @remove="emit('remove', v.id)" />
           <button class="close" @click="editing = null">Done</button>
         </div>
+        </Teleport>
       </template>
     </ObjectList>
   </div>
