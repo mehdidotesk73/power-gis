@@ -189,7 +189,12 @@ const helpDoc = ref('default')
 .app {
   max-width: 96rem;
   margin: 0 auto;
-  padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem 1.5rem;
+  padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem max(0.5rem, env(safe-area-inset-bottom));
+  /* One screen: header, the page (it fills what's left) and the footer; nothing scrolls but panels. */
+  box-sizing: border-box;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
 .title-row {
@@ -279,6 +284,8 @@ const helpDoc = ref('default')
 
 
 .content {
+  flex: 1;
+  min-height: 0;
   padding: 0.25rem 0;
 }
 
@@ -289,7 +296,8 @@ const helpDoc = ref('default')
 }
 
 .debug {
-  margin-top: 1.5rem;
+  flex: none;
+  margin-top: 0.6rem;
   border-top: 1px solid var(--border);
   padding-top: 0.5rem;
 }
@@ -335,6 +343,8 @@ const helpDoc = ref('default')
 
 .log-window {
   margin-top: 0.5rem;
+  max-height: 40dvh;
+  overflow: auto;
 }
 
 .log-head {

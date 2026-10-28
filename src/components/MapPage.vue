@@ -1004,6 +1004,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           </FeaturePanel>
         </template>
       </MapView>
+      <!-- Phones, explore: setup waits behind a small button at the map's bottom-left. -->
+      <button v-if="mode === 'explore'" class="setup-dock" :title="`${count(doc.datasetIds.length, 'dataset')} · ${count(doc.transforms.length, 'transform')} · ${count(doc.visualizations.length, 'visualization')}`" @click="setMode('setup')">
+        <span class="dock-icon" aria-hidden="true">▴</span> Set up
+      </button>
     </section>
       <details v-show="mode === 'explore'" class="box export">
         <summary>Export (ArcGIS)</summary>
@@ -1029,12 +1033,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       <p class="muted aside-hint">Open a dataset, transform or visualization — tap a node, or double-tap a card — and it shows here.</p>
     </aside>
 
-    <!-- Phones, explore mode: the workspace setup waits in a dock at the bottom. -->
-    <button v-if="mode === 'explore'" class="setup-dock" @click="setMode('setup')">
-      <span class="dock-icon" aria-hidden="true">▴</span>
-      <span class="dock-label"><strong>Set up</strong> · {{ count(doc.datasetIds.length, 'dataset') }} · {{ count(doc.transforms.length, 'transform') }} · {{ count(doc.visualizations.length, 'visualization') }}</span>
-      <span class="dock-view muted">{{ view === 'graph' ? 'Graph' : 'List' }}</span>
-    </button>
 
     <!-- The assistant: a column docked on the right on desktop (a sheet over the page on phones). -->
     <div
@@ -1059,8 +1057,9 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   display: grid;
   grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr);
   grid-template-areas: 'controls split map';
-  height: calc(100svh - 9rem);
-  min-height: 32rem;
+  /* The page fits the screen (App.vue sizes .content to what header and footer leave); only panels scroll. */
+  height: 100%;
+  min-height: 0;
 }
 .controls {
   grid-area: controls;
@@ -1141,6 +1140,14 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     background: var(--bg-elev);
   }
 }
+/* Setup: List | Graph and ✕ stay at the top while the panel scrolls under them. */
+.page.setup .view-row {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding-bottom: 0.3rem;
+  background: var(--bg);
+}
 /* Setup: the map is a mini map, as small as its slot (MapView's own minimum is for the full map). */
 .page.setup .map-wrap :deep(.map-root) {
   min-height: 0;
@@ -1200,30 +1207,26 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   width: 2.6rem;
   aspect-ratio: auto;
 }
-/* Phones, explore: the setup dock, kept at the bottom of the screen as the page scrolls. */
+/* Phones, explore: a small Set up button floating at the map's bottom-left (the legend moves right). */
+.map-wrap {
+  position: relative;
+}
 .setup-dock {
-  position: sticky;
-  bottom: calc(0.4rem + env(safe-area-inset-bottom, 0px));
-  z-index: 8;
+  position: absolute;
+  z-index: 4;
+  left: 0.5rem;
+  bottom: 1.8rem;
   align-items: center;
-  gap: 0.55rem;
-  width: 100%;
-  min-height: 3rem;
-  padding: 0.5rem 0.8rem;
+  gap: 0.35rem;
+  min-height: 2.4rem;
+  padding: 0.35rem 0.75rem;
   border: 1px solid var(--border-strong);
-  border-radius: 0.6rem;
-  background: var(--bg-elev);
+  border-radius: 0.5rem;
+  background: var(--overlay-bg);
   color: var(--text);
   font-size: 0.85rem;
-  text-align: left;
+  font-weight: 600;
   box-shadow: var(--shadow);
-}
-.dock-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .dock-icon {
   color: var(--accent-blue);
@@ -1343,16 +1346,13 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   border-color: var(--danger);
 }
 @media (max-width: 48rem) {
-  /* Phones, explore: the map first (search above, export below), setup in a dock at the bottom. */
+  /* Phones, explore: search, then the map filling what's left, then export; setup behind a button on the map. */
   .page,
   .page.assisting {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
-    grid-template-areas:
-      'map'
-      'dock';
-    gap: 0.75rem;
-    height: auto;
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: 'map';
+    gap: 0.6rem;
   }
   .splitter {
     display: none;
@@ -1363,42 +1363,25 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   }
   .controls {
     display: none;
-    overflow: visible;
-  }
-  .map-wrap {
-    /* svh, not dvh: the small viewport stays put while iOS Safari's bars collapse,
-       so the map doesn't grow under your finger as you scroll */
-    flex: none;
-    height: 70svh;
   }
   .setup-dock {
-    grid-area: dock;
     display: flex;
   }
-  /* Phones, setup: List | Graph is the page; the map shrinks to a mini map docked at the bottom. */
+  .map-wrap :deep(.legend) {
+    left: auto;
+    right: 0.5rem;
+  }
+  /* Phones, setup: List | Graph takes the screen and scrolls inside; the mini map stays at the bottom. */
   .page.setup,
   .page.setup.assisting {
+    grid-template-rows: minmax(0, 1fr) 30%;
     grid-template-areas:
       'controls'
       'map';
   }
   .page.setup .controls {
     display: flex;
-  }
-  .page.setup .map-col {
-    position: sticky;
-    bottom: 0;
-    z-index: 7;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    background: var(--bg);
-  }
-  .page.setup .map-wrap {
-    height: 26svh;
-    border-top: 1px solid var(--border-strong);
-  }
-  /* What reveals itself while a flow runs clears the mini map. */
-  .page.setup .controls :deep(*) {
-    scroll-margin-bottom: 28svh;
+    overflow: auto;
   }
 }
 @media (max-width: 30rem) {
