@@ -164,6 +164,7 @@ async function save() {
   const ok = await saveHere()
   saving.value = false
   if (!ok) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
+  if (auth.user && cloudUser.value !== auth.user.id) await catchUpWithCloud() // the last check failed: try again (it saves here when the account has none)
   await saveToCloud()
 }
 
@@ -201,7 +202,13 @@ const CLOUD_SEEN = 'powergis.cloudSeen'
 const cloudUser = ref<string | null>(null)
 const cloudError = ref('')
 const savedWhere = computed(() =>
-  !auth.user ? 'on this device' : cloudUser.value !== auth.user.id ? 'on this device (checking your account…)' : cloudError.value ? 'on this device — not in your account yet' : 'on this device and in your account',
+  !auth.user
+    ? 'on this device'
+    : cloudError.value
+      ? `on this device — not in your account (${cloudError.value}; Save tries again)`
+      : cloudUser.value !== auth.user.id
+        ? 'on this device (checking your account…)'
+        : 'on this device and in your account',
 )
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
