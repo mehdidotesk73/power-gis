@@ -333,6 +333,16 @@ Two additions from reviewing it here, beyond what the originating project report
   rows exist — so "see datasets you have access to" also needs `created_by = auth.uid()`, or
   `.insert().select()` fails for the creator.
 
+### Fix: "save workspace: Call init first" after a new deploy — 2026-10-28
+- **Symptom:** on the first load after each new deploy, Save failed with *Call init first*; a reload
+  fixed it until the next deploy.
+- **Cause:** the server worker only learned the device's local user from the page's one `init`. When
+  the worker restarted after that (`client/api.ts` makes a new one after an error), the new worker had
+  no user, and saving a first workspace needs one.
+- **Fix:** the server finds or makes the local user on first need (`ensureUser`, used by `init` and
+  `saveWorkspace`); the client re-sends its `init` first to a restarted worker and logs *server
+  stopped (…)* with the reason, so the next report names what stopped it.
+
 ### Explore and setup modes — 2026-10-28
 - **Added:** two page modes. Explore: map first, search above it, export below it; desktop keeps the side
   panel. Setup: one panel headed by List | Graph | ✕, the open item in its own section (right column on
