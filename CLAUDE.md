@@ -224,12 +224,14 @@ whatever they're actually asking about.
 - **Side panel**: resizable on desktop (splitter, `--panel-w`, `powergis.panelWidth`; `MapView` resizes
   the map with a `ResizeObserver`). **Two modes** (`mode` in `MapPage.vue`; one map, the same components
   moved by CSS grid areas, so nothing is lost on switching): **explore** puts the map first — Find
-  ("Search within … over …") above it and Export below it in the map column; desktop keeps List | Graph
-  on the left, phones hide it behind a vertical **Set up** bar left of the search (the legend is always
+  ("Search within … over …") above it and Export below it in the map column; desktop keeps the side panel
+  on the left (List | Graph | ⤢, then List | Graph, then what you open, scrolling together in `.panel-body`:
+  phone setup without the mini map), phones hide it behind a vertical **Set up** bar left of the search (the legend is always
   top-left of the map; Export's body scrolls inside at most 45% of the column). The app is one screen tall (`App.vue`: `.app` 100dvh flex column, `.content` fills what
   header and footer leave); only panels scroll. **Setup** (⤢ on desktop, the
   dock on phones; ✕ or Esc back) makes the page one panel headed by the **List | Graph | ✕** row
-  (`.view-row`, its own grid area `head`, spanning the page). What you open — the graph's open item, list
+  (`.view-row`, its own grid area `head`, spanning the page; `.panel-body` turns `display: contents` so
+  its parts take their own areas). What you open — the graph's open item, list
   editors (dataset / transform / visualization) and Explore — teleports into its own section
   (`#setup-detail`; `components/detailTarget.ts`: `provideDetailTarget` / `useDetailTarget`). Desktop: two
   columns, List | Graph over a **mini map** on the left, that section on the right. Phones: List | Graph,

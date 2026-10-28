@@ -333,9 +333,9 @@ const assist = useSplitter({ key: 'powergis.assistantWidth', initial: 400, min: 
 // change places, so nothing is lost on switching.
 const mode = ref<'explore' | 'setup'>('explore')
 const pageEl = ref<HTMLElement | null>(null)
-/** Setup: editors, the graph's open item and Explore open in their own section (right column on desktop, under List | Graph on phones). */
-const asideOn = computed(() => mode.value === 'setup')
-provideDetailTarget(computed(() => (asideOn.value ? `#${DETAIL_ID}` : null)))
+// Editors, the graph's open item and Explore open in their own section: under List | Graph in the
+// side panel (desktop explore, phone setup), the right column in desktop setup.
+provideDetailTarget(computed(() => `#${DETAIL_ID}`))
 const count = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
 function setMode(m: 'explore' | 'setup') {
   mode.value = m
@@ -802,6 +802,8 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         @click="setMode(mode === 'setup' ? 'explore' : 'setup')"
       />
     </div>
+    <!-- The side panel's body: List | Graph, then what you open, scrolling together (desktop explore). -->
+    <div class="panel-body">
     <section class="controls">
       <Teleport defer to="#header-workspace">
         <WorkspaceBar
@@ -838,7 +840,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @run-stale="runAllStale"
           />
         </section>
-        <Teleport defer :to="`#${DETAIL_ID}`" :disabled="!asideOn">
+        <Teleport defer :to="`#${DETAIL_ID}`">
         <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal.late="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
           <div class="dag-detail-head">
             <strong>{{ dagNewDataset ? 'New dataset' : dagNewViz ? 'New visualization' : dagNode!.kind === 'dataset' ? 'Dataset' : dagNode!.kind === 'transform' ? 'Transform' : 'Visualization' }}</strong>
@@ -944,6 +946,11 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       </template>
       </div>
     </section>
+      <!-- What you open (cards, editors, Explore): under List | Graph, or the right column in desktop setup. -->
+      <aside :id="DETAIL_ID" class="setup-detail" aria-label="Open item">
+        <p class="muted aside-hint">Open a dataset, transform or visualization — tap a node, or double-tap a card — and it shows here.</p>
+      </aside>
+    </div>
 
     <div
       class="splitter panel-splitter"
@@ -1027,10 +1034,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       </details>
     </section>
 
-    <!-- Desktop setup: what you open (cards, editors, Explore) goes here. -->
-    <aside :id="DETAIL_ID" class="setup-detail" aria-label="Open item">
-      <p class="muted aside-hint">Open a dataset, transform or visualization — tap a node, or double-tap a card — and it shows here.</p>
-    </aside>
 
 
     <!-- The assistant: a column docked on the right on desktop (a sheet over the page on phones). -->
@@ -1063,9 +1066,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   height: 100%;
   min-height: 0;
 }
-.controls {
+.panel-body {
   grid-area: controls;
   min-width: 0; /* a wide editor must not widen the column past the screen */
+  min-height: 0;
   /* No scroll anchoring: when the card under the graph changes size, the browser would shift the
      scroll and move the graph between the two clicks of a double-click. */
   overflow-anchor: none;
@@ -1075,6 +1079,27 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   gap: 0.6rem;
   font-size: 0.85rem;
   padding-right: 0.15rem;
+}
+.controls,
+.setup-detail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+/* Setup: the body's two parts take their own places on the page. */
+.page.setup .panel-body {
+  display: contents;
+}
+.page.setup .controls {
+  grid-area: controls;
+}
+.page.setup .setup-detail {
+  grid-area: detail;
+}
+/* Explore: nothing open, nothing to say. */
+.page.explore .aside-hint {
+  display: none;
 }
 /* The map column: search above the map, export below it (explore mode). */
 .map-col {
@@ -1104,7 +1129,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   grid-area: assist;
   min-height: 0;
 }
-.setup-detail,
 .setup-dock {
   display: none;
 }
@@ -1130,14 +1154,14 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   .page.setup .panel-splitter {
     display: none;
   }
+  .page.setup .controls,
   .page.setup .setup-detail {
-    grid-area: detail;
     min-height: 0;
     overflow: auto;
     overflow-anchor: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
+  }
+  .page.setup .controls {
+    padding-right: 0.15rem;
   }
   .page.setup .setup-detail .dag-detail-head {
     position: sticky;
@@ -1393,7 +1417,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   .assist-splitter {
     grid-area: auto;
   }
-  .controls,
+  .panel-body,
   .view-row {
     display: none;
   }
@@ -1422,16 +1446,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     top: 0;
     z-index: 5;
     background: var(--bg);
-  }
-  .page.setup .controls {
-    display: flex;
-    overflow: visible;
-  }
-  .page.setup .setup-detail {
-    grid-area: detail;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
   }
   .page.setup .map-col {
     position: sticky;
