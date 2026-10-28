@@ -82,6 +82,14 @@ async function onReloadLatest() {
 
 // Help modal state
 const showHelp = ref(false)
+// The header menu (☰): Help, and Desktop / Phone view on touch devices. A tap outside closes it.
+const menuOpen = ref(false)
+const menuWrap = ref<HTMLElement | null>(null)
+function closeMenuOutside(e: PointerEvent) {
+  if (menuOpen.value && menuWrap.value && !menuWrap.value.contains(e.target as Node)) menuOpen.value = false
+}
+onMounted(() => document.addEventListener('pointerdown', closeMenuOutside))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeMenuOutside))
 const helpDoc = ref('default')
 </script>
 
@@ -114,7 +122,15 @@ const helpDoc = ref('default')
         <div class="header-actions">
           <!-- the page puts its workspace control here (MapPage → WorkspaceBar) -->
           <div id="header-workspace" />
-          <UiButton size="compact" icon="?" aria-label="Help" title="Help" @click="showHelp = true"><span class="help-word">Help</span></UiButton>
+          <div ref="menuWrap" class="menu-wrap">
+            <UiButton size="compact" icon="☰" aria-label="Menu" title="Menu" aria-haspopup="menu" :aria-expanded="menuOpen" :active="menuOpen" @click="menuOpen = !menuOpen" />
+            <div v-if="menuOpen" class="app-menu" role="menu">
+              <button role="menuitem" @click="(menuOpen = false), (showHelp = true)"><span class="mi-icon" aria-hidden="true">?</span> Help</button>
+              <button v-if="offerDesktop" role="menuitem" :title="desktopOn ? 'Back to the phone layout' : 'See the desktop layout on this phone (shrunk to fit; pinch to zoom)'" @click="setDesktopView(!desktopOn)">
+                <span class="mi-icon" aria-hidden="true">{{ desktopOn ? '▯' : '▭' }}</span> {{ desktopOn ? 'Phone view' : 'Desktop view' }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -139,15 +155,6 @@ const helpDoc = ref('default')
         >
           {{ showDebug ? 'Hide logs' : 'View logs' }}
           <span v-if="errorCount" class="err-count">{{ errorCount }}</span>
-        </button>
-
-        <button
-          v-if="offerDesktop"
-          class="reload-btn"
-          :title="desktopOn ? 'Back to the phone layout' : 'See the desktop layout on this phone (shrunk to fit; pinch to zoom)'"
-          @click="setDesktopView(!desktopOn)"
-        >
-          {{ desktopOn ? 'Phone view' : 'Desktop view' }}
         </button>
 
         <button
@@ -275,12 +282,6 @@ const helpDoc = ref('default')
   align-items: center;
 }
 
-/* Phones: "?" alone, so Workspace and Help fit beside the title. */
-@media (max-width: 30rem) {
-  .help-word {
-    display: none;
-  }
-}
 
 
 .content {
@@ -305,14 +306,20 @@ const helpDoc = ref('default')
 .debug-bar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
 }
 
 .build-stamp {
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   margin-right: auto;
+  /* One row: the stamp gives way (…) before the buttons wrap. */
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .reload-msg.new {
@@ -365,8 +372,9 @@ const helpDoc = ref('default')
 }
 
 .reload-btn {
-  font-size: 0.72rem;
-  padding: 0.15rem 0.5rem;
+  font-size: 0.64rem;
+  padding: 0.12rem 0.4rem;
+  white-space: nowrap;
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -401,5 +409,46 @@ const helpDoc = ref('default')
 
 .debug-log .warn {
   color: var(--warn);
+}
+</style>
+
+<style scoped>
+.menu-wrap {
+  position: relative;
+}
+.app-menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  min-width: 11rem;
+  display: grid;
+  padding: 0.3rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+}
+.app-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.4rem;
+  padding: 0 0.6rem;
+  border: none;
+  border-radius: 0.35rem;
+  background: none;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: left;
+}
+.app-menu button:hover,
+.app-menu button:focus-visible {
+  background: var(--bg-elev-2);
+}
+.mi-icon {
+  width: 1.1rem;
+  text-align: center;
+  color: var(--text-muted);
 }
 </style>

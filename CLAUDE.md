@@ -43,7 +43,7 @@ UI structure — one page, the **Map**:
   2025), built like any user's map: built-in datasets (EIA tables + US counties / states polygons), a
   SQL join transform and visualizations, from the workspace file `public/data/default.powergis.json`.
 
-The entire app is wrapped inside a header and footer. The header provides the app title, a Help button that opens the conceptual-docs modal, and an "Update available" affordance that surfaces when a newer PWA build is live. The footer provides the current build id/timestamp, a **Desktop view / Phone view** toggle on touch devices (`src/desktopView.ts`: a 1,280-wide layout shrunk to fit, remembered per device), version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
+The entire app is wrapped inside a header and footer. The header provides the app title, a **☰ menu** (Help, which opens the conceptual-docs modal, and on touch devices **Desktop view / Phone view**), and an "Update available" affordance that surfaces when a newer PWA build is live. The footer (one row, small type) provides the current build id/timestamp, version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
 
 The user previews on a **phone** (mobile Safari), so favour mobile-friendly layouts and remember there's no dev console on device — see Debugging below.
 
