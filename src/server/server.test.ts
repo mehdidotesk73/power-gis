@@ -467,7 +467,7 @@ describe('cloud workspace', () => {
     expect(account.datasets.get(own)!.name).toBe('Mine, renamed')
     // A local copy is independent; deleting the cloud dataset deletes it from the cloud.
     const copy = data(await a.server.handle('copyToLocal', { id: own })).datasetId
-    expect(await a.db.get('datasets', copy)).toMatchObject({ store: 'local', name: 'Mine, renamed (local copy)' })
+    expect(await a.db.get('datasets', copy)).toMatchObject({ store: 'local', name: 'Mine, renamed' })
     expect((await a.db.get('datasets', copy))!.cloud).toBeUndefined()
     data(await a.server.handle('deleteDataset', { id: own }))
     expect(account.datasets.has(own)).toBe(false)

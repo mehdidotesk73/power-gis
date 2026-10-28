@@ -433,7 +433,7 @@ export function createServer(db: Database, env: ServerEnv) {
       const t = now()
       const { cloud: _c, store: _s, ...rest } = ds
       await db.writeRows(dataTableName(copy), rows)
-      await db.put('datasets', { ...rest, id: copy, table: dataTableName(copy), name: `${ds.name} (local copy)`, store: 'local', createdAt: t, updatedAt: t })
+      await db.put('datasets', { ...rest, id: copy, table: dataTableName(copy), store: 'local', createdAt: t, updatedAt: t })
       return { datasetId: copy }
     },
 

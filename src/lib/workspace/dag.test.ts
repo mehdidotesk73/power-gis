@@ -73,6 +73,19 @@ describe('workspace DAG', () => {
     expect(buildDag(doc, (id) => changed[id]).nodes.find((n) => n.key === 'tr:t')).toMatchObject({ state: 'stale', detail: 'needs re-run' })
   })
 
+  it("marks each dataset's store, and outputs out of date or not made yet", () => {
+    const node = (dag: ReturnType<typeof buildDag>, id: string) => dag.nodes.find((n) => n.key === `ds:${id}`)!
+    const cloud: Record<string, DagDataset> = { ...records, states: { ...records.states, store: 'remote' } }
+    const dag = buildDag(doc, (id) => cloud[id])
+    expect(node(dag, 'states')).toMatchObject({ store: 'remote' })
+    expect(node(dag, 'utilities')).toMatchObject({ store: 'local' })
+    expect(node(dag, 'out').pending).toBeUndefined()
+    const changed: Record<string, DagDataset> = { ...records, links: at('2026-10-03T00:00:00Z') }
+    expect(node(buildDag(doc, (id) => changed[id]), 'out').pending).toBe(true)
+    const { out: _gone, ...noOutput } = records
+    expect(node(buildDag(doc, (id) => noOutput[id]), 'out').pending).toBe(true)
+  })
+
   it('survives a transform that reads its own output', () => {
     const loop = { ...doc, transforms: [{ ...doc.transforms[0], inputs: [{ datasetId: 'out', alias: 'out' }] }] }
     expect(() => buildDag(loop, (id) => records[id])).not.toThrow()

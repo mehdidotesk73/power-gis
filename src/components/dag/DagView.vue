@@ -185,7 +185,15 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
         >
           <span v-if="n.problem === 'missing'" class="badge problem-badge" aria-label="Missing on this device">⚠</span>
           <span v-else-if="n.kind === 'transform' && n.state === 'stale' && !n.problem" class="badge" aria-label="Needs re-run">↻</span>
-          <span class="tag">{{ tag(n) }}</span>
+          <span class="tag">
+            <span
+              v-if="n.kind === 'dataset'"
+              class="store-dot"
+              :class="[n.store, { pending: n.pending }]"
+              :title="`${n.store === 'remote' ? 'In the cloud' : 'On this device'}${n.pending ? ' · out of date or not made yet: run its transform' : ''}`"
+              aria-hidden="true"
+            />{{ tag(n) }}</span
+          >
           <span class="label">{{ n.label }}</span>
           <span class="detail">{{ n.detail }}</span>
         </button>
@@ -379,6 +387,22 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 }
 .node.dimmed {
   opacity: 0.3;
+}
+.store-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.3rem;
+  border-radius: 50%;
+  vertical-align: 0.02rem;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 1px var(--bg-elev);
+}
+.store-dot.remote {
+  background: var(--kind-dataset);
+}
+.store-dot.pending {
+  box-shadow: 0 0 0 1.5px var(--warn);
 }
 .tag {
   font-size: 0.56rem;
