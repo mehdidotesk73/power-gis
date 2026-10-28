@@ -240,16 +240,26 @@ async function firstVisualizations(ds: DatasetRecord): Promise<VisualizationSpec
   return typeof info === 'string' || !info.features ? [] : [defaultVisualization(info, ds.id, binding)]
 }
 
-async function onAddDataset(datasetId: string) {
+/** New datasets join the workspace (each with a first visualization when it has geometry); the last one opens. */
+async function onAddDataset(datasetIds: string[]) {
   importing.value = false
   dagNewDataset.value = false
-  const ds = await loadRecord(datasetId)
-  if (!ds) return void logDebug(`dataset ${datasetId} not found in the database`, 'error')
-  const first = await firstVisualizations(ds)
-  if (!apply(addDataset(doc.value, ds.id, first))) return
-  logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Visualization'}`)
-  if (first.length) setTimeout(() => zoomToViz(first[0].id), 300)
-  if (view.value === 'graph') openNode({ key: `ds:${ds.id}`, kind: 'dataset', id: ds.id })
+  let last: { id: string; viz?: string } | null = null
+  for (const datasetId of datasetIds) {
+    const ds = await loadRecord(datasetId)
+    if (!ds) {
+      logDebug(`dataset ${datasetId} not found in the database`, 'error')
+      continue
+    }
+    const first = await firstVisualizations(ds)
+    if (!apply(addDataset(doc.value, ds.id, first))) continue
+    logDebug(`added "${ds.name}": ${ds.rowCount} rows${first.length ? '' : ' — pick how rows map to features in ＋ Visualization'}`)
+    last = { id: ds.id, viz: first[0]?.id }
+  }
+  if (!last) return
+  const { id, viz } = last
+  if (viz) setTimeout(() => zoomToViz(viz), 300)
+  if (view.value === 'graph') openNode({ key: `ds:${id}`, kind: 'dataset', id })
 }
 
 function removeDataset(id: string) {
