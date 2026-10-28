@@ -39,3 +39,4 @@ __pycache__
 .env
 .env.local
 .env.*.local
+public/duckdb-ext/

@@ -256,6 +256,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
         <div class="title">
           <strong>{{ t.name }}</strong>
           <span class="muted">{{ describe(t) }}</span>
+          <span v-if="t.requires?.length" class="muted" :title="`Its SQL uses the SQL engine's ${t.requires.join(', ')} extension`">· uses {{ t.requires.join(', ') }}</span>
           <span v-if="status[t.id]?.state === 'running'" class="muted">Running…</span>
           <span v-else-if="status[t.id]?.state === 'done'" class="ok">{{ message(t.id) }}</span>
           <span v-else-if="status[t.id]?.state === 'error'" class="bad">{{ message(t.id) }}</span>

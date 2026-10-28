@@ -214,6 +214,15 @@ export function createServer(db: Database, env: ServerEnv) {
       return runSql(query, inputs, Math.min(limit ?? 20, 1000), offset)
     },
 
+    async loadSqlExtensions({ names }) {
+      if (!sql) fail('unsupported', 'SQL transforms are not available here')
+      try {
+        return { loaded: await sql!.load(names) }
+      } catch (e) {
+        return fail('failed', (e as Error).message)
+      }
+    },
+
     async runTransform({ transform }, caller) {
       if (!transform.name.trim()) fail('invalid', 'A transform needs a name')
       if (caller === 'agent') {
@@ -251,13 +260,16 @@ export function createServer(db: Database, env: ServerEnv) {
         forget(id)
         written.push({ key: o.key, datasetId: id, rowCount: out.rows.length, created: !existing })
       }
-      // A saved transform remembers where each output went.
+      // What the SQL needs from the engine, for loading it ahead next time (a workspace's dependencies).
+      const requires = [...new Set(results.flatMap((r) => r.out.extensions))].sort()
+      // A saved transform remembers where each output went, and what it needs.
       const saved = await db.get('transforms', transform.id)
       if (saved) {
+        const { requires: _old, ...rest } = saved
         const outputs = (saved.outputs ?? []).map((o) => ({ ...o, outputId: written.find((w) => w.key === o.key)?.datasetId ?? o.outputId }))
-        await db.put('transforms', { ...saved, outputs, updatedAt: t })
+        await db.put('transforms', { ...rest, outputs, ...(requires.length ? { requires } : {}), updatedAt: t })
       }
-      return { outputs: written }
+      return { outputs: written, requires }
     },
 
     async profileDataset({ datasetId }) {
@@ -320,6 +332,7 @@ export function createServer(db: Database, env: ServerEnv) {
           name: tr.name.trim(),
           inputs: tr.inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })),
           outputs: tr.outputs.map((o) => ({ key: o.key, name: o.name, sql: o.sql, ...(o.outputId ? { outputId: o.outputId } : {}) })),
+          ...(tr.requires?.length ? { requires: [...tr.requires] } : {}),
           createdAt: old?.createdAt ?? t,
           updatedAt: t,
         }

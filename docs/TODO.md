@@ -82,6 +82,11 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Spatial extension** — DuckDB's spatial extension loads on first use (allowlist in
+  `shared/sqlExtensions.json`; a query naming its functions loads it and retries), hosted with the
+  app by the Netlify build (falls back to DuckDB's repository). GEOMETRY results come back as GeoJSON.
+  Transforms record the extensions they use (`requires`); a workspace's load ahead when it opens and
+  travel in workspace files. The agent knows ST_Area_Spheroid, ST_Transform and spatial joins.
 - **Engine speed** — one DuckDB copy per dataset whatever alias a query uses (aliases are temp
   views), bulk-loaded as Arrow (3,071 × 330: ~11 s → ~0.5 s), least recently used copies dropped past
   a cell budget, queries one at a time, paged queries run once. Renaming / describing a dataset no
@@ -165,6 +170,10 @@ results, because the agent workflow (step 5) drives the same operations as the U
    another tab: shown locked 🔗, live, editable only in their source tab; "detach a copy" to edit;
    "Link from another tab…" later in any tab). Even with only a map widget, a tab holds a *list of
    widgets* so charts slot in without a migration. **Phones: tabs only**; a tab's widgets stack.
+   **SQL engine per tab:** one DuckDB serves every tab while their workspaces' extensions
+   (`requires`) can share it — opening a tab only adds the extensions it needs. A tab whose
+   extensions conflict with the loaded ones (`conflictsWith` in `shared/sqlExtensions.json`; none
+   do yet) gets its own engine (an engine pool keyed by extension set).
 7. **Charts (static)** — a chart widget; visualizations grouped by x (+ series) with y and color
    encodings, marks line / bar / scatter. Useful before any interactivity.
 8. **Interactivity** — variables, events → variables, views, widget filters (see *Display model*).
@@ -241,7 +250,9 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, `update_workspace`,
    `run_transform`, `update_dataset`, `delete_dataset`, the server-side gate for `caller: 'agent'`.
 4. **Scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
-   size-capped) for data it collects itself, scout source reports, run records.
+   size-capped) for data it collects itself, scout source reports, run records. Options for
+   **D1** (fetch + create_dataset, no agent code) and **D2** (agent-written scripts: Managed Agents
+   container vs. Pyodide) are written up in `docs/agents.md` → *Next: scouting and scraping*.
 5. **Supabase**: login, the remote store (Move to remote / local for real), storage limits.
 
 ### Backlog

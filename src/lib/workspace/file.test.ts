@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fromWorkspaceFile, parseDraft, parseWorkspaceFile, replacePointers, snapshot, templateBuiltins, toWorkspaceFile } from './file'
 import { readFileSync } from 'node:fs'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
-import type { WorkspaceDoc } from './workspace'
+import { workspaceRequires, type WorkspaceDoc } from './workspace'
 
 const viz = (id: string, datasetId: string): VisualizationSpec => ({
   kind: 'scalar',
@@ -34,6 +34,19 @@ describe('workspace files', () => {
     expect(r.file).toMatchObject({ format: 'powergis-workspace', version: 1, workspaceId: 'w1', name: 'Grid', datasetIds: ['a', 'b'] })
     expect(r.file.visualizations[0]).toEqual({ name: 'viz v1', datasetId: 'a', settings: expect.objectContaining({ column: ROWS, kind: 'scalar' }) })
     expect(r.file.visualizations[0]).not.toHaveProperty('id')
+  })
+
+  it("carries each transform's engine extensions, and the workspace's together", () => {
+    const spatial: WorkspaceDoc = { ...doc, transforms: [{ ...doc.transforms[0], requires: ['spatial'] }, doc.transforms[1]] }
+    expect(workspaceRequires(spatial)).toEqual(['spatial'])
+    expect(toWorkspaceFile(doc)).not.toHaveProperty('requires')
+    const r = parseWorkspaceFile(JSON.stringify(toWorkspaceFile(spatial)))
+    if (!r.ok) throw new Error(r.error)
+    expect(r.file.requires).toEqual(['spatial'])
+    const opened = fromWorkspaceFile(r.file, { name: '', datasetIds: [], visualizations: [], transforms: [] }, () => true).doc
+    expect(workspaceRequires(opened)).toEqual(['spatial'])
+    const bad = { ...toWorkspaceFile(spatial), transforms: [{ ...toWorkspaceFile(spatial).transforms![0], requires: 'spatial' }] }
+    expect(parseWorkspaceFile(JSON.stringify(bad)).ok).toBe(false)
   })
 
   it('rejects files that are not workspaces, with a reason', () => {

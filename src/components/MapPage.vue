@@ -56,6 +56,7 @@ import {
   aliasFor,
   newOutput,
   normalizeTransform,
+  workspaceRequires,
   type TransformSpec,
   type OpContext,
   type OpResult,
@@ -411,16 +412,38 @@ async function runTransform(id: string, by: Caller = 'user'): Promise<RunOutcome
     lines.push(`${rowCount.toLocaleString()} rows → ${ds?.name ?? 'dataset'}`)
     outputs.push({ datasetId, name: ds?.name ?? 'dataset', rowCount, created })
   }
-  // Each output remembers the dataset it wrote.
+  // Each output remembers the dataset it wrote; the transform, the engine extensions its SQL used.
   const now = doc.value.transforms.find((x) => x.id === id)
   if (now) {
+    const { requires: _old, ...rest } = now
     const outputs = now.outputs.map((o) => ({ ...o, outputId: r.data.outputs.find((w) => w.key === o.key)?.datasetId ?? o.outputId }))
-    apply(updateTransform_(doc.value, { ...now, outputs }))
+    apply(updateTransform_(doc.value, { ...rest, outputs, ...(r.data.requires.length ? { requires: r.data.requires } : {}) }))
   }
   runStatus.value = { ...runStatus.value, [id]: { state: 'done', message: lines.join(' · ') } }
   logDebug(`transform "${t.name}": ${lines.join(' · ')}`)
   return { ok: true, outputs }
 }
+
+// ── SQL engine extensions ──────────────────────────────────────────────────
+// A workspace's transforms record the extensions their SQL uses (spatial…);
+// they load in the background as soon as the workspace needs them, so the
+// first run doesn't wait. (A query that needs one loads it anyway.)
+const requested = new Set<string>()
+watch(
+  () => workspaceRequires(doc.value).join(','),
+  async () => {
+    const names = workspaceRequires(doc.value).filter((n) => !requested.has(n))
+    if (!names.length) return
+    for (const n of names) requested.add(n)
+    const r = await request('loadSqlExtensions', { names })
+    if (r.ok) logDebug(`SQL engine extensions: ${r.data.loaded.map((x) => `${x.name} (from ${x.from})`).join(', ')}`)
+    else {
+      for (const n of names) requested.delete(n)
+      logDebug(`SQL engine extensions ${names.join(', ')} didn't load: ${r.error.message}`, 'warn')
+    }
+  },
+  { immediate: true },
+)
 
 // ── the assistant (agent) ──────────────────────────────────────────────────
 // The agent's tools act through the same functions as the UI (lib/agent/tools.ts).
@@ -546,7 +569,7 @@ async function open(w: WorkspaceRecord) {
     const t = await readDb.get('transforms', id)
     // Records saved before multi-output transforms have one `sql` + `outputId`.
     const old = t as typeof t & { sql?: string; outputId?: string }
-    if (t) transforms.push(normalizeTransform({ id: t.id, name: t.name, inputs: t.inputs, outputs: t.outputs, sql: old.sql, outputId: old.outputId }))
+    if (t) transforms.push(normalizeTransform({ id: t.id, name: t.name, inputs: t.inputs, outputs: t.outputs, sql: old.sql, outputId: old.outputId, ...(t.requires?.length ? { requires: t.requires } : {}) }))
   }
   for (const t of transforms) for (const o of t.outputs) if (o.outputId) await loadRecord(o.outputId) // output names for the panel
   doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms }

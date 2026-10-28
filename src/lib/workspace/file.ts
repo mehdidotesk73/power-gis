@@ -7,7 +7,7 @@ import type { VisualizationSettings, VisualizationSpec } from '../dataset/visual
 import { settingsOf } from '../dataset/visualization'
 import { newId } from '../dataset/dataset'
 import { isSupportedBinding } from '../dataset/binding'
-import { normalizeTransform, type TransformSpec, type WorkspaceDoc } from './workspace'
+import { normalizeTransform, workspaceRequires, type TransformSpec, type WorkspaceDoc } from './workspace'
 
 export const FILE_FORMAT = 'powergis-workspace'
 export const FILE_VERSION = 1
@@ -24,6 +24,8 @@ export interface WorkspaceFile {
   visualizations: { name: string; datasetId: string; settings: VisualizationSettings }[]
   /** Optional (files from before transforms have none). */
   transforms?: Omit<TransformSpec, 'id'>[]
+  /** SQL engine extensions its transforms use: each transform's `requires`, together (written for people to read; opening loads them from the transforms). */
+  requires?: string[]
 }
 
 export function toWorkspaceFile(doc: WorkspaceDoc): WorkspaceFile {
@@ -36,6 +38,7 @@ export function toWorkspaceFile(doc: WorkspaceDoc): WorkspaceFile {
     datasetIds: [...doc.datasetIds],
     visualizations: doc.visualizations.map((v) => ({ name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
     transforms: doc.transforms.map(({ id: _id, ...t }) => t),
+    ...(workspaceRequires(doc).length ? { requires: workspaceRequires(doc) } : {}),
   }
 }
 
@@ -67,6 +70,7 @@ export function parseWorkspaceFile(text: string): Parsed {
   const raw = (o.transforms ?? []) as RawTransform[]
   for (const t of raw) {
     const outputsOk = Array.isArray(t?.outputs) ? t.outputs.every((x) => typeof x?.sql === 'string' && typeof x.name === 'string' && typeof x.key === 'string') : typeof t?.sql === 'string'
+    if (t?.requires !== undefined && !(Array.isArray(t.requires) && t.requires.every((x) => typeof x === 'string'))) return { ok: false, error: 'A transform in the workspace is incomplete or damaged.' }
     if (typeof t?.name !== 'string' || !outputsOk || !Array.isArray(t.inputs) || !t.inputs.every((i) => typeof i?.datasetId === 'string' && typeof i.alias === 'string')) {
       return { ok: false, error: 'A transform in the workspace is incomplete or damaged.' }
     }

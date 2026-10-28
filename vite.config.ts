@@ -69,8 +69,8 @@ export default defineConfig({
       },
       workbox: {
         cleanupOutdatedCaches: true,
-        // DuckDB (~34 MB wasm + its worker) loads on demand, not into the offline cache.
-        globIgnores: ['**/duckdb-*'],
+        // DuckDB (~34 MB wasm + its worker) and its extensions load on demand, not into the offline cache.
+        globIgnores: ['**/duckdb-*', '**/duckdb-ext/**'],
       },
     }),
   ],
