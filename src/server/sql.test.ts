@@ -94,6 +94,14 @@ describe('sql transforms (DuckDB)', () => {
     expect(loads).toBe(5)
   })
 
+  it("reports SQL errors against the user's own SQL, once, not our paging wrapper", async () => {
+    const err = await sql.run('SELECT count(*) n, count(mw) matched FROM plants', [plants], 20).then(() => '', (e: Error) => e.message)
+    expect(err).toContain('syntax error at or near "matched"')
+    expect(err).toContain('LINE 1: SELECT count(*) n, count(mw) matched FROM plants')
+    expect(err).not.toContain('__total')
+    expect(err.split('LINE 1').length).toBe(2)
+  })
+
   it('pages with one run, and counts correctly past the end', async () => {
     const page = await sql.run('SELECT name FROM plants ORDER BY name', [plants], 2, 1)
     expect(page).toMatchObject({ rowCount: 3, rows: [{ name: 'C' }, { name: "O'Hare" }] })

@@ -312,14 +312,20 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
-### Agent: edit_workspace — 2026-10-28
-- **Changed:** the agent edits the workspace with exact text replacements (`edit_workspace`) instead
-  of resending all of it (`update_workspace`). With Haiku the whole-workspace payload — SQL inside
-  JSON inside the tool call — came back as one JSON-encoded string twice; the retry that passed had
-  dropped a transform and sent `visualizations: []`, which removed every visualization.
-- **Lesson:** keep model-written structure small and never nest text that needs escaping (SQL) inside
-  JSON the model writes. SQL now travels only as plain strings (`values`, SQL-block edits) and the
-  tool inserts it (`JSON.stringify`) — the JSON equivalent of a parameterized query.
+### Agent: the workspace as files — 2026-10-28
+- **Changed:** the agent no longer resends the whole workspace (`update_workspace`). With Haiku that
+  payload — SQL inside JSON inside the tool call — came back as one JSON-encoded string twice; the
+  retry that passed had dropped a transform and sent `visualizations: []`, removing every
+  visualization. It now edits small staged files with Anthropic's text editor tool and commits with
+  `apply_workspace`.
+- **Lesson:** don't invent an edit protocol when the model is trained on one. An intermediate design
+  (exact replacements on one JSON text with `${…}` tokens for SQL) worked but had two kinds of token,
+  and the agent named its new SQL `sql:new.o1`, which read as the other kind. Files with naming
+  conventions (`<id>.<key>.sql`) leave nothing to mix up.
+- **Lesson:** return the ids of what a tool creates. Without them the agent called
+  `run_transform("PLACEHOLDER")`.
+- **Gotcha:** DuckDB-WASM prints a parser error's "LINE 1: …" excerpt twice, and for a wrapped query
+  (paging) the excerpt shows our wrapper. We re-plan the bare query with `EXPLAIN` for the message.
 
 ### Spatial extension — 2026-10-28
 - **Added:** DuckDB's **spatial** extension (ST_Area_Spheroid, ST_Transform, spatial joins, ST_Read…),

@@ -141,9 +141,11 @@ whatever they're actually asking about.
   shrunk before sending (`agent/images.ts`). Tools act through an
   `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. The
   agent starts from the workspace (`get_workspace`: its datasets' names, descriptions, stores),
-  edits it with `edit_workspace` (exact `old` → `new` replacements on the text `get_workspace` shows: JSON
-  with `${sql:…}` tokens plus the SQL as plain blocks; new SQL goes in `values`, never inside JSON;
-  `lib/agent/workspaceText.ts`), confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
+  edits it as **files** with Anthropic's text editor tool (`str_replace_based_edit_tool`, run by us on
+  a staged copy: `workspace.json` index, `transforms/<id>.json` + `<id>.<key>.sql`,
+  `visualizations/<id>.json`, generated `overview.md`; SQL never inside JSON) and commits with
+  `apply_workspace` (checks everything, returns new ids; `lib/agent/workspaceFiles.ts`). Everything
+  existing is targeted by id. Our tools are `strict`. It confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
   the workspace only with the user's OK, through `list_datasets`, which reads the app's one
   **dataset finder** (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry
   later); the prompt names no datasets. Agents

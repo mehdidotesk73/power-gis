@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { runTool, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
-import { renderWorkspace } from './workspaceText'
+import { EDITOR_TOOL } from './workspaceFiles'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
 import { emptyWorkspace, type WorkspaceDoc } from '../workspace/workspace'
 import type { DatasetRecord } from '../../shared/records'
@@ -60,18 +60,21 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
 }
 const json = (s: string) => JSON.parse(s)
 
-/**
- * One edit replacing the whole workspace text with `obj` (its "__SQL__" strings
- * become a ${q} token for `values.q`): the long way round, to exercise the checks.
- */
-async function replaceAll(host: AgentHost, obj: object, values?: Record<string, string>) {
-  const { template } = renderWorkspace(host.doc())
-  const text = JSON.stringify(obj, null, 2).replace('"__SQL__"', '${q}')
-  return runTool(host, 'edit_workspace', { version: workspaceVersion(host.doc()), edits: [{ old: template, new: text }], ...(values ? { values } : {}) })
+const edit = (host: AgentHost, input: object) => runTool(host, EDITOR_TOOL, input)
+
+/** Writes the given files (paths without the leading slash) and the index, then applies. */
+async function writeAndApply(host: AgentHost, index: object, files: Record<string, string | object>, dryRun?: boolean) {
+  await runTool(host, 'get_workspace', {})
+  for (const [path, body] of Object.entries(files)) {
+    const out = await edit(host, { command: 'create', path: `/${path}`, file_text: typeof body === 'string' ? body : JSON.stringify(body, null, 2) })
+    expect(out.isError, out.content).toBe(false)
+  }
+  await edit(host, { command: 'create', path: '/workspace.json', file_text: JSON.stringify({ name: 'Test', ...index }, null, 2) })
+  return runTool(host, 'apply_workspace', dryRun ? { dryRun } : {})
 }
 
 describe('agent tools', () => {
-  it('lists every dataset the user can use, and shows the workspace as text with a version', async () => {
+  it('lists every dataset the user can use, and starts from an overview of the workspace files', async () => {
     const { host } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices'] })
     const list = await runTool(host, 'list_datasets', {})
     expect(list.summary).toBe('4 datasets (3 local)')
@@ -83,20 +86,25 @@ describe('agent tools', () => {
     ])
     expect(json(list.content)[0]).not.toHaveProperty('columns')
     const w = (await runTool(host, 'get_workspace', {})).content
-    expect(w).toContain(`version: ${workspaceVersion(host.doc())}`)
-    expect(w).toContain('{"id":"prices","name":"PRICES","store":"local","origin":"Device · test.csv","rows":10}')
-    expect(w).toContain('"datasetIds": [\n    "prices"\n  ]')
-    expect(w).not.toContain('columns')
+    expect(w).toContain(`version ${workspaceVersion(host.doc())}`)
+    expect(w).toContain('- prices  "PRICES"  local · 10 rows · Device · test.csv')
+    expect(w).toContain('Files: /workspace.json')
+    expect((await edit(host, { command: 'view', path: '/' })).content).toBe('Files in /:\n/overview.md\n/workspace.json')
+    expect((await edit(host, { command: 'view', path: '/workspace.json' })).content).toContain('     3\t  "datasetIds": [')
   })
 
   it('reports the drawn values so the agent can pick a scale, and accepts a fixed domain', async () => {
     const { host, state } = fakeHost()
-    const viz = (color: object) => replaceAll(host, { name: 'Test', datasetIds: ['joined'], transforms: [], visualizations: [{ id: 'v1', name: 'Price', datasetId: 'joined', geometry: 'geometry', column: 'price', color }] })
+    const viz = (color: object) => writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: ['price'] }, { 'visualizations/price.json': { name: 'Price', datasetId: 'joined', geometry: 'geometry', column: 'price', color } })
     expect((await viz({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] })).isError).toBe(false)
     expect(state.doc.visualizations[0].style.color).toMatchObject({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] })
+    state.doc = { ...state.doc, visualizations: [] }
     expect(await viz({ kind: 'colormap', scale: 'log', domain: [0, 5] })).toMatchObject({ isError: true, content: expect.stringContaining('positive on a log scale') })
     expect(await viz({ kind: 'colormap', domain: [5, 1] })).toMatchObject({ isError: true })
-    const stats = json((await runTool(host, 'visualization_stats', { id: 'v1' })).content)
+    state.doc = { ...state.doc, visualizations: [] }
+    await viz({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] })
+    const id = state.doc.visualizations[0].id
+    const stats = json((await runTool(host, 'visualization_stats', { id })).content)
     expect(stats).toMatchObject({ visualization: 'Price', features: 7, withValue: 6, nulls: 1, min: 0, max: 10000, atOrBelowZero: 1, belowZero: 0, positiveOrdersOfMagnitude: 4, color: { colormap: 'rdBu', domain: [-5, 5] } })
     expect(await runTool(host, 'visualization_stats', { id: 'nope' })).toMatchObject({ isError: true })
   })
@@ -128,85 +136,117 @@ describe('agent tools', () => {
     expect(await runTool(host, 'query_sql', { inputs: [] })).toMatchObject({ isError: true, summary: 'invalid input' })
   })
 
-  it('builds a workspace with SQL given as values, then edits it surgically', async () => {
-    const { host, state } = fakeHost()
+  it('builds a workspace from files, returns the new ids, then edits it surgically', async () => {
+    const { host, state, calls } = fakeHost()
     const sql = `SELECT c.geometry, c.name, p.price\nFROM p JOIN c USING (fips)\nWHERE c.name <> 'O''Brien' AND p.month = "2026-08-31"`
-    const built = await replaceAll(
+    const built = await writeAndApply(
       host,
+      { datasetIds: ['prices', 'counties', 'joined'], transforms: ['join'], visualizations: ['price'] },
       {
-        name: 'Test',
-        datasetIds: ['prices', 'counties', 'joined'],
-        transforms: [{ name: 'Join', inputs: [{ datasetId: 'prices', alias: 'p' }, { datasetId: 'counties', alias: 'c' }], outputs: [{ name: 'Joined', sql: '__SQL__', outputId: 'joined' }] }],
-        visualizations: [{ name: 'Price', datasetId: 'joined', geometry: 'geometry', label: 'name', column: 'price', color: { kind: 'colormap', colormap: 'magma' } }],
+        'transforms/join.json': { name: 'Join', inputs: [{ datasetId: 'prices', alias: 'p' }, { datasetId: 'counties', alias: 'c' }], outputs: [{ key: 'o1', name: 'Joined', outputId: 'joined' }] },
+        'transforms/join.o1.sql': `${sql}\n`,
+        'visualizations/price.json': { name: 'Price', datasetId: 'joined', geometry: 'geometry', label: 'name', column: 'price', color: { kind: 'colormap', colormap: 'magma' } },
       },
-      { q: sql },
     )
-    expect(built.isError).toBe(false)
-    expect(json(built.content)).toMatchObject({ version: workspaceVersion(state.doc), changed: ['datasets added: prices, counties, joined', 'transform added: "Join"', 'visualization added: "Price"'] })
-    // The SQL arrived exactly as written: quotes and line breaks untouched.
-    expect(state.doc.transforms[0].outputs[0]).toMatchObject({ name: 'Joined', outputId: 'joined', sql })
+    expect(built.isError, built.content).toBe(false)
+    const out = json(built.content)
+    const t = state.doc.transforms[0]
     const v = state.doc.visualizations[0]
+    expect(out.changed).toEqual(['datasets added: prices, counties, joined', 'transform added: "Join"', 'visualization added: "Price"'])
+    expect(out.added).toEqual([
+      { kind: 'transform', id: t.id, from: 'join', name: 'Join' },
+      { kind: 'visualization', id: v.id, from: 'price', name: 'Price' },
+    ])
+    // The SQL arrived exactly as written: quotes and line breaks untouched.
+    expect(t.outputs[0]).toMatchObject({ key: 'o1', name: 'Joined', outputId: 'joined', sql })
     expect(v).toMatchObject({ kind: 'scalar', name: 'Price', column: 'price', aggregation: 'first', binding: { column: 'geometry', label: 'name' } })
 
-    // get_workspace shows the SQL as a plain block, and a token in the JSON.
-    const t = state.doc.transforms[0]
-    const text = (await runTool(host, 'get_workspace', {})).content
-    expect(text).toContain(`"sql": \${sql:${t.id}.${t.outputs[0].key}}`)
-    expect(text).toContain(`--- sql:${t.id}.${t.outputs[0].key} ---\n${sql}`)
+    // The files are rebuilt under the real ids; the overview lists them.
+    const overview = (await edit(host, { command: 'view', path: '/overview.md' })).content
+    expect(overview).toContain(`- ${t.id}  "Join"`)
+    expect(overview).toContain(`output o1: "Joined" → joined (JOINED)  (SQL: /transforms/${t.id}.o1.sql, 3 lines)`)
+    expect((await edit(host, { command: 'view', path: `/transforms/${t.id}.o1.sql` })).content).toContain("     3\tWHERE c.name <> 'O''Brien'")
 
-    // An edit inside the SQL block, and one in the JSON; everything else stays as it was.
+    // Small edits: one inside the SQL file, one in the visualization; the style details stay.
     const style = v.style
-    const edit = await runTool(host, 'edit_workspace', {
-      version: workspaceVersion(state.doc),
-      edits: [
-        { sql: `${t.id}.${t.outputs[0].key}`, old: `"2026-08-31"`, new: `"2026-09-30"` },
-        { old: '"name": "Price",', new: '"name": "Price (Sept)",' },
-      ],
-    })
-    expect(json(edit.content).changed).toEqual(['transform changed: "Join"', 'visualization changed: "Price (Sept)"'])
+    expect((await edit(host, { command: 'str_replace', path: `/transforms/${t.id}.o1.sql`, old_str: '"2026-08-31"', new_str: '"2026-09-30"' })).isError).toBe(false)
+    expect((await edit(host, { command: 'str_replace', path: `/visualizations/${v.id}.json`, old_str: '"name": "Price",', new_str: '"name": "Price (Sept)",' })).isError).toBe(false)
+    // Pending edits block tools that change the draft, and show in the overview.
+    expect(await runTool(host, 'run_transform', { id: t.id })).toMatchObject({ isError: true, summary: 'refused: edits not applied' })
+    expect((await edit(host, { command: 'view', path: '/overview.md' })).content).toContain('edits not applied yet')
+    const dry = await runTool(host, 'apply_workspace', { dryRun: true })
+    expect(json(dry.content)).toEqual({ dryRun: true, wouldChange: ['transform changed: "Join"', 'visualization changed: "Price (Sept)"'] })
+    const applied = await runTool(host, 'apply_workspace', {})
+    expect(json(applied.content).changed).toEqual(['transform changed: "Join"', 'visualization changed: "Price (Sept)"'])
     expect(state.doc.transforms[0].outputs[0].sql).toBe(sql.replace('2026-08-31', '2026-09-30'))
     expect(state.doc.visualizations[0]).toMatchObject({ id: v.id, name: 'Price (Sept)', style })
+    expect((await runTool(host, 'run_transform', { id: t.id })).isError).toBe(false)
+    expect(calls).toEqual([`run ${t.id}`])
 
-    // A stale version, a missing match and a repeated one are refused; nothing changes.
-    const before = state.doc
-    expect(await runTool(host, 'edit_workspace', { version: 'old', edits: [{ old: 'x', new: 'y' }] })).toMatchObject({ isError: true, summary: 'workspace changed: re-read' })
-    const bad = await runTool(host, 'edit_workspace', { version: workspaceVersion(before), edits: [{ old: '"name": "Nope"', new: '' }, { old: '"alias":', new: '' }, { old: '"name": "Test"', new: '"name": ${missing}' }] })
-    expect(bad.isError).toBe(true)
-    for (const bit of ["isn't in the workspace text", 'occurs 2 times', 'no value "missing"']) expect(bad.content).toContain(bit)
-    expect(state.doc).toBe(before)
-
-    // A dry run says what would change and changes nothing; untouched items are kept exactly.
-    const dry = await runTool(host, 'edit_workspace', { version: workspaceVersion(before), dryRun: true, edits: [{ old: '"visible": true', new: '"visible": false' }] })
-    expect(json(dry.content)).toEqual({ dryRun: true, wouldChange: ['visualization changed: "Price (Sept)"'] })
-    expect(state.doc).toBe(before)
-    const kept = await runTool(host, 'edit_workspace', { version: workspaceVersion(before), edits: [{ old: '"name": "Test"', new: '"name": "Renamed"' }] })
-    expect(json(kept.content).changed).toEqual(['name → "Renamed"'])
-    expect(state.doc.transforms).toEqual(before.transforms)
-    expect(state.doc.visualizations).toEqual(before.visualizations)
+    // An untouched workspace has nothing to apply; edits on an old version are refused.
+    expect(await runTool(host, 'apply_workspace', {})).toMatchObject({ isError: true, summary: 'nothing to apply' })
+    await edit(host, { command: 'str_replace', path: '/workspace.json', old_str: '"name": "Test"', new_str: '"name": "Renamed"' })
+    state.doc = { ...state.doc, name: 'The user renamed it' }
+    expect(await runTool(host, 'apply_workspace', {})).toMatchObject({ isError: true, summary: 'workspace changed: re-read' })
+    expect((await runTool(host, 'get_workspace', {})).content).toContain('have been discarded')
   })
 
-  it('refuses the whole edit, listing every problem, and changes nothing', async () => {
+  it('edits only the workspace files, the way the text editor does', async () => {
+    const { host } = fakeHost()
+    await runTool(host, 'get_workspace', {})
+    expect(await edit(host, { command: 'create', path: '/notes.txt', file_text: 'x' })).toMatchObject({ isError: true, content: expect.stringContaining("Can't create /notes.txt") })
+    expect(await edit(host, { command: 'create', path: '/overview.md', file_text: 'x' })).toMatchObject({ isError: true, content: expect.stringContaining('generated') })
+    expect(await edit(host, { command: 'view', path: '/../etc' })).toMatchObject({ isError: true })
+    expect(await edit(host, { command: 'str_replace', path: '/workspace.json', old_str: 'nope', new_str: 'x' })).toMatchObject({ isError: true, content: expect.stringContaining('did not appear verbatim') })
+    expect(await edit(host, { command: 'str_replace', path: '/workspace.json', old_str: '[]', new_str: 'x' })).toMatchObject({ isError: true, content: expect.stringContaining('occurs 3 times') })
+    expect((await edit(host, { command: 'insert', path: '/workspace.json', insert_line: 1, insert_text: '  "x": 1,' })).isError).toBe(false)
+    expect((await edit(host, { command: 'view', path: '/workspace.json', view_range: [1, 2] })).content).toBe('     1\t{\n     2\t  "x": 1,')
+    expect(await edit(host, { command: 'delete', path: '/workspace.json' })).toMatchObject({ isError: true })
+  })
+
+  it('refuses the whole apply, listing every problem with its file, and changes nothing', async () => {
     const before = { ...emptyWorkspace('Test'), datasetIds: ['prices'] }
     const { host, state } = fakeHost(before)
-    const out = await replaceAll(host, {
-      name: 'Test',
-      datasetIds: ['prices', 'counties', 'shared', 'ghost'],
-      transforms: [{ name: 'Bad', inputs: [{ datasetId: 'prices', alias: 'p' }], outputs: [{ name: 'Out', sql: 'SELECT 1', outputId: 'shared' }] }],
-      visualizations: [
-        { name: 'A', datasetId: 'prices', geometry: 'fips', column: 'price' },
-        { name: 'B', datasetId: 'counties', geometry: 'geometry', column: 'nope' },
-        { name: 'C', datasetId: 'counties', geometry: 'geometry', column: 'name', aggregation: 'sum' },
-        { name: 'D', datasetId: 'counties', geometry: 'geometry', column: 'name', color: { kind: 'colormap', colormap: 'rainbow' } },
-      ],
-    })
+    const out = await writeAndApply(
+      host,
+      { datasetIds: ['prices', 'counties', 'shared', 'ghost'], transforms: ['bad'], visualizations: ['a', 'b', 'c', 'd'] },
+      {
+        'transforms/bad.json': { name: 'Bad', inputs: [{ datasetId: 'prices', alias: 'p' }], outputs: [{ key: 'o1', name: 'Out', outputId: 'shared' }] },
+        'transforms/bad.o1.sql': 'SELECT 1',
+        'visualizations/a.json': { name: 'A', datasetId: 'prices', geometry: 'fips', column: 'price' },
+        'visualizations/b.json': { name: 'B', datasetId: 'counties', geometry: 'geometry', column: 'nope' },
+        'visualizations/c.json': { name: 'C', datasetId: 'counties', geometry: 'geometry', column: 'name', aggregation: 'sum' },
+        'visualizations/d.json': { name: 'D', datasetId: 'counties', geometry: 'geometry', column: 'name', color: { kind: 'colormap', colormap: 'rainbow' } },
+      },
+    )
     expect(out.isError).toBe(true)
     for (const bit of ['no dataset "ghost"', 'cloud dataset', 'not a geometry column', '"nope" isn\'t a value column', "sum doesn't apply", 'colormap must be one of']) expect(out.content).toContain(bit)
     expect(state.doc).toBe(before)
-    // Broken JSON, or a list that's gone, is refused too.
-    const v = workspaceVersion(before)
-    expect(await runTool(host, 'edit_workspace', { version: v, edits: [{ old: '"name": "Test",', new: '"name": "Test"' }] })).toMatchObject({ isError: true, content: expect.stringContaining("isn't valid JSON") })
-    expect(await runTool(host, 'edit_workspace', { version: v, edits: [{ old: '"transforms": [],', new: '' }] })).toMatchObject({ isError: true, content: expect.stringContaining('"transforms" must stay a list') })
+
+    // File-level problems: SQL inside JSON, a missing SQL file, broken JSON, an unknown field.
+    const files = await writeAndApply(
+      host,
+      { datasetIds: ['prices'], transforms: ['t'], visualizations: ['v', 'w'] },
+      {
+        'transforms/t.json': { name: 'T', inputs: [{ datasetId: 'prices', alias: 'p' }], outputs: [{ key: 'o1', name: 'Out', sql: 'SELECT 1' }] },
+        'visualizations/v.json': '{ "name": "V", }',
+        'visualizations/w.json': { name: 'W', datasetId: 'prices', geometry: 'g', column: 'price', colour: 'red' },
+      },
+    )
+    for (const bit of ["SQL doesn't go in the JSON", 'its SQL file /transforms/t.o1.sql is missing', "/visualizations/v.json isn't valid JSON", 'unknown field "colour"']) expect(files.content).toContain(bit)
     expect(state.doc).toBe(before)
+  })
+
+  it('reports files nothing uses, and keeps items whose files were not touched exactly', async () => {
+    const { host, state } = fakeHost()
+    await writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: ['price'] }, { 'visualizations/price.json': { name: 'Price', datasetId: 'joined', geometry: 'geometry', column: 'price' } })
+    const before = state.doc
+    await runTool(host, 'get_workspace', {})
+    await edit(host, { command: 'create', path: '/transforms/spare.o1.sql', file_text: 'SELECT 1' })
+    await edit(host, { command: 'str_replace', path: '/workspace.json', old_str: '"name": "Test"', new_str: '"name": "Renamed"' })
+    const out = json((await runTool(host, 'apply_workspace', {})).content)
+    expect(out).toMatchObject({ changed: ['name → "Renamed"'], unusedFiles: expect.stringContaining('/transforms/spare.o1.sql') })
+    expect(state.doc.visualizations).toEqual(before.visualizations)
   })
 
   it('runs transforms and deletes datasets only when they are local', async () => {

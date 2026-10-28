@@ -135,6 +135,30 @@ export function geometryAsGeoJson(query: string, described: { column_name: strin
   return `SELECT * REPLACE (${geo.map((c) => `CAST(ST_AsGeoJSON(${ident(c)}) AS VARCHAR) AS ${ident(c)}`).join(', ')}) FROM (${query}\n)`
 }
 
+/** DuckDB's message without repeats (the browser build prints its "LINE 1: …" excerpt twice). */
+export function cleanError(message: string): string {
+  const parts = message.split('\n\n')
+  return parts.filter((p, i) => parts.indexOf(p) === i).join('\n\n').trim()
+}
+
+/**
+ * The error as it reads against the user's own SQL. A query we wrapped (paging, GeoJSON output)
+ * fails with an excerpt of our wrapper; planning the bare query (EXPLAIN, nothing runs) gives the
+ * same parser or binder error at the user's own text. Errors that only happen while running keep
+ * the original message.
+ */
+async function ownError(e: SqlEngine, query: string, wrapped: boolean, message: string): Promise<string> {
+  if (wrapped && /\bLINE \d+:/.test(message)) {
+    try {
+      await e.query(`EXPLAIN ${query}`)
+    } catch (err) {
+      // Drop the "EXPLAIN " we added from the excerpt, and move its ^ marker back to match.
+      return cleanError((err as Error).message).replace(/(LINE 1: )EXPLAIN (.*)\n( *)\^/, (_, a: string, b: string, pad: string) => `${a}${b}\n${pad.slice(8)}^`)
+    }
+  }
+  return cleanError(message)
+}
+
 /** One SELECT (or WITH … SELECT) statement, trailing semicolon trimmed; anything else is rejected with a reason. */
 export function checkSelect(sql: string): string {
   let s = sql.trim()
@@ -349,7 +373,7 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>, opts: { cellBu
         )
         break
       } catch (err) {
-        const message = (err as Error).message
+        const message = await ownError(e, query, paged || loaded.has('spatial'), (err as Error).message)
         const ext = missingExtension(message)
         if (ext && !loaded.has(ext) && attempt < 3) {
           await ensure(e, ext)
@@ -361,7 +385,7 @@ export function createSqlRunner(engine: () => Promise<SqlEngine>, opts: { cellBu
           const have = inputs.map((i) => (i.label ? `${i.alias} (${i.label})` : i.alias)).join(', ')
           throw new Error(`No table ${missing[1]}. Tables you can use: ${have}.`)
         }
-        throw err
+        throw new Error(message)
       }
     }
     const fields = paged ? res.fields.filter((f) => f.name !== '__total') : res.fields

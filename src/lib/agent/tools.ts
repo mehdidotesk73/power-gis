@@ -20,7 +20,7 @@ import { addDataset, addTransform, addVisualization, newOutput, type OpContext, 
 import { transformState } from '../workspace/dag'
 import { snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
-import { agentColor, agentTransform, agentVisualization, applyWorkspaceEdits, canonical, renderWorkspace, workspaceTextBlock, type TextEdit } from './workspaceText'
+import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, workspaceFiles, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
 
 /** What the tools act through: the page's workspace copy and the server. */
@@ -54,32 +54,11 @@ export const QUERY_LIMIT = 50
 
 // ── tool definitions ───────────────────────────────────────────────────────
 
-const colorSchema = {
-  type: 'object',
-  description:
-    'How features are colored by their value. colormap: a color ramp for numbers; categorical: one color per value (text); constant: one color. Leave out to keep the current color (or the default for the value type).',
-  properties: {
-    kind: { type: 'string', enum: ['colormap', 'categorical', 'constant'] },
-    colormap: { type: 'string', enum: Object.keys(COLORMAPS) },
-    reverse: { type: 'boolean' },
-    scale: { type: 'string', enum: ['linear', 'log'] },
-    palette: { type: 'string', enum: PALETTES },
-    color: { type: 'string', description: 'For constant: a hex color like #3b82f6' },
-    domain: {
-      type: 'array',
-      items: { type: 'number' },
-      description:
-        'For colormap: a fixed [min, max] the ramp spans; values beyond take the end colors. Use it to clip outliers (e.g. the 2nd–98th percentile) or to center a diverging map on its midpoint (e.g. [-m, m] around 0). Leave out to span the data.',
-    },
-  },
-  required: ['kind'],
-}
-
 export const TOOLS: ToolSpec[] = [
   {
     name: 'get_workspace',
     description:
-      "The user's workspace — where to start. Its datasets (id, name, description, store local / cloud, origin, row count; no columns: query the ones that look relevant), its transforms (id, inputs, outputs with SQL, state: ready / not-run / stale) and visualizations (id, dataset, geometry column, value column, aggregation, color), plus a version stamp that edit_workspace needs. The workspace part is JSON text in which each output's SQL is a token ${sql:<transform id>.<output key>}, with the SQL blocks listed after it as plain SQL: edit_workspace edits exactly this text. Call it first, and again after the user changes things.",
+      "Where to start, and how to see the user's changes: (re)builds the workspace files you edit with the text editor (discarding edits you haven't applied) and returns /overview.md — every dataset, transform and visualization with its id, one line each. The files: /workspace.json (name, datasetIds, transform ids, visualization ids in draw order), /transforms/<id>.json (name, inputs, outputs), /transforms/<id>.<output key>.sql (that output's SQL, plain), /visualizations/<id>.json. View only the files you need.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -108,48 +87,49 @@ export const TOOLS: ToolSpec[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        sql: { type: 'string' },
+        sql: { type: 'string', description: 'The SELECT to run. Or give sqlFile instead.' },
+        sqlFile: { type: 'string', description: 'Run the SQL in this workspace file (e.g. /transforms/<id>.<key>.sql), edits not yet applied included.' },
         inputs: {
           type: 'array',
           items: { type: 'object', properties: { datasetId: { type: 'string' }, alias: { type: 'string' } }, required: ['datasetId', 'alias'] },
         },
         limit: { type: 'integer', description: `Rows to return, at most ${QUERY_LIMIT} (default 20).` },
       },
-      required: ['sql', 'inputs'],
+      required: ['inputs'],
     },
   },
   {
-    name: 'edit_workspace',
-    description: [
-      "Change the workspace (the user's unsaved draft: they Save or Discard it) by exact text replacements on what get_workspace shows. Each edit replaces `old` — text copied exactly, spaces and line breaks included, that occurs once — with `new`. Edits apply in order, then the result is checked as a whole: nothing changes if anything is wrong, and every problem is listed.",
-      'JSON edits (no `sql`): change the JSON text — a name, a color, a column, datasetIds, a whole transform or visualization; remove an item by replacing it (and its comma) with nothing; add one by inserting it into its list. A new item has no id; a new output has no key or outputId (it writes a new dataset on its first run). Items whose text you leave alone stay exactly as they are.',
-      'SQL: never write SQL inside the JSON. Put each new SQL in `values` as plain text and write `"sql": ${name}` in the JSON (no quotes around the token); the tool inserts it. To change part of an existing SQL, give `sql` (the block name, "<transform id>.<output key>") with `old` / `new` inside that SQL. To replace a whole SQL, swap its ${sql:…} token for ${yourValue}.',
-      `Test SQL with query_sql first. Set dryRun to see what would change (and any problems) without changing anything. A new or changed transform does nothing until run_transform. Visualizations draw one value column of a dataset on its features (a geometry column); rows on one feature are combined by the aggregation; list order is draw order (first on top). Visualization fields: name, datasetId, geometry, label (optional), column (or "${ROWS}"), aggregation (${AGG_NAMES.join(', ')}; optional), visible, color, opacity (0–1). Refused if the workspace changed since \`version\`, or if a transform would write a cloud dataset.`,
-    ].join('\n\n'),
+    name: EDITOR_TOOL,
+    builtin: 'text_editor',
+    description:
+      'View and edit the workspace files (get_workspace builds them). Commands: view (a file, or / for the list), create (write a whole file), str_replace (replace text that occurs exactly once), insert (after a line). Edits change only the files; apply_workspace makes them the workspace.',
     inputSchema: {
       type: 'object',
       properties: {
-        version: { type: 'string', description: 'The version from the latest get_workspace / edit_workspace.' },
-        edits: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              old: { type: 'string', description: 'Exact text to replace (occurs once).' },
-              new: { type: 'string', description: 'Replacement text; may contain ${value} and ${sql:…} tokens.' },
-              sql: { type: 'string', description: 'Optional: edit inside this SQL block ("<transform id>.<output key>") instead of the JSON.' },
-            },
-            required: ['old', 'new'],
-          },
-        },
-        values: {
-          type: 'object',
-          additionalProperties: { type: 'string' },
-          description: 'Plain-text values (SQL) that `new` names as ${name}; each goes in as a JSON string.',
-        },
-        dryRun: { type: 'boolean', description: 'Check and describe the change without applying it.' },
+        command: { type: 'string', enum: ['view', 'create', 'str_replace', 'insert'] },
+        path: { type: 'string', description: 'e.g. /workspace.json, /transforms/<id>.json' },
+        file_text: { type: 'string', description: 'create: the whole file.' },
+        old_str: { type: 'string', description: 'str_replace: exact text that occurs once.' },
+        new_str: { type: 'string', description: 'str_replace: the replacement.' },
+        insert_line: { type: 'integer', description: 'insert: the line to insert after (0 = the start).' },
+        insert_text: { type: 'string', description: 'insert: the text.' },
+        view_range: { type: 'array', items: { type: 'integer' }, description: 'view: [first line, last line] (-1 = the end).' },
       },
-      required: ['version', 'edits'],
+      required: ['command', 'path'],
+    },
+  },
+  {
+    name: 'apply_workspace',
+    description: [
+      "Make your edits to the workspace files the workspace (the user's unsaved draft: they Save or Discard it). Everything is checked together; nothing changes if anything is wrong, and every problem is listed with its file.",
+      'How the files work: an item exists when its id is listed in /workspace.json (transforms; visualizations, whose order is draw order, first on top); its file is /transforms/<id>.json or /visualizations/<id>.json, and the file name is the id. To add an item, create its file under a short name you choose (e.g. by_state) and add that name to the list; it gets a real id when applied (the reply says which). To remove one, take its id out of the list. Datasets join the workspace through "datasetIds".',
+      'Transforms: {"name", "inputs": [{"datasetId", "alias"}], "outputs": [{"key", "name", "outputId"?}]}; each output\'s SQL is the plain file /transforms/<id>.<key>.sql (never SQL inside JSON). Leave outputId out for a new output: it writes a new dataset on its first run. A new or changed transform does nothing until run_transform.',
+      `Visualizations: {"name", "datasetId", "geometry" (a point / polyline / region column), "label"? (a column naming each feature), "column" (or "${ROWS}"), "aggregation"? (${AGG_NAMES.join(', ')}), "visible"?, "color"?, "opacity"? (0–1)}; color: {"kind": "colormap", "colormap", "reverse"?, "scale"? ("linear" / "log"), "domain"? ([min, max])} | {"kind": "categorical", "palette"?} | {"kind": "constant", "color": "#rrggbb"}. Items you didn't edit stay exactly as they are.`,
+      'dryRun: check and describe the change without applying it. Refused if the user changed the workspace since get_workspace, or if a transform would write a cloud dataset.',
+    ].join('\n\n'),
+    inputSchema: {
+      type: 'object',
+      properties: { dryRun: { type: 'boolean', description: 'Check and describe the change without applying it.' } },
     },
   },
   {
@@ -241,29 +221,69 @@ async function listDatasets(host: AgentHost): Promise<ToolOutcome> {
   return ok(data, `${plural(data.length, 'dataset')} (${data.filter((d) => d.store === 'local').length} local)`)
 }
 
-async function getWorkspace(host: AgentHost): Promise<ToolOutcome> {
+// ── the workspace files ────────────────────────────────────────────────────
+
+/**
+ * The files the agent edits, per chat host: built from the draft at
+ * get_workspace (and whenever they hold no pending edits and the draft
+ * moved on); `base` is the draft version they were built from.
+ */
+interface Staging {
+  files: Files
+  base: string
+  dirty: boolean
+}
+const staging = new WeakMap<AgentHost, Staging>()
+
+/** The host's files, rebuilt from the draft when nothing is pending and the draft changed. */
+function staged(host: AgentHost, fresh = false): Staging {
+  const version = workspaceVersion(host.doc())
+  const s = staging.get(host)
+  if (s && !fresh && (s.dirty || s.base === version)) return s
+  const next = { files: workspaceFiles(host.doc()), base: version, dirty: false }
+  staging.set(host, next)
+  return next
+}
+
+/** A refusal while edits are pending: tools that change the draft would act on the old version. */
+function pendingEdits(host: AgentHost): ToolOutcome | null {
+  return staging.get(host)?.dirty ? err('You have edits to the workspace files that are not applied. Call apply_workspace first (or get_workspace to discard them).', 'refused: edits not applied') : null
+}
+
+async function renderOverview(host: AgentHost, s: Staging): Promise<string> {
   const doc = host.doc()
-  // Transform states need their outputs' records too, which may sit outside the workspace.
+  // States need the outputs' records too, which may sit outside the workspace.
   const byId = new Map((await host.listDatasets()).map((d) => [d.id, d]))
-  const datasets = doc.datasetIds.map((id) => {
-    const d = byId.get(id)
-    if (!d) return { id, name: '(missing)' }
-    return { id, name: d.name, ...(d.description ? { description: d.description } : {}), store: storeLabel(d), origin: d.origin, rows: d.rowCount }
+  return overviewText(s.files, doc, {
+    version: s.base,
+    pending: s.dirty,
+    datasets: [...byId.values()].map((d) => ({ id: d.id, name: d.name, store: storeLabel(d), rows: d.rowCount, origin: d.origin, ...(d.description ? { description: d.description } : {}) })),
+    state: (id) => {
+      const t = doc.transforms.find((x) => x.id === id)
+      return t ? transformState(t, (x) => byId.get(x)) : undefined
+    },
   })
-  const states = doc.transforms.map((t) => `${JSON.stringify(t.name)}: ${transformState(t, (id) => byId.get(id))}`)
-  // Plain text, not JSON: the SQL blocks read as written, with nothing escaped.
-  const text = [
-    `version: ${workspaceVersion(doc)}`,
-    '',
-    `Datasets in the workspace (${datasets.length}; add or remove them in "datasetIds"):`,
-    ...(datasets.length ? datasets.map((d) => JSON.stringify(d)) : ['(none)']),
-    '',
-    `Transform states: ${states.length ? states.join(' · ') : '(no transforms)'}`,
-    '',
-    'Workspace (edit_workspace edits this text; each ${sql:…} token stands for the SQL block of that name below):',
-    workspaceTextBlock(renderWorkspace(doc)),
-  ].join('\n')
-  return { content: text, isError: false, summary: `${plural(datasets.length, 'dataset')} · ${plural(doc.transforms.length, 'transform')} · ${plural(doc.visualizations.length, 'visualization')}` }
+}
+
+async function getWorkspace(host: AgentHost): Promise<ToolOutcome> {
+  const discarded = staging.get(host)?.dirty
+  const s = staged(host, true)
+  const doc = host.doc()
+  const text = `${discarded ? '(Your edits that were not applied have been discarded.)\n\n' : ''}${await renderOverview(host, s)}`
+  return { content: text, isError: false, summary: `${plural(doc.datasetIds.length, 'dataset')} · ${plural(doc.transforms.length, 'transform')} · ${plural(doc.visualizations.length, 'visualization')}` }
+}
+
+async function editor(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  const s = staged(host)
+  let overview = ''
+  // overview.md is rendered from the files as they are (async: it reads dataset records).
+  if (input.command === 'view' && String(input.path ?? '').replace(/^\/+/, '') === OVERVIEW) overview = await renderOverview(host, s)
+  const r = runEditor(s.files, input, () => overview)
+  if (!r.ok) return err(r.error, `${input.command ?? 'edit'}: refused`)
+  if (r.changed) s.dirty = true
+  const path = String(input.path ?? '/')
+  const summary = input.command === 'view' ? `viewed ${path}` : `${input.command === 'create' ? 'wrote' : 'edited'} ${path}`
+  return { content: r.text, isError: false, summary }
 }
 
 // ── query_sql ──────────────────────────────────────────────────────────────
@@ -277,7 +297,13 @@ function readInputs(v: unknown): TransformInputRef[] {
 }
 
 async function querySql(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  need(str(input.sql) && input.sql.trim(), '`sql` must be a SELECT')
+  if (input.sql === undefined && str(input.sqlFile)) {
+    const path = input.sqlFile.replace(/^\/+/, '')
+    const text = staged(host).files.get(path)
+    need(text !== undefined && path.endsWith('.sql'), `No SQL file ${input.sqlFile} in the workspace files (view / to list them)`)
+    input = { ...input, sql: text }
+  }
+  need(str(input.sql) && input.sql.trim(), 'Give `sql` (a SELECT) or `sqlFile`')
   const inputs = readInputs(input.inputs)
   for (const i of inputs) need(await host.dataset(i.datasetId), `No dataset "${i.datasetId}"`)
   const limit = Math.max(1, Math.min(QUERY_LIMIT, Number.isInteger(input.limit) ? (input.limit as number) : 20))
@@ -288,7 +314,7 @@ async function querySql(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   return ok({ rowCount: r.data.rowCount, columns: columnsOf(r.data.columns), rows }, `${plural(r.data.rowCount, 'row')}`)
 }
 
-// ── edit_workspace ───────────────────────────────────────────────────────
+// ── the workspace files: editor + apply_workspace ───────────────────────────────────────────────────────
 
 function readColor(v: unknown, kind: VisualizationSpec['kind'], where: string): ColorEncoding | undefined {
   if (v === undefined) return undefined
@@ -323,7 +349,7 @@ function readColor(v: unknown, kind: VisualizationSpec['kind'], where: string): 
 }
 
 /**
- * The workspace a full description (the JSON edit_workspace produced) makes,
+ * The workspace a full description (the assembled workspace files) makes,
  * with every problem listed. Items given as just {id} are kept as they are.
  */
 async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): Promise<{ doc: WorkspaceDoc; errors: string[] }> {
@@ -467,29 +493,21 @@ function describeChanges(a: WorkspaceDoc, b: WorkspaceDoc): string[] {
   return out
 }
 
-async function editWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  const cur = host.doc()
-  need(str(input.version), '`version` is required (from get_workspace)')
-  if (input.version !== workspaceVersion(cur)) return err('The workspace changed since you read it (the user may have edited it). Call get_workspace and try again.', 'workspace changed: re-read')
-  need(Array.isArray(input.edits) && input.edits.length, '`edits` must be a list of {old, new} (and optional sql)')
-  const edits = (input.edits as unknown[]).map((e, i): TextEdit => {
-    need(isObj(e) && str(e.old) && str(e.new), `edits[${i}] needs old and new (text)`)
-    need(optStr(e.sql), `edits[${i}].sql must be a SQL block name`)
-    return { old: e.old, new: e.new, ...(e.sql ? { sql: e.sql as string } : {}) }
-  })
-  need(input.values === undefined || isObj(input.values), '`values` must be an object of {name: text}')
+async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(input.dryRun === undefined || typeof input.dryRun === 'boolean', '`dryRun` must be true or false')
-  const refused = (errors: string[]) => err(`Nothing was changed. Fix these and try again:\n- ${errors.join('\n- ')}`, `refused: ${plural(errors.length, 'problem')}`)
-
-  const edited = applyWorkspaceEdits(renderWorkspace(cur), edits, (input.values as Obj | undefined) ?? {})
-  if (!edited.ok) return refused(edited.errors)
-  const value = edited.value
-  if (!isObj(value)) return refused(['After the edits the workspace is not a JSON object'])
-  const lists = ['datasetIds', 'transforms', 'visualizations'].filter((k) => !Array.isArray(value[k]))
-  if (lists.length) return refused(lists.map((k) => `"${k}" must stay a list (it can be empty)`))
+  const cur = host.doc()
+  const s = staging.get(host)
+  if (!s || !s.dirty) return err('There are no edits to apply: edit the workspace files first (get_workspace, then the text editor).', 'nothing to apply')
+  if (s.base !== workspaceVersion(cur)) {
+    return err('The workspace changed since get_workspace (the user edited it), so your edits were made on an old version. Call get_workspace (it discards them), look again, and redo the edits.', 'workspace changed: re-read')
+  }
+  const refused = (errors: string[]) => err(`Nothing was changed. Fix these in the files and apply again:\n- ${errors.join('\n- ')}`, `refused: ${plural(errors.length, 'problem')}`)
+  const assembled = assembleFiles(s.files, cur, newId)
+  if (!assembled.ok) return refused(assembled.errors)
+  const { input: description, created, unused } = assembled.value
   let built: { doc: WorkspaceDoc; errors: string[] }
   try {
-    built = await buildWorkspace(host, cur, keepUnchanged(value, cur))
+    built = await buildWorkspace(host, cur, keepUnchanged(description, cur))
   } catch (e) {
     if (!(e instanceof Invalid)) throw e
     return refused([e.message])
@@ -498,10 +516,20 @@ async function editWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome> 
   const { doc } = built
   const changes = describeChanges(cur, doc)
   const notRun = doc.transforms.filter((t) => t.outputs.some((o) => !o.outputId)).map((t) => t.name)
+  const added = created.map((c) => ({ kind: c.kind, id: c.id, from: c.file, name: (c.kind === 'transform' ? doc.transforms : doc.visualizations).find((x) => x.id === c.id)?.name }))
+  const result = {
+    ...(changes.length ? {} : { note: 'The files describe the workspace as it already is: nothing changes.' }),
+    [input.dryRun ? 'wouldChange' : 'changed']: changes,
+    ...(added.length ? { [input.dryRun ? 'wouldAdd' : 'added']: input.dryRun ? added.map(({ id: _id, ...a }) => a) : added } : {}),
+    ...(notRun.length ? { notRunYet: notRun } : {}),
+    ...(unused.length ? { unusedFiles: `${unused.map((p) => `/${p}`).join(', ')} — not listed or not used by any output; dropped` } : {}),
+  }
   const summary = changes.length ? `${changes[0]}${changes.length > 1 ? ` (+${changes.length - 1} more)` : ''}` : 'no change'
-  if (input.dryRun) return ok({ dryRun: true, wouldChange: changes, ...(notRun.length ? { notRunYet: notRun } : {}) }, `dry run · ${summary}`)
+  if (input.dryRun) return ok({ dryRun: true, ...result }, `dry run · ${summary}`)
   host.setDoc(doc)
-  return ok({ version: workspaceVersion(doc), changed: changes, ...(notRun.length ? { notRunYet: notRun } : {}) }, summary)
+  // The files start again from the new draft: new items under their ids.
+  staged(host, true)
+  return ok({ ...result, ...(added.length ? { files: 'Rebuilt: new items now have files named by their ids.' } : {}) }, summary)
 }
 
 // ── visualization_stats ────────────────────────────────────────────────────
@@ -569,14 +597,16 @@ async function visualizationStats(host: AgentHost, input: Obj): Promise<ToolOutc
 async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(str(input.id), '`id` is required')
   const t = host.doc().transforms.find((x) => x.id === input.id)
-  need(t, `No transform "${input.id}" in the workspace (get_workspace lists them)`)
+  need(t, `No transform "${input.id}" in the workspace (get_workspace lists them; never guess an id)`)
+  const pending = pendingEdits(host)
+  if (pending) return pending
   for (const o of t.outputs) {
     const out = o.outputId ? await host.dataset(o.outputId) : undefined
     if (out && storeOf(out) === 'remote') return err(`Output "${o.name}" writes "${out.name}", a cloud dataset — agents change only local datasets.`, 'refused: cloud output')
   }
   const r = await host.runTransform(t.id)
   if (!r.ok) return err(r.message, 'SQL error')
-  return ok({ outputs: r.outputs, version: workspaceVersion(host.doc()) }, r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · '))
+  return ok({ outputs: r.outputs }, r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · '))
 }
 
 async function updateDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> {
@@ -598,11 +628,13 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
   const d = await host.dataset(input.id)
   need(d, `No dataset "${input.id}"`)
   if (storeOf(d) === 'remote') return err(`"${d.name}" is in cloud storage — only the user can delete it.`, 'refused: cloud dataset')
+  const pending = pendingEdits(host)
+  if (pending) return pending
   const reader = host.doc().transforms.find((t) => t.inputs.some((i) => i.datasetId === d.id))
   if (reader) return err(`Transform "${reader.name}" reads "${d.name}"; change or remove that transform first.`, 'refused: still used')
   const r = await host.deleteDataset(d.id)
   if (!r.ok) return err(r.message)
-  return ok({ deleted: d.id, version: workspaceVersion(host.doc()) }, `deleted ${d.name}`)
+  return ok({ deleted: d.id }, `deleted ${d.name}`)
 }
 
 // ── ask_user ───────────────────────────────────────────────────────────────
@@ -629,8 +661,10 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await askUser(host, input)
       case 'query_sql':
         return await querySql(host, input)
-      case 'edit_workspace':
-        return await editWorkspace(host, input)
+      case EDITOR_TOOL:
+        return await editor(host, input)
+      case 'apply_workspace':
+        return await applyWorkspace(host, input)
       case 'visualization_stats':
         return await visualizationStats(host, input)
       case 'run_transform':

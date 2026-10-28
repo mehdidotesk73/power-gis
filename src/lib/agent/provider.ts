@@ -8,6 +8,12 @@ export interface ToolSpec {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /**
+   * A tool the provider defines and the model is trained on: `text_editor` is Anthropic's text
+   * editor (view / create / str_replace / insert). We still run it; other providers get it as an
+   * ordinary tool with `inputSchema`.
+   */
+  builtin?: 'text_editor'
 }
 
 export interface ToolCall {

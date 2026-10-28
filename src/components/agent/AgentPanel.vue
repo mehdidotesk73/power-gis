@@ -13,6 +13,7 @@ import { claudeProvider, CLAUDE_MODEL, CLAUDE_MODELS, describeError } from '../.
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
 import { runTool, TOOLS, type AgentHost, type UserAnswer } from '../../lib/agent/tools'
+import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
 import { MAX_IMAGES, pastedImages, prepareImage, type Attached } from './images'
 import { addUsage, emptyUsage, type ChatSession, type ToolCall } from '../../lib/agent/provider'
 
@@ -127,11 +128,21 @@ const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
   get_workspace: 'Read the workspace',
   query_sql: 'Query',
-  edit_workspace: 'Edit the workspace',
+  apply_workspace: 'Apply the edits',
   visualization_stats: 'Check the values drawn',
   run_transform: 'Run a transform',
   update_dataset: 'Rename / describe a dataset',
   delete_dataset: 'Delete a dataset',
+}
+
+/** A step's title: the tool, or for the file editor what it did to which file ("Edit /transforms/….sql"). */
+function toolLabel(call: ToolCall): string {
+  if (call.name === EDITOR_TOOL) {
+    const i = (call.input ?? {}) as { command?: string; path?: string }
+    const verb = { view: 'View', create: 'Write', str_replace: 'Edit', insert: 'Edit' }[i.command ?? ''] ?? 'File'
+    return `${verb} ${i.path ?? ''}`.trim()
+  }
+  return TOOL_LABEL[call.name] ?? call.name
 }
 
 async function scrollDown() {
@@ -331,7 +342,7 @@ const usageText = computed(() => {
         <div v-else-if="it.kind === 'tool'" class="tool" :class="it.state">
           <button class="tool-line" :aria-expanded="it.open" @click="it.open = !it.open">
             <span class="dot" aria-hidden="true">{{ it.state === 'running' ? '…' : it.state === 'ok' ? '✓' : '⚠' }}</span>
-            <span class="name">{{ TOOL_LABEL[it.call.name] ?? it.call.name }}</span>
+            <span class="name">{{ toolLabel(it.call) }}</span>
             <span class="sum">{{ it.summary }}</span>
           </button>
           <div v-if="it.open" class="detail">
