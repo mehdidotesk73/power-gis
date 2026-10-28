@@ -12,6 +12,7 @@ import type { VisualizationSettings } from '../lib/dataset/visualization'
 import type { DatasetStore, TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
+import type { WorkspaceFile } from '../lib/workspace/file'
 
 export interface ApiError {
   code: 'not_found' | 'invalid' | 'failed' | 'unsupported'
@@ -65,6 +66,15 @@ export interface Api {
   runTransform: [{ transform: TransformInput }, { outputs: { key: string; datasetId: string; rowCount: number; created: boolean }[]; requires: string[] }]
   /** Loads SQL engine extensions ahead of need (a workspace's transforms use them); answers what's loaded and from where. */
   loadSqlExtensions: [{ names: string[] }, { loaded: { name: string; from: string }[] }]
+  /** A page of a dataset's rows (first rows by default), with its columns and the full count. */
+  datasetRows: [{ datasetId: string; limit?: number; offset?: number }, { columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }]
+  /** A visualization's features (one per feature, its value) as a file to download. */
+  exportVisualization: [
+    { visualization: { id: string; name: string; datasetId: string; binding: GeometryBinding; column: string; aggregation: Aggregation }; format: 'geojson' | 'agol' | 'esri' | 'csv' },
+    { fileName: string; mimeType: string; text: string },
+  ]
+  /** The default map as a workspace file with real dataset ids (built-ins uploaded or reused, transforms run or reused). */
+  seedDefaultWorkspace: [Record<string, never>, { file: WorkspaceFile }]
   /** A dataset's profile (computed and stored if the record has none yet). */
   profileDataset: [{ datasetId: string }, DatasetProfile]
   /** Every searchable value of a visualization's features: their names and the text in their rows. */

@@ -5,17 +5,19 @@
 // never as throws.
 
 import type { ApiError, ApiResult, Caller, Payload, RequestType, Response, UploadSource } from '../shared/api'
-import { builtinTable } from '../shared/builtins'
+import { builtinTable, BUILTIN_TABLES } from '../shared/builtins'
 import type { Database } from '../shared/database'
 import { dataTableName, storeOf, type DatasetRecord, type TransformInputRef, type TransformRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
 import { featureTable, type DataRecord } from '../lib/data/connectors'
 import { parseCsv } from '../lib/data/csv'
-import { fetchArcGISLayer, importJSON } from '../lib/arcgis'
+import { fetchArcGISLayer, importJSON, toCSV, toEsriFeatureSet, toGeoJSON } from '../lib/arcgis'
 import { isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { inferColumns, isGeometryColumn, type ColumnInfo } from '../lib/dataset/columns'
 import { newId } from '../lib/dataset/dataset'
 import { bindingInfo, findIndex, groupDataset, queryValues, type FindIndex, type Grouped } from '../lib/dataset/query'
 import { profileRows } from '../lib/dataset/profile'
+import { visualizationLayer } from '../lib/dataset/visualization'
+import { BUILTIN_REF, OUTPUT_REF, parseWorkspaceFile, replacePointers, templateBuiltins } from '../lib/workspace/file'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
 export interface ServerEnv {
@@ -24,6 +26,8 @@ export interface ServerEnv {
   fetchImpl?: typeof fetch
   /** Opens the SQL engine (DuckDB) on first use. Without one, transforms are unsupported. */
   sql?: () => Promise<SqlEngine>
+  /** The default workspace file's text (public/data/default.powergis.json). */
+  readDefaultWorkspace?(baseUrl: string): Promise<string>
 }
 
 class Failure extends Error {
@@ -270,6 +274,70 @@ export function createServer(db: Database, env: ServerEnv) {
         await db.put('transforms', { ...rest, outputs, ...(requires.length ? { requires } : {}), updatedAt: t })
       }
       return { outputs: written, requires }
+    },
+
+    async datasetRows({ datasetId, limit, offset = 0 }) {
+      const ds = await dataset(datasetId)
+      const rows = (await db.readRows(ds.table)) ?? fail('not_found', `Dataset "${ds.name}" has no data table`)
+      const n = Math.max(0, Math.min(limit ?? 20, 1000))
+      return { columns: ds.columns, rows: rows.slice(offset, offset + n), rowCount: rows.length }
+    },
+
+    async exportVisualization({ visualization: v, format }) {
+      const ds = await dataset(v.datasetId)
+      const { g, columns } = await grouped(v.datasetId, v.binding)
+      if (v.column !== '__rows' && !columns.some((c) => c.name === v.column)) fail('invalid', `Dataset has no column "${v.column}"`)
+      const layer = visualizationLayer(queryValues(g, columns, v.column, v.aggregation), v, ds.name)
+      const base = layer.id
+      switch (format) {
+        case 'geojson':
+          return { fileName: `${base}.geojson`, mimeType: 'application/geo+json', text: JSON.stringify(toGeoJSON(layer)) }
+        case 'agol':
+          return { fileName: `${base}-arcgis.geojson`, mimeType: 'application/geo+json', text: JSON.stringify(toGeoJSON(layer, true)) }
+        case 'esri':
+          return { fileName: `${base}.esri.json`, mimeType: 'application/json', text: JSON.stringify(toEsriFeatureSet(layer)) }
+        case 'csv':
+          return { fileName: `${base}.csv`, mimeType: 'text/csv', text: toCSV(layer) }
+      }
+      return fail('invalid', `Unknown export format "${String(format)}"`)
+    },
+
+    /**
+     * The default map, ready to open: its built-in datasets uploaded (or this device's current
+     * copies reused), its transforms run in order (or an earlier output of the same SQL over the
+     * same inputs reused), and the file's placeholders swapped for those datasets' ids.
+     */
+    async seedDefaultWorkspace() {
+      if (!env.readDefaultWorkspace) return fail('unsupported', 'No default workspace here')
+      const parsed = parseWorkspaceFile(await env.readDefaultWorkspace(baseUrl))
+      if (!parsed.ok) return fail('failed', `default workspace: ${parsed.error}`)
+      const existing = await db.list('datasets')
+      const ids = new Map<string, string>()
+      for (const table of templateBuiltins(parsed.file)) {
+        const version = BUILTIN_TABLES.find((b) => b.table === table)?.version
+        const have = existing.find((d) => d.extensions?.builtin === table && d.extensions?.version === version)
+        ids.set(BUILTIN_REF + table, have?.id ?? (await handlers.uploadDataset({ source: { kind: 'builtin', table } }, 'user')).datasetId)
+      }
+      let file = replacePointers(parsed.file, (p) => ids.get(p))
+      for (const [i, t] of (file.transforms ?? []).entries()) {
+        // Each output's dataset is reused when an earlier run made it from the same SQL and inputs.
+        const made = t.outputs.map((o) => JSON.stringify({ sql: o.sql, inputs: t.inputs }))
+        const found = made.map((m) => existing.find((d) => d.extensions?.madeBy === m)?.id)
+        if (found.some((id) => !id)) {
+          const outputs = t.outputs.map((o, j) => ({ ...o, outputId: found[j] }))
+          const r = await handlers.runTransform({ transform: { ...t, id: `seed-${i}`, outputs } }, 'user')
+          for (const [j, o] of t.outputs.entries()) {
+            found[j] = r.outputs.find((w) => w.key === o.key)!.datasetId
+            await handlers.updateDataset({ id: found[j]!, extensions: { madeBy: made[j] } }, 'user')
+          }
+        }
+        found.forEach((id, j) => {
+          ids.set(`${OUTPUT_REF}${i}.${j}`, id!)
+          if (j === 0) ids.set(OUTPUT_REF + i, id!)
+        })
+        file = replacePointers(file, (p) => ids.get(p))
+      }
+      return { file }
     },
 
     async profileDataset({ datasetId }) {

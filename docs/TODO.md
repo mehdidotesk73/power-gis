@@ -82,6 +82,13 @@ Track feature development, improvements, and known issues here. Move completed w
   wrote it make a new dataset next Run). Workspace panel: **Copy workspace** (the file's JSON to the
   clipboard) and **Paste workspace…** (a box filled from the clipboard; Clear / Load). Agent tool
   design and workflow written up in `docs/agents.md`.
+- **Client / server audit (E)** — the three server-shaped jobs left in the client moved behind
+  requests: seeding the default map (`seedDefaultWorkspace`), reading rows for a preview
+  (`datasetRows`; the client's `readDb` is now a `RecordReader` with no `readRows`), and building
+  exports (`exportVisualization`; `lib/arcgis` is server-only). `src/client/boundary.test.ts` keeps it
+  that way. Reviewed and left client-side by design: the workspace draft and its ops, the agent loop
+  (user's key), rendering / styling / legends, search and layout over loaded lists, stats over drawn
+  values, record reads, device preferences.
 - **Agent edits the workspace as files** — the agent edits a staged copy of the workspace, one small
   file per item (`workspace.json` index, `transforms/<id>.json` + `<id>.<key>.sql`,
   `visualizations/<id>.json`, generated `overview.md`), with Anthropic's text editor tool, then
@@ -190,7 +197,7 @@ results, because the agent workflow (step 5) drives the same operations as the U
 
 ### Codebase audits (agreed 2026-10-27; schedule before tabs / a real backend)
 
-1. **Client / server separation.** Goal: moving the server to a real backend (Supabase / HTTP) is a
+1. ~~**Client / server separation.**~~ (done, see Done) Goal: moving the server to a real backend (Supabase / HTTP) is a
    transport swap. Everything backend-shaped — reading sources (fetching files, ArcGIS, CSV parsing),
    writes, grouping / aggregation, SQL, indexing, profiles — lives in `src/server/` (or pure `lib/`
    used *only* by it); components only `request(…)` or `readDb` and render.

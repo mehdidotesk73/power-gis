@@ -19,6 +19,11 @@ async function topo(url: string) {
 const server = createServer(new IndexedDbDatabase(), {
   // DuckDB (and its ~34 MB of wasm) loads only when a transform first runs.
   sql: () => import('./duckdb').then((m) => m.openDuckDb({ extensionRepository: new URL(`${import.meta.env.BASE_URL}duckdb-ext`, self.location.origin).href })),
+  async readDefaultWorkspace(baseUrl) {
+    const r = await fetch(`${baseUrl}data/default.powergis.json`)
+    if (!r.ok) throw new Error(`default workspace: HTTP ${r.status}`)
+    return r.text()
+  },
   async readBuiltin(table, baseUrl) {
     if (table === 'demo_vectors') return demoVectorRows()
     if (table === 'us_counties') return countyRows(await topo(countiesUrl))

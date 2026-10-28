@@ -5,9 +5,13 @@
 import type { DataRecord } from '../lib/data/connectors'
 import type { TableName, Tables } from './records'
 
-export interface ReadDatabase {
+/** The records (registry): what the client may read directly. Rows are the server's (requests). */
+export interface RecordReader {
   get<T extends TableName>(table: T, id: string): Promise<Tables[T] | undefined>
   list<T extends TableName>(table: T): Promise<Tables[T][]>
+}
+
+export interface ReadDatabase extends RecordReader {
   /** A data table's rows, or undefined if there's no such table. */
   readRows(table: string): Promise<DataRecord[] | undefined>
 }

@@ -1,11 +1,15 @@
 <script setup lang="ts">
 // Export for ArcGIS round trips: GeoJSON, GeoJSON flattened for ArcGIS
-// Online, Esri JSON FeatureSet, attribute CSV (join on the id field).
-// (Importing is done by adding a data layer — see data/AddLayerPanel.vue.)
-import { toCSV, toEsriFeatureSet, toGeoJSON } from '../../lib/arcgis'
-import type { LayerData } from '../../lib/schema'
+// Online, Esri JSON FeatureSet, attribute CSV (join on the id field). The
+// server builds the file (exportVisualization); this only downloads it.
+// (Importing is done by adding a dataset.)
+import { ref } from 'vue'
+import { request } from '../../client/api'
+import type { VisualizationSpec } from '../../lib/dataset/visualization'
 
-const props = defineProps<{ layer: LayerData | null }>()
+const props = defineProps<{ visualization: VisualizationSpec | null }>()
+const busy = ref(false)
+const error = ref('')
 
 function download(name: string, text: string, type: string) {
   const blob = new Blob([text], { type })
@@ -18,32 +22,39 @@ function download(name: string, text: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }
 
-function exportAs(kind: 'geojson' | 'agol' | 'esri' | 'csv') {
-  const l = props.layer
-  if (!l) return
-  if (kind === 'geojson') download(`${l.id}.geojson`, JSON.stringify(toGeoJSON(l)), 'application/geo+json')
-  else if (kind === 'agol') download(`${l.id}-arcgis.geojson`, JSON.stringify(toGeoJSON(l, true)), 'application/geo+json')
-  else if (kind === 'esri') download(`${l.id}.esri.json`, JSON.stringify(toEsriFeatureSet(l)), 'application/json')
-  else download(`${l.id}.csv`, toCSV(l), 'text/csv')
+async function exportAs(format: 'geojson' | 'agol' | 'esri' | 'csv') {
+  const v = props.visualization
+  if (!v || busy.value) return
+  busy.value = true
+  error.value = ''
+  const { id, name, datasetId, binding, column, aggregation } = v
+  const r = await request('exportVisualization', { visualization: { id, name, datasetId, binding, column, aggregation }, format })
+  busy.value = false
+  if (r.ok) download(r.data.fileName, r.data.text, r.data.mimeType)
+  else error.value = r.error.message
 }
-
 </script>
 
 <template>
   <div class="io">
     <div class="group">
-      <div class="label">Export {{ layer ? `“${layer.name}”` : '' }}</div>
+      <div class="label">Export {{ visualization ? `“${visualization.name}”` : '' }}</div>
       <div class="btns">
-        <button :disabled="!layer" @click="exportAs('geojson')">GeoJSON</button>
-        <button :disabled="!layer" @click="exportAs('agol')" title="Nested values flattened to JSON text — for ArcGIS Online's GeoJSON import">GeoJSON (ArcGIS Online)</button>
-        <button :disabled="!layer" @click="exportAs('esri')" title="Esri FeatureSet JSON (WGS84)">Esri JSON</button>
-        <button :disabled="!layer" @click="exportAs('csv')" title="Attributes only — join to geometry on the id field">CSV</button>
+        <button :disabled="!visualization || busy" @click="exportAs('geojson')">GeoJSON</button>
+        <button :disabled="!visualization || busy" @click="exportAs('agol')" title="Nested values flattened to JSON text — for ArcGIS Online's GeoJSON import">GeoJSON (ArcGIS Online)</button>
+        <button :disabled="!visualization || busy" @click="exportAs('esri')" title="Esri FeatureSet JSON (WGS84)">Esri JSON</button>
+        <button :disabled="!visualization || busy" @click="exportAs('csv')" title="Attributes only — join to geometry on the id field">CSV</button>
       </div>
+      <p v-if="error" class="error">{{ error }}</p>
     </div>
   </div>
 </template>
 
 <style scoped>
+.error {
+  color: var(--danger);
+  margin: 0.35rem 0 0;
+}
 .io {
   display: grid;
   gap: 0.75rem;

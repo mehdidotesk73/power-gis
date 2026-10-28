@@ -150,7 +150,13 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   Grouping a table onto features (`lib/dataset/query.ts`) is cached per dataset + binding and
   dropped when the dataset changes.
 - **Client** — `src/client/api.ts` `request(type, payload)` posts to the worker (unwrapping Vue
-  proxies, which can't be cloned); `src/client/db.ts` `readDb` is a `ReadDatabase`.
+  proxies, which can't be cloned); `src/client/db.ts` `readDb` is a `RecordReader` (records only:
+  `get` / `list`; rows come from requests — `datasetRows`, `previewTransform`, `featureRows`).
+  `src/client/boundary.test.ts` fails if client code imports server-only modules (`server/`,
+  `shared/idb` outside `db.ts`, `lib/arcgis`, `lib/data/*`, `lib/dataset/profile`) or calls `fetch`
+  (only `useVersionCheck` may) or `readRows`. Exports are `exportVisualization({visualization,
+  format})` → `{fileName, mimeType, text}`, built from the server's grouping (`DataExchange` only
+  downloads).
 - **Database** — `src/shared/records.ts`. Base tables `users`, `workspaces`, `datasets`,
   `transforms`, `visualizations`: every record has a uuid `id`, an editable `name`, created/updated.
   A workspace's `config` holds only pointers (`datasetIds`, ordered `visualizationIds`). Each
@@ -273,7 +279,7 @@ visualization just created from the graph opens straight into its editor.
 **Transform editor.** Inputs and outputs are one line each; the dataset picker (SearchBox) only
 opens on ⇄ or for a new input. A **preview dock** (`TransformsPanel.vue`, sticky to the screen
 bottom while the editor is in view, collapsible) shows one input or output at a time: an input's
-first 20 rows via `readDb.readRows`, an output via `previewTransform` on its current SQL (nothing
+first 20 rows via `datasetRows`, an output via `previewTransform` on its current SQL (nothing
 stored). Geometry cells show their kind (`PreviewTable`), also for GeoJSON text from SQL.
 
 **↻ Run all stale** (`staleRunOrder` in `dag.ts`): every transform that needs a re-run, plus every
@@ -336,9 +342,9 @@ visualization it follows the top visible one (they load one by one).
 
 The first visit (and Workspace → Reset) opens `public/data/default.powergis.json`, a workspace file used as a
 template: dataset pointers are `builtin:<table>` or `transform:<n>` (the output of the file's n-th
-transform). `seedDefault` (`MapPage.vue`) uploads each built-in (or reuses a copy marked
+transform). The server's `seedDefaultWorkspace` (the worker reads the file: `env.readDefaultWorkspace`; `MapPage.seedDefault` only asks and opens the result) uploads each built-in (or reuses a copy marked
 `extensions.builtin` with the built-in's current `extensions.version`), runs each transform in order (or reuses an output marked `extensions.madeBy`
-= its SQL + resolved inputs), swaps ids in with `replacePointers` and opens the result with
+= its SQL + resolved inputs), swaps ids in with `replacePointers` and returns the file; the page opens it with
 `fromWorkspaceFile`, unsaved like any loaded file (the very first one is saved at once). Today's file:
 `utilities` + `utility_counties` (links) + `us_counties` + `us_states`; the transform **Utilities by
 county** (`counties LEFT JOIN links LEFT JOIN utilities` — counties no utility reports keep one empty

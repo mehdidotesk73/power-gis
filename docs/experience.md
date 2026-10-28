@@ -312,6 +312,13 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Client / server audit — 2026-10-28
+- **Moved to the server:** seeding the default map (was ~10 client round trips of server logic),
+  reading rows for the transform editor's input preview (it read the whole table to show 20 rows),
+  and building exports. The client's database handle no longer has `readRows`, and a test scans
+  client code for server-only imports and stray `fetch` calls, so the boundary is enforced rather
+  than a convention.
+
 ### Agent: the workspace as files — 2026-10-28
 - **Changed:** the agent no longer resends the whole workspace (`update_workspace`). With Haiku that
   payload — SQL inside JSON inside the tool call — came back as one JSON-encoded string twice; the
