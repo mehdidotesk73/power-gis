@@ -323,6 +323,7 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 }
 .msg {
   margin: 0;
+  white-space: pre-line; /* reports come as lines */
   font-size: 0.76rem;
   color: var(--warn);
 }

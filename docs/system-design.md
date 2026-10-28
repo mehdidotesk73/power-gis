@@ -464,7 +464,10 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
     `builtin:<table>` and every transform output `transform:<n>.<m>` (its own `outputId` too). On save,
     this device's output datasets get the mark `extensions.madeBy = madeByMark(sql, inputs)`, so opening
     the same template here reuses them. Uploaded datasets keep their ids (other devices report them
-    missing until cloud datasets, PR 3).
+    missing until cloud datasets, PR 3); their names ride along (`file.names`), so the device that opens
+    it can say which. `missingReport` (same file) turns what's missing into the Workspace panel's lines:
+    datasets by name, transforms that couldn't run and why, and the visualizations / transforms left
+    out with them (`fromWorkspaceFile` returns those).
   - **`openTemplate`** (the default map's `seedDefaultWorkspace` uses it too): uploads or reuses
     built-ins, then runs each transform once all its inputs are here (any order), reusing outputs by
     mark; a transform whose inputs aren't on the device, or whose run fails, is reported in `failed`.

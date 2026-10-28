@@ -64,7 +64,7 @@ import {
   type OpResult,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
-import { fileName, fromWorkspaceFile, isPlaceholder, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft } from '../lib/workspace/file'
+import { fileName, fromWorkspaceFile, isPlaceholder, missingReport, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft } from '../lib/workspace/file'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -255,11 +255,9 @@ async function catchUpWithCloud() {
     resetSelection()
     doc.value = next.doc
     await saveHere()
-    const left = next.missing.length + o.failed.length
-    barMessage.value =
-      `Opened your workspace from your account (saved ${when(w.updatedAt)}).` +
-      (left ? ` Some of it isn't on this device: ${[...o.failed, ...next.missing.filter((id) => !isPlaceholder(id)).map(() => 'a dataset uploaded on another device')].filter((x, i, a) => a.indexOf(x) === i).join('; ')}.` : '')
-    if (left) logDebug(`your account's workspace: missing ${next.missing.join(', ')}; ${o.failed.join('; ')}`, 'warn')
+    const report = missingReport(o.file.names ?? {}, next.missing, o.failed, next.droppedVisualizations, next.droppedTransforms)
+    barMessage.value = `Opened your workspace from your account (saved ${when(w.updatedAt)}).` + (report ? `\n${report}` : '')
+    if (report) logDebug(`your account's workspace: ${report.replace(/\n/g, ' ')}`, 'warn')
   }
   status.value = 'ready'
 }

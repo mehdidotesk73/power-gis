@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fromWorkspaceFile, parseDraft, parseWorkspaceFile, replacePointers, snapshot, templateBuiltins, toWorkspaceFile } from './file'
+import { fromWorkspaceFile, missingReport, parseDraft, parseWorkspaceFile, replacePointers, snapshot, templateBuiltins, toWorkspaceFile } from './file'
 import { readFileSync } from 'node:fs'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import { workspaceRequires, type WorkspaceDoc } from './workspace'
@@ -112,5 +112,26 @@ describe('the default workspace file (a template)', () => {
     expect(missing).toEqual([])
     expect(doc.transforms[0]).toMatchObject({ name: 'Utilities by county', outputs: [{ outputId: 'out' }] })
     expect(doc.visualizations.find((v) => v.name === 'Number of utilities')).toMatchObject({ datasetId: 'out', column: 'utility_id_eia', aggregation: 'count' })
+  })
+})
+
+describe('missingReport', () => {
+  it('names the datasets missing here, the transforms that could not run, and what went with them', () => {
+    const r = missingReport(
+      { d1: 'Plants 2024', d2: 'Prices' },
+      ['d1', 'd2', 'd3', 'transform:1'],
+      [{ name: 'Join plants', reason: "an input dataset isn't on this device" }],
+      ['Plants by state', 'Price map'],
+      ['Join plants', 'Averages'],
+    )
+    expect(r.split('\n')).toEqual([
+      '• 3 datasets uploaded on another device, not stored in the cloud yet: "Plants 2024", "Prices" and 1 unnamed one.',
+      `• 1 transform that couldn't run: "Join plants" (an input dataset isn't on this device).`,
+      '• Left out with them: 2 visualizations ("Plants by state", "Price map") and 1 transform ("Averages").',
+      'They stay on the device they were uploaded on; storing datasets in the cloud comes next.',
+    ])
+  })
+  it('says nothing when everything is here', () => {
+    expect(missingReport({}, [], [], [], [])).toBe('')
   })
 })

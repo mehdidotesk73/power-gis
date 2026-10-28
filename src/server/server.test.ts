@@ -387,6 +387,7 @@ describe('cloud workspace', () => {
     const saved = account.saved()!.file
     expect(saved.datasetIds).toEqual(['transform:0.0', 'builtin:utilities', 'builtin:utility_counties', 'builtin:us_counties', 'builtin:us_states', own])
     expect(saved.transforms![0].outputs[0].outputId).toBe('transform:0.0')
+    expect(saved.names).toEqual({ [own]: 'mine' })
     expect(saved.visualizations.every((v) => !v.datasetId.match(/^[0-9a-f-]{36}$/) || v.datasetId === own)).toBe(true)
 
     // Another device: everything is made there; the upload isn't, and says so.
@@ -418,6 +419,6 @@ describe('cloud workspace', () => {
     const r = data(await b.server.handle('openTemplate', { file: template }))
     expect(r.file.datasetIds.slice(0, 2).every((id) => !id.includes(':'))).toBe(true)
     expect(r.missing).toEqual(['transform:2', 'not-here'])
-    expect(r.failed).toEqual(["lost: an input dataset isn't on this device"])
+    expect(r.failed).toEqual([{ name: 'lost', reason: "an input dataset isn't on this device" }])
   })
 })

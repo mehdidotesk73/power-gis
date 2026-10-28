@@ -81,7 +81,7 @@ export interface Api {
    * couldn't be made real (datasets not on this device, outputs of transforms that couldn't run);
    * `failed`: why each transform that couldn't run didn't.
    */
-  openTemplate: [{ file: WorkspaceFile }, { file: WorkspaceFile; missing: string[]; failed: string[] }]
+  openTemplate: [{ file: WorkspaceFile }, { file: WorkspaceFile; missing: string[]; failed: { name: string; reason: string }[] }]
   /** The signed-in user's session for the cloud (null: signed out). The client sends it again whenever it changes. */
   setAuth: [{ accessToken: string | null }, { signedIn: boolean }]
   /** The signed-in user's default workspace in the cloud (a template), or null before their first cloud save. */

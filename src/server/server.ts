@@ -158,7 +158,7 @@ export function createServer(db: Database, env: ServerEnv) {
    * outputs are reused when a dataset carries the same mark (SQL + inputs). Whatever can't be made
    * — datasets not on this device, transforms whose inputs aren't, failed runs — is `missing`.
    */
-  async function openTemplate(template: WorkspaceFile): Promise<{ file: WorkspaceFile; missing: string[]; failed: string[] }> {
+  async function openTemplate(template: WorkspaceFile): Promise<{ file: WorkspaceFile; missing: string[]; failed: { name: string; reason: string }[] }> {
     const existing = await db.list('datasets')
     const ids = new Map<string, string>()
     for (const table of templateBuiltins(template)) {
@@ -171,7 +171,7 @@ export function createServer(db: Database, env: ServerEnv) {
     const here = new Set(existing.map((d) => d.id))
     for (const id of ids.values()) here.add(id)
     const failed = new Set<number>()
-    const reasons: string[] = []
+    const reasons: { name: string; reason: string }[] = []
     const done = new Set<number>()
     for (let progress = true; progress; ) {
       progress = false
@@ -179,7 +179,7 @@ export function createServer(db: Database, env: ServerEnv) {
         if (done.has(i) || failed.has(i)) continue
         if (t.inputs.some((x) => isPlaceholder(x.datasetId))) continue // waits for another transform
         if (!t.inputs.every((x) => here.has(x.datasetId))) {
-          reasons.push(`${t.name}: an input dataset isn't on this device`)
+          reasons.push({ name: t.name, reason: "an input dataset isn't on this device" })
           failed.add(i)
           continue
         }
@@ -193,7 +193,7 @@ export function createServer(db: Database, env: ServerEnv) {
               await handlers.updateDataset({ id: found[j]!, extensions: { madeBy: marks[j] } }, 'user')
             }
           } catch (e) {
-            reasons.push(`${t.name}: ${(e as Error).message}`)
+            reasons.push({ name: t.name, reason: (e as Error).message })
             failed.add(i)
             continue
           }
@@ -209,7 +209,7 @@ export function createServer(db: Database, env: ServerEnv) {
       }
     }
     const all = [...file.datasetIds, ...file.visualizations.map((v) => v.datasetId), ...(file.transforms ?? []).flatMap((t) => t.inputs.map((x) => x.datasetId))]
-    for (const [i, t] of (file.transforms ?? []).entries()) if (!done.has(i) && !failed.has(i)) reasons.push(`${t.name}: its inputs come from transforms that couldn't run`)
+    for (const [i, t] of (file.transforms ?? []).entries()) if (!done.has(i) && !failed.has(i)) reasons.push({ name: t.name, reason: "its inputs come from transforms that couldn't run" })
     return { file, missing: [...new Set(all.filter((p) => !here.has(p)))], failed: reasons }
   }
 
@@ -386,7 +386,7 @@ export function createServer(db: Database, env: ServerEnv) {
       const parsed = parseWorkspaceFile(await env.readDefaultWorkspace(baseUrl))
       if (!parsed.ok) return fail('failed', `default workspace: ${parsed.error}`)
       const { file, failed } = await openTemplate(parsed.file)
-      if (failed.length) fail('failed', `default workspace: ${failed.join('; ')}`)
+      if (failed.length) fail('failed', `default workspace: ${failed.map((f) => `${f.name}: ${f.reason}`).join('; ')}`)
       return { file }
     },
 
@@ -411,7 +411,7 @@ export function createServer(db: Database, env: ServerEnv) {
         const b = records.get(id)?.extensions?.builtin
         return typeof b === 'string' ? b : undefined
       }
-      const t = toTemplate(file, builtinOf)
+      const t = toTemplate(file, builtinOf, (id) => records.get(id)?.name)
       // Mark this device's outputs, so opening the template here reuses them instead of running again.
       for (const o of t.outputs) {
         const d = records.get(o.datasetId)

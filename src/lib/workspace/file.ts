@@ -26,6 +26,8 @@ export interface WorkspaceFile {
   transforms?: Omit<TransformSpec, 'id'>[]
   /** SQL engine extensions its transforms use: each transform's `requires`, together (written for people to read; opening loads them from the transforms). */
   requires?: string[]
+  /** Names of the datasets it points at by id (portable copies: to say which are missing where it's opened). */
+  names?: Record<string, string>
 }
 
 export function toWorkspaceFile(doc: WorkspaceDoc): WorkspaceFile {
@@ -84,7 +86,11 @@ export function parseWorkspaceFile(text: string): Parsed {
  * they never collide with another workspace's records. Datasets missing from
  * the database are dropped, with their visualizations, and reported.
  */
-export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, inDatabase: (id: string) => boolean): { doc: WorkspaceDoc; missing: string[] } {
+export function fromWorkspaceFile(
+  file: WorkspaceFile,
+  current: WorkspaceDoc,
+  inDatabase: (id: string) => boolean,
+): { doc: WorkspaceDoc; missing: string[]; droppedVisualizations: string[]; droppedTransforms: string[] } {
   const missing = file.datasetIds.filter((id) => !inDatabase(id))
   const datasetIds = file.datasetIds.filter((id) => inDatabase(id))
   const visualizations = file.visualizations
@@ -94,7 +100,12 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   const transforms = (file.transforms ?? [])
     .filter((t) => t.inputs.every((i) => datasetIds.includes(i.datasetId)))
     .map((t) => ({ ...t, id: newId(), outputs: t.outputs.map((o) => (o.outputId && !inDatabase(o.outputId) ? { ...o, outputId: undefined } : o)) }))
-  return { doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds, visualizations, transforms }, missing }
+  return {
+    doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds, visualizations, transforms },
+    missing,
+    droppedVisualizations: file.visualizations.filter((v) => !datasetIds.includes(v.datasetId)).map((v) => v.name),
+    droppedTransforms: (file.transforms ?? []).filter((t) => !t.inputs.every((i) => datasetIds.includes(i.datasetId))).map((t) => t.name),
+  }
 }
 
 // ── drafts ─────────────────────────────────────────────────────────────────
@@ -170,7 +181,11 @@ export const madeByMark = (sql: string, inputs: { datasetId: string; alias: stri
  * Other datasets keep their ids. `outputs` lists the marks to put on this
  * device's output datasets, so opening the template here reuses them.
  */
-export function toTemplate(file: WorkspaceFile, builtinOf: (datasetId: string) => string | undefined): { file: WorkspaceFile; outputs: { datasetId: string; madeBy: string }[] } {
+export function toTemplate(
+  file: WorkspaceFile,
+  builtinOf: (datasetId: string) => string | undefined,
+  nameOf: (datasetId: string) => string | undefined = () => undefined,
+): { file: WorkspaceFile; outputs: { datasetId: string; madeBy: string }[] } {
   const to = new Map<string, string>()
   const outputs: { datasetId: string; madeBy: string }[] = []
   for (const [i, t] of (file.transforms ?? []).entries()) {
@@ -184,5 +199,28 @@ export function toTemplate(file: WorkspaceFile, builtinOf: (datasetId: string) =
     const table = to.has(p) ? undefined : builtinOf(p)
     if (table) to.set(p, BUILTIN_REF + table)
   }
-  return { file: replacePointers(file, (p) => to.get(p)), outputs }
+  const out = replacePointers(file, (p) => to.get(p))
+  // Datasets left by id: their names, so a device without them can say which are missing.
+  const names = Object.fromEntries(pointers(out).filter((p) => !isPlaceholder(p)).flatMap((id) => (nameOf(id) ? [[id, nameOf(id)!]] : [])))
+  return { file: Object.keys(names).length ? { ...out, names } : out, outputs }
+}
+
+/** What of an opened workspace isn't on this device, line by line: datasets by name, transforms that couldn't run, and what was left out with them. */
+export function missingReport(names: Record<string, string>, missing: string[], failed: { name: string; reason: string }[], vizs: string[], transforms: string[]): string {
+  const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`
+  const list = (xs: string[]) => xs.map((x) => `"${x}"`).join(', ')
+  const lines: string[] = []
+  const uploads = missing.filter((id) => !isPlaceholder(id))
+  if (uploads.length) {
+    const named = uploads.map((id) => names[id]).filter((x): x is string => !!x)
+    const unnamed = uploads.length - named.length
+    lines.push(`• ${n(uploads.length, 'dataset')} uploaded on another device, not stored in the cloud yet: ${list(named)}${unnamed ? `${named.length ? ' and ' : ''}${n(unnamed, 'unnamed one')}` : ''}.`)
+  }
+  const failedNames = failed.map((f) => f.name)
+  if (failed.length) lines.push(`• ${n(failed.length, "transform that couldn't run", "transforms that couldn't run")}: ${failed.map((f) => `"${f.name}" (${f.reason})`).join(', ')}.`)
+  const otherTransforms = transforms.filter((t) => !failedNames.includes(t))
+  const leftOut = [vizs.length ? `${n(vizs.length, 'visualization')} (${list(vizs)})` : '', otherTransforms.length ? `${n(otherTransforms.length, 'transform')} (${list(otherTransforms)})` : ''].filter(Boolean)
+  if (leftOut.length) lines.push(`• Left out with them: ${leftOut.join(' and ')}.`)
+  if (uploads.length) lines.push('They stay on the device they were uploaded on; storing datasets in the cloud comes next.')
+  return lines.join('\n')
 }
