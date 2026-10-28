@@ -12,7 +12,7 @@ import { request } from '../../client/api'
 import { storeOf, type DatasetRecord } from '../../shared/records'
 import { useDetailTarget } from '../detailTarget'
 import { vReveal } from '../reveal'
-import ReplacePanel from './ReplacePanel.vue'
+import DatasetEditor from './DatasetEditor.vue'
 
 const props = defineProps<{
   datasets: DatasetRecord[]
@@ -92,10 +92,6 @@ async function copyId(id: string) {
 const exploring = ref<DatasetRecord | null>(null)
 
 const stats = (d: DatasetRecord) => `${plural(d.rowCount, 'row')} · ${plural(d.columns.length, 'column')}`
-const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : '—')
-/** Numbers compact, datetimes as dates. */
-const short = (v: unknown) =>
-  typeof v === 'number' ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(v ?? '').replace(/T00:00:00(\.000)?Z$/, '').slice(0, 19)
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 </script>
 
@@ -128,43 +124,15 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
       <Teleport defer :to="detailTarget ?? 'body'" :disabled="!!compact || !detailTarget">
       <div v-if="editing === ds.id" v-reveal class="edit" :class="{ aside: detailTarget && !compact }" data-no-open>
         <div v-if="detailTarget && !compact" class="aside-title"><span class="eyebrow">Dataset</span> <strong>{{ ds.name }}</strong></div>
-        <label>
-          Name
-          <input type="text" :value="ds.name" @change="emit('update', ds.id, { name: ($event.target as HTMLInputElement).value })" />
-        </label>
-        <label>
-          Description
-          <textarea
-            rows="2"
-            :value="ds.description ?? ''"
-            placeholder="What this data is, where it's from"
-            @change="emit('update', ds.id, { description: ($event.target as HTMLTextAreaElement).value })"
-          />
-        </label>
-        <div v-if="ds.profile" class="profile">
-          <div class="lbl">Profile · {{ Math.round(ds.profile.completeness * 100) }}% of cells filled</div>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr><th>Column</th><th>Type</th><th>Filled</th><th>Distinct</th><th>Range</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="c in ds.profile.columns" :key="c.name">
-                  <td>{{ c.name }}</td>
-                  <td>{{ c.type }}</td>
-                  <td>{{ pct(c.filled, ds.profile.rowCount) }}</td>
-                  <td>{{ c.distinct.toLocaleString() }}</td>
-                  <td>{{ c.min === undefined ? '' : `${short(c.min)} – ${short(c.max)}` }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <p v-if="writtenBy?.(ds.id)" class="muted">Made by the transform "{{ writtenBy(ds.id) }}": to use other data here, change the transform.</p>
-        <ReplacePanel v-else :exclude="[ds.id]" @pick="(newId) => emit('replace', ds.id, newId)" />
-        <span class="muted">Id <code class="id">{{ ds.id }}</code></span>
-        <span class="muted">Added {{ new Date(ds.createdAt).toLocaleString() }}</span>
-        <button class="close" @click="editing = null">Done</button>
+        <DatasetEditor
+          :id="ds.id"
+          :dataset="ds"
+          :written-by="writtenBy?.(ds.id)"
+          closable
+          @update="(patch) => emit('update', ds.id, patch)"
+          @replace="(newId) => emit('replace', ds.id, newId)"
+          @close="editing = null"
+        />
       </div>
       </Teleport>
             <p class="muted uses">Used by {{ plural(vizCount(ds.id), 'visualization') }}</p>
@@ -208,43 +176,6 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
   color: var(--text-muted);
   font-size: 0.7rem;
 }
-.profile {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-}
-.lbl {
-  font-weight: 600;
-  font-size: 0.76rem;
-}
-.scroll {
-  overflow: auto;
-  max-height: 14rem;
-  border: 1px solid var(--border);
-  border-radius: 0.3rem;
-}
-table {
-  border-collapse: collapse;
-  font-size: 0.72rem;
-  width: 100%;
-}
-th,
-td {
-  padding: 0.15rem 0.35rem;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  white-space: nowrap;
-}
-th {
-  position: sticky;
-  top: 0;
-  background: var(--bg-elev);
-}
-.id {
-  font-size: 0.7rem;
-  word-break: break-all;
-  user-select: all;
-}
 .desc {
   font-size: 0.76rem;
 }
@@ -253,16 +184,6 @@ th {
   gap: 0.35rem;
   margin-top: 0.35rem;
   font-size: 0.8rem;
-}
-.edit label {
-  display: grid;
-  gap: 0.15rem;
-}
-.edit input,
-.edit textarea {
-  font: inherit;
-  padding: 0.3rem;
-  font-size: 16px; /* below 16px iOS zooms the page on focus */
 }
 .title {
   display: grid;
@@ -276,15 +197,6 @@ th {
   margin: 0.25rem 0 0;
   font-size: 0.72rem;
   color: var(--danger);
-}
-.close {
-  justify-self: end;
-  padding: 0.3rem 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 0.3rem;
-  background: var(--bg-elev);
-  color: var(--text);
-  font-size: 0.78rem;
 }
 .uses {
   margin: 0.25rem 0 0;

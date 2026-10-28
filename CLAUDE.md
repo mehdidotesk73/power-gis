@@ -281,11 +281,12 @@ whatever they're actually asking about.
   works out the rest — `unavailability(doc, present)` (missing roots, and the datasets / transforms /
   visualizations waiting on them), `replaceDataset` (the replacement takes over every pointer),
   `removeUnavailable`, `downstreamOrder`. UI: red outlines in the graph (⚠ on roots, "waits for …"),
-  red lines in the lists, nothing drawn on the map; a root's card (`dataset/UnavailableCard.vue`)
-  opens on Replace's source choice when tapped in the graph (`replaceOpen`), then **Run them now**; the Workspace panel offers **Show in
+  red lines in the lists, nothing drawn on the map; a root opens in the same
+  dataset panel as any dataset (`dataset/DatasetEditor.vue` with `missing`: what's known, why, what
+  waits; red), on Replace's source choice when tapped in the graph (`replaceOpen`), then **Run them now**; the Workspace panel offers **Show in
   graph** and **Remove what didn't load**. Run all stale also re-makes outputs missing here.
-  **Replace… on any dataset** (Edit → **⇄ Replace…**, and on a missing dataset's card; `dataset/ReplacePanel.vue`:
-  the button opens the usual add-dataset panel, Cancel closes it): the replacement takes over every pointer (`replaceDataset`, refused when
+  **Replace… on any dataset** (Edit → **⇄ Replace…**, in `DatasetEditor.vue`, the one dataset
+  panel: the button opens the usual add-dataset panel, Cancel closes it): the replacement takes over every pointer (`replaceDataset`, refused when
   the replacement is made from the one it replaces), a draft until Save; a transform's output can't
   be replaced (its transform would overwrite it). Signed in, the Workspace panel lists uploads
   **only on this device** (`onlyOnThisDevice`: not built-ins, outputs or cloud ones) in a short
@@ -403,7 +404,7 @@ src/
     dag/DagView.vue        the workspace graph: datasets → transforms → outputs → visualizations
     FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
-    dataset/            AddDatasetPanel, DatasetList, VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
+    dataset/            AddDatasetPanel, DatasetList, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal

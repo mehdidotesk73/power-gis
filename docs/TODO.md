@@ -97,7 +97,7 @@ Track feature development, improvements, and known issues here. Move completed w
   stay (`doc.unavailable`, saved in the workspace record and in documents) with everything waiting on
   them (`lib/workspace/unavailable.ts`: `unavailability`, `replaceDataset`, `removeUnavailable`,
   `downstreamOrder`). Red outlines in the graph (⚠ roots, "waits for …"), red lines in the lists,
-  nothing drawn on the map. A root's card (`UnavailableCard.vue`): ⇄ Replace…,
+  nothing drawn on the map. A root opens in the dataset panel (`DatasetEditor.vue`): ⇄ Replace…,
   then Run them now. Workspace panel: Show in graph, Remove what didn't load. Run all stale re-makes
   outputs missing here.
 - **Replace… on any dataset** — Edit → Replace… (the usual add-dataset panel): anything it adds takes its place

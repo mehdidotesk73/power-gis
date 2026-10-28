@@ -18,7 +18,7 @@ import FeatureTooltip from './map/FeatureTooltip.vue'
 import FeaturePanel from './map/FeaturePanel.vue'
 import DataExchange from './map/DataExchange.vue'
 import AddDatasetPanel from './dataset/AddDatasetPanel.vue'
-import UnavailableCard from './dataset/UnavailableCard.vue'
+import DatasetEditor from './dataset/DatasetEditor.vue'
 import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
@@ -1086,13 +1086,13 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @zoom="zoomToViz"
             @cancel-add="closeNode"
           />
-          <UnavailableCard
+          <DatasetEditor
             v-else-if="dagNode?.kind === 'dataset' && unav.roots.includes(dagNode.id)"
             :id="dagNode.id"
-            :info="unavailableInfo(doc, dagNode.id)"
-            :waiting="waitingOn(dagNode.id)"
+            :key="dagNode.id"
+            :missing="{ info: unavailableInfo(doc, dagNode.id), waiting: waitingOn(dagNode.id) }"
             replace-open
-            @replace="replaceDataset"
+            @replace="(newId) => replaceDataset(dagNode!.id, newId)"
           />
           <p v-else-if="dagNode?.kind === 'dataset' && unav.datasets.has(dagNode.id)" class="problem-note">
             ⚠ "{{ unavailableInfo(doc, dagNode.id).name }}" isn't on this device. It's made by a transform that waits for {{ waitsFor(unav.datasets.get(dagNode.id)!) }}: replace that, then run it.
@@ -1173,14 +1173,13 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             <AddDatasetPanel v-if="importing" v-reveal :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
             <UiButton v-else size="tag" tone="dataset" icon="＋" @click="importing = true">Dataset</UiButton>
           </div>
-          <UnavailableCard
+          <DatasetEditor
             v-for="root in unav.roots"
             :id="root"
             :key="root"
             class="list-unavailable"
-            :info="unavailableInfo(doc, root)"
-            :waiting="waitingOn(root)"
-            @replace="replaceDataset"
+            :missing="{ info: unavailableInfo(doc, root), waiting: waitingOn(root) }"
+            @replace="(newId) => replaceDataset(root, newId)"
           />
           <DatasetList
             :datasets="datasets"

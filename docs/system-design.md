@@ -482,14 +482,16 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
     missing **roots** (nothing here can make them) and everything waiting on them, to a fixed point;
     a missing output whose transform can run isn't a root (Run makes it; Run all stale includes such
     transforms). The page marks them (graph: red outline, ⚠ on roots, "waits for …"; lists: a red
-    line; the map skips them), a root's card (`UnavailableCard.vue`, via `AddDatasetPanel` with a
-    `start` tab) replaces it with a file or a dataset here (`replaceDataset`: every pointer moves),
+    line; the map skips them), a root opens in the dataset panel (`DatasetEditor.vue` with `missing`,
+    on Replace's source choice when tapped in the graph) to be replaced by anything the add panel adds (`replaceDataset`: every pointer moves),
     then offers **Run them now** (`downstreamOrder`). Running a transform whose output pointed at a
     missing dataset writes a new one, which takes the old id's place. The Workspace panel shows the
     count with **Show in graph** and **Remove what didn't load** (`removeUnavailable`, a draft edit).
-  - **Replace… on any dataset**: a **⇄ Replace…** button in the dataset's Edit panel
-    (`DatasetList` emits `replace(oldId, newId)`; a transform's output shows why it can't be replaced
-    instead) and on a missing dataset's card (tapped in the graph, the card opens on the source choice: `replaceOpen` → `ReplacePanel startOpen`). `ReplacePanel.vue` is that button opening the usual
+  - **Replace… on any dataset**: a **⇄ Replace…** button in the dataset panel,
+    `DatasetEditor.vue`: the one panel for a dataset, here or missing (`missing`: its facts, why, what
+    waits; red; nothing else to edit; `replaceOpen` when tapped in the graph). `DatasetList`'s Edit
+    uses it and emits `replace(oldId, newId)`; a transform's output shows why it can't be replaced
+    instead. The button opens the usual
     `AddDatasetPanel` (every source, `pickLabel` "Use"; only the replaced dataset is excluded from
     Saved); its Cancel closes it back to the button. `replaceDataset` moves every pointer (dataset list —
     no duplicate if the replacement is already listed —, transform inputs, visualizations) and refuses
