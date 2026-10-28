@@ -157,7 +157,8 @@ whatever they're actually asking about.
   `caller: 'agent'` writes to remote datasets (`request(type, payload, 'agent')`).
 - **Accounts (Supabase)**: project `rorqzjnwqwlyusagzcxy`; `client/supabase.ts` (URL + publishable
   key, committed — public by design), `client/auth.ts` (reactive `auth`; sign up / in / out, reset
-  and change password, display name; actions answer `null` or a message), `components/account/
+  and change password, display name, delete account via `rpc('delete_my_account')`; actions answer
+  `null` or a message), `components/account/
   AccountModal.vue` (☰ → Sign in / your name). The whole schema is `supabase/schema.sql` (profiles,
   datasets registry, `dataset_access` owner | write | read, `workspaces` one default per user, a
   private `datasets` bucket of `<id>/data.parquet`; RLS everywhere, explicit grants). Schema changes
@@ -383,7 +384,7 @@ src/
     agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)
     account/AccountModal.vue  sign in / create account / reset password / your profile
 public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
-supabase/schema.sql        the Supabase schema + RLS (run once in the SQL editor; changes = new files)
+supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor
 scripts/                   data build scripts; fetch-duckdb-extensions.mjs (prebuild, Netlify only)
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)

@@ -314,7 +314,8 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Accounts (Supabase, PR 1 of 4) — 2026-10-28
 - **Added:** sign up / sign in with email and password, forgot password (reset email), your profile
-  (display name, change password, sign out) under ☰. The whole Supabase schema for the next three PRs
+  (display name, change password, sign out, delete account) under ☰, and a note on the sign-in screen
+  about what's kept without an account. The whole Supabase schema for the next three PRs
   (`supabase/schema.sql`) with its RLS rules.
 - **Decision:** email + password over magic links. Signing in sends no email (the built-in sender
   allows only a few an hour), and on an iPhone a link from an email opens Safari, not the home-screen
@@ -325,6 +326,9 @@ Two additions from reviewing it here, beyond what the originating project report
 - **Gotcha:** this sandbox's proxy refuses supabase.co (403 on CONNECT), so auth can't be exercised
   here. The schema was tested on a local Postgres 16 with stand-in `auth.uid()` and `storage`
   instead; sign-in is checked on the preview.
+- **Gotcha:** the publishable key can't delete accounts (`auth.admin` needs the secret key). A
+  security-definer `delete_my_account()` deletes only `auth.uid()`'s row; storage files can't be
+  removed from SQL, so the app deletes them through the Storage API first.
 - **Gotcha:** an insert's `RETURNING` is checked against the SELECT policy before an AFTER trigger's
   rows exist — so "see datasets you have access to" also needs `created_by = auth.uid()`, or
   `.insert().select()` fails for the creator.

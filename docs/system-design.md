@@ -446,10 +446,15 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   current site, production or a preview), `signIn`, `signOut`, `sendPasswordReset` (the link opens the
   app with `type=recovery`; `auth.recovering` opens *Choose a new password*), `setNewPassword`,
   `changePassword` (re-checks the current password with `signInWithPassword`, then `updateUser`),
-  `updateDisplayName`. Account state is the client's own, like the assistant's API key; data still
+  `updateDisplayName`, `deleteAccount` (re-checks the password, then `rpc('delete_my_account')` —
+  `supabase/002_delete_account.sql`, security definer: deletes the datasets the caller owns, then
+  `auth.users`, which cascades to profile, access rows and workspaces — then forgets the session
+  locally; PR 3 adds removing owned datasets' files first). Account state is the client's own, like the assistant's API key; data still
   goes through the server's requests (PR 3 hands the worker the session's token).
 - **UI**: ☰ → **Sign in** / your name opens `components/account/AccountModal.vue` (sign in, create
-  account, forgot password, choose a new password, your profile).
+  account, forgot password, choose a new password, your profile, delete account). Sign in and create
+  account carry a plain note on what's kept without an account (this browser only; Safari may clear
+  it after a week unused) and what an account adds.
 - **Schema** (`supabase/schema.sql`, run once in the SQL editor; later changes go in new files):
   - `profiles` (made by a trigger on sign-up; you read only your own),
   - `datasets` (registry: name, description, columns, row count, `meta`, `file_path`, `created_by`),

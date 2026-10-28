@@ -7,6 +7,7 @@ import UiButton from '../ui/UiButton.vue'
 import {
   auth,
   changePassword,
+  deleteAccount,
   MIN_PASSWORD,
   sendPasswordReset,
   setNewPassword,
@@ -77,6 +78,16 @@ async function submitRecover() {
   if (next.value !== again.value) return void (error.value = "The new passwords don't match.")
   if (await run(() => setNewPassword(next.value), 'New password set. You are signed in.')) next.value = again.value = ''
 }
+const deleting = ref(false)
+const deletePassword = ref('')
+async function submitDelete() {
+  if (await run(() => deleteAccount(deletePassword.value))) {
+    deletePassword.value = ''
+    deleting.value = false
+    go('signin')
+    notice.value = 'Your account is deleted.'
+  }
+}
 async function doSignOut() {
   if (await run(() => signOut())) go('signin')
 }
@@ -107,6 +118,10 @@ function close() {
           <button type="button" class="link" @click="go('forgot')">Forgot password?</button>
           <button type="button" class="link" @click="go('signup')">Create account</button>
         </div>
+        <div class="about">
+          <p><strong>Without an account</strong>, your workspace and datasets stay only in this browser, on this device. Clearing the browser's data, private browsing or a new device starts you over, and Safari may clear them by itself if you don't open PowerGIS for a week or so.</p>
+          <p><strong>With an account</strong> (coming in the next updates): your workspace and datasets are saved online, so they're there on any device you sign in on, and you can share datasets with people you choose.</p>
+        </div>
       </form>
 
       <form v-else-if="view === 'signup'" class="form" @submit.prevent="submitSignUp">
@@ -115,6 +130,10 @@ function close() {
         <p class="muted">At least {{ MIN_PASSWORD }} characters. We'll email you a link to confirm the address.</p>
         <UiButton type="submit" tone="primary" :disabled="busy">{{ busy ? 'Creating it…' : 'Create account' }}</UiButton>
         <div class="links"><button type="button" class="link" @click="go('signin')">I have an account — sign in</button></div>
+        <div class="about">
+          <p><strong>Without an account</strong>, your workspace and datasets stay only in this browser, on this device. Clearing the browser's data, private browsing or a new device starts you over, and Safari may clear them by itself if you don't open PowerGIS for a week or so.</p>
+          <p><strong>With an account</strong> (coming in the next updates): your workspace and datasets are saved online, so they're there on any device you sign in on, and you can share datasets with people you choose.</p>
+        </div>
       </form>
 
       <form v-else-if="view === 'forgot'" class="form" @submit.prevent="submitForgot">
@@ -157,7 +176,19 @@ function close() {
         </div>
 
         <div class="section">
-          <UiButton tone="danger" :disabled="busy" @click="doSignOut">Sign out</UiButton>
+          <UiButton :disabled="busy" @click="doSignOut">Sign out</UiButton>
+        </div>
+
+        <div class="section">
+          <UiButton v-if="!deleting" tone="danger" @click="(deleting = true), (error = ''), (notice = '')">Delete account</UiButton>
+          <form v-else class="form danger-zone" @submit.prevent="submitDelete">
+            <p class="warn">This deletes your account, your saved workspaces and the datasets you own — people you shared them with lose them too. Datasets others shared with you stay with them. It can't be undone. Data kept on this device isn't touched.</p>
+            <label>Your password <input v-model="deletePassword" type="password" autocomplete="current-password" required /></label>
+            <div class="row">
+              <UiButton type="submit" tone="danger" :disabled="busy">{{ busy ? 'Deleting…' : 'Delete my account' }}</UiButton>
+              <UiButton @click="(deleting = false), (deletePassword = ''), (error = '')">Cancel</UiButton>
+            </div>
+          </form>
         </div>
       </div>
 
@@ -261,6 +292,35 @@ input:focus-visible {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.8rem;
+}
+.about {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev-2);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.about p {
+  margin: 0;
+}
+.about strong {
+  color: var(--text);
+}
+.danger-zone {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--danger-bg);
+}
+.warn {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 .error,
 .notice {

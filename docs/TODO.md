@@ -97,7 +97,9 @@ Track feature development, improvements, and known issues here. Move completed w
   (a confirmation email links back to the app, production or any preview), sign in, **Forgot
   password?** (a reset email opens the app on *Choose a new password*). Signed in, ☰ shows your
   name and opens **Your profile**: display name, **Change password** (current one checked first),
-  Sign out. `client/supabase.ts` (project URL + publishable key, committed: public by design),
+  Sign out, **Delete account** (password, then `delete_my_account()` from
+  `supabase/002_delete_account.sql`). Sign in / create account explain what's kept without an
+  account and what an account adds. `client/supabase.ts` (project URL + publishable key, committed: public by design),
   `client/auth.ts` (reactive `auth`, every action answers `null` or a message),
   `components/account/AccountModal.vue`. The full schema (`supabase/schema.sql`: profiles,
   datasets registry, dataset_access, workspaces, dataset files bucket, RLS) is in place for PRs 2–4.
@@ -302,6 +304,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
       worker carries the session's token; storage limits.
    4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
       read / write levels, owner-only removal of write and delete (all enforced by RLS).
+   - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
+     the sign-in note once the workspace really is saved online.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
      built-in one sends only a few emails an hour.
 

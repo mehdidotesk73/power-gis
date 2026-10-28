@@ -118,6 +118,27 @@ export async function changePassword(current: string, next: string): Promise<str
   return fail('changing the password', error)
 }
 
+/**
+ * Delete the account: the password is checked first, then the database deletes
+ * the datasets you own (people you shared them with lose them too), your
+ * workspaces and the account (supabase/002_delete_account.sql).
+ */
+export async function deleteAccount(password: string): Promise<string | null> {
+  const email = auth.user?.email
+  if (!email) return 'Sign in first.'
+  const check = await supabase.auth.signInWithPassword({ email, password })
+  if (check.error) return /invalid login credentials/i.test(check.error.message) ? 'Your password is wrong.' : fail('checking your password', check.error)
+  // Cloud datasets' files go first once they exist (PR 3): storage deletes go through its API.
+  const { error } = await supabase.rpc('delete_my_account')
+  if (error) return fail('deleting the account', error)
+  // The account is gone on the server; forget the session here.
+  await supabase.auth.signOut({ scope: 'local' })
+  auth.user = null
+  auth.profile = null
+  auth.recovering = false
+  return null
+}
+
 export async function updateDisplayName(name: string): Promise<string | null> {
   const id = auth.user?.id
   if (!id) return 'Sign in first.'
