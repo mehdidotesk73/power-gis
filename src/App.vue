@@ -130,7 +130,7 @@ watch(() => auth.recovering && !!auth.user, (r) => r && (showAccount.value = tru
           <div ref="menuWrap" class="menu-wrap">
             <UiButton size="compact" icon="☰" aria-label="Menu" title="Menu" aria-haspopup="menu" :aria-expanded="menuOpen" :active="menuOpen" @click="menuOpen = !menuOpen" />
             <div v-if="menuOpen" class="app-menu" role="menu">
-              <button role="menuitem" :title="auth.user ? `Signed in as ${auth.user.email}` : 'Sign in or make an account'" @click="(menuOpen = false), (showAccount = true)">
+              <button role="menuitem" :title="auth.user ? `Signed in as ${auth.user.email}` : 'Sign in or create an account'" @click="(menuOpen = false), (showAccount = true)">
                 <span class="mi-icon" aria-hidden="true">◉</span> <span class="mi-clip">{{ auth.user ? shownName() : 'Sign in' }}</span>
               </button>
               <button role="menuitem" @click="(menuOpen = false), (showHelp = true)"><span class="mi-icon" aria-hidden="true">?</span> Help</button>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The account window (☰ → Sign in / Account). Signed out: sign in, make an
+// The account window (☰ → Sign in / Account). Signed out: sign in, create an
 // account, or get a password-reset email. Signed in: your profile — name,
 // change password, sign out. Opened from a reset email: choose a new password.
 import { computed, ref, watch } from 'vue'
@@ -92,7 +92,7 @@ function close() {
   <div v-if="open" class="backdrop" @click="close">
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Account" @click.stop>
       <div class="head">
-        <strong>{{ view === 'profile' ? 'Your profile' : view === 'signup' ? 'Make an account' : view === 'forgot' ? 'Reset your password' : view === 'recover' ? 'Choose a new password' : 'Sign in' }}</strong>
+        <strong>{{ view === 'profile' ? 'Your profile' : view === 'signup' ? 'Create account' : view === 'forgot' ? 'Reset your password' : view === 'recover' ? 'Choose a new password' : 'Sign in' }}</strong>
         <UiButton icon="✕" aria-label="Close" @click="close" />
       </div>
 
@@ -105,7 +105,7 @@ function close() {
         <UiButton type="submit" tone="primary" :disabled="busy">{{ busy ? 'Signing in…' : 'Sign in' }}</UiButton>
         <div class="links">
           <button type="button" class="link" @click="go('forgot')">Forgot password?</button>
-          <button type="button" class="link" @click="go('signup')">Make an account</button>
+          <button type="button" class="link" @click="go('signup')">Create account</button>
         </div>
       </form>
 
@@ -113,7 +113,7 @@ function close() {
         <label>Email <input v-model="email" type="email" autocomplete="email" inputmode="email" autocapitalize="off" required /></label>
         <label>Password <input v-model="password" type="password" autocomplete="new-password" :minlength="MIN_PASSWORD" required /></label>
         <p class="muted">At least {{ MIN_PASSWORD }} characters. We'll email you a link to confirm the address.</p>
-        <UiButton type="submit" tone="primary" :disabled="busy">{{ busy ? 'Making it…' : 'Make account' }}</UiButton>
+        <UiButton type="submit" tone="primary" :disabled="busy">{{ busy ? 'Creating it…' : 'Create account' }}</UiButton>
         <div class="links"><button type="button" class="link" @click="go('signin')">I have an account — sign in</button></div>
       </form>
 

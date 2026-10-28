@@ -93,6 +93,14 @@ Track feature development, improvements, and known issues here. Move completed w
   above it (`useSplitter` `side: 'bottom'`, `powergis.minimapHeight`). The app is one screen tall
   (`App.vue`), the ☰ menu holds Help and Desktop / Phone view, and the footer is one row. Replaces the ⤢
   pop-out window.
+- **Accounts (Supabase, PR 1 of 4)** — ☰ → **Sign in**: create an account with email + password
+  (a confirmation email links back to the app, production or any preview), sign in, **Forgot
+  password?** (a reset email opens the app on *Choose a new password*). Signed in, ☰ shows your
+  name and opens **Your profile**: display name, **Change password** (current one checked first),
+  Sign out. `client/supabase.ts` (project URL + publishable key, committed: public by design),
+  `client/auth.ts` (reactive `auth`, every action answers `null` or a message),
+  `components/account/AccountModal.vue`. The full schema (`supabase/schema.sql`: profiles,
+  datasets registry, dataset_access, workspaces, dataset files bucket, RLS) is in place for PRs 2–4.
 - **Desktop view on a phone** — ☰ menu item (touch devices; remembered on the device): lays the page
   out 1,280 wide and shrinks it to fit (`src/desktopView.ts`, viewport set in `main.ts`; pinch zoom
   stays free), to see and test desktop-only layout on the phone. Turning the phone sideways keeps the
@@ -284,7 +292,18 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    size-capped) for data it collects itself, scout source reports, run records. Options for
    **D1** (fetch + create_dataset, no agent code) and **D2** (agent-written scripts: Managed Agents
    container vs. Pyodide) are written up in `docs/agents.md` → *Next: scouting and scraping*.
-5. **Supabase**: login, the remote store (Move to remote / local for real), storage limits.
+5. **Supabase** (project `rorqzjnwqwlyusagzcxy`; whole schema in `supabase/schema.sql`, already run).
+   Four PRs:
+   1. ~~Accounts~~ (done, see Done): sign up / in, profile, change / reset password.
+   2. **Cloud workspace**: the signed-in user's default workspace saved in `workspaces` (one
+      default per user; more later, one per app tab).
+   3. **Cloud datasets**: Move to cloud storage for real: the registry row in `datasets`, rows as
+      `<id>/data.parquet` in the private `datasets` bucket (DuckDB writes / reads Parquet); the
+      worker carries the session's token; storage limits.
+   4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
+      read / write levels, owner-only removal of write and delete (all enforced by RLS).
+   - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
+     built-in one sends only a few emails an hour.
 
 ### Backlog
 

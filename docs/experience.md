@@ -312,6 +312,23 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Accounts (Supabase, PR 1 of 4) — 2026-10-28
+- **Added:** sign up / sign in with email and password, forgot password (reset email), your profile
+  (display name, change password, sign out) under ☰. The whole Supabase schema for the next three PRs
+  (`supabase/schema.sql`) with its RLS rules.
+- **Decision:** email + password over magic links. Signing in sends no email (the built-in sender
+  allows only a few an hour), and on an iPhone a link from an email opens Safari, not the home-screen
+  app.
+- **Decision:** dataset rows as Parquet files in Storage, not a Postgres table per dataset: the REST
+  layer can't make tables, must be told about each new one, and pages rows ~1,000 at a time; DuckDB
+  reads one Parquet download directly.
+- **Gotcha:** this sandbox's proxy refuses supabase.co (403 on CONNECT), so auth can't be exercised
+  here. The schema was tested on a local Postgres 16 with stand-in `auth.uid()` and `storage`
+  instead; sign-in is checked on the preview.
+- **Gotcha:** an insert's `RETURNING` is checked against the SELECT policy before an AFTER trigger's
+  rows exist — so "see datasets you have access to" also needs `created_by = auth.uid()`, or
+  `.insert().select()` fails for the creator.
+
 ### Explore and setup modes — 2026-10-28
 - **Added:** two page modes. Explore: map first, search above it, export below it; desktop keeps the side
   panel. Setup: one panel headed by List | Graph | ✕, the open item in its own section (right column on
