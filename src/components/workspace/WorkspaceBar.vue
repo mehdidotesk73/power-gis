@@ -20,6 +20,10 @@ const props = defineProps<{
   problems?: number
   /** Signed in: the workspace's uploads kept only on this device. */
   localOnly?: { id: string; name: string }[]
+  /** Cloud datasets of the workspace whose rows changed here and aren't saved to the cloud. */
+  changedInCloud?: { id: string; name: string }[]
+  /** The workspace's cloud datasets. */
+  inCloud?: { id: string; name: string }[]
   counts: { datasets: number; transforms: number; visualizations: number }
 }>()
 const emit = defineEmits<{
@@ -33,6 +37,10 @@ const emit = defineEmits<{
   (e: 'reset'): void
   (e: 'remove-unavailable'): void
   (e: 'show-unavailable'): void
+  /** Review, then store these in the cloud / save these to the cloud / copy these here (BatchPanel). */
+  (e: 'store-all'): void
+  (e: 'save-datasets'): void
+  (e: 'copy-all'): void
 }>()
 
 const open = ref(false)
@@ -154,7 +162,20 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
         <ul>
           <li v-for="d in localOnly" :key="d.id">{{ d.name }}</li>
         </ul>
-        <span class="lo-note">Other devices, and anyone you share with, see these as missing. Storing datasets in the cloud comes next.</span>
+        <span class="lo-note">Other devices, and anyone you share with, see these as missing.</span>
+        <button class="btn" @click="(open = false), emit('store-all')">⇡ Store in the cloud…</button>
+      </div>
+      <div v-if="changedInCloud?.length" class="local-only changed">
+        <span class="lo-title">● Changed here, not saved to the cloud ({{ changedInCloud.length }})</span>
+        <ul>
+          <li v-for="d in changedInCloud" :key="d.id">{{ d.name }}</li>
+        </ul>
+        <span class="lo-note">Other devices see the cloud version until you save these. Saving datasets is separate from saving the workspace.</span>
+        <button class="btn" @click="(open = false), emit('save-datasets')">⇡ Save datasets…</button>
+      </div>
+      <div v-if="inCloud?.length" class="cloud-line">
+        <span>{{ plural(inCloud.length, 'cloud dataset') }} in this workspace</span>
+        <button class="btn" @click="(open = false), emit('copy-all')">⇣ Make local copies…</button>
       </div>
       <div class="row">
         <button class="btn primary" :disabled="!dirty || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
@@ -194,6 +215,20 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 </template>
 
 <style scoped>
+.local-only .btn {
+  align-self: flex-start;
+}
+.local-only.changed .lo-title {
+  color: var(--warn);
+}
+.cloud-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
 .local-only {
   display: flex;
   flex-direction: column;

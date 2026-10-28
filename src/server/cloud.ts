@@ -16,6 +16,7 @@ function tokenUser(token: string): string | undefined {
 }
 
 const BUCKET = 'datasets'
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const COLUMNS = 'id, name, description, columns, row_count, meta, file_path, size_bytes, created_by, updated_at'
 type Row = { id: string; name: string; description: string; columns: unknown; row_count: number; meta: unknown; file_path: string | null; size_bytes: number | null; created_by: string | null; updated_at: string }
 
@@ -43,10 +44,13 @@ export function supabaseCloud(accessToken: string): CloudStore {
   })
   return {
     async datasets(ids) {
+      // Cloud ids are uuids: anything else (a readable id from a document) can't be there, and would fail the query.
+      ids = ids.filter((id) => UUID.test(id))
       if (!ids.length) return []
       return (check(await sb.from('datasets').select(COLUMNS).in('id', ids)) as Row[]).map(asDataset)
     },
     async putDataset(d, file) {
+      if (!UUID.test(d.id)) throw new Error(`"${d.name}" has an id the cloud can't keep (${d.id}); make a local copy first`)
       const have = check(await sb.from('datasets').select('id').eq('id', d.id).maybeSingle())
       if (!have) check(await sb.from('datasets').insert({ id: d.id, name: d.name, description: d.description, columns: d.columns, row_count: d.rowCount, meta: d.meta }))
       const up = await sb.storage.from(BUCKET).upload(filePath(d.id), new Blob([file], { type: DATASET_FILE.contentType }), { upsert: true, contentType: DATASET_FILE.contentType })

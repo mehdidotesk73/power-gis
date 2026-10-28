@@ -317,9 +317,11 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    1. ~~Accounts~~ (done, see Done): sign up / in, profile, change / reset password.
    2. ~~Cloud workspace~~ (done, see Done): Save also stores the signed-in user's default workspace
       (portable: built-ins and transform outputs as templates); other devices open it.
-   3. **Cloud datasets**: Move to cloud storage for real: the registry row in `datasets`, rows as
-      `<id>/data.parquet` in the private `datasets` bucket (DuckDB writes / reads Parquet); the
-      worker carries the session's token; storage limits.
+   3. ~~Cloud datasets~~ (done): the registry row in `datasets` (same id), rows as
+      `<id>/data.arrow.gz` (gzip Arrow, not Parquet: DuckDB-WASM writes Parquet only through an
+      extension every device would download), a copy here; changed here / Save dataset / Discard;
+      conflicts; batch review panels; Make local copy. Later: list cloud datasets that aren't in any
+      workspace here (the dataset finder / agent's `list_datasets`), a storage meter.
    4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
       read / write levels, owner-only removal of write and delete (all enforced by RLS).
    - **Agreed next (before PR 3):** (a) ~~dataset name / description as draft until Save, agent's

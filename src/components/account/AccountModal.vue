@@ -126,7 +126,7 @@ function close() {
         </div>
         <div class="about">
           <p><strong>Without an account</strong>, your workspace and datasets stay only in this browser, on this device. Clearing the browser's data, private browsing or a new device starts you over, and browsers may also clear a site's stored data on their own.</p>
-          <p><strong>With an account</strong>, Save also keeps your workspace in your account, so it opens on any device you sign in on. Datasets you upload stay on the device you uploaded them from for now. <em>Saving datasets to the cloud and sharing them come next.</em></p>
+          <p><strong>With an account</strong>, Save also keeps your workspace in your account, so it opens on any device you sign in on, and you can store datasets in the cloud to use them there too. <em>Sharing datasets with others comes next.</em></p>
         </div>
       </form>
 
@@ -138,7 +138,7 @@ function close() {
         <div class="links"><button type="button" class="link" @click="go('signin')">I have an account — sign in</button></div>
         <div class="about">
           <p><strong>Without an account</strong>, your workspace and datasets stay only in this browser, on this device. Clearing the browser's data, private browsing or a new device starts you over, and browsers may also clear a site's stored data on their own.</p>
-          <p><strong>With an account</strong>, Save also keeps your workspace in your account, so it opens on any device you sign in on. Datasets you upload stay on the device you uploaded them from for now. <em>Saving datasets to the cloud and sharing them come next.</em></p>
+          <p><strong>With an account</strong>, Save also keeps your workspace in your account, so it opens on any device you sign in on, and you can store datasets in the cloud to use them there too. <em>Sharing datasets with others comes next.</em></p>
         </div>
       </form>
 

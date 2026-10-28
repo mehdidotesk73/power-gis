@@ -23,6 +23,8 @@ import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
 import WorkspaceBar from './workspace/WorkspaceBar.vue'
+import BatchPanel, { type BatchItem } from './dataset/BatchPanel.vue'
+import type { CloudAction } from './dataset/DatasetList.vue'
 import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import DagView from './dag/DagView.vue'
@@ -36,7 +38,7 @@ import { auth } from '../client/auth'
 import { readDb } from '../client/db'
 import { listDatasets } from '../client/datasets'
 import { BUILTIN_TABLES } from '../shared/builtins'
-import { storeOf, type DatasetRecord, type WorkspaceRecord } from '../shared/records'
+import { changedHere, storeOf, type DatasetRecord, type WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { newId, ROW_COUNT } from '../lib/dataset/dataset'
@@ -178,8 +180,14 @@ async function save() {
   await saveToCloud()
   // Signed in, say what other devices (and anyone it's shared with) won't have.
   const local = localOnly.value
-  if (local.length && !barMessage.value) {
-    barMessage.value = `Saved. ${local.length === 1 ? '1 dataset is' : `${local.length} datasets are`} only on this device (${local.map((d) => `"${d.name}"`).join(', ')}): other devices, and anyone you share with, will see ${local.length === 1 ? 'it' : 'them'} as missing.`
+  const changed = changedInCloud.value
+  if ((local.length || changed.length) && !barMessage.value) {
+    const quote = (l: { name: string }[]) => l.map((d) => `"${d.name}"`).join(', ')
+    barMessage.value = [
+      'Saved.',
+      local.length ? `${local.length === 1 ? '1 dataset is' : `${local.length} datasets are`} only on this device (${quote(local)}): other devices, and anyone you share with, will see ${local.length === 1 ? 'it' : 'them'} as missing.` : '',
+      changed.length ? `${changed.length === 1 ? '1 cloud dataset has' : `${changed.length} cloud datasets have`} changes made here that aren't saved to the cloud (${quote(changed)}): other devices see the cloud version until you save ${changed.length === 1 ? 'it' : 'them'}.` : '',
+    ].filter(Boolean).join(' ')
   }
 }
 
@@ -538,6 +546,130 @@ const waitingOn = (root: string) => ({
 /** Uploads kept only on this device (signed in, they're what other devices and other people won't have). */
 const localOnly = computed(() => (auth.user ? onlyOnThisDevice(doc.value, (id) => records.value.get(id)) : []))
 const problemCount = computed(() => unav.value.datasets.size + unav.value.transforms.size + unav.value.visualizations.size)
+
+// ── cloud datasets ─────────────────────────────────────────────────────────
+// A dataset stored in the cloud keeps its id and a copy here. Rows changed
+// here (a transform rewrote it) stay here until Save dataset uploads them, or
+// Discard local changes takes the cloud's back: saving datasets is its own
+// act, apart from saving the workspace. One dataset's action runs at once;
+// several at once (Store all, Save datasets, Make local copies) are reviewed
+// first in a BatchPanel: each with what will happen, Continue or Skip.
+
+const SIGN_IN = 'Sign in (☰ → Sign in) to use cloud storage.'
+/** Short notes on dataset cards (a cloud action's outcome). */
+const datasetNotes = ref(new Map<string, string>())
+const noteOn = (id: string, text: string) => void (datasetNotes.value = new Map(datasetNotes.value).set(id, text))
+function dismissNote(id: string) {
+  const m = new Map(datasetNotes.value)
+  m.delete(id)
+  datasetNotes.value = m
+}
+const brief = (d: DatasetRecord) => ({ id: d.id, name: d.name })
+/** The workspace's cloud datasets, and those with changes here not saved to the cloud. */
+const inCloud = computed(() => datasets.value.filter((d) => storeOf(d) === 'remote').map(brief))
+const changedInCloud = computed(() => datasets.value.filter(changedHere).map(brief))
+const rows = (id: string) => (records.value.get(id)?.rowCount ?? 0).toLocaleString()
+
+/** Stores a dataset in the cloud, or saves its changes; asks before overwriting a newer cloud version. */
+async function storeOne(id: string, overwrite = false): Promise<{ ok: boolean; message: string }> {
+  const name = records.value.get(id)?.name ?? id
+  let r = await request('storeInCloud', { id, overwrite })
+  if (!r.ok && r.error.code === 'conflict' && !overwrite) {
+    if (!confirm(`"${name}" changed in the cloud since this device got it. Overwrite the cloud's version with this device's?\n\nCancel keeps your changes here, unsaved (Discard local changes takes the cloud's).`)) {
+      return { ok: false, message: 'Not saved: the cloud has a newer version.' }
+    }
+    r = await request('storeInCloud', { id, overwrite: true })
+  }
+  await loadRecord(id)
+  return r.ok ? { ok: true, message: 'Saved to the cloud ✓' } : { ok: false, message: r.error.message }
+}
+
+/** A local copy of a dataset that this workspace then uses instead (a draft edit, like Replace). */
+async function copyHere(id: string): Promise<{ ok: boolean; message: string }> {
+  const r = await request('copyToLocal', { id })
+  if (!r.ok) return { ok: false, message: r.error.message }
+  const copy = r.data.datasetId
+  await loadRecord(copy)
+  const op = replaceDataset_(doc.value, id, copy)
+  if (op.ok) apply(op)
+  noteOn(copy, 'A local copy: this workspace uses it now (Save keeps that).')
+  return { ok: true, message: 'Copied to this device ✓ — this workspace uses the copy' }
+}
+
+async function cloudAction(action: CloudAction, id: string) {
+  const ds = records.value.get(id)
+  if (!ds) return
+  if (action === 'copy') {
+    const r = await copyHere(id)
+    if (!r.ok) noteOn(id, r.message)
+    return
+  }
+  if (!auth.user) return noteOn(id, SIGN_IN)
+  if (action === 'discard') {
+    if (!confirm(`Discard the changes made on this device to "${ds.name}" and take the cloud's version back?`)) return
+    const r = await request('fetchFromCloud', { id })
+    await loadRecord(id)
+    return noteOn(id, r.ok ? "Took the cloud's version back ✓" : r.error.message)
+  }
+  const r = await storeOne(id)
+  noteOn(id, r.ok && action === 'store' ? 'Stored in the cloud ✓ — other devices can open it' : r.message)
+}
+
+type BatchKind = 'store' | 'save' | 'copy'
+const batch = ref<{ kind: BatchKind; title: string; intro: string; verb: string; items: BatchItem[]; running: boolean } | null>(null)
+
+async function openBatch(kind: BatchKind) {
+  if (kind !== 'copy' && !auth.user) return void (barMessage.value = SIGN_IN)
+  const list = kind === 'store' ? localOnly.value : kind === 'save' ? changedInCloud.value : inCloud.value
+  let items: BatchItem[] = list.map((d) => ({
+    ...d,
+    go: true,
+    note:
+      kind === 'store'
+        ? `Upload ${rows(d.id)} rows. This device keeps its copy; other devices can open it.`
+        : kind === 'save'
+          ? `Upload the changes made here (${rows(d.id)} rows). Other devices then get them.`
+          : `A copy on this device (${rows(d.id)} rows); this workspace uses the copy instead. The cloud one stays as it is.`,
+  }))
+  if (kind === 'save') {
+    // What changed in the cloud since this device got it: overwriting it is a choice, so those start as Skip.
+    const r = await request('cloudStatus', { ids: list.map((d) => d.id) })
+    if (!r.ok) return void (barMessage.value = `Couldn't check the cloud: ${r.error.message}`)
+    items = items.map((it) => {
+      const s = r.data.datasets.find((x) => x.id === it.id)?.state
+      if (s === 'cloudNewer') return { ...it, go: false, warn: 'Changed in the cloud since this device got it: Continue overwrites that version with this one.' }
+      if (s === 'gone') return { ...it, warn: 'No longer in the cloud: Continue stores it there again.' }
+      return it
+    })
+  }
+  batch.value = {
+    kind,
+    items,
+    running: false,
+    ...(kind === 'store'
+      ? { title: 'Store in the cloud', intro: "These datasets are only on this device. Stored in the cloud, they're on every device you sign in on.", verb: 'Store {n} in the cloud' }
+      : kind === 'save'
+        ? { title: 'Save datasets to the cloud', intro: 'These cloud datasets changed on this device. Until they are saved, other devices see the cloud version.', verb: 'Save {n} to the cloud' }
+        : { title: 'Make local copies', intro: "Copies on this device of this workspace's cloud datasets. The workspace uses the copies (a draft until you Save); the cloud datasets stay as they are.", verb: 'Copy {n} here' }),
+  }
+}
+
+async function runBatch() {
+  const b = batch.value
+  if (!b) return
+  b.running = true
+  for (const it of b.items) {
+    if (!it.go || it.blocked) {
+      it.status = 'skipped'
+      continue
+    }
+    it.status = 'running'
+    const r = b.kind === 'copy' ? await copyHere(it.id) : await request('storeInCloud', { id: it.id, overwrite: !!it.warn }).then(async (x) => (await loadRecord(it.id), x.ok ? { ok: true, message: b.kind === 'store' ? 'Stored ✓' : 'Saved ✓' } : { ok: false, message: x.error.code === 'conflict' ? 'Changed in the cloud meanwhile: not saved (try again to see it).' : x.error.message }))
+    it.status = r.ok ? 'done' : 'failed'
+    it.result = r.message
+  }
+  b.running = false
+}
 
 /** The transform writing a dataset, by name (an output can't be replaced: its transform would overwrite it). */
 const writtenBy = (id: string) => doc.value.transforms.find((t) => t.outputs.some((o) => o.outputId === id))?.name
@@ -1051,6 +1183,11 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :where="savedWhere"
           :problems="problemCount"
           :local-only="localOnly"
+          :changed-in-cloud="changedInCloud"
+          :in-cloud="inCloud"
+          @store-all="openBatch('store')"
+          @save-datasets="openBatch('save')"
+          @copy-all="openBatch('copy')"
           @remove-unavailable="removeUnavailable"
           @show-unavailable="showUnavailable"
           :counts="{ datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length }"
@@ -1131,7 +1268,9 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
             @remove="removeDataset"
             @delete="deleteDataset"
-            @changed="loadRecord"
+            :notes="datasetNotes"
+            @cloud="cloudAction"
+            @dismiss-note="dismissNote"
             @reorder="reorderDatasets"
             @update="updateDataset"
             @replace="replaceDataset"
@@ -1212,7 +1351,9 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
             @remove="removeDataset"
             @delete="deleteDataset"
-            @changed="loadRecord"
+            :notes="datasetNotes"
+            @cloud="cloudAction"
+            @dismiss-note="dismissNote"
             @reorder="reorderDatasets"
             @update="updateDataset"
             @replace="replaceDataset"
@@ -1341,6 +1482,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       @dblclick="assist.reset"
     />
     <AgentPanel v-show="assistantOpen" class="assistant-col" :host="agentHost" @close="assistantOpen = false" />
+    <BatchPanel v-if="batch" :title="batch.title" :intro="batch.intro" :verb="batch.verb" :items="batch.items" :running="batch.running" @proceed="runBatch" @close="batch = null" />
   </div>
 </template>
 

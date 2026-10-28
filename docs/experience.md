@@ -312,6 +312,22 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Cloud datasets (Supabase, PR 3 of 4) — 2026-10-28
+
+- **Added:** signed in, **Move to cloud storage** keeps a dataset in your account (same id, rows as a
+  compressed file) and a copy on this device; other devices download it when they open the workspace,
+  and catch up with newer versions.
+- **Added:** a cloud dataset rewritten here is **Cloud · changed here** until **Save dataset to the
+  cloud** or **Discard local changes**; saving asks before overwriting a newer cloud version.
+  **Make a local copy**; deleting a cloud dataset deletes it from the cloud; deleting the account
+  removes your cloud files.
+- **Added:** batch actions (Store in the cloud…, Save datasets…, Make local copies…) open a review
+  panel: each dataset with what will happen, Continue / Skip, then Proceed; results per line.
+- **Dead end:** Parquet files. DuckDB-WASM reads and writes Parquet only through its parquet
+  extension (not built in; autoload is off on purpose), which every device would download, and this
+  sandbox can't reach DuckDB's extension server to test it. Rows go as gzip-compressed Arrow IPC
+  instead: columnar, small, and read without the SQL engine.
+
 ### Dataset details as a draft — 2026-10-28
 
 - **Changed:** a dataset's new name and description are an unsaved change like any workspace edit:

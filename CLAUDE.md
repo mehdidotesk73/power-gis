@@ -131,8 +131,8 @@ whatever they're actually asking about.
   `datasetIds`, ordered `visualizationIds`), `datasets` (registry: data table name, columns, row
   count, origin, description, `extensions`), `transforms` (SQL, inputs `{datasetId, alias}`, output
   id), `visualizations` (dataset id + settings). **Each dataset is its own data table**
-  (`ds_<uuid>`). **Stores**: `DatasetRecord.store` `local` (this device) | `remote` (Supabase, later;
-  `moveDataset` says it isn't available yet), missing = local; **users see "Local" / "Cloud"** — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
+  (`ds_<uuid>`). **Stores**: `DatasetRecord.store` `local` (this device) | `remote` (cloud: Supabase, with a
+  copy of the rows here; `DatasetRecord.cloud` = `{version, changed?}`), missing = local; **users see "Local" / "Cloud"** — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
   properties**.
 - **Assistant (agents)** (`docs/agents.md`): **✦ Assistant** in the header opens a chat with the
   dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
@@ -168,8 +168,19 @@ whatever they're actually asking about.
   sign-in on the preview. **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
   token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
   the workspace **document** (+ `overviewOf` text) and the page opens a newer one on load / sign-in
-  (`catchUpWithCloud` → `openDocument`). Next: cloud
-  datasets, sharing (`docs/TODO.md`).
+  (`catchUpWithCloud` → `openDocument`). **Cloud datasets**: same id in the cloud's `datasets`
+  table, rows as `<id>/data.arrow.gz` in the private bucket (`server/datasetFile.ts`: gzip Arrow IPC,
+  read without DuckDB — Parquet needs a DuckDB extension download); this device keeps its copy.
+  Requests `storeInCloud` (store, or save changes; `conflict` when the cloud's version moved on, unless
+  `overwrite`), `fetchFromCloud` (download / newer version / discard local changes), `copyToLocal`,
+  `cloudStatus`. A transform rewriting a cloud dataset marks it **Cloud · changed here**
+  (`cloud.changed`) until **Save dataset** or **Discard local changes** — saving datasets is apart
+  from saving the workspace (Save notes unsaved ones). `openDocument` downloads cloud datasets not
+  here and catches up older copies. Several at once — **Store in the cloud…**, **Save datasets…**,
+  **Make local copies…** (Workspace panel) — open a **review panel** first (`dataset/BatchPanel.vue`:
+  each dataset with what will happen, Continue / Skip, then Proceed; results per line). A local copy
+  replaces the cloud dataset in the workspace (a draft). Delete removes it from the cloud (owner);
+  delete account removes your files first. 50 MB a file (`MAX_CLOUD_FILE`). Next: sharing (`docs/TODO.md`).
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
     device files, in-memory tables, ArcGIS features via `featureTable`).
@@ -312,7 +323,8 @@ whatever they're actually asking about.
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
-  Menus: datasets — Explore, Edit, Copy id, Move to cloud storage, Reorder, Remove from workspace,
+  Menus: datasets — Explore, Edit, Copy id, Move to cloud storage (a cloud one: Make a local copy;
+  changed here: also Save dataset to the cloud, Discard local changes), Reorder, Remove from workspace,
   Delete dataset; visualizations
   (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
   data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**

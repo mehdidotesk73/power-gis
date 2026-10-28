@@ -10,6 +10,7 @@ import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { logDebug } from '../debug'
 import { request } from './api'
+import { cloudFilePath } from '../shared/cloud'
 
 export interface Profile {
   id: string
@@ -136,7 +137,13 @@ export async function deleteAccount(password: string): Promise<string | null> {
   if (!email) return 'Sign in first.'
   const check = await supabase.auth.signInWithPassword({ email, password })
   if (check.error) return /invalid login credentials/i.test(check.error.message) ? 'Your password is wrong.' : fail('checking your password', check.error)
-  // Cloud datasets' files go first once they exist (PR 3): storage deletes go through its API.
+  // Your cloud datasets' files go first: the database can't delete storage files itself.
+  const mine = await supabase.from('datasets').select('id').eq('created_by', auth.user!.id)
+  if (mine.error) return fail('listing your cloud datasets', mine.error)
+  if (mine.data.length) {
+    const gone = await supabase.storage.from('datasets').remove(mine.data.map((d) => cloudFilePath(d.id)))
+    if (gone.error) return fail("deleting your cloud datasets' files", gone.error)
+  }
   const { error } = await supabase.rpc('delete_my_account')
   if (error) return fail('deleting the account', error)
   // The account is gone on the server; forget the session here.

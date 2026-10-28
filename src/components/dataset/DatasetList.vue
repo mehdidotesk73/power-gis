@@ -1,15 +1,21 @@
+<script lang="ts">
+/** What the cloud actions on a dataset are. */
+export type CloudAction = 'store' | 'save' | 'discard' | 'copy'
+</script>
+
 <script setup lang="ts">
 // The workspace's datasets: tables in the database, by pointer, as cards in
 // an ObjectList. Hold a card (right-click with a mouse) for Explore (a SQL
 // window over it, ExploreModal), Edit (rename / describe — a server request — and the profile),
-// Copy id (paste it into a transform's input search), Move to remote / local
-// storage, Reorder, Remove (out of the workspace — the table stays in the
-// database) and Delete (the table itself).
+// Copy id (paste it into a transform's input search), the cloud actions (Move
+// to cloud storage; for a cloud dataset Make a local copy, and when its rows
+// changed here Save dataset / Discard local changes — the page does them),
+// Reorder, Remove (out of the workspace — the table stays in the database) and
+// Delete (the table itself).
 import { ref } from 'vue'
 import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
 import ExploreModal from './ExploreModal.vue'
-import { request } from '../../client/api'
-import { storeOf, type DatasetRecord } from '../../shared/records'
+import { changedHere, storeOf, type DatasetRecord } from '../../shared/records'
 import { useDetailTarget } from '../detailTarget'
 import { vReveal } from '../reveal'
 import DatasetEditor from './DatasetEditor.vue'
@@ -23,13 +29,16 @@ const props = defineProps<{
   tables?: DatasetRecord[]
   /** The transform that writes a dataset, if one does (such a dataset can't be replaced: the transform would overwrite it). */
   writtenBy?: (id: string) => string | undefined
+  /** A short note on a dataset's card (a cloud action's outcome), by id. */
+  notes?: Map<string, string>
 }>()
 const emit = defineEmits<{
   (e: 'remove', id: string): void
   /** Delete the dataset from the database (the page confirms and updates the workspace). */
   (e: 'delete', id: string): void
-  /** The dataset record changed on the server (moved). */
-  (e: 'changed', id: string): void
+  /** A cloud action on a dataset: store it, save its changes, take the cloud's back, or copy it here. */
+  (e: 'cloud', action: CloudAction, id: string): void
+  (e: 'dismiss-note', id: string): void
   (e: 'reorder', ids: string[]): void
   (e: 'update', id: string, patch: { name?: string; description?: string }): void
   /** Put another dataset (one here, or a new upload) in this one's place in the workspace. */
@@ -40,11 +49,19 @@ const editing = ref<string | null>(null)
 /** Desktop setup mode: the editor (and Explore) open in the page's right column. */
 const detailTarget = useDetailTarget()
 
+const CLOUD_ACTIONS: Record<CloudAction, ObjectAction> = {
+  store: { id: 'store', icon: '⇡', label: 'Move to cloud storage' },
+  save: { id: 'save', icon: '⇡', label: 'Save dataset to the cloud' },
+  discard: { id: 'discard', icon: '↺', label: 'Discard local changes' },
+  copy: { id: 'copy-local', icon: '⇣', label: 'Make a local copy' },
+}
+const cloudActions = (ds: DatasetRecord): ObjectAction[] =>
+  storeOf(ds) === 'local' ? [CLOUD_ACTIONS.store] : changedHere(ds) ? [CLOUD_ACTIONS.save, CLOUD_ACTIONS.discard, CLOUD_ACTIONS.copy] : [CLOUD_ACTIONS.copy]
 const actions = (ds: DatasetRecord): ObjectAction[] => [
   { id: 'explore', icon: '▤', label: 'Explore' },
   { id: 'edit', icon: '✎', label: editing.value === ds.id ? 'Close edit' : 'Edit' },
   { id: 'copy', icon: '⧉', label: 'Copy id' },
-  storeOf(ds) === 'local' ? { id: 'move', icon: '⇡', label: 'Move to cloud storage' } : { id: 'move', icon: '⇣', label: 'Move to this device' },
+  ...cloudActions(ds),
   { id: 'remove', icon: '✕', label: 'Remove from workspace', danger: true },
   { id: 'delete', icon: '⊗', label: 'Delete dataset', danger: true },
 ]
@@ -52,20 +69,10 @@ function onAction(id: string, ds: DatasetRecord) {
   if (id === 'explore') exploring.value = ds
   else if (id === 'edit') editing.value = editing.value === ds.id ? null : ds.id
   else if (id === 'copy') copyId(ds.id)
-  else if (id === 'move') move(ds)
+  else if (id === 'store' || id === 'save' || id === 'discard') emit('cloud', id, ds.id)
+  else if (id === 'copy-local') emit('cloud', 'copy', ds.id)
   else if (id === 'remove') emit('remove', ds.id)
   else if (id === 'delete') emit('delete', ds.id)
-}
-
-// ── move between stores ────────────────────────────────────────────────────
-
-/** A short note on a card (a move's outcome). */
-const notes = ref(new Map<string, string>())
-async function move(ds: DatasetRecord) {
-  const to = storeOf(ds) === 'local' ? 'remote' : 'local'
-  const r = await request('moveDataset', { id: ds.id, to })
-  notes.value = new Map(notes.value).set(ds.id, r.ok ? `Moved to ${to === 'remote' ? 'cloud storage' : 'this device'} ✓` : r.error.message)
-  if (r.ok) emit('changed', ds.id)
 }
 
 // ── copy a dataset id ──────────────────────────────────────────────────────
@@ -112,13 +119,18 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
         <strong>{{ ds.name }}</strong>
         <span v-if="ds.description" class="desc">{{ ds.description }}</span>
         <span class="muted">
-          <span class="store" :class="storeOf(ds)" :title="storeOf(ds) === 'local' ? 'Kept on this device' : 'Kept in cloud storage'">{{ storeOf(ds) === 'local' ? 'Local' : 'Cloud' }}</span>
+          <span
+            class="store"
+            :class="[storeOf(ds), { changed: changedHere(ds) }]"
+            :title="storeOf(ds) === 'local' ? 'Kept on this device' : changedHere(ds) ? 'In cloud storage, with changes made here that aren\'t saved to the cloud yet' : 'Kept in cloud storage (with a copy here)'"
+            >{{ storeOf(ds) === 'local' ? 'Local' : changedHere(ds) ? '● Cloud · changed here' : 'Cloud' }}</span
+          >
           {{ stats(ds) }} · {{ ds.origin }}
         </span>
         <span v-if="copied === ds.id" class="copied">Id copied ✓</span>
-        <span v-if="notes.get(ds.id)" class="note">
+        <span v-if="notes?.get(ds.id)" class="note">
           {{ notes.get(ds.id) }}
-          <button class="dismiss" aria-label="Dismiss" @click.stop="notes = new Map([...notes].filter(([k]) => k !== ds.id))">✕</button>
+          <button class="dismiss" aria-label="Dismiss" @click.stop="emit('dismiss-note', ds.id)">✕</button>
         </span>
       </div>
       <Teleport defer :to="detailTarget ?? 'body'" :disabled="!!compact || !detailTarget">
@@ -160,6 +172,10 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
 .store.remote {
   border-color: var(--kind-dataset);
   color: var(--kind-dataset);
+}
+.store.changed {
+  border-color: var(--warn);
+  color: var(--warn);
 }
 .note {
   display: flex;
