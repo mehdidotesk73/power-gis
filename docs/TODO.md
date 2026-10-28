@@ -94,11 +94,12 @@ Track feature development, improvements, and known issues here. Move completed w
   (`App.vue`), the ☰ menu holds Help and Desktop / Phone view, and the footer is one row. Replaces the ⤢
   pop-out window.
 - **Cloud workspace (Supabase, PR 2 of 4)** — signed in, **Save** also stores the workspace in
-  the account (`saveCloudWorkspace`), made portable (`toTemplate`: built-ins → `builtin:<table>`,
-  outputs → `transform:<n>.<m>`, outputs marked `madeBy` here). On load and sign-in the page catches up
-  (`catchUpWithCloud`): an account with no workspace gets this device's; a newer one opens
-  (`openTemplate`: built-ins uploaded or reused, transforms run in dependency order or reused by mark),
-  asking first over unsaved changes. The worker reaches Supabase with the user's token (`setAuth`,
+  the account (`saveCloudWorkspace`: the v2 document + its overview). Documents (v2) carry each
+  dataset's facts (name, store, rows, origin), so opening anywhere (`openDocument`) uses what's here,
+  rebuilds built-ins and outputs (reused when a copy has the same SQL), and names what's missing and
+  why. Copy / Paste and Download / Load carry the same document; v1 files still open. On load and
+  sign-in the page catches up (`catchUpWithCloud`): an account with no workspace gets this device's; a
+  newer one opens, asking first over unsaved changes. The worker reaches Supabase with the user's token (`setAuth`,
   `server/cloud.ts`). The Workspace panel says where changes are saved.
 - **Accounts (Supabase, PR 1 of 4)** — ☰ → **Sign in**: create an account with email + password
   (a confirmation email links back to the app, production or any preview), sign in, **Forgot
@@ -311,6 +312,13 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
       worker carries the session's token; storage limits.
    4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
       read / write levels, owner-only removal of write and delete (all enforced by RLS).
+   - **Agreed next (before PR 3):** (a) dataset name / description become draft until Save, like
+     everything but data; the agent edits them in `datasets.json` (name, description editable;
+     id, store, rows, origin read-only) and `update_dataset` goes for those fields. (b) the agent's
+     files become the file form of the v2 document (+ `datasets.json`, full visualization settings),
+     and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) a
+     workspace saved on a device missing some datasets drops them (and what uses them) from the
+     account's copy — keep them as unavailable entries that ride along instead.
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's

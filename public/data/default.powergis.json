@@ -1,189 +1,78 @@
 {
   "format": "powergis-workspace",
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-10-26T00:00:00.000Z",
   "name": "PowerGIS",
   "datasetIds": [
-    "transform:0",
-    "builtin:utilities",
-    "builtin:utility_counties",
-    "builtin:us_counties",
-    "builtin:us_states"
+    "default-utilities-by-county",
+    "default-utilities",
+    "default-utility-counties",
+    "default-us-counties",
+    "default-us-states"
   ],
-  "visualizations": [
+  "datasets": [
     {
-      "name": "State borders",
-      "datasetId": "builtin:us_states",
-      "settings": {
-        "kind": "scalar",
-        "visible": false,
-        "binding": {
-          "kind": "geometry",
-          "column": "geometry",
-          "label": "name"
-        },
-        "column": "__rows",
-        "aggregation": "count",
-        "style": {
-          "color": {
-            "kind": "constant",
-            "color": "#000000"
-          },
-          "opacity": {
-            "kind": "constant",
-            "value": 0
-          },
-          "pattern": {
-            "kind": "none"
-          },
-          "outline": {
-            "color": "#c3cbdc",
-            "width": 1.2,
-            "opacity": 0.9
-          }
-        }
+      "id": "default-utilities-by-county",
+      "name": "Utilities by county",
+      "store": "local",
+      "origin": {
+        "kind": "output",
+        "transform": "default-t1",
+        "output": "o1"
       }
     },
     {
-      "name": "Co-op present (hatch)",
-      "datasetId": "transform:0",
-      "settings": {
-        "kind": "scalar",
-        "visible": false,
-        "binding": {
-          "kind": "geometry",
-          "column": "geometry",
-          "label": "county"
-        },
-        "column": "cooperative",
-        "aggregation": "any",
-        "style": {
-          "color": {
-            "kind": "constant",
-            "color": "#000000"
-          },
-          "opacity": {
-            "kind": "constant",
-            "value": 0
-          },
-          "pattern": {
-            "kind": "field",
-            "field": "_value",
-            "patterns": {
-              "true": "hatch"
-            },
-            "color": "#e7eaf3",
-            "opacity": 0.9
-          },
-          "outline": {
-            "color": "#ffffff",
-            "width": 0,
-            "opacity": 0
-          }
-        }
+      "id": "default-utilities",
+      "name": "EIA-861 utilities",
+      "store": "local",
+      "origin": {
+        "kind": "builtin",
+        "table": "utilities"
       }
     },
     {
-      "name": "Most common ownership",
-      "datasetId": "transform:0",
-      "settings": {
-        "kind": "scalar",
-        "visible": false,
-        "binding": {
-          "kind": "geometry",
-          "column": "geometry",
-          "label": "county"
-        },
-        "column": "entity_type",
-        "aggregation": "mode",
-        "style": {
-          "color": {
-            "kind": "categorical",
-            "field": "_value",
-            "colors": {
-              "Investor Owned": "#4e79a7",
-              "Cooperative": "#59a14f",
-              "Municipal": "#f28e2b",
-              "Political Subdivision": "#edc948",
-              "State": "#b07aa1",
-              "Federal": "#e15759",
-              "Municipal Mktg Authority": "#ff9da7",
-              "Community Choice Aggregator": "#76b7b2",
-              "Retail Power Marketer": "#9c755f",
-              "Wholesale Power Marketer": "#c9b18f",
-              "Transmission": "#8cd17d",
-              "Behind the Meter": "#d4a6c8",
-              "Unknown": "#bab0ac"
-            }
-          },
-          "opacity": {
-            "kind": "constant",
-            "value": 0.75
-          },
-          "pattern": {
-            "kind": "none"
-          },
-          "outline": {
-            "color": "#0b0f18",
-            "width": 0.3,
-            "opacity": 0.6
-          }
-        }
+      "id": "default-utility-counties",
+      "name": "EIA-861 utility ↔ county links",
+      "store": "local",
+      "origin": {
+        "kind": "builtin",
+        "table": "utility_counties"
       }
     },
     {
-      "name": "Number of utilities",
-      "datasetId": "transform:0",
-      "settings": {
-        "kind": "scalar",
-        "visible": true,
-        "binding": {
-          "kind": "geometry",
-          "column": "geometry",
-          "label": "county"
-        },
-        "column": "utility_id_eia",
-        "aggregation": "count",
-        "style": {
-          "color": {
-            "kind": "colormap",
-            "field": "_value",
-            "colormap": "viridis",
-            "domain": [
-              0,
-              10
-            ]
-          },
-          "opacity": {
-            "kind": "constant",
-            "value": 0.75
-          },
-          "pattern": {
-            "kind": "none"
-          },
-          "outline": {
-            "color": "#0b0f18",
-            "width": 0.3,
-            "opacity": 0.6
-          }
-        }
+      "id": "default-us-counties",
+      "name": "US counties",
+      "store": "local",
+      "origin": {
+        "kind": "builtin",
+        "table": "us_counties"
+      }
+    },
+    {
+      "id": "default-us-states",
+      "name": "US states",
+      "store": "local",
+      "origin": {
+        "kind": "builtin",
+        "table": "us_states"
       }
     }
   ],
   "transforms": [
     {
+      "id": "default-t1",
       "name": "Utilities by county",
       "inputs": [
         {
-          "datasetId": "builtin:us_counties",
+          "datasetId": "default-us-counties",
           "alias": "counties"
         },
         {
-          "datasetId": "builtin:utility_counties",
+          "datasetId": "default-utility-counties",
           "alias": "links"
         },
         {
-          "datasetId": "builtin:utilities",
+          "datasetId": "default-utilities",
           "alias": "utilities"
         }
       ],
@@ -192,9 +81,165 @@
           "key": "o1",
           "name": "Utilities by county",
           "sql": "-- Each county with the utilities serving it (one row per link); counties no utility reports keep one empty row.\nSELECT c.geometry, c.name AS county, c.fips AS county_fips, c.state,\n  u.utility_id_eia, u.utility_name, u.entity_type,\n  u.entity_type = 'Cooperative' AS cooperative\nFROM counties c\nLEFT JOIN links l ON l.county_fips = c.fips\nLEFT JOIN utilities u ON u.utility_id_eia = l.utility_id_eia\nORDER BY c.fips, u.utility_name",
-          "outputId": "transform:0"
+          "outputId": "default-utilities-by-county"
         }
       ]
+    }
+  ],
+  "visualizations": [
+    {
+      "id": "default-v1",
+      "name": "State borders",
+      "datasetId": "default-us-states",
+      "kind": "scalar",
+      "visible": false,
+      "binding": {
+        "kind": "geometry",
+        "column": "geometry",
+        "label": "name"
+      },
+      "column": "__rows",
+      "aggregation": "count",
+      "style": {
+        "color": {
+          "kind": "constant",
+          "color": "#000000"
+        },
+        "opacity": {
+          "kind": "constant",
+          "value": 0
+        },
+        "pattern": {
+          "kind": "none"
+        },
+        "outline": {
+          "color": "#c3cbdc",
+          "width": 1.2,
+          "opacity": 0.9
+        }
+      }
+    },
+    {
+      "id": "default-v2",
+      "name": "Co-op present (hatch)",
+      "datasetId": "default-utilities-by-county",
+      "kind": "scalar",
+      "visible": false,
+      "binding": {
+        "kind": "geometry",
+        "column": "geometry",
+        "label": "county"
+      },
+      "column": "cooperative",
+      "aggregation": "any",
+      "style": {
+        "color": {
+          "kind": "constant",
+          "color": "#000000"
+        },
+        "opacity": {
+          "kind": "constant",
+          "value": 0
+        },
+        "pattern": {
+          "kind": "field",
+          "field": "_value",
+          "patterns": {
+            "true": "hatch"
+          },
+          "color": "#e7eaf3",
+          "opacity": 0.9
+        },
+        "outline": {
+          "color": "#ffffff",
+          "width": 0,
+          "opacity": 0
+        }
+      }
+    },
+    {
+      "id": "default-v3",
+      "name": "Most common ownership",
+      "datasetId": "default-utilities-by-county",
+      "kind": "scalar",
+      "visible": false,
+      "binding": {
+        "kind": "geometry",
+        "column": "geometry",
+        "label": "county"
+      },
+      "column": "entity_type",
+      "aggregation": "mode",
+      "style": {
+        "color": {
+          "kind": "categorical",
+          "field": "_value",
+          "colors": {
+            "Investor Owned": "#4e79a7",
+            "Cooperative": "#59a14f",
+            "Municipal": "#f28e2b",
+            "Political Subdivision": "#edc948",
+            "State": "#b07aa1",
+            "Federal": "#e15759",
+            "Municipal Mktg Authority": "#ff9da7",
+            "Community Choice Aggregator": "#76b7b2",
+            "Retail Power Marketer": "#9c755f",
+            "Wholesale Power Marketer": "#c9b18f",
+            "Transmission": "#8cd17d",
+            "Behind the Meter": "#d4a6c8",
+            "Unknown": "#bab0ac"
+          }
+        },
+        "opacity": {
+          "kind": "constant",
+          "value": 0.75
+        },
+        "pattern": {
+          "kind": "none"
+        },
+        "outline": {
+          "color": "#0b0f18",
+          "width": 0.3,
+          "opacity": 0.6
+        }
+      }
+    },
+    {
+      "id": "default-v4",
+      "name": "Number of utilities",
+      "datasetId": "default-utilities-by-county",
+      "kind": "scalar",
+      "visible": true,
+      "binding": {
+        "kind": "geometry",
+        "column": "geometry",
+        "label": "county"
+      },
+      "column": "utility_id_eia",
+      "aggregation": "count",
+      "style": {
+        "color": {
+          "kind": "colormap",
+          "field": "_value",
+          "colormap": "viridis",
+          "domain": [
+            0,
+            10
+          ]
+        },
+        "opacity": {
+          "kind": "constant",
+          "value": 0.75
+        },
+        "pattern": {
+          "kind": "none"
+        },
+        "outline": {
+          "color": "#0b0f18",
+          "width": 0.3,
+          "opacity": 0.6
+        }
+      }
     }
   ]
 }

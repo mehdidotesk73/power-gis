@@ -166,8 +166,8 @@ whatever they're actually asking about.
   reach supabase.co: test the SQL on a local Postgres (`/usr/lib/postgresql/16`) with stand-ins, and
   sign-in on the preview. **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
   token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
-  a portable copy (`toTemplate`: `builtin:` / `transform:` pointers, outputs marked `madeBy`) and the
-  page opens a newer one on load / sign-in (`catchUpWithCloud` → `openTemplate`). Next: cloud
+  the workspace **document** (+ `overviewOf` text) and the page opens a newer one on load / sign-in
+  (`catchUpWithCloud` → `openDocument`). Next: cloud
   datasets, sharing (`docs/TODO.md`).
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
@@ -267,14 +267,22 @@ whatever they're actually asking about.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
   basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
   the trailing run of symbol layers; labels repainted light with a dark halo).
-- **Default workspace** (`public/data/default.powergis.json`): a workspace file whose pointers are
-  placeholders — `builtin:<table>` and `transform:<n>` (the n-th transform's first output;
-  `transform:<n>.<m>` its m-th). `seedDefault`
-  (`MapPage.vue`) uploads or reuses the built-ins, runs the transforms (reusing an output marked
-  `extensions.madeBy` with the same SQL + inputs; the first run loads DuckDB), swaps in the ids
-  (`replacePointers`, `lib/workspace/file.ts`) — all on the server (`seedDefaultWorkspace`; the worker
-  reads the file) — and the page opens it like a loaded file. Changing the default
-  map = editing that file. Every dataset's click panel shows its rows (`FeatureRows`).
+- **Workspace documents (format v2, `lib/workspace/file.ts`)**: what Copy / Paste, Download / Load,
+  the cloud and the default map carry — the setup (dataset pointers, transforms with SQL,
+  visualizations with all settings) plus **facts for every dataset pointed at** (`datasets`: id, name,
+  description, store, rows, `origin` builtin | output | upload | unknown, `sameAs`), never rows.
+  `toWorkspaceFile(doc, record)` makes one; `parseWorkspaceFile` validates (v1 is read and converted);
+  **`openDocument`** (server) makes ids real on this device: present (by id, `sameAs`, or a copy's
+  `extensions.copyOf`) → used; built-in → reused or uploaded; output → reused if a copy's
+  `extensions.sql` matches, else the transform runs (into that copy), in dependency order; else
+  `missing` with why — `missingReport` words it for the Workspace panel. Every transform output
+  records the SQL that wrote it (`extensions.sql`). Agreed next: the same content as the agent's files
+  (+ `datasets.json`, full visualization settings), a zip for Download / Load, and dataset name /
+  description as draft until Save (`docs/TODO.md`).
+- **Default workspace** (`public/data/default.powergis.json`): a v2 document with readable ids
+  (`default-utilities`, …, the output `default-utilities-by-county`). `seedDefault` (`MapPage.vue`)
+  asks the server (`seedDefaultWorkspace` → `openDocument`; the first run loads DuckDB) and opens the
+  result like a loaded document. Changing the default map = editing that file. Every dataset's click panel shows its rows (`FeatureRows`).
 - **Object lists** (`components/list/ObjectList.vue`, generic over the item type): datasets,
   visualizations and transforms are cards in one widget, like an object table configuration — the
   page passes `items`, `itemKey`, the card body (default slot) and `actions(item)` (the hold menu:

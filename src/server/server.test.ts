@@ -4,7 +4,7 @@ import { nodeDuckDb } from './testEngine'
 import { MemoryDatabase } from '../shared/database'
 import { readFileSync } from 'node:fs'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
-import { parseWorkspaceFile, replacePointers, templateBuiltins } from '../lib/workspace/file'
+import { parseWorkspaceFile, replaceDatasetIds, toWorkspaceFile, type WorkspaceFile } from '../lib/workspace/file'
 import type { ApiResult } from '../shared/api'
 import type { CloudStore, CloudWorkspace } from '../shared/cloud'
 import { defaultScalarStyle, settingsOf, makeVisualization, ROWS } from '../lib/dataset/visualization'
@@ -278,13 +278,13 @@ describe('built-in boundary datasets and the default join', () => {
     const parsed = parseWorkspaceFile(readFileSync('public/data/default.powergis.json', 'utf8'))
     if (!parsed.ok) throw new Error(parsed.error)
     const ids: Record<string, string> = {}
-    for (const t of templateBuiltins(parsed.file)) ids[`builtin:${t}`] = data(await server.handle('uploadDataset', { source: { kind: 'builtin', table: t } })).datasetId
-    const t = replacePointers(parsed.file, (p) => ids[p]).transforms![0]
+    for (const d of parsed.file.datasets) if (d.origin.kind === 'builtin') ids[d.id] = data(await server.handle('uploadDataset', { source: { kind: 'builtin', table: d.origin.table } })).datasetId
+    const t = replaceDatasetIds(parsed.file, (p) => ids[p]).transforms[0]
     const [out] = data(await server.handle('runTransform', { transform: { ...t, id: 't', outputs: t.outputs.map((o) => ({ ...o, outputId: undefined })) } })).outputs
     expect(out.rowCount).toBe(3) // two utilities in Autauga, an empty row for Baldwin
     const ds = (await db.get('datasets', out.datasetId))!
     expect(ds.columns.find((c) => c.name === 'geometry')!.type).toBe('region')
-    const n = parsed.file.visualizations.find((v) => v.name === 'Number of utilities')!.settings
+    const n = parsed.file.visualizations.find((v) => v.name === 'Number of utilities')!
     const values = data(await server.handle('queryVisualization', { datasetId: out.datasetId, binding: n.binding, column: n.column, aggregation: n.aggregation }))
     expect(values.features.map((f) => [f.label, f.value])).toEqual([['Autauga, AL', 2], ['Baldwin, AL', 0]])
     const coop = data(await server.handle('queryVisualization', { datasetId: out.datasetId, binding: n.binding, column: 'cooperative', aggregation: 'any' }))
@@ -351,20 +351,28 @@ describe('cloud workspace', () => {
   /** One account's cloud, shared by every device that signs in. */
   function fakeCloud() {
     let saved: CloudWorkspace | null = null
+    let overview = ''
     let n = 0
     const store: CloudStore = {
       defaultWorkspace: async () => saved,
-      saveDefaultWorkspace: async ({ name, file }) => {
-        saved = { id: saved?.id ?? 'w1', name, file: JSON.parse(JSON.stringify(file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
+      saveDefaultWorkspace: async (w) => {
+        saved = { id: saved?.id ?? 'w1', name: w.name, file: JSON.parse(JSON.stringify(w.file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
+        overview = w.overview
         return { id: saved.id, updatedAt: saved.updatedAt }
       },
     }
-    return { cloud: () => store, saved: () => saved }
+    return { cloud: () => store, saved: () => saved?.file as WorkspaceFile, overview: () => overview }
   }
   const device = (cloud: () => CloudStore) => {
     const db = new MemoryDatabase()
     const server = createServer(db, { readBuiltin: async (t) => tables[t] ?? [], sql: nodeDuckDb, cloud, readDefaultWorkspace: async () => readFileSync('public/data/default.powergis.json', 'utf8') })
     return { db, server }
+  }
+  /** What the page does to save: the working copy as a document, with this device's dataset facts. */
+  async function docOf(db: MemoryDatabase, file: WorkspaceFile, extra: string[] = []) {
+    const records = new Map((await db.list('datasets')).map((d) => [d.id, d]))
+    const workspace = { name: file.name, datasetIds: [...file.datasetIds, ...extra], transforms: file.transforms, visualizations: file.visualizations }
+    return toWorkspaceFile(workspace, (id) => records.get(id))
   }
 
   it('refuses cloud requests until signed in', async () => {
@@ -375,50 +383,88 @@ describe('cloud workspace', () => {
     expect(data(await server.handle('setAuth', { accessToken: null }))).toEqual({ signedIn: false })
   })
 
-  it('saves a portable workspace and opens it on another device, rebuilding built-ins and outputs', async () => {
+  it('opens a document on another device: built-ins and outputs made there, an upload reported by name', async () => {
     const account = fakeCloud()
     const a = device(account.cloud)
     data(await a.server.handle('setAuth', { accessToken: 't' }))
     const seeded = data(await a.server.handle('seedDefaultWorkspace', {})).file
     const own = data(await a.server.handle('uploadDataset', { source: { kind: 'csv', file: file('mine.csv', 'x\n1\n') } })).datasetId
-    data(await a.server.handle('saveCloudWorkspace', { file: { ...seeded, datasetIds: [...seeded.datasetIds, own] } }))
+    const sent = await docOf(a.db, seeded, [own])
+    data(await a.server.handle('saveCloudWorkspace', { file: sent, overview: 'summary' }))
+    expect(account.overview()).toBe('summary')
 
-    // In the cloud: built-ins and the output as templates; the device's own upload by id.
-    const saved = account.saved()!.file
-    expect(saved.datasetIds).toEqual(['transform:0.0', 'builtin:utilities', 'builtin:utility_counties', 'builtin:us_counties', 'builtin:us_states', own])
-    expect(saved.transforms![0].outputs[0].outputId).toBe('transform:0.0')
-    expect(saved.names).toEqual({ [own]: 'mine' })
-    expect(saved.visualizations.every((v) => !v.datasetId.match(/^[0-9a-f-]{36}$/) || v.datasetId === own)).toBe(true)
+    // In the cloud: device A's ids, each with its facts.
+    const saved = account.saved()
+    expect(saved.datasets.map((d) => d.origin.kind)).toEqual(['output', 'builtin', 'builtin', 'builtin', 'builtin', 'upload'])
+    expect(saved.datasets[0].sameAs).toEqual(['default-utilities-by-county'])
+    expect(saved.datasets[5]).toMatchObject({ id: own, name: 'mine', rows: 1 })
 
-    // Another device: everything is made there; the upload isn't, and says so.
+    // Device B: everything is made there; the upload isn't, and is named.
     const b = device(account.cloud)
     data(await b.server.handle('setAuth', { accessToken: 't' }))
     const { workspace } = data(await b.server.handle('cloudWorkspace', {}))
-    const opened = data(await b.server.handle('openTemplate', { file: workspace!.file }))
-    expect(opened.missing).toEqual([own])
+    const opened = data(await b.server.handle('openDocument', { file: workspace!.file }))
+    expect(opened.missing).toEqual([{ id: own, name: 'mine', rows: 1, why: 'elsewhere' }])
     expect(opened.failed).toEqual([])
     for (const id of opened.file.datasetIds.filter((id) => id !== own)) expect(await b.db.get('datasets', id)).toBeTruthy()
-    expect(opened.file.transforms![0].outputs[0].outputId).toBe(opened.file.datasetIds[0])
+    expect(opened.file.transforms[0].outputs[0].outputId).toBe(opened.file.datasetIds[0])
 
-    // Back on the first device: its output is reused (marked when saved), nothing is made again.
+    // Opening it again on B reuses what B made: nothing new, nothing run.
+    const countB = (await b.db.list('datasets')).length
+    const again = data(await b.server.handle('openDocument', { file: workspace!.file }))
+    expect(again.file.datasetIds).toEqual(opened.file.datasetIds)
+    expect((await b.db.list('datasets')).length).toBe(countB)
+
+    // B saves (still pointing at A's upload); A opens B's document: A's own datasets are recognized (ids and copies), nothing new is made.
+    data(await b.server.handle('saveCloudWorkspace', { file: await docOf(b.db, opened.file), overview: '' }))
+    const countA = (await a.db.list('datasets')).length
+    const back = data(await a.server.handle('openDocument', { file: account.saved() }))
+    expect(back.file.datasetIds).toEqual([...seeded.datasetIds, own])
+    expect(back.missing).toEqual([])
+    expect((await a.db.list('datasets')).length).toBe(countA)
+  })
+
+  it('runs a transform again when its SQL changed elsewhere, into the same dataset', async () => {
+    const a = device(fakeCloud().cloud)
+    const seeded = data(await a.server.handle('seedDefaultWorkspace', {})).file
+    const sent = await docOf(a.db, seeded)
+    const changed = { ...sent, transforms: [{ ...sent.transforms[0], outputs: [{ ...sent.transforms[0].outputs[0], sql: 'SELECT geometry, name AS county FROM counties' }] }] }
     const count = (await a.db.list('datasets')).length
-    const back = data(await a.server.handle('openTemplate', { file: saved }))
-    expect(back.file.datasetIds.slice(0, 5)).toEqual(seeded.datasetIds)
+    const r = data(await a.server.handle('openDocument', { file: changed }))
+    const out = (await a.db.get('datasets', r.file.datasetIds[0]))!
+    expect(out.rowCount).toBe(1)
+    expect(out.extensions?.sql).toBe('SELECT geometry, name AS county FROM counties')
     expect((await a.db.list('datasets')).length).toBe(count)
   })
 
   it("runs transforms in whatever order their inputs allow, and reports one it can't run", async () => {
     const b = device(fakeCloud().cloud)
-    const t = (name: string, input: string, out: string) => ({ name, inputs: [{ datasetId: input, alias: 'x' }], outputs: [{ key: 'o1', name, sql: 'SELECT * FROM x', outputId: out }] })
-    const template = {
-      format: 'powergis-workspace' as const, version: 1 as const, exportedAt: '', name: 'W', visualizations: [],
-      datasetIds: ['transform:0', 'transform:1', 'transform:2'],
-      // 0 reads 1's output; 1 reads a built-in; 2 reads a dataset this device doesn't have.
-      transforms: [t('second', 'transform:1', 'transform:0'), t('first', 'builtin:utilities', 'transform:1'), t('lost', 'not-here', 'transform:2')],
+    const t = (id: string, input: string, out: string) => ({ id, name: id, inputs: [{ datasetId: input, alias: 'x' }], outputs: [{ key: 'o1', name: id, sql: 'SELECT * FROM x', outputId: out }] })
+    const fact = (id: string, origin: WorkspaceFile['datasets'][number]['origin']) => ({ id, name: id, store: 'local' as const, origin })
+    const doc: WorkspaceFile = {
+      format: 'powergis-workspace', version: 2, name: 'W', visualizations: [],
+      datasetIds: ['o-second', 'o-first', 'o-lost'],
+      // "second" reads "first"'s output; "first" reads a built-in; "lost" reads a dataset this device doesn't have.
+      transforms: [t('second', 'o-first', 'o-second'), t('first', 'u', 'o-first'), t('lost', 'plants', 'o-lost')],
+      datasets: [
+        fact('o-second', { kind: 'output', transform: 'second', output: 'o1' }),
+        fact('o-first', { kind: 'output', transform: 'first', output: 'o1' }),
+        fact('o-lost', { kind: 'output', transform: 'lost', output: 'o1' }),
+        fact('u', { kind: 'builtin', table: 'utilities' }),
+        fact('plants', { kind: 'upload', source: 'Device · plants.csv' }),
+      ],
     }
-    const r = data(await b.server.handle('openTemplate', { file: template }))
-    expect(r.file.datasetIds.slice(0, 2).every((id) => !id.includes(':'))).toBe(true)
-    expect(r.missing).toEqual(['transform:2', 'not-here'])
+    const r = data(await b.server.handle('openDocument', { file: doc }))
+    expect(r.file.datasetIds.slice(0, 2).every((id) => !['o-second', 'o-first'].includes(id))).toBe(true)
+    expect(r.missing.map((m) => [m.name, m.why])).toEqual([['plants', 'elsewhere'], ['o-lost', 'output']])
     expect(r.failed).toEqual([{ name: 'lost', reason: "an input dataset isn't on this device" }])
+  })
+
+  it('opens version 1 documents (cloud copies saved before version 2)', async () => {
+    const b = device(fakeCloud().cloud)
+    const v1 = { format: 'powergis-workspace', version: 1, exportedAt: '', name: 'Old', datasetIds: ['builtin:utilities', 'gone'], names: { gone: 'plants' }, visualizations: [] }
+    const r = data(await b.server.handle('openDocument', { file: v1 }))
+    expect(await b.db.get('datasets', r.file.datasetIds[0])).toMatchObject({ extensions: { builtin: 'utilities' } })
+    expect(r.missing).toEqual([{ id: 'gone', name: 'plants', why: 'unknown' }])
   })
 })

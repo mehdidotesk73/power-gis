@@ -64,7 +64,7 @@ import {
   type OpResult,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
-import { fileName, fromWorkspaceFile, isPlaceholder, missingReport, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft } from '../lib/workspace/file'
+import { fileName, fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft, type WorkspaceFile } from '../lib/workspace/file'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -215,7 +215,8 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyl
 async function saveToCloud() {
   const user = auth.user?.id
   if (!user || cloudUser.value !== user || dirty.value) return
-  const r = await request('saveCloudWorkspace', { file: toWorkspaceFile(doc.value) })
+  const file = documentOf(doc.value)
+  const r = await request('saveCloudWorkspace', { file, overview: overviewOf(file) })
   if (!r.ok) {
     cloudError.value = r.error.message
     logDebug(`save to your account: ${r.error.message}`, 'warn')
@@ -246,20 +247,33 @@ async function catchUpWithCloud() {
     barMessage.value = 'Kept your changes here. Save stores them in your account, replacing the one there.'
     return
   }
+  const report = await openHere(w.file, 'Opening your workspace from your account…')
+  if (report === null) return
+  await saveHere()
+  barMessage.value = `Opened your workspace from your account (saved ${when(w.updatedAt)}).` + (report ? `\n${report}` : '')
+}
+
+/** The workspace as a document: its setup plus the facts of every dataset it points at (Copy, files, the cloud). */
+const documentOf = (d: WorkspaceDoc): WorkspaceFile => toWorkspaceFile(d, (id) => records.value.get(id))
+
+/**
+ * Opens a workspace document (any version) as the working copy: the server makes its datasets real
+ * here (built-ins, transform outputs) and says what it couldn't. Answers the report of what's
+ * missing ('' when nothing is), or null when it couldn't open at all.
+ */
+async function openHere(file: unknown, loading: string): Promise<string | null> {
   status.value = 'loading'
-  loadingMsg.value = 'Opening your workspace from your account…'
-  const o = await call('open your workspace', request('openTemplate', { file: w.file }))
-  if (o) {
-    for (const id of o.file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
-    const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id))
-    resetSelection()
-    doc.value = next.doc
-    await saveHere()
-    const report = missingReport(o.file.names ?? {}, next.missing, o.failed, next.droppedVisualizations, next.droppedTransforms)
-    barMessage.value = `Opened your workspace from your account (saved ${when(w.updatedAt)}).` + (report ? `\n${report}` : '')
-    if (report) logDebug(`your account's workspace: ${report.replace(/\n/g, ' ')}`, 'warn')
-  }
+  loadingMsg.value = loading
+  const o = await call('open the workspace', request('openDocument', { file }))
   status.value = 'ready'
+  if (!o) return null
+  for (const id of o.file.datasetIds) await loadRecord(id)
+  const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id))
+  resetSelection()
+  doc.value = next.doc
+  const report = missingReport(o.missing, o.failed, next.droppedVisualizations, next.droppedTransforms)
+  if (report) logDebug(`workspace "${next.doc.name}": ${report.replace(/\n/g, ' ')}`, 'warn')
+  return report
 }
 watch([() => auth.user?.id, loaded], ([user]) => {
   if (!user) cloudUser.value = null
@@ -284,7 +298,7 @@ function resetSelection() {
 const rename = (name: string) => apply(renameWorkspace(doc.value, name))
 
 function download() {
-  const blob = new Blob([JSON.stringify(toWorkspaceFile(doc.value), null, 2)], { type: 'application/json' })
+  const blob = new Blob([JSON.stringify(documentOf(doc.value), null, 2)], { type: 'application/json' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = fileName(doc.value)
@@ -294,7 +308,7 @@ function download() {
 
 /** Copies the workspace (the same JSON as a workspace file) to the clipboard. */
 async function copyWorkspace() {
-  const text = JSON.stringify(toWorkspaceFile(doc.value), null, 2)
+  const text = JSON.stringify(documentOf(doc.value), null, 2)
   try {
     await navigator.clipboard.writeText(text)
     barMessage.value = 'Workspace copied — paste it anywhere (Workspace → Paste workspace loads it back).'
@@ -310,14 +324,9 @@ async function loadWorkspaceText(text: string, from: 'file' | 'paste') {
   const parsed = parseWorkspaceFile(text)
   if (!parsed.ok) return void (barMessage.value = parsed.error)
   if (dirty.value && !confirm(`Replace your unsaved changes with the ${from === 'file' ? 'workspace from this file' : 'pasted workspace'}?`)) return
-  for (const id of parsed.file.datasetIds) await loadRecord(id)
-  const { doc: next, missing } = fromWorkspaceFile(parsed.file, doc.value, (id) => records.value.has(id))
-  resetSelection()
-  doc.value = next
-  barMessage.value =
-    `Loaded "${next.name}" (${next.visualizations.length} visualizations) — Save to keep it.` +
-    (missing.length ? ` ${missing.length} dataset${missing.length === 1 ? ' is' : 's are'} not in this database and ${missing.length === 1 ? 'was' : 'were'} left out.` : '')
-  if (missing.length) logDebug(`workspace file: datasets not in the database: ${missing.join(', ')}`, 'warn')
+  const report = await openHere(parsed.file, 'Opening the workspace…')
+  if (report === null) return void (barMessage.value = "Couldn't open that workspace — see View logs.")
+  barMessage.value = `Loaded "${doc.value.name}" (${doc.value.visualizations.length} visualizations) — Save to keep it.` + (report ? `\n${report}` : '')
 }
 
 
@@ -627,7 +636,7 @@ async function seedDefault() {
   loadingMsg.value = 'Preparing the default map (the first time runs its transforms)…'
   const r = await call('default workspace', request('seedDefaultWorkspace', {}))
   if (!r) throw new Error('the default workspace could not be prepared')
-  for (const id of r.file.datasetIds) if (!isPlaceholder(id)) await loadRecord(id)
+  for (const id of r.file.datasetIds) await loadRecord(id)
   apply({ ok: true, doc: fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id)).doc })
   loadingMsg.value = 'Loading data…'
 }
