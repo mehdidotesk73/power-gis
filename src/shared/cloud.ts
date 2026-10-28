@@ -22,8 +22,6 @@ export interface CloudStore {
   datasets(ids: string[]): Promise<CloudDataset[]>
   /** Creates the dataset (same id as here) or replaces its rows and details; answers its new version. */
   putDataset(d: CloudDatasetDetails, file: Uint8Array): Promise<{ updatedAt: string }>
-  /** A new name / description; answers the new version. */
-  updateDetails(id: string, patch: { name?: string; description?: string }): Promise<{ updatedAt: string }>
   /** The dataset's rows file. */
   readFile(id: string): Promise<Uint8Array>
   /** Deletes the dataset and its file (owners only). */
@@ -46,8 +44,8 @@ export interface CloudDataset extends CloudDatasetDetails {
   sizeBytes?: number
   /** Whether it has a rows file yet. */
   hasFile: boolean
-  /** The signed-in user owns it (sharing comes later: everything is the owner's today). */
-  owned: boolean
+  /** The signed-in user's access: owner and write may push, everyone with access may pull. */
+  access: 'owner' | 'write' | 'read'
 }
 
 /** A dataset's rows file in the cloud bucket: `<id>/data.arrow.gz` (server/datasetFile.ts). */

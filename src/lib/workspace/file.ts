@@ -25,7 +25,9 @@ export interface DatasetFact {
   id: string
   name: string
   description?: string
+  /** `remote`: linked to a cloud dataset (`cloudId`), which another device pulls. */
   store: DatasetStore
+  cloudId?: string
   rows?: number
   origin: DatasetOrigin
   /** Ids of the same dataset elsewhere: the original(s) a device's copy was made for. */
@@ -77,7 +79,8 @@ export function datasetFact(id: string, record: DatasetRecord | undefined, trans
     id,
     name: record?.name ?? (writer ? writer.outputs.find((o) => o.outputId === id)!.name : 'Unknown dataset'),
     ...(record?.description ? { description: record.description } : {}),
-    store: record?.store ?? 'local',
+    store: record?.link ? 'remote' : 'local',
+    ...(record?.link ? { cloudId: record.link.cloudId } : {}),
     ...(record ? { rows: record.rowCount } : {}),
     origin,
     ...(Array.isArray(copyOf) && copyOf.length ? { sameAs: copyOf.filter((x): x is string => typeof x === 'string') } : {}),
@@ -234,7 +237,7 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   for (const id of lacking) {
     const f = facts.get(id)
     unavailable[id] = f
-      ? { name: f.name, ...(f.description ? { description: f.description } : {}), store: f.store, ...(f.rows !== undefined ? { rows: f.rows } : {}), origin: f.origin, ...(f.sameAs ? { sameAs: f.sameAs } : {}), why: why.get(id) ?? 'unknown' }
+      ? { name: f.name, ...(f.description ? { description: f.description } : {}), store: f.store, ...(f.cloudId ? { cloudId: f.cloudId } : {}), ...(f.rows !== undefined ? { rows: f.rows } : {}), origin: f.origin, ...(f.sameAs ? { sameAs: f.sameAs } : {}), why: why.get(id) ?? 'unknown' }
       : { name: 'Unknown dataset', why: why.get(id) ?? 'unknown' }
   }
   const visualizations = file.visualizations.filter((v) => isSupportedBinding(v.binding)).map((v) => ({ ...v, id: newId() })) // older files had lat/lon pairs

@@ -1,22 +1,29 @@
 <script setup lang="ts">
-// One action over several datasets, reviewed first: each dataset with what will
-// happen to it (and anything to know first, like a newer version in the cloud),
-// Continue or Skip for each, then Proceed. While it runs, and after, each line
-// says how it went. Nothing happens until Proceed.
+// One action over one or several datasets, reviewed first: every line has the
+// same choices (Push · Pull · Skip, or Link · Skip), the ones that don't apply
+// disabled with the reason under the line. Nothing happens until the go-ahead
+// button; then each line says how it went.
 import { computed } from 'vue'
 import UiButton from '../ui/UiButton.vue'
+
+export interface BatchOption {
+  id: string
+  label: string
+  /** Why it isn't available for this line (the button shows, disabled). */
+  disabled?: string
+}
 
 export interface BatchItem {
   id: string
   name: string
-  /** What will happen to it. */
+  /** Where it stands / what the choices would do. */
   note: string
-  /** Something to know before going ahead (a conflict): shown in amber. */
+  /** Something to know before choosing (changed in both places): shown in amber. */
   warn?: string
-  /** It can't be done (shown in red, always skipped). */
-  blocked?: string
-  /** Continue (true) or Skip (false). */
-  go: boolean
+  /** The same options on every line, in the same order; `skip` is one of them. */
+  options: BatchOption[]
+  /** The chosen option's id. */
+  choice: string
   /** While running and after: how it went. */
   status?: 'running' | 'done' | 'failed' | 'skipped'
   result?: string
@@ -24,18 +31,20 @@ export interface BatchItem {
 
 const props = defineProps<{
   title: string
-  /** What the action does, in a sentence. */
+  /** What the panel is for, in a sentence. */
   intro: string
   items: BatchItem[]
-  /** Proceed's label (e.g. "Store 3 in the cloud"); {n} is the count. */
-  verb: string
   running: boolean
 }>()
 const emit = defineEmits<{ (e: 'proceed'): void; (e: 'close'): void }>()
 
-const chosen = computed(() => props.items.filter((i) => i.go && !i.blocked).length)
+const chosen = computed(() => props.items.filter((i) => i.choice !== 'skip').length)
 const finished = computed(() => props.items.some((i) => i.status) && !props.running)
-const set = (go: boolean) => props.items.forEach((i) => !i.blocked && (i.go = go))
+/** The options every line shows (from the first line). */
+const columns = computed(() => props.items[0]?.options ?? [])
+/** Sets every line that can take an option to it. */
+const setAll = (id: string) => props.items.forEach((i) => i.options.some((o) => o.id === id && !o.disabled) && (i.choice = id))
+const reasons = (it: BatchItem) => it.options.filter((o) => o.disabled).map((o) => `${o.label}: ${o.disabled}`)
 </script>
 
 <template>
@@ -46,28 +55,35 @@ const set = (go: boolean) => props.items.forEach((i) => !i.blocked && (i.go = go
         <UiButton icon="✕" aria-label="Close" :disabled="running" @click="emit('close')" />
       </div>
       <p class="intro">{{ intro }}</p>
-      <div v-if="!finished && !running" class="all">
-        <button class="link" @click="set(true)">Continue all</button>
-        <button class="link" @click="set(false)">Skip all</button>
+      <div v-if="!finished && !running && items.length > 1" class="all">
+        <button v-for="o in columns" :key="o.id" class="link" @click="setAll(o.id)">{{ o.label }} all</button>
       </div>
       <ul class="items">
-        <li v-for="it in items" :key="it.id" :class="{ off: !it.go || it.blocked }">
+        <li v-for="it in items" :key="it.id" :class="{ off: it.choice === 'skip' }">
           <div class="line">
             <span class="name">{{ it.name }}</span>
             <span v-if="it.status" class="status" :class="it.status">
               {{ it.status === 'running' ? 'Working…' : it.status === 'done' ? 'Done' : it.status === 'failed' ? 'Not done' : 'Skipped' }}
             </span>
-            <span v-else-if="!it.blocked" class="choice" role="group" :aria-label="`${it.name}: continue or skip`">
-              <button :class="{ on: it.go }" @click="it.go = true">Continue</button>
-              <button :class="{ on: !it.go }" @click="it.go = false">Skip</button>
+            <span v-else class="choice" role="group" :aria-label="`${it.name}: choose`">
+              <button
+                v-for="o in it.options"
+                :key="o.id"
+                :class="{ on: it.choice === o.id }"
+                :disabled="!!o.disabled"
+                :title="o.disabled"
+                @click="it.choice = o.id"
+              >
+                {{ o.label }}
+              </button>
             </span>
           </div>
-          <!-- Before: what will happen. After: only how it went. -->
+          <!-- Before: where it stands, and why a choice is off. After: only how it went. -->
           <span v-if="it.result" class="result" :class="it.status">{{ it.result }}</span>
           <template v-else-if="it.status !== 'skipped'">
             <span class="note">{{ it.note }}</span>
-            <span v-if="it.warn" class="warn">⚠ {{ it.warn }}</span>
-            <span v-if="it.blocked" class="blocked">{{ it.blocked }}</span>
+            <span v-if="it.warn" class="warn">{{ it.warn }}</span>
+            <span v-for="r in reasons(it)" :key="r" class="reason">{{ r }}</span>
           </template>
         </li>
       </ul>
@@ -78,7 +94,7 @@ const set = (go: boolean) => props.items.forEach((i) => !i.blocked && (i.go = go
         <template v-else>
           <UiButton :disabled="running" @click="emit('close')">Cancel</UiButton>
           <UiButton tone="primary" :disabled="running || !chosen" @click="emit('proceed')">
-            {{ running ? 'Working…' : verb.replace('{n}', String(chosen)) }}
+            {{ running ? 'Working…' : `Go ahead (${chosen})` }}
           </UiButton>
         </template>
       </div>
@@ -180,9 +196,18 @@ const set = (go: boolean) => props.items.forEach((i) => !i.blocked && (i.go = go
   font-size: 0.78rem;
   cursor: pointer;
 }
+.choice button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 .choice button.on {
   background: var(--accent-blue);
   color: var(--bg);
+}
+.reason {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  opacity: 0.85;
 }
 .note,
 .warn,

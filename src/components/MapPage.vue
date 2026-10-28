@@ -38,7 +38,7 @@ import { auth, syncCloudAuth } from '../client/auth'
 import { readDb } from '../client/db'
 import { listDatasets } from '../client/datasets'
 import { BUILTIN_TABLES } from '../shared/builtins'
-import { changedHere, storeOf, type DatasetRecord, type WorkspaceRecord } from '../shared/records'
+import { localSyncState, storeOf, type DatasetRecord, type SyncState, type WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { newId, ROW_COUNT } from '../lib/dataset/dataset'
@@ -182,13 +182,13 @@ async function save() {
   await saveToCloud()
   // Signed in, say what other devices (and anyone it's shared with) won't have.
   const local = localOnly.value
-  const changed = changedInCloud.value
+  const changed = outOfSync.value.filter((d) => d.state === 'ahead' || d.state === 'both')
   if ((local.length || changed.length) && !barMessage.value) {
     const quote = (l: { name: string }[]) => l.map((d) => `"${d.name}"`).join(', ')
     barMessage.value = [
       'Saved.',
       local.length ? `${local.length === 1 ? '1 dataset is' : `${local.length} datasets are`} only on this device (${quote(local)}): other devices, and anyone you share with, will see ${local.length === 1 ? 'it' : 'them'} as missing.` : '',
-      changed.length ? `${changed.length === 1 ? '1 cloud dataset has' : `${changed.length} cloud datasets have`} changes made here that aren't saved to the cloud (${quote(changed)}): other devices see the cloud version until you save ${changed.length === 1 ? 'it' : 'them'}.` : '',
+      changed.length ? `${changed.length === 1 ? '1 linked dataset has' : `${changed.length} linked datasets have`} changes here not pushed to the cloud (${quote(changed)}): Sync… pushes them.` : '',
     ].filter(Boolean).join(' ')
   }
 }
@@ -559,15 +559,14 @@ const waitingOn = (root: string) => ({
 const localOnly = computed(() => (auth.user ? onlyOnThisDevice(doc.value, (id) => records.value.get(id)) : []))
 const problemCount = computed(() => unav.value.datasets.size + unav.value.transforms.size + unav.value.visualizations.size)
 
-// ── cloud datasets ─────────────────────────────────────────────────────────
-// A dataset stored in the cloud keeps its id and a copy here. Rows changed
-// here (a transform rewrote it) stay here until Save dataset uploads them, or
-// Discard local changes takes the cloud's back: saving datasets is its own
-// act, apart from saving the workspace. One dataset's action runs at once;
-// several at once (Store all, Save datasets, Make local copies) are reviewed
-// first in a BatchPanel: each with what will happen, Continue or Skip.
+// ── cloud links ────────────────────────────────────────────────────────────
+// Every dataset here is a local copy; a linked one also has a cloud dataset.
+// Nothing reaches the cloud but the user's syncs: Link to cloud (the first
+// push), and Push / Pull per dataset, chosen in a review panel (BatchPanel:
+// Push · Pull · Skip on every line, the ones that don't apply disabled).
+// Signed in, linked datasets' states are checked on load and every minute.
 
-const SIGN_IN = 'Sign in (☰ → Sign in) to use cloud storage.'
+const SIGN_IN = 'Sign in (☰ → Sign in) to use the cloud.'
 /** Short notes on dataset cards (a cloud action's outcome). */
 const datasetNotes = ref(new Map<string, string>())
 const noteOn = (id: string, text: string) => void (datasetNotes.value = new Map(datasetNotes.value).set(id, text))
@@ -576,61 +575,67 @@ function dismissNote(id: string) {
   m.delete(id)
   datasetNotes.value = m
 }
-const brief = (d: DatasetRecord) => ({ id: d.id, name: d.name })
-/** The workspace's cloud datasets, and those with changes here not saved to the cloud. */
-const inCloud = computed(() => datasets.value.filter((d) => storeOf(d) === 'remote').map(brief))
-const changedInCloud = computed(() => datasets.value.filter(changedHere).map(brief))
 const rows = (id: string) => (records.value.get(id)?.rowCount ?? 0).toLocaleString()
 
-/** Stores a dataset in the cloud, or saves its changes; asks before overwriting a newer cloud version. */
-async function storeOne(id: string, overwrite = false): Promise<{ ok: boolean; message: string }> {
-  const name = records.value.get(id)?.name ?? id
-  let r = await request('storeInCloud', { id, overwrite })
-  if (!r.ok && r.error.code === 'conflict' && !overwrite) {
-    if (!confirm(`"${name}" changed in the cloud since this device got it. Overwrite the cloud's version with this device's?\n\nCancel keeps your changes here, unsaved (Discard local changes takes the cloud's).`)) {
-      return { ok: false, message: 'Not saved: the cloud has a newer version.' }
-    }
-    r = await request('storeInCloud', { id, overwrite: true })
+/** Linked datasets' states and push rights, as last checked against the cloud. */
+const cloudStates = ref(new Map<string, { state: SyncState; canPush: boolean }>())
+const syncStates = computed(() => {
+  const m = new Map<string, SyncState>()
+  for (const d of datasets.value) {
+    if (!d.link) continue
+    const known = cloudStates.value.get(d.id)?.state
+    // A change made here since the last check shows at once.
+    m.set(d.id, known === 'synced' && d.link.changed ? 'ahead' : known === 'behind' && d.link.changed ? 'both' : (known ?? localSyncState(d)!))
   }
-  await loadRecord(id)
-  return r.ok ? { ok: true, message: 'Saved to the cloud ✓' } : { ok: false, message: r.error.message }
-}
+  return m
+})
+const linked = computed(() => datasets.value.filter((d) => d.link))
+/** Linked datasets that aren't in sync (what Sync all… lists). */
+const outOfSync = computed(() => linked.value.filter((d) => syncStates.value.get(d.id) !== 'synced').map((d) => ({ id: d.id, name: d.name, state: syncStates.value.get(d.id)! })))
 
-/** A local copy of a dataset that this workspace then uses instead (a draft edit, like Replace). */
-async function copyHere(id: string): Promise<{ ok: boolean; message: string }> {
-  const r = await request('copyToLocal', { id })
-  if (!r.ok) return { ok: false, message: r.error.message }
-  const copy = r.data.datasetId
-  await loadRecord(copy)
-  const op = replaceDataset_(doc.value, id, copy)
-  if (op.ok) apply(op)
-  noteOn(copy, 'A local copy: this workspace uses it now (Save keeps that).')
-  return { ok: true, message: 'Copied to this device ✓ — this workspace uses the copy' }
+async function checkCloud(ids = linked.value.map((d) => d.id)) {
+  if (!auth.user || !ids.length) return
+  const r = await request('cloudStatus', { items: ids.map((id) => ({ id })) })
+  if (!r.ok) return void logDebug(`cloud check: ${r.error.message}`, 'warn')
+  const m = new Map(cloudStates.value)
+  for (const x of r.data.datasets) m.set(x.id, { state: x.state, canPush: x.canPush })
+  cloudStates.value = m
+}
+watch([() => auth.user?.id, loaded, () => linked.value.map((d) => d.id).join()], () => void checkCloud())
+let cloudTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => (cloudTimer = setInterval(() => document.visibilityState === 'visible' && void checkCloud(), 60_000)))
+onBeforeUnmount(() => clearInterval(cloudTimer))
+
+const STATE_NOTE: Record<SyncState, string> = {
+  synced: 'In sync with the cloud.',
+  ahead: 'Changed here (↑): push to update the cloud.',
+  behind: 'Newer in the cloud (↓): pull to update this copy.',
+  both: 'Changed here and in the cloud (↑↓): push overwrites the cloud\'s version; pull replaces yours.',
+  gone: 'No longer in the cloud: push puts it back.',
 }
 
 async function cloudAction(action: CloudAction, id: string) {
   const ds = records.value.get(id)
   if (!ds) return
-  if (action === 'copy') {
-    const r = await copyHere(id)
-    if (!r.ok) noteOn(id, r.message)
-    return
-  }
-  if (!auth.user || !(await syncCloudAuth())) return noteOn(id, SIGN_IN)
-  if (action === 'discard') {
-    if (!confirm(`Discard the changes made on this device to "${ds.name}" and take the cloud's version back?`)) return
-    const r = await request('fetchFromCloud', { id })
+  if (!auth.user) return noteOn(id, SIGN_IN)
+  if (action === 'sync') return void openSync([id])
+  if (action === 'link') return void openLink([id])
+  if (action === 'unlink') {
+    if (!confirm(`Unlink "${ds.name}" from the cloud? It stays here as a local dataset; the cloud dataset stays as it is.`)) return
+    const r = await request('unlinkDataset', { id })
     await loadRecord(id)
-    return noteOn(id, r.ok ? "Took the cloud's version back ✓" : r.error.message)
+    return noteOn(id, r.ok ? 'Unlinked ✓ — local only now' : r.error.message)
   }
-  const r = await storeOne(id)
-  noteOn(id, r.ok && action === 'store' ? 'Stored in the cloud ✓ — other devices can open it' : r.message)
+  if (!confirm(`Delete "${ds.name}" from the cloud? Everyone's copies stay on their devices, unlinked. It can't be undone.`)) return
+  const r = await request('deleteFromCloud', { id })
+  await loadRecord(id)
+  noteOn(id, r.ok ? 'Deleted from the cloud ✓ — this copy is local only now' : r.error.message)
 }
 
 /**
- * Signed in, datasets that didn't load here are looked for in the cloud (they may have been
- * stored there since the workspace was saved) and downloaded: they stop being red. Each id is
- * tried once per session; a failure leaves it as it was.
+ * Signed in, datasets that didn't load here are looked for in the cloud (by their cloud id, or
+ * their own id: they may have been linked since the workspace was saved) and pulled: they stop
+ * being red. Each id is tried once per session; a failure leaves it as it was.
  */
 const triedCloud = new Set<string>()
 async function recoverFromCloud() {
@@ -639,12 +644,13 @@ async function recoverFromCloud() {
   if (!ids.length) return
   if (!(await syncCloudAuth())) return
   ids.forEach((id) => triedCloud.add(id))
-  const status = await request('cloudStatus', { ids })
+  const items = ids.map((id) => ({ id, ...(doc.value.unavailable?.[id]?.cloudId ? { cloudId: doc.value.unavailable[id].cloudId } : {}) }))
+  const status = await request('cloudStatus', { items })
   if (!status.ok) return
   const found: string[] = []
   for (const s of status.data.datasets) {
-    if (s.state === 'notInCloud' || s.state === 'gone') continue
-    const r = await request('fetchFromCloud', { id: s.id })
+    if (s.state === 'gone') continue
+    const r = await request('pullDataset', { id: s.id, ...items.find((i) => i.id === s.id) })
     if (r.ok && (await loadRecord(s.id))) found.push(s.id)
   }
   if (!found.length) return
@@ -652,77 +658,101 @@ async function recoverFromCloud() {
   const names = found.map((id) => `"${left[id]?.name ?? records.value.get(id)?.name ?? id}"`)
   for (const id of found) delete left[id]
   doc.value = { ...doc.value, unavailable: Object.keys(left).length ? left : undefined }
-  barMessage.value = `Downloaded from the cloud: ${names.join(', ')}.${unav.value.roots.length ? '' : ' Everything loads now.'}`
+  barMessage.value = `Pulled from the cloud: ${names.join(', ')}.${unav.value.roots.length ? '' : ' Everything loads now.'}`
 }
 watch([() => auth.user?.id, loaded, () => unav.value.datasets.size], () => void recoverFromCloud())
 
-type BatchKind = 'store' | 'save' | 'copy'
-const batch = ref<{ kind: BatchKind; title: string; intro: string; verb: string; items: BatchItem[]; running: boolean } | null>(null)
+// ── the review panel (BatchPanel) ──────────────────────────────────────────
 
-async function openBatch(kind: BatchKind) {
-  if (kind !== 'copy' && (!auth.user || !(await syncCloudAuth()))) return void (barMessage.value = SIGN_IN)
-  const list = kind === 'store' ? localOnly.value : kind === 'save' ? changedInCloud.value : inCloud.value
-  let items: BatchItem[] = list.map((d) => ({
-    ...d,
-    go: true,
-    note:
-      kind === 'store'
-        ? `Upload ${rows(d.id)} rows. This device keeps its copy; other devices can open it.`
-        : kind === 'save'
-          ? `Upload the changes made here (${rows(d.id)} rows). Other devices then get them.`
-          : `A copy on this device (${rows(d.id)} rows); this workspace uses the copy instead. The cloud one stays as it is.`,
-  }))
-  if (kind === 'save') {
-    // What changed in the cloud since this device got it: overwriting it is a choice, so those start as Skip.
-    const r = await request('cloudStatus', { ids: list.map((d) => d.id) })
-    if (!r.ok) return void (barMessage.value = `Couldn't check the cloud: ${r.error.message}`)
-    items = items.map((it) => {
-      const s = r.data.datasets.find((x) => x.id === it.id)?.state
-      if (s === 'cloudNewer') return { ...it, go: false, warn: 'Changed in the cloud since this device got it: Continue overwrites that version with this one.' }
-      if (s === 'gone') return { ...it, warn: 'No longer in the cloud: Continue stores it there again.' }
-      return it
-    })
-  }
+const batch = ref<{ kind: 'sync' | 'link'; title: string; intro: string; items: BatchItem[]; running: boolean } | null>(null)
+
+/** Sync: Push · Pull · Skip for each, the ones that don't apply disabled. */
+async function openSync(ids: string[]) {
+  if (!auth.user || !(await syncCloudAuth())) return void (barMessage.value = SIGN_IN)
+  await checkCloud(ids)
+  const items: BatchItem[] = ids.flatMap((id) => {
+    const d = records.value.get(id)
+    if (!d?.link) return []
+    const state = syncStates.value.get(id) ?? 'synced'
+    const canPush = cloudStates.value.get(id)?.canPush ?? true
+    const push = state === 'synced' || state === 'behind' ? 'nothing to push' : !canPush ? 'you can only read this cloud dataset' : undefined
+    const pull = state === 'synced' || state === 'ahead' ? 'nothing new in the cloud' : state === 'gone' ? 'it\'s no longer in the cloud' : undefined
+    const choice = state === 'ahead' || state === 'gone' ? (push ? 'skip' : 'push') : state === 'behind' ? 'pull' : 'skip'
+    return [
+      {
+        id,
+        name: d.name,
+        note: `${STATE_NOTE[state]} ${rows(id)} rows here.`,
+        ...(state === 'both' ? { warn: 'Both changed: choose which wins, or skip.' } : {}),
+        options: [
+          { id: 'push', label: 'Push ↑', ...(push ? { disabled: push } : {}) },
+          { id: 'pull', label: 'Pull ↓', ...(pull ? { disabled: pull } : {}) },
+          { id: 'skip', label: 'Skip' },
+        ],
+        choice,
+      },
+    ]
+  })
+  if (!items.length) return
   batch.value = {
-    kind,
+    kind: 'sync',
     items,
     running: false,
-    ...(kind === 'store'
-      ? { title: 'Store in the cloud', intro: "These datasets are only on this device. Stored in the cloud, they're on every device you sign in on.", verb: 'Store {n} in the cloud' }
-      : kind === 'save'
-        ? { title: 'Save datasets to the cloud', intro: 'These cloud datasets changed on this device. Until they are saved, other devices see the cloud version.', verb: 'Save {n} to the cloud' }
-        : { title: 'Make local copies', intro: "Copies on this device of this workspace's cloud datasets. The workspace uses the copies (a draft until you Save); the cloud datasets stay as they are.", verb: 'Copy {n} here' }),
+    title: items.length === 1 ? `Sync "${items[0].name}"` : 'Sync with the cloud',
+    intro: 'Push sends this copy to the cloud; pull replaces this copy with the cloud\'s. Choose for each, then go ahead.',
   }
+}
+
+/** Link to cloud: Link · Skip for each local dataset (built-ins aren't linked). */
+function openLink(ids: string[]) {
+  const items: BatchItem[] = ids.flatMap((id) => {
+    const d = records.value.get(id)
+    if (!d || d.link) return []
+    return [{ id, name: d.name, note: `Makes a cloud dataset from this one (${rows(id)} rows) and links them. Other devices can then pull it.`, options: [{ id: 'link', label: 'Link' }, { id: 'skip', label: 'Skip' }], choice: 'link' }]
+  })
+  if (!items.length) return
+  batch.value = {
+    kind: 'link',
+    items,
+    running: false,
+    title: items.length === 1 ? `Link "${items[0].name}" to the cloud` : 'Link to the cloud',
+    intro: 'Each stays here as it is, and gets a cloud copy you sync by hand (push and pull).',
+  }
+}
+async function openBatch(kind: 'sync' | 'link') {
+  if (!auth.user) return void (barMessage.value = SIGN_IN)
+  if (kind === 'sync') await openSync(outOfSync.value.map((d) => d.id))
+  else openLink(localOnly.value.map((d) => d.id))
 }
 
 async function runBatch() {
   const b = batch.value
   if (!b) return
   b.running = true
-  if (b.kind !== 'copy' && !(await syncCloudAuth())) {
-    for (const it of b.items) if (it.go && !it.blocked) ((it.status = 'failed'), (it.result = 'Not done: you are signed out. Sign in (☰ → Sign in) and try again.'))
+  if (!(await syncCloudAuth())) {
+    for (const it of b.items) if (it.choice !== 'skip') ((it.status = 'failed'), (it.result = 'Not done: you are signed out. Sign in (☰ → Sign in) and try again.'))
     b.running = false
     return
   }
   for (const it of b.items) {
-    if (!it.go || it.blocked) {
+    if (it.choice === 'skip') {
       it.status = 'skipped'
       continue
     }
     it.status = 'running'
-    const verb = b.kind === 'store' ? 'stored' : 'saved'
     const r =
-      b.kind === 'copy'
-        ? await copyHere(it.id)
-        : await request('storeInCloud', { id: it.id, overwrite: !!it.warn }).then(async (x) => {
-            await loadRecord(it.id)
-            if (x.ok) return { ok: true, message: b.kind === 'store' ? 'Stored in the cloud ✓ — other devices can open it' : 'Saved to the cloud ✓ — other devices get these changes' }
-            return { ok: false, message: x.error.code === 'conflict' ? `Not ${verb}: it changed in the cloud meanwhile. Open Save datasets… again to see it.` : `Not ${verb}: ${x.error.message}` }
-          })
+      it.choice === 'link'
+        ? await request('linkToCloud', { id: it.id })
+        : it.choice === 'push'
+          ? await request('pushDataset', { id: it.id, overwrite: !!it.warn || cloudStates.value.get(it.id)?.state === 'gone' })
+          : await request('pullDataset', { id: it.id })
+    await loadRecord(it.id)
+    const done = { link: 'Linked ✓ — other devices can pull it', push: 'Pushed ✓ — the cloud has this version', pull: 'Pulled ✓ — this copy matches the cloud' }[it.choice as 'link' | 'push' | 'pull']
     it.status = r.ok ? 'done' : 'failed'
-    it.result = r.message
+    it.result = r.ok ? done : r.error.code === 'conflict' ? 'Not pushed: it changed in the cloud meanwhile. Sync again to choose.' : `Not done: ${r.error.message}`
   }
   b.running = false
+  await checkCloud()
 }
 
 /** The transform writing a dataset, by name (an output can't be replaced: its transform would overwrite it). */
@@ -1238,11 +1268,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :retry="!!cloudError"
           :problems="problemCount"
           :local-only="localOnly"
-          :changed-in-cloud="changedInCloud"
-          :in-cloud="inCloud"
-          @store-all="openBatch('store')"
-          @save-datasets="openBatch('save')"
-          @copy-all="openBatch('copy')"
+          :out-of-sync="outOfSync"
+          :linked-count="linked.length"
+          @link-all="openBatch('link')"
+          @sync-all="openBatch('sync')"
           @remove-unavailable="removeUnavailable"
           @show-unavailable="showUnavailable"
           :counts="{ datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length }"
@@ -1324,6 +1353,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @remove="removeDataset"
             @delete="deleteDataset"
             :notes="datasetNotes"
+            :sync-states="syncStates"
             @cloud="cloudAction"
             @dismiss-note="dismissNote"
             @reorder="reorderDatasets"
@@ -1407,6 +1437,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @remove="removeDataset"
             @delete="deleteDataset"
             :notes="datasetNotes"
+            :sync-states="syncStates"
             @cloud="cloudAction"
             @dismiss-note="dismissNote"
             @reorder="reorderDatasets"
@@ -1537,7 +1568,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       @dblclick="assist.reset"
     />
     <AgentPanel v-show="assistantOpen" class="assistant-col" :host="agentHost" @close="assistantOpen = false" />
-    <BatchPanel v-if="batch" :title="batch.title" :intro="batch.intro" :verb="batch.verb" :items="batch.items" :running="batch.running" @proceed="runBatch" @close="batch = null" />
+    <BatchPanel v-if="batch" :title="batch.title" :intro="batch.intro" :items="batch.items" :running="batch.running" @proceed="runBatch" @close="batch = null" />
   </div>
 </template>
 

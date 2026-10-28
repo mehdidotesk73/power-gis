@@ -1,6 +1,6 @@
 <script lang="ts">
 /** What the cloud actions on a dataset are. */
-export type CloudAction = 'store' | 'save' | 'discard' | 'copy'
+export type CloudAction = 'link' | 'sync' | 'unlink' | 'delete-cloud'
 </script>
 
 <script setup lang="ts">
@@ -15,7 +15,7 @@ export type CloudAction = 'store' | 'save' | 'discard' | 'copy'
 import { ref } from 'vue'
 import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
 import ExploreModal from './ExploreModal.vue'
-import { changedHere, storeOf, type DatasetRecord } from '../../shared/records'
+import { localSyncState, storeOf, type DatasetRecord, type SyncState } from '../../shared/records'
 import { useDetailTarget } from '../detailTarget'
 import { vReveal } from '../reveal'
 import DatasetEditor from './DatasetEditor.vue'
@@ -31,12 +31,14 @@ const props = defineProps<{
   writtenBy?: (id: string) => string | undefined
   /** A short note on a dataset's card (a cloud action's outcome), by id. */
   notes?: Map<string, string>
+  /** Linked datasets' states against the cloud, as last checked (else what this device knows). */
+  syncStates?: Map<string, SyncState>
 }>()
 const emit = defineEmits<{
   (e: 'remove', id: string): void
   /** Delete the dataset from the database (the page confirms and updates the workspace). */
   (e: 'delete', id: string): void
-  /** A cloud action on a dataset: store it, save its changes, take the cloud's back, or copy it here. */
+  /** A cloud action on a dataset: link it, sync it (push / pull), unlink it, or delete its cloud dataset. */
   (e: 'cloud', action: CloudAction, id: string): void
   (e: 'dismiss-note', id: string): void
   (e: 'reorder', ids: string[]): void
@@ -49,14 +51,16 @@ const editing = ref<string | null>(null)
 /** Desktop setup mode: the editor (and Explore) open in the page's right column. */
 const detailTarget = useDetailTarget()
 
-const CLOUD_ACTIONS: Record<CloudAction, ObjectAction> = {
-  store: { id: 'store', icon: '⇡', label: 'Move to cloud storage' },
-  save: { id: 'save', icon: '⇡', label: 'Save dataset to the cloud' },
-  discard: { id: 'discard', icon: '↺', label: 'Discard local changes' },
-  copy: { id: 'copy-local', icon: '⇣', label: 'Make a local copy' },
-}
+const builtin = (ds: DatasetRecord) => typeof ds.extensions?.builtin === 'string'
 const cloudActions = (ds: DatasetRecord): ObjectAction[] =>
-  storeOf(ds) === 'local' ? [CLOUD_ACTIONS.store] : changedHere(ds) ? [CLOUD_ACTIONS.save, CLOUD_ACTIONS.discard, CLOUD_ACTIONS.copy] : [CLOUD_ACTIONS.copy]
+  ds.link
+    ? [
+        { id: 'sync', icon: '⇅', label: 'Sync…' },
+        { id: 'unlink', icon: '⛓', label: 'Unlink from the cloud' },
+      ]
+    : builtin(ds)
+      ? []
+      : [{ id: 'link', icon: '⇡', label: 'Link to cloud' }]
 const actions = (ds: DatasetRecord): ObjectAction[] => [
   { id: 'explore', icon: '▤', label: 'Explore' },
   { id: 'edit', icon: '✎', label: editing.value === ds.id ? 'Close edit' : 'Edit' },
@@ -64,15 +68,26 @@ const actions = (ds: DatasetRecord): ObjectAction[] => [
   ...cloudActions(ds),
   { id: 'remove', icon: '✕', label: 'Remove from workspace', danger: true },
   { id: 'delete', icon: '⊗', label: 'Delete dataset', danger: true },
+  ...(ds.link ? [{ id: 'delete-cloud', icon: '⊗', label: 'Delete from the cloud', danger: true }] : []),
 ]
 function onAction(id: string, ds: DatasetRecord) {
   if (id === 'explore') exploring.value = ds
   else if (id === 'edit') editing.value = editing.value === ds.id ? null : ds.id
   else if (id === 'copy') copyId(ds.id)
-  else if (id === 'store' || id === 'save' || id === 'discard') emit('cloud', id, ds.id)
-  else if (id === 'copy-local') emit('cloud', 'copy', ds.id)
+  else if (id === 'link' || id === 'sync' || id === 'unlink' || id === 'delete-cloud') emit('cloud', id, ds.id)
   else if (id === 'remove') emit('remove', ds.id)
   else if (id === 'delete') emit('delete', ds.id)
+}
+
+/** A linked dataset's state: as last checked against the cloud, else what this device knows. */
+const stateOf = (ds: DatasetRecord): SyncState | undefined => props.syncStates?.get(ds.id) ?? localSyncState(ds)
+const ARROWS: Record<SyncState, string> = { synced: '', ahead: ' ↑', behind: ' ↓', both: ' ↑↓', gone: ' ⚠' }
+const STATE_TITLE: Record<SyncState, string> = {
+  synced: 'Linked to the cloud, in sync',
+  ahead: 'Changed here: push to update the cloud',
+  behind: 'Newer in the cloud: pull to update this copy',
+  both: 'Changed here and in the cloud: push, pull or skip',
+  gone: 'No longer in the cloud (deleted there): unlink, or link again',
 }
 
 // ── copy a dataset id ──────────────────────────────────────────────────────
@@ -121,9 +136,9 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
         <span class="muted">
           <span
             class="store"
-            :class="[storeOf(ds), { changed: changedHere(ds) }]"
-            :title="storeOf(ds) === 'local' ? 'Kept on this device' : changedHere(ds) ? 'In cloud storage, with changes made here that aren\'t saved to the cloud yet' : 'Kept in cloud storage (with a copy here)'"
-            >{{ storeOf(ds) === 'local' ? 'Local' : changedHere(ds) ? '● Cloud · changed here' : 'Cloud' }}</span
+            :class="[storeOf(ds), stateOf(ds)]"
+            :title="ds.link ? STATE_TITLE[stateOf(ds) ?? 'synced'] : 'Only on this device (local)'"
+            >{{ ds.link ? `Cloud${ARROWS[stateOf(ds) ?? 'synced']}` : 'Local' }}</span
           >
           {{ stats(ds) }} · {{ ds.origin }}
         </span>
@@ -173,7 +188,10 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
   border-color: var(--kind-dataset);
   color: var(--kind-dataset);
 }
-.store.changed {
+.store.ahead,
+.store.behind,
+.store.both,
+.store.gone {
   border-color: var(--warn);
   color: var(--warn);
 }

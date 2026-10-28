@@ -55,7 +55,8 @@ export interface DagDataset {
   name: string
   rowCount: number
   updatedAt: string
-  store?: 'local' | 'remote'
+  /** Linked to a cloud dataset (shown as a violet dot). */
+  link?: unknown
 }
 
 const dsKey = (id: string) => `ds:${id}`
@@ -120,7 +121,7 @@ export function buildDag(doc: WorkspaceDoc, dataset: (id: string) => DagDataset 
   const addDataset = (id: string) => {
     if (nodes.has(dsKey(id))) return
     const d = dataset(id)
-    nodes.set(dsKey(id), { key: dsKey(id), kind: 'dataset', id, label: d?.name ?? 'Missing dataset', detail: d ? `${d.rowCount.toLocaleString()} rows` : 'not in the database', store: d?.store ?? 'local', row: 0, order: 0 })
+    nodes.set(dsKey(id), { key: dsKey(id), kind: 'dataset', id, label: d?.name ?? 'Missing dataset', detail: d ? `${d.rowCount.toLocaleString()} rows` : 'not in the database', store: d?.link ? 'remote' : 'local', row: 0, order: 0 })
   }
   for (const id of doc.datasetIds) addDataset(id)
   for (const t of doc.transforms) {

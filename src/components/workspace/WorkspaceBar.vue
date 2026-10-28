@@ -22,10 +22,10 @@ const props = defineProps<{
   problems?: number
   /** Signed in: the workspace's uploads kept only on this device. */
   localOnly?: { id: string; name: string }[]
-  /** Cloud datasets of the workspace whose rows changed here and aren't saved to the cloud. */
-  changedInCloud?: { id: string; name: string }[]
-  /** The workspace's cloud datasets. */
-  inCloud?: { id: string; name: string }[]
+  /** Linked datasets not in sync with the cloud, with their state. */
+  outOfSync?: { id: string; name: string; state: 'synced' | 'ahead' | 'behind' | 'both' | 'gone' }[]
+  /** How many of the workspace's datasets are linked to the cloud. */
+  linkedCount?: number
   counts: { datasets: number; transforms: number; visualizations: number }
 }>()
 const emit = defineEmits<{
@@ -39,10 +39,9 @@ const emit = defineEmits<{
   (e: 'reset'): void
   (e: 'remove-unavailable'): void
   (e: 'show-unavailable'): void
-  /** Review, then store these in the cloud / save these to the cloud / copy these here (BatchPanel). */
-  (e: 'store-all'): void
-  (e: 'save-datasets'): void
-  (e: 'copy-all'): void
+  /** Review, then link these to the cloud / sync these with it (BatchPanel). */
+  (e: 'link-all'): void
+  (e: 'sync-all'): void
 }>()
 
 const open = ref(false)
@@ -113,6 +112,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onDown, true)
 })
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: '⚠ gone' } as const
 </script>
 
 <template>
@@ -165,19 +165,18 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
           <li v-for="d in localOnly" :key="d.id">{{ d.name }}</li>
         </ul>
         <span class="lo-note">Other devices, and anyone you share with, see these as missing.</span>
-        <button class="btn" @click="(open = false), emit('store-all')">⇡ Store in the cloud…</button>
+        <button class="btn" @click="(open = false), emit('link-all')">⇡ Link to cloud…</button>
       </div>
-      <div v-if="changedInCloud?.length" class="local-only changed">
-        <span class="lo-title">● Changed here, not saved to the cloud ({{ changedInCloud.length }})</span>
+      <div v-if="outOfSync?.length" class="local-only changed">
+        <span class="lo-title">● Not in sync with the cloud ({{ outOfSync.length }})</span>
         <ul>
-          <li v-for="d in changedInCloud" :key="d.id">{{ d.name }}</li>
+          <li v-for="d in outOfSync" :key="d.id">{{ d.name }} <span class="arrows">{{ ARROWS[d.state] }}</span></li>
         </ul>
-        <span class="lo-note">Other devices see the cloud version until you save these. Saving datasets is separate from saving the workspace.</span>
-        <button class="btn" @click="(open = false), emit('save-datasets')">⇡ Save datasets…</button>
+        <span class="lo-note">↑ changed here · ↓ newer in the cloud · ↑↓ both. Syncing datasets is separate from saving the workspace.</span>
+        <button class="btn" @click="(open = false), emit('sync-all')">⇅ Sync all…</button>
       </div>
-      <div v-if="inCloud?.length" class="cloud-line">
-        <span>{{ plural(inCloud.length, 'cloud dataset') }} in this workspace</span>
-        <button class="btn" @click="(open = false), emit('copy-all')">⇣ Make local copies…</button>
+      <div v-else-if="linkedCount" class="cloud-line">
+        <span>{{ plural(linkedCount, 'linked dataset') }}, all in sync with the cloud</span>
       </div>
       <div class="row">
         <button class="btn primary" :disabled="(!dirty && !retry) || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>

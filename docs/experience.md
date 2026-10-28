@@ -314,19 +314,23 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Cloud datasets (Supabase, PR 3 of 4) — 2026-10-28
 
-- **Added:** signed in, **Move to cloud storage** keeps a dataset in your account (same id, rows as a
-  compressed file) and a copy on this device; other devices download it when they open the workspace,
-  and catch up with newer versions.
-- **Added:** a cloud dataset rewritten here is **Cloud · changed here** until **Save dataset to the
-  cloud** or **Discard local changes**; saving asks before overwriting a newer cloud version.
-  **Make a local copy**; deleting a cloud dataset deletes it from the cloud; deleting the account
-  removes your cloud files.
-- **Added:** batch actions (Store in the cloud…, Save datasets…, Make local copies…) open a review
-  panel: each dataset with what will happen, Continue / Skip, then Proceed; results per line.
+- **Added:** cloud links. The app always works on copies on this device; signed in, **Link to cloud**
+  gives a dataset a cloud copy, and it syncs only when you do: **Push** (this copy → cloud) and
+  **Pull** (cloud → this copy), from a review panel with Push · Pull · Skip on every line (the ones that
+  don't apply greyed out, with the reason). Cards show Cloud, Cloud ↑ (changed here), Cloud ↓ (newer in
+  the cloud) and Cloud ↑↓ (both); the app checks on open and every minute. Unlink, Delete from the
+  cloud; Link to cloud… and Sync all… in the Workspace panel. Other devices pull linked datasets when
+  they open the workspace. Owner / write push, everyone pulls.
+- **Fixed:** the worker could hold a stale or missing sign-in and act signed out: every cloud request
+  re-sends the current one first; a workspace save that didn't reach the account is sent on the next
+  load instead of the older account copy opening over it.
 - **Dead end:** Parquet files. DuckDB-WASM reads and writes Parquet only through its parquet
   extension (not built in; autoload is off on purpose), which every device would download, and this
   sandbox can't reach DuckDB's extension server to test it. Rows go as gzip-compressed Arrow IPC
   instead: columnar, small, and read without the SQL engine.
+- **Lesson:** design changed three times (cloud-first datasets with drafts → local-only working copies
+  → plain local copies with manual sync). The last is the simplest: one rule (the app works on local
+  copies), one link per dataset, and sync as the only door to the cloud.
 
 ### Dataset details as a draft — 2026-10-28
 

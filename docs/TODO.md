@@ -317,11 +317,14 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    1. ~~Accounts~~ (done, see Done): sign up / in, profile, change / reset password.
    2. ~~Cloud workspace~~ (done, see Done): Save also stores the signed-in user's default workspace
       (portable: built-ins and transform outputs as templates); other devices open it.
-   3. ~~Cloud datasets~~ (done): the registry row in `datasets` (same id), rows as
-      `<id>/data.arrow.gz` (gzip Arrow, not Parquet: DuckDB-WASM writes Parquet only through an
-      extension every device would download), a copy here; changed here / Save dataset / Discard;
-      conflicts; batch review panels; Make local copy. Later: list cloud datasets that aren't in any
-      workspace here (the dataset finder / agent's `list_datasets`), a storage meter.
+   3. ~~Cloud datasets~~ (done): cloud links with manual sync. Every dataset is a local copy; a
+      linked one (`link {cloudId, version, changed}`) syncs by Push / Pull in a review panel (the same
+      buttons on every line, unavailable ones disabled); ↑ ↓ ↑↓ states checked every minute; rows as
+      `<cloudId>/data.arrow.gz` (gzip Arrow, not Parquet: DuckDB-WASM writes Parquet only through an
+      extension every device would download). Later: **auto-sync** per dataset (push on every change, no
+      version check; pull newer), **live transforms** (run when stale; one running + one waiting, the
+      newest replacing the waiting), list cloud datasets not in any workspace here (dataset finder /
+      `list_datasets`), Supabase Realtime instead of the minute check, a storage meter.
    4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
       read / write levels, owner-only removal of write and delete (all enforced by RLS).
    - **Agreed next (before PR 3):** (a) ~~dataset name / description as draft until Save, agent's

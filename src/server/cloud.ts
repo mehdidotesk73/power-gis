@@ -40,14 +40,20 @@ export function supabaseCloud(accessToken: string): CloudStore {
     updatedAt: r.updated_at,
     ...(r.size_bytes !== null ? { sizeBytes: Number(r.size_bytes) } : {}),
     hasFile: !!r.file_path,
-    owned: !!me && r.created_by === me,
+    access: !!me && r.created_by === me ? 'owner' : 'read',
   })
   return {
     async datasets(ids) {
       // Cloud ids are uuids: anything else (a readable id from a document) can't be there, and would fail the query.
       ids = ids.filter((id) => UUID.test(id))
       if (!ids.length) return []
-      return (check(await sb.from('datasets').select(COLUMNS).in('id', ids)) as Row[]).map(asDataset)
+      const rows = (check(await sb.from('datasets').select(COLUMNS).in('id', ids)) as Row[]).map(asDataset)
+      // The user's own access rows (owner / write / read) say who may push.
+      if (me && rows.length) {
+        const mine = check(await sb.from('dataset_access').select('dataset_id, access').in('dataset_id', rows.map((r) => r.id)).eq('user_id', me)) as { dataset_id: string; access: CloudDataset['access'] }[]
+        for (const r of rows) r.access = mine.find((a) => a.dataset_id === r.id)?.access ?? r.access
+      }
+      return rows
     },
     async putDataset(d, file) {
       if (!UUID.test(d.id)) throw new Error(`"${d.name}" has an id the cloud can't keep (${d.id}); make a local copy first`)
@@ -67,11 +73,6 @@ export function supabaseCloud(accessToken: string): CloudStore {
           .select('updated_at')
           .single(),
       )
-      if (!row) throw new Error("The dataset was not saved")
-      return { updatedAt: row.updated_at }
-    },
-    async updateDetails(id, patch) {
-      const row = check(await sb.from('datasets').update(patch).eq('id', id).select('updated_at').single())
       if (!row) throw new Error("The dataset was not saved")
       return { updatedAt: row.updated_at }
     },

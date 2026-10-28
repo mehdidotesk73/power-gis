@@ -75,7 +75,7 @@ describe('workspace DAG', () => {
 
   it("marks each dataset's store, and outputs out of date or not made yet", () => {
     const node = (dag: ReturnType<typeof buildDag>, id: string) => dag.nodes.find((n) => n.key === `ds:${id}`)!
-    const cloud: Record<string, DagDataset> = { ...records, states: { ...records.states, store: 'remote' } }
+    const cloud: Record<string, DagDataset> = { ...records, states: { ...records.states, link: { cloudId: 's', version: 'v1' } } }
     const dag = buildDag(doc, (id) => cloud[id])
     expect(node(dag, 'states')).toMatchObject({ store: 'remote' })
     expect(node(dag, 'utilities')).toMatchObject({ store: 'local' })

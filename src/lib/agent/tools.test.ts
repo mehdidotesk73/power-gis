@@ -9,13 +9,13 @@ import type { ColumnInfo } from '../dataset/columns'
 
 const t0 = '2026-01-01T00:00:00.000Z'
 const record = (id: string, columns: ColumnInfo[], store: 'local' | 'remote' = 'local'): DatasetRecord => ({
+  ...(store === 'remote' ? { link: { cloudId: id, version: 'v1' } } : {}),
   id,
   name: id.toUpperCase(),
   table: `ds_${id}`,
   columns,
   rowCount: 10,
   origin: 'Device · test.csv',
-  store,
   createdAt: t0,
   updatedAt: t0,
 })
@@ -110,7 +110,7 @@ describe('agent tools', () => {
     expect(await runTool(host, 'visualization_stats', { id: 'nope' })).toMatchObject({ isError: true })
   })
 
-  it('renames and describes local datasets in /datasets.json (store, rows, origin read-only; cloud ones refused)', async () => {
+  it('renames and describes datasets in /datasets.json (store, rows, origin read-only), linked ones too, as local changes', async () => {
     const { host, calls } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices', 'shared'] })
     await runTool(host, 'get_workspace', {})
     const files = JSON.parse((await edit(host, { command: 'view', path: '/datasets.json' })).content.replace(/^\s*\d+\t/gm, ''))
@@ -119,8 +119,6 @@ describe('agent tools', () => {
     const write = (o: object) => edit(host, { command: 'create', path: '/datasets.json', file_text: JSON.stringify(o) })
     await write({ ...files, prices: { ...files.prices, rows: 11 } })
     expect((await runTool(host, 'apply_workspace', {})).content).toMatch(/"rows" is read-only/)
-    await write({ ...files, shared: { ...files.shared, name: 'x' } })
-    expect((await runTool(host, 'apply_workspace', {})).content).toMatch(/only the user can rename/)
     await write({ ...files, prices: { ...files.prices, name: 'Home prices', description: 'Zillow ZHVI by county' } })
     const r = await runTool(host, 'apply_workspace', {})
     expect(r.summary).toBe('renamed dataset “PRICES” → “Home prices” (and its description)')
@@ -250,7 +248,7 @@ describe('agent tools', () => {
       },
     )
     expect(out.isError).toBe(true)
-    for (const bit of ['no dataset "ghost"', 'cloud dataset', 'not a geometry column', '"nope" isn\'t a value column', "sum doesn't apply", 'colormap must be one of']) expect(out.content).toContain(bit)
+    for (const bit of ['no dataset "ghost"', 'not a geometry column', '"nope" isn\'t a value column', "sum doesn't apply", 'colormap must be one of']) expect(out.content).toContain(bit)
     expect(state.doc).toBe(before)
 
     // File-level problems: SQL inside JSON, a missing SQL file, broken JSON, an unknown field.
@@ -279,7 +277,7 @@ describe('agent tools', () => {
     expect(state.doc.visualizations).toEqual(before.visualizations)
   })
 
-  it('runs transforms and deletes datasets only when they are local', async () => {
+  it('runs transforms and deletes datasets (this device\'s copies, linked ones too)', async () => {
     const doc: WorkspaceDoc = {
       ...emptyWorkspace('Test'),
       datasetIds: ['prices', 'shared', 'joined'],
@@ -290,11 +288,11 @@ describe('agent tools', () => {
     }
     const { host, calls } = fakeHost(doc)
     expect((await runTool(host, 'run_transform', { id: 't1' })).summary).toBe('10 rows → JOINED')
-    expect(await runTool(host, 'run_transform', { id: 't2' })).toMatchObject({ isError: true, summary: 'refused: cloud output' })
-    expect(await runTool(host, 'delete_dataset', { id: 'shared' })).toMatchObject({ isError: true, summary: 'refused: cloud dataset' })
+    // A linked (cloud) output is this device's copy too: the run changes it here (it turns ↑ until the user syncs).
+    expect((await runTool(host, 'run_transform', { id: 't2' })).isError).toBe(false)
     expect(await runTool(host, 'delete_dataset', { id: 'prices' })).toMatchObject({ isError: true, summary: 'refused: still used' })
     expect((await runTool(host, 'delete_dataset', { id: 'joined' })).isError).toBe(false)
-    expect(calls).toEqual(['run t1', 'delete joined'])
+    expect(calls).toEqual(['run t1', 'run t2', 'delete joined'])
     expect(await runTool(host, 'drop_everything', {})).toMatchObject({ isError: true })
   })
 })

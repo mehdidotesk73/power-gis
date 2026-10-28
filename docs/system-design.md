@@ -141,9 +141,11 @@ backend (Supabase + functions) is a refactor, not a rewrite.
 - **Server** — `src/server/server.ts` (`createServer(db, env)`), run in a **Web Worker** by
   `worker.ts`. Requests (`src/shared/api.ts`): `init`, `uploadDataset` (CSV / GeoJSON-Esri file,
   ArcGIS URL, built-in table → new data table + registry row), `updateDataset` (sent on Save for the draft's `datasetEdits`),
-  `deleteDataset` (cleans up visualizations and workspace configs), `storeInCloud` / `fetchFromCloud` /
-  `copyToLocal` / `cloudStatus` (cloud datasets: same id, rows as a gzip Arrow file in the bucket,
-  a copy here; `conflict` when the cloud's version moved on), `describeBinding` (features,
+  `deleteDataset` (cleans up visualizations and workspace configs), `linkToCloud` / `pushDataset` /
+  `pullDataset` / `unlinkDataset` / `deleteFromCloud` / `cloudStatus` (cloud links: every dataset is a
+  local copy, a linked one also has a cloud dataset — `DatasetRecord.link` `{cloudId, version, changed}`;
+  rows as a gzip Arrow file in the bucket; manual push / pull, `conflict` when the cloud moved on unless
+  `overwrite`; never an agent), `describeBinding` (features,
   unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
   `previewTransform`, `runTransform`, `profileDataset`,
   `saveWorkspace` (upserts its visualization and transform records, deletes dropped ones), `deleteWorkspace`.

@@ -50,6 +50,8 @@ export interface UnavailableDataset {
   name: string
   description?: string
   store?: 'local' | 'remote'
+  /** Linked: the cloud dataset another device can pull it from. */
+  cloudId?: string
   rows?: number
   origin?: DatasetOrigin
   sameAs?: string[]

@@ -44,7 +44,7 @@ function connect(): Worker {
 }
 
 /** Requests that may reach the cloud: each first hands the server the session's current sign-in (`beforeCloud`). */
-const CLOUD_REQUESTS = new Set<RequestType>(['cloudWorkspace', 'saveCloudWorkspace', 'openDocument', 'storeInCloud', 'fetchFromCloud', 'cloudStatus', 'updateDataset', 'deleteDataset'])
+const CLOUD_REQUESTS = new Set<RequestType>(['cloudWorkspace', 'saveCloudWorkspace', 'openDocument', 'linkToCloud', 'pushDataset', 'pullDataset', 'deleteFromCloud', 'cloudStatus'])
 let beforeCloud: (() => Promise<unknown>) | null = null
 /**
  * Set by the account code: sends the server the current token. Run before every cloud request,

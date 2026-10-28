@@ -9,7 +9,7 @@ import type { Aggregation } from '../lib/dataset/aggregate'
 import type { GeometryBinding } from '../lib/dataset/binding'
 import type { BindingInfo, FindEntry, VizValues } from '../lib/dataset/query'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
-import type { TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
+import type { SyncState, TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
 import type { MissingDataset, WorkspaceFile } from '../lib/workspace/file'
@@ -56,17 +56,28 @@ export interface Api {
   /** Drops the data table and registry row, and every visualization of it. */
   deleteDataset: [{ id: string }, { datasetId: string }]
   /**
-   * Stores a dataset in the cloud (same id; this device keeps its copy), or saves a cloud dataset's
-   * changes made here. Refused with `conflict` when the cloud's copy changed since this device got
-   * it, unless `overwrite`. Signed in only; never an agent.
+   * Cloud links (manual sync; never an agent; signed in). The app works on local copies only; these
+   * are the only requests that change the cloud or take from it.
+   * linkToCloud: makes a cloud dataset from a local one (the first push; the user owns it) and links them.
    */
-  storeInCloud: [{ id: string; overwrite?: boolean }, { datasetId: string; updatedAt: string }]
-  /** Downloads a cloud dataset onto this device: a new copy here, a newer version, or the cloud's rows back over changes made here. */
-  fetchFromCloud: [{ id: string }, { datasetId: string; rowCount: number }]
-  /** An independent local dataset with a dataset's rows (a new id); the original is untouched. */
-  copyToLocal: [{ id: string }, { datasetId: string }]
-  /** How these datasets stand in the cloud: not stored there, the same version as here, newer there, or gone. */
-  cloudStatus: [{ ids: string[] }, { datasets: { id: string; state: 'notInCloud' | 'same' | 'cloudNewer' | 'gone'; sizeBytes?: number; updatedAt?: string }[] }]
+  linkToCloud: [{ id: string }, { datasetId: string; cloudId: string; version: string }]
+  /**
+   * Pushes a linked copy to its cloud dataset (rows, columns, name, description). Refused with
+   * `conflict` when the cloud moved on since this copy last matched it, unless `overwrite`.
+   */
+  pushDataset: [{ id: string; overwrite?: boolean }, { datasetId: string; version: string }]
+  /** Pulls a cloud dataset into its local copy (made under `id` with `cloudId` when this device has none): the cloud's version replaces this one. */
+  pullDataset: [{ id: string; cloudId?: string }, { datasetId: string; rowCount: number }]
+  /** Drops a dataset's link: it stays here, local only; the cloud dataset stays. */
+  unlinkDataset: [{ id: string }, { datasetId: string }]
+  /** Deletes a linked dataset's cloud dataset (owner only); this copy stays, local only. */
+  deleteFromCloud: [{ id: string }, { datasetId: string }]
+  /**
+   * How linked datasets stand against the cloud (`cloudId` for one this device doesn't have yet):
+   * synced, ahead ↑ (changed here), behind ↓ (newer in the cloud), both ↑↓, or gone; and whether the
+   * user may push (owner or write access).
+   */
+  cloudStatus: [{ items: { id: string; cloudId?: string }[] }, { datasets: { id: string; state: SyncState; canPush: boolean; version?: string }[] }]
   /** How a dataset looks under a binding (features, unmatched rows, defaults). */
   describeBinding: [{ datasetId: string; binding: GeometryBinding }, BindingInfo]
   /** One value per feature for a visualization. */
