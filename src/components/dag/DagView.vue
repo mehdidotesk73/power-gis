@@ -177,13 +177,14 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
           v-for="n in dag.nodes"
           :key="n.key"
           class="node"
-          :class="[n.kind, n.state, { selected: selected === n.key, picked: pickNo(n) > 0, dimmed: dimmed(n), muted: n.muted }]"
+          :class="[n.kind, n.state, n.problem, { selected: selected === n.key, picked: pickNo(n) > 0, dimmed: dimmed(n), muted: n.muted }]"
           :style="{ left: `${layout.at.get(n.key)!.x}px`, top: `${layout.at.get(n.key)!.y}px`, width: `${NODE_W}px`, height: `${NODE_H}px` }"
           :aria-pressed="selected === n.key || pickNo(n) > 0"
           :title="`${kindLabel(n)}: ${n.label} — ${n.detail}`"
           @click="tap(n)"
         >
-          <span v-if="n.kind === 'transform' && n.state === 'stale'" class="badge" aria-label="Needs re-run">↻</span>
+          <span v-if="n.problem === 'missing'" class="badge problem-badge" aria-label="Missing on this device">⚠</span>
+          <span v-else-if="n.kind === 'transform' && n.state === 'stale' && !n.problem" class="badge" aria-label="Needs re-run">↻</span>
           <span class="tag">{{ tag(n) }}</span>
           <span class="label">{{ n.label }}</span>
           <span class="detail">{{ n.detail }}</span>
@@ -348,6 +349,25 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 }
 .node.viz.muted {
   opacity: 0.6;
+}
+/* Can't work on this device: red outline (a missing dataset gets a ⚠ too; never hue alone). */
+.node.missing,
+.node.waits {
+  border-color: var(--danger);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg));
+}
+.node.missing {
+  border-width: 2px;
+  border-style: solid;
+}
+.node.missing .detail,
+.node.waits .detail {
+  color: var(--danger);
+}
+.badge.problem-badge {
+  background: var(--danger);
+  color: var(--on-accent);
 }
 .node.selected {
   outline: 2px solid var(--text);

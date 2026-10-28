@@ -16,6 +16,33 @@ export interface WorkspaceDoc {
   /** Top of the list draws on top. */
   visualizations: VisualizationSpec[]
   transforms: TransformSpec[]
+  /**
+   * Datasets the workspace points at that this device doesn't have, with what's known of them (from
+   * the document it was opened from). They stay — saved along, drawn red — until replaced or removed
+   * (lib/workspace/unavailable.ts).
+   */
+  unavailable?: Record<string, UnavailableDataset>
+}
+
+/** Where a dataset came from: what a device without it can do about it. */
+export type DatasetOrigin =
+  | { kind: 'builtin'; table: string; version?: number }
+  | { kind: 'output'; transform: string; output: string }
+  | { kind: 'upload'; source: string }
+  | { kind: 'unknown' }
+
+/** Why a device couldn't use a dataset. */
+export type MissingWhy = 'elsewhere' | 'cloud' | 'unknown' | 'builtin' | 'output'
+
+/** A dataset the workspace points at that this device doesn't have. */
+export interface UnavailableDataset {
+  name: string
+  description?: string
+  store?: 'local' | 'remote'
+  rows?: number
+  origin?: DatasetOrigin
+  sameAs?: string[]
+  why: MissingWhy
 }
 
 /**

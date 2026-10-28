@@ -312,6 +312,19 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Unavailable items — 2026-10-28
+- **Added:** a workspace opened on a device that lacks some of its datasets keeps them, and everything
+  waiting on them, in red (graph outline, ⚠ on the missing datasets, a red line in the lists), saved
+  along. Replace a missing dataset with a file or another dataset (it takes over every pointer), then
+  Run them now; or Remove what didn't load.
+- **Fixed:** saving on such a device used to drop the missing datasets, and what used them, from the
+  account's copy.
+- **Added:** Replace… on any dataset (Edit → ⇄ Replace…, the usual add-dataset panel with a working
+  Cancel; what it adds takes the old one's place everywhere, as a draft), and
+  the "Only on this device" list and Save note when signed in.
+- **Lesson:** keep what you can't use, with what you know of it. The v2 document's dataset facts made
+  this cheap: the missing entries carry their name, rows and origin through any number of saves.
+
 ### Cloud workspace (Supabase, PR 2 of 4) — 2026-10-28
 - **Added:** signed in, Save also stores the workspace in your account; another device opens it,
   rebuilding built-in tables and transform outputs there. The Workspace panel says where changes are
