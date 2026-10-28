@@ -322,9 +322,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
       worker carries the session's token; storage limits.
    4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
       read / write levels, owner-only removal of write and delete (all enforced by RLS).
-   - **Agreed next (before PR 3):** (a) dataset name / description become draft until Save, like
-     everything but data; the agent edits them in `datasets.json` (name, description editable;
-     id, store, rows, origin read-only) and `update_dataset` goes for those fields. (b) the agent's
+   - **Agreed next (before PR 3):** (a) ~~dataset name / description as draft until Save, agent's
+     `datasets.json`~~ (done, see Done). (b) the agent's
      files become the file form of the v2 document (+ `datasets.json`, full visualization settings),
      and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) ~~Unavailable items~~ (done, see Done).
    - **Cloud datasets (agreed shape):** local edits to a cloud dataset make a **draft linked to it**

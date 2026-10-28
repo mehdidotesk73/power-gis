@@ -131,7 +131,6 @@ const TOOL_LABEL: Record<string, string> = {
   apply_workspace: 'Apply the edits',
   visualization_stats: 'Check the values drawn',
   run_transform: 'Run a transform',
-  update_dataset: 'Rename / describe a dataset',
   delete_dataset: 'Delete a dataset',
 }
 

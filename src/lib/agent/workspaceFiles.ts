@@ -5,6 +5,8 @@
 // the draft changes (tools.ts).
 //
 //   workspace.json                    index: name, datasetIds, transform ids, visualization ids (draw order)
+//   datasets.json                     the workspace's datasets by id: name and description (editable),
+//                                     store, rows, origin (read-only)
 //   transforms/<id>.json              one transform: name, inputs, outputs (key, name, outputId)
 //   transforms/<id>.<key>.sql         that output's SQL, plain (found by name: no reference to get wrong)
 //   visualizations/<id>.json          one visualization, compact
@@ -66,6 +68,7 @@ export function canonical(v: unknown): string {
 export type Files = Map<string, string>
 
 export const INDEX = 'workspace.json'
+export const DATASETS = 'datasets.json'
 export const OVERVIEW = 'overview.md'
 const NAME = '[A-Za-z0-9_-]+'
 const TRANSFORM_FILE = new RegExp(`^transforms/(${NAME})\\.json$`)
@@ -76,15 +79,35 @@ const TRANSFORM_KEYS = ['name', 'inputs', 'outputs']
 const OUTPUT_KEYS = ['key', 'name', 'outputId']
 const VIZ_KEYS = ['name', 'datasetId', 'geometry', 'label', 'column', 'aggregation', 'visible', 'color', 'opacity']
 
+const DATASET_KEYS = ['name', 'description', 'store', 'rows', 'origin']
+const READ_ONLY = ['store', 'rows', 'origin'] as const
+
+/** What datasets.json says about a dataset (the record as the page shows it: drafted names included). */
+export interface DatasetFacts {
+  name: string
+  description?: string
+  store?: 'local' | 'remote'
+  rowCount?: number
+  origin?: string
+}
+const datasetEntry = (d: DatasetFacts) => ({
+  name: d.name,
+  description: d.description ?? '',
+  store: d.store === 'remote' ? 'cloud' : 'local',
+  ...(d.rowCount !== undefined ? { rows: d.rowCount } : {}),
+  ...(d.origin ? { origin: d.origin } : {}),
+})
+
 const pretty = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
 export const transformPath = (id: string) => `transforms/${id}.json`
 export const sqlPath = (id: string, key: string) => `transforms/${id}.${key}.sql`
 export const vizPath = (id: string) => `visualizations/${id}.json`
 
-/** The draft as files. */
-export function workspaceFiles(doc: WorkspaceDoc): Files {
+/** The draft as files (`dataset` looks up what datasets.json says about each of its datasets). */
+export function workspaceFiles(doc: WorkspaceDoc, dataset: (id: string) => DatasetFacts | undefined = () => undefined): Files {
   const files: Files = new Map()
   files.set(INDEX, pretty({ name: doc.name, datasetIds: doc.datasetIds, transforms: doc.transforms.map((t) => t.id), visualizations: doc.visualizations.map((v) => v.id) }))
+  files.set(DATASETS, pretty(Object.fromEntries(doc.datasetIds.flatMap((id) => { const d = dataset(id); return d ? [[id, datasetEntry(d)]] : [] }))))
   for (const t of doc.transforms) {
     files.set(transformPath(t.id), pretty({ name: t.name, inputs: t.inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })), outputs: t.outputs.map((o) => ({ key: o.key, name: o.name, ...(o.outputId ? { outputId: o.outputId } : {}) })) }))
     for (const o of t.outputs) files.set(sqlPath(t.id, o.key), o.sql.endsWith('\n') ? o.sql : `${o.sql}\n`)
@@ -96,8 +119,8 @@ export function workspaceFiles(doc: WorkspaceDoc): Files {
   return files
 }
 
-/** A file the agent may write: the index, a transform, an output's SQL, a visualization. */
-export const writable = (path: string) => path === INDEX || TRANSFORM_FILE.test(path) || SQL_FILE.test(path) || VIZ_FILE.test(path)
+/** A file the agent may write: the index, the datasets' details, a transform, an output's SQL, a visualization. */
+export const writable = (path: string) => path === INDEX || path === DATASETS || TRANSFORM_FILE.test(path) || SQL_FILE.test(path) || VIZ_FILE.test(path)
 
 // ── the editor (Anthropic's text editor commands, on the staged files) ─────
 
@@ -231,6 +254,8 @@ export interface Assembled {
   created: { kind: 'transform' | 'visualization'; file: string; id: string }[]
   /** Files no listed item uses (dropped). */
   unused: string[]
+  /** Datasets whose name / description datasets.json changes: id → the new values. */
+  datasetEdits: Record<string, { name?: string; description?: string }>
 }
 
 function parseJson(files: Files, path: string, errors: string[]): Obj | null {
@@ -261,7 +286,12 @@ const idList = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === '
  * The files as one workspace description, with every problem listed. Items
  * named by ids the draft doesn't have are new and get a fresh id (`newId`).
  */
-export function assembleFiles(files: Files, doc: WorkspaceDoc, newId: () => string): { ok: true; value: Assembled } | { ok: false; errors: string[] } {
+export function assembleFiles(
+  files: Files,
+  doc: WorkspaceDoc,
+  newId: () => string,
+  dataset: (id: string) => DatasetFacts | undefined = () => undefined,
+): { ok: true; value: Assembled } | { ok: false; errors: string[] } {
   const errors: string[] = []
   const index = parseJson(files, INDEX, errors)
   if (!index) return { ok: false, errors }
@@ -319,9 +349,40 @@ export function assembleFiles(files: Files, doc: WorkspaceDoc, newId: () => stri
     return [{ ...v, id: idFor('visualization', name, doc.visualizations.some((x) => x.id === name)) }]
   })
 
+  // datasets.json: name and description change (as a draft, like the rest); the other facts are read-only.
+  const datasetEdits: Assembled['datasetEdits'] = {}
+  if (files.has(DATASETS)) {
+    used.add(DATASETS)
+    const all = parseJson(files, DATASETS, errors) ?? {}
+    for (const [id, e] of Object.entries(all)) {
+      const w = `/${DATASETS} "${id}"`
+      const d = dataset(id)
+      if (!(index.datasetIds as string[]).includes(id) || !d) {
+        errors.push(`${w}: not a dataset of this workspace (only those listed in /workspace.json "datasetIds" are here; add one there first)`)
+        continue
+      }
+      if (!isObj(e)) {
+        errors.push(`${w} must be an object`)
+        continue
+      }
+      unknownKeys(e, DATASET_KEYS, w, errors)
+      const was = datasetEntry(d) as Obj
+      for (const k of READ_ONLY) if (e[k] !== undefined && canonical(e[k]) !== canonical(was[k])) errors.push(`${w}: "${k}" is read-only (it says ${JSON.stringify(was[k])})`)
+      if (e.name !== undefined && (typeof e.name !== 'string' || !e.name.trim())) errors.push(`${w}: "name" must be non-empty text`)
+      if (e.description !== undefined && typeof e.description !== 'string') errors.push(`${w}: "description" must be text`)
+      const patch = {
+        ...(typeof e.name === 'string' && e.name.trim() !== d.name ? { name: e.name.trim() } : {}),
+        ...(typeof e.description === 'string' && e.description.trim() !== (d.description ?? '') ? { description: e.description.trim() } : {}),
+      }
+      if (!Object.keys(patch).length) continue
+      if (d.store === 'remote') errors.push(`${w}: in cloud storage — only the user can rename or describe it`)
+      else datasetEdits[id] = patch
+    }
+  }
+
   if (errors.length) return { ok: false, errors }
   const unused = [...files.keys()].filter((p) => !used.has(p)).sort()
-  return { ok: true, value: { input: { name: index.name, datasetIds: index.datasetIds, transforms, visualizations }, created, unused } }
+  return { ok: true, value: { input: { name: index.name, datasetIds: index.datasetIds, transforms, visualizations }, created, unused, datasetEdits } }
 }
 
 // ── the overview ───────────────────────────────────────────────────────────
@@ -343,6 +404,7 @@ export interface OverviewInfo {
 const GUIDE = [
   '## How these files work',
   '- /workspace.json lists what exists: "datasetIds", "transforms" and "visualizations" (ids; visualizations in draw order, first on top).',
+  '- /datasets.json holds each workspace dataset by id: "name" and "description" you can change (give datasets you make a clear name and a one-line description); "store", "rows" and "origin" are read-only.',
   '- /transforms/<id>.json is one transform: {"name", "inputs": [{"datasetId", "alias"}], "outputs": [{"key", "name", "outputId"?}]}.',
   '- /transforms/<id>.<output key>.sql is one output\'s SQL, plain text. SQL never goes inside JSON.',
   '- /visualizations/<id>.json is one visualization. A file\'s name is its id.',

@@ -33,6 +33,7 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
     doc: () => state.doc,
     setDoc: (d) => void (state.doc = d),
     dataset: async (id) => datasets.get(id),
+    record: (id) => datasets.get(id),
     listDatasets: async () => [...datasets.values()],
     query: async (sql) =>
       /nope/.test(sql)
@@ -46,7 +47,7 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
     },
     runTransform: async (id) => (calls.push(`run ${id}`), { ok: true, outputs: [{ datasetId: 'joined', name: 'JOINED', rowCount: 10, created: false }] }),
     deleteDataset: async (id) => (calls.push(`delete ${id}`), { ok: true }),
-    updateDataset: async (id, patch) => (calls.push(`update ${id} ${JSON.stringify(patch)}`), { ok: true }),
+    updateDataset: (id, patch) => (calls.push(`update ${id} ${JSON.stringify(patch)}`), { ok: true }),
     values: async () => ({
       geometryKind: 'region',
       valueType: 'double',
@@ -88,8 +89,8 @@ describe('agent tools', () => {
     const w = (await runTool(host, 'get_workspace', {})).content
     expect(w).toContain(`version ${workspaceVersion(host.doc())}`)
     expect(w).toContain('- prices  "PRICES"  local · 10 rows · Device · test.csv')
-    expect(w).toContain('Files: /workspace.json')
-    expect((await edit(host, { command: 'view', path: '/' })).content).toBe('Files in /:\n/overview.md\n/workspace.json')
+    expect(w).toContain('Files: /datasets.json · /workspace.json')
+    expect((await edit(host, { command: 'view', path: '/' })).content).toBe('Files in /:\n/datasets.json\n/overview.md\n/workspace.json')
     expect((await edit(host, { command: 'view', path: '/workspace.json' })).content).toContain('     3\t  "datasetIds": [')
   })
 
@@ -109,12 +110,20 @@ describe('agent tools', () => {
     expect(await runTool(host, 'visualization_stats', { id: 'nope' })).toMatchObject({ isError: true })
   })
 
-  it('renames and describes local datasets only', async () => {
-    const { host, calls } = fakeHost()
-    expect((await runTool(host, 'update_dataset', { id: 'prices', name: ' Home prices ', description: 'Zillow ZHVI by county' })).summary).toBe('renamed “PRICES” → “Home prices”')
-    expect(await runTool(host, 'update_dataset', { id: 'shared', name: 'x' })).toMatchObject({ isError: true, summary: 'refused: cloud dataset' })
-    expect(await runTool(host, 'update_dataset', { id: 'prices' })).toMatchObject({ isError: true })
-    expect(await runTool(host, 'update_dataset', { id: 'prices', name: '  ' })).toMatchObject({ isError: true })
+  it('renames and describes local datasets in /datasets.json (store, rows, origin read-only; cloud ones refused)', async () => {
+    const { host, calls } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices', 'shared'] })
+    await runTool(host, 'get_workspace', {})
+    const files = JSON.parse((await edit(host, { command: 'view', path: '/datasets.json' })).content.replace(/^\s*\d+\t/gm, ''))
+    expect(files.prices).toEqual({ name: 'PRICES', description: '', store: 'local', rows: 10, origin: 'Device · test.csv' })
+    expect(files.shared.store).toBe('cloud')
+    const write = (o: object) => edit(host, { command: 'create', path: '/datasets.json', file_text: JSON.stringify(o) })
+    await write({ ...files, prices: { ...files.prices, rows: 11 } })
+    expect((await runTool(host, 'apply_workspace', {})).content).toMatch(/"rows" is read-only/)
+    await write({ ...files, shared: { ...files.shared, name: 'x' } })
+    expect((await runTool(host, 'apply_workspace', {})).content).toMatch(/only the user can rename/)
+    await write({ ...files, prices: { ...files.prices, name: 'Home prices', description: 'Zillow ZHVI by county' } })
+    const r = await runTool(host, 'apply_workspace', {})
+    expect(r.summary).toBe('renamed dataset “PRICES” → “Home prices” (and its description)')
     expect(calls).toEqual(['update prices {"name":"Home prices","description":"Zillow ZHVI by county"}'])
   })
 

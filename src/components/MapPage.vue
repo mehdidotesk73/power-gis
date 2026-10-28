@@ -60,6 +60,8 @@ import {
   newOutput,
   normalizeTransform,
   workspaceRequires,
+  editDataset,
+  withEdits,
   type TransformSpec,
   type OpContext,
   type OpResult,
@@ -87,8 +89,13 @@ const loadingMsg = ref('Loading data…')
 // ── workspace ──────────────────────────────────────────────────────────────
 
 const doc = shallowRef<WorkspaceDoc>(emptyWorkspace())
-/** Registry records of the workspace's datasets, read from the database. */
-const records = shallowRef(new Map<string, DatasetRecord>())
+/** Registry records of the workspace's datasets, as read from the database. */
+const stored = shallowRef(new Map<string, DatasetRecord>())
+/** The same with the draft's name / description changes on top: what the page shows and documents carry. */
+const records = computed(() => {
+  if (!doc.value.datasetEdits) return stored.value
+  return new Map([...stored.value].map(([id, r]) => [id, withEdits(doc.value, r)]))
+})
 const importing = ref(false)
 
 const datasets = computed(() => doc.value.datasetIds.flatMap((id) => records.value.get(id) ?? []))
@@ -116,7 +123,7 @@ async function call<T>(what: string, p: Promise<{ ok: true; data: T } | { ok: fa
 async function loadRecord(id: string): Promise<DatasetRecord | undefined> {
   const r = await readDb.get('datasets', id)
   if (r) {
-    records.value = new Map(records.value).set(id, r)
+    stored.value = new Map(stored.value).set(id, r)
     // Datasets stored before profiles existed get one (once; the server keeps it).
     if (!r.profile) void backfillProfile(id)
   }
@@ -125,7 +132,7 @@ async function loadRecord(id: string): Promise<DatasetRecord | undefined> {
 async function backfillProfile(id: string) {
   if (!(await request('profileDataset', { datasetId: id })).ok) return
   const x = await readDb.get('datasets', id)
-  if (x) records.value = new Map(records.value).set(id, x)
+  if (x) stored.value = new Map(stored.value).set(id, x)
 }
 
 // Saving: edits are a draft until Save sends them to the server. The draft
@@ -178,6 +185,7 @@ async function save() {
 
 /** Saves the working copy on this device (the server's database); true when it worked. */
 async function saveHere(): Promise<boolean> {
+  if (!(await saveDatasetEdits())) return false
   const d = doc.value
   const r = await call(
     'save workspace',
@@ -395,20 +403,37 @@ async function deleteForGood(id: string, by: Caller = 'user'): Promise<{ ok: tru
   if (!r.ok) return { ok: false, message: r.error.message }
   if (selected.value && vizById.value.get(selected.value.vizId)?.datasetId === id) selected.value = null
   apply(next)
-  const left = new Map(records.value)
+  const left = new Map(stored.value)
   left.delete(id)
-  records.value = left
+  stored.value = left
   return { ok: true }
 }
 
-async function updateDataset(id: string, patch: { name?: string; description?: string }, by: Caller = 'user'): Promise<{ ok: true } | { ok: false; message: string }> {
-  const r = await request('updateDataset', { id, ...patch }, by)
-  if (!r.ok) {
-    logDebug(`update dataset: ${r.error.message}`, 'error')
-    return { ok: false, message: r.error.message }
-  }
-  await loadRecord(id)
+/** A dataset's new name / description: a draft edit, written to the dataset on Save. */
+function updateDataset(id: string, patch: { name?: string; description?: string }): { ok: true } | { ok: false; message: string } {
+  const was = stored.value.get(id)
+  if (!was) return { ok: false, message: `No dataset "${id}" on this device` }
+  const r = editDataset(doc.value, id, patch, was)
+  if (!r.ok) return { ok: false, message: r.error.message }
+  apply(r)
   return { ok: true }
+}
+
+/** Writes the draft's dataset name / description changes to the datasets; true when all of them worked. */
+async function saveDatasetEdits(): Promise<boolean> {
+  const edits = doc.value.datasetEdits
+  if (!edits) return true
+  const left = { ...edits }
+  for (const [id, patch] of Object.entries(edits)) {
+    if (stored.value.has(id) && doc.value.datasetIds.includes(id) && !(await call('rename / describe dataset', request('updateDataset', { id, ...patch })))) {
+      doc.value = { ...doc.value, datasetEdits: left }
+      return false
+    }
+    delete left[id]
+    await loadRecord(id)
+  }
+  doc.value = { ...doc.value, datasetEdits: undefined }
+  return true
 }
 /** New visualization of a dataset column, on top of the list, open for editing. */
 async function addVisualization(datasetId: string, binding: GeometryBinding, column: string) {
@@ -687,6 +712,7 @@ const agentHost: Omit<AgentHost, 'ask'> = {
     if (selected.value && !next.visualizations.some((v) => v.id === selected.value?.vizId)) selected.value = null
   },
   dataset: (id) => readDb.get('datasets', id),
+  record: (id) => records.value.get(id),
   listDatasets,
   query: (sql, inputs, limit) => request('previewTransform', { sql, inputs, limit }, 'agent'),
   shape: describeBinding,
@@ -696,7 +722,7 @@ const agentHost: Omit<AgentHost, 'ask'> = {
   },
   runTransform: (id) => runTransform(id, 'agent'),
   deleteDataset: (id) => deleteForGood(id, 'agent'),
-  updateDataset: (id, patch) => updateDataset(id, patch, 'agent'),
+  updateDataset,
 }
 const assistantOpen = ref(false)
 

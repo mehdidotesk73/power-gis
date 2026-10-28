@@ -308,7 +308,7 @@ export function overviewOf(file: WorkspaceFile): string {
 
 /** Stable text of what Save would store — equal text means nothing to save. */
 export function snapshot(doc: WorkspaceDoc): string {
-  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms })
+  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms, datasetEdits: doc.datasetEdits ?? {} })
 }
 
 /** Unsaved edits kept on the device between visits. */

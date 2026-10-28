@@ -22,6 +22,17 @@ export interface WorkspaceDoc {
    * (lib/workspace/unavailable.ts).
    */
   unavailable?: Record<string, UnavailableDataset>
+  /**
+   * Name / description changes to datasets, a draft like everything else here: shown at once,
+   * written to the datasets on Save, gone on Discard (`editDataset`).
+   */
+  datasetEdits?: Record<string, DatasetEdit>
+}
+
+/** A drafted change to a dataset's details. */
+export interface DatasetEdit {
+  name?: string
+  description?: string
 }
 
 /** Where a dataset came from: what a device without it can do about it. */
@@ -113,7 +124,14 @@ export function removeDataset(doc: WorkspaceDoc, datasetId: string): OpResult {
   if (!doc.datasetIds.includes(datasetId)) return fail('not_found', `No dataset "${datasetId}" in the workspace`)
   const user = doc.transforms.find((t) => t.inputs.some((i) => i.datasetId === datasetId))
   if (user) return fail('invalid', `Transform "${user.name}" uses this dataset as an input — remove it from the transform first`)
-  return ok({ ...doc, datasetIds: doc.datasetIds.filter((d) => d !== datasetId), visualizations: doc.visualizations.filter((v) => v.datasetId !== datasetId) })
+  return ok({ ...withoutEdit(doc, datasetId), datasetIds: doc.datasetIds.filter((d) => d !== datasetId), visualizations: doc.visualizations.filter((v) => v.datasetId !== datasetId) })
+}
+
+/** The workspace without drafted changes to a dataset it no longer points at. */
+export function withoutEdit(doc: WorkspaceDoc, datasetId: string): WorkspaceDoc {
+  if (!doc.datasetEdits?.[datasetId]) return doc
+  const { [datasetId]: _gone, ...rest } = doc.datasetEdits
+  return { ...doc, datasetEdits: Object.keys(rest).length ? rest : undefined }
 }
 
 /**
@@ -126,13 +144,35 @@ export function forgetDataset(doc: WorkspaceDoc, datasetId: string): OpResult {
   const user = doc.transforms.find((t) => t.inputs.some((i) => i.datasetId === datasetId))
   if (user) return fail('invalid', `Transform "${user.name}" uses this dataset as an input — remove it from the transform first`)
   return ok({
-    ...doc,
+    ...withoutEdit(doc, datasetId),
     datasetIds: doc.datasetIds.filter((d) => d !== datasetId),
     visualizations: doc.visualizations.filter((v) => v.datasetId !== datasetId),
     transforms: doc.transforms.map((t) =>
       t.outputs.some((o) => o.outputId === datasetId) ? { ...t, outputs: t.outputs.map(({ outputId, ...o }) => (outputId === datasetId ? o : { ...o, ...(outputId ? { outputId } : {}) })) } : t,
     ),
   })
+}
+
+/**
+ * Drafts a dataset's new name and / or description. `stored` is what the dataset has now: a
+ * value back to it is no change (and drops out of the draft).
+ */
+export function editDataset(doc: WorkspaceDoc, datasetId: string, patch: DatasetEdit, stored: { name: string; description?: string }): OpResult {
+  if (patch.name !== undefined && !patch.name.trim()) return fail('invalid', 'A dataset needs a name')
+  const next: DatasetEdit = { ...doc.datasetEdits?.[datasetId] }
+  if (patch.name !== undefined) next.name = patch.name.trim()
+  if (patch.description !== undefined) next.description = patch.description.trim()
+  if (next.name === stored.name) delete next.name
+  if (next.description !== undefined && next.description === (stored.description ?? '')) delete next.description
+  const { [datasetId]: _old, ...others } = doc.datasetEdits ?? {}
+  const edits = Object.keys(next).length ? { ...others, [datasetId]: next } : others
+  return ok({ ...doc, datasetEdits: Object.keys(edits).length ? edits : undefined })
+}
+
+/** A dataset's details with its drafted changes on top. */
+export function withEdits<T extends { id: string; name: string; description?: string }>(doc: WorkspaceDoc, d: T): T {
+  const e = doc.datasetEdits?.[d.id]
+  return e ? { ...d, ...(e.name !== undefined ? { name: e.name } : {}), ...(e.description !== undefined ? { description: e.description } : {}) } : d
 }
 
 function sameSet(ids: string[], current: string[]): boolean {

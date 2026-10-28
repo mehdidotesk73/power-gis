@@ -6,7 +6,7 @@
 // replaced (`replaceDataset`) or what didn't load is removed
 // (`removeUnavailable`).
 
-import type { OpResult, UnavailableDataset, WorkspaceDoc } from './workspace'
+import { withoutEdit, type OpResult, type UnavailableDataset, type WorkspaceDoc } from './workspace'
 
 export interface Unavailability {
   /** Missing datasets nothing here can make: the ones to replace. */
@@ -74,7 +74,7 @@ export function replaceDataset(doc: WorkspaceDoc, oldId: string, newId: string):
   return {
     ok: true,
     doc: {
-      ...doc,
+      ...withoutEdit(doc, oldId),
       datasetIds,
       visualizations: doc.visualizations.map((v) => (v.datasetId === oldId ? { ...v, datasetId: newId } : v)),
       transforms: doc.transforms.map((t) => ({

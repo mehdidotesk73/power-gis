@@ -20,7 +20,7 @@ import { addDataset, addTransform, addVisualization, newOutput, type OpContext, 
 import { transformState } from '../workspace/dag'
 import { snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
-import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type Files } from './workspaceFiles'
+import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type DatasetFacts, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
 
 /** What the tools act through: the page's workspace copy and the server. */
@@ -28,6 +28,8 @@ export interface AgentHost {
   doc(): WorkspaceDoc
   setDoc(doc: WorkspaceDoc): void
   dataset(id: string): Promise<DatasetRecord | undefined>
+  /** A workspace dataset's record as the page shows it (drafted name / description on top), if it's here. */
+  record(id: string): DatasetRecord | undefined
   /** Every dataset the user can use, local and remote (the app's dataset finder). */
   listDatasets(): Promise<DatasetRecord[]>
   query(sql: string, inputs: TransformInputRef[], limit: number): Promise<ApiResult<{ columns: ColumnInfo[]; rows: DataRecord[]; rowCount: number }>>
@@ -37,8 +39,8 @@ export interface AgentHost {
   values(datasetId: string, binding: GeometryBinding, column: string, aggregation: Aggregation): Promise<VizValues | string>
   runTransform(id: string): Promise<{ ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }>
   deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
-  /** Renames or describes a dataset (its rows are untouched). */
-  updateDataset(id: string, patch: { name?: string; description?: string }): Promise<{ ok: true } | { ok: false; message: string }>
+  /** Drafts a dataset's new name / description (written to it when the user saves). */
+  updateDataset(id: string, patch: { name?: string; description?: string }): { ok: true } | { ok: false; message: string }
   /** Shows the user a question (and optional details) with Approve / Reject and a notes box; resolves with their answer. */
   ask(question: string, details?: string): Promise<UserAnswer>
 }
@@ -145,16 +147,6 @@ export const TOOLS: ToolSpec[] = [
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
   {
-    name: 'update_dataset',
-    description:
-      "Rename a local dataset and/or set its description (its rows don't change). Refused for cloud datasets. Give datasets you create a clear name and a one-line description (what each row is, the source, the period), so they're easy to find later.",
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' } },
-      required: ['id'],
-    },
-  },
-  {
     name: 'delete_dataset',
     description:
       'Delete a local dataset and its rows for good (and its visualizations). Refused for cloud datasets, and while a workspace transform reads it. Use it to clean up datasets you made that are no longer needed.',
@@ -237,12 +229,18 @@ const staging = new WeakMap<AgentHost, Staging>()
 /** Files an apply renamed (a new item's placeholder name → its id), per host: old path → what it became. */
 const renames = new WeakMap<AgentHost, Map<string, { path: string; kind: string; id: string }>>()
 
+/** What datasets.json says about the workspace's datasets. */
+const facts = (host: AgentHost) => (id: string): DatasetFacts | undefined => {
+  const d = host.record(id)
+  return d && { name: d.name, description: d.description, store: storeOf(d), rowCount: d.rowCount, origin: d.origin }
+}
+
 /** The host's files, rebuilt from the draft when nothing is pending and the draft changed. */
 function staged(host: AgentHost, fresh = false): Staging {
   const version = workspaceVersion(host.doc())
   const s = staging.get(host)
   if (s && !fresh && (s.dirty || s.base === version)) return s
-  const next = { files: workspaceFiles(host.doc()), base: version, dirty: false }
+  const next = { files: workspaceFiles(host.doc(), facts(host)), base: version, dirty: false }
   staging.set(host, next)
   return next
 }
@@ -504,9 +502,9 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
     return err('The workspace changed since get_workspace (the user edited it), so your edits were made on an old version. Call get_workspace (it discards them), look again, and redo the edits.', 'workspace changed: re-read')
   }
   const refused = (errors: string[]) => err(`Nothing was changed. Fix these in the files and apply again:\n- ${errors.join('\n- ')}`, `refused: ${plural(errors.length, 'problem')}`)
-  const assembled = assembleFiles(s.files, cur, newId)
+  const assembled = assembleFiles(s.files, cur, newId, facts(host))
   if (!assembled.ok) return refused(assembled.errors)
-  const { input: description, created, unused } = assembled.value
+  const { input: description, created, unused, datasetEdits } = assembled.value
   let built: { doc: WorkspaceDoc; errors: string[] }
   try {
     built = await buildWorkspace(host, cur, keepUnchanged(description, cur))
@@ -516,7 +514,13 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
   }
   if (built.errors.length) return refused(built.errors)
   const { doc } = built
-  const changes = describeChanges(cur, doc)
+  const changes = [
+    ...describeChanges(cur, doc),
+    ...Object.entries(datasetEdits).map(([id, e]) => {
+      const was = host.record(id)?.name ?? id
+      return e.name ? `renamed dataset “${was}” → “${e.name}”${e.description !== undefined ? ' (and its description)' : ''}` : `described dataset “${was}”`
+    }),
+  ]
   const notRun = doc.transforms.filter((t) => t.outputs.some((o) => !o.outputId)).map((t) => t.name)
   const added = created.map((c) => ({ kind: c.kind, id: c.id, from: c.file, name: (c.kind === 'transform' ? doc.transforms : doc.visualizations).find((x) => x.id === c.id)?.name }))
   const result = {
@@ -529,6 +533,10 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
   const summary = changes.length ? `${changes[0]}${changes.length > 1 ? ` (+${changes.length - 1} more)` : ''}` : 'no change'
   if (input.dryRun) return ok({ dryRun: true, ...result }, `dry run · ${summary}`)
   host.setDoc(doc)
+  for (const [id, e] of Object.entries(datasetEdits)) {
+    const r = host.updateDataset(id, e)
+    if (!r.ok) return err(`The workspace changed, but dataset "${id}" wasn't renamed / described: ${r.message}`)
+  }
   // The files start again from the new draft: new items under their ids.
   staged(host, true)
   // New items' files move to their ids; record it so a later edit of the old path is told where it went.
@@ -628,20 +636,6 @@ async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   return ok({ outputs: r.outputs }, r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · '))
 }
 
-async function updateDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  need(str(input.id), '`id` is required')
-  need(optStr(input.name) && optStr(input.description), '`name` and `description` must be text')
-  need(input.name !== undefined || input.description !== undefined, 'Give a new name, a description, or both')
-  need(input.name === undefined || (input.name as string).trim(), 'A dataset needs a name')
-  const d = await host.dataset(input.id)
-  need(d, `No dataset "${input.id}"`)
-  if (storeOf(d) === 'remote') return err(`"${d.name}" is in cloud storage — only the user can change it.`, 'refused: cloud dataset')
-  const patch = { ...(input.name !== undefined ? { name: (input.name as string).trim() } : {}), ...(input.description !== undefined ? { description: (input.description as string).trim() } : {}) }
-  const r = await host.updateDataset(d.id, patch)
-  if (!r.ok) return err(r.message)
-  return ok({ id: d.id, ...patch }, patch.name && patch.name !== d.name ? `renamed “${d.name}” → “${patch.name}”` : 'description updated')
-}
-
 async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(str(input.id), '`id` is required')
   const d = await host.dataset(input.id)
@@ -688,8 +682,6 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await visualizationStats(host, input)
       case 'run_transform':
         return await runTransform(host, input)
-      case 'update_dataset':
-        return await updateDataset(host, input)
       case 'delete_dataset':
         return await deleteDataset(host, input)
       default:
