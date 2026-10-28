@@ -16,6 +16,8 @@ const props = defineProps<{
   message: string
   /** Where saved changes live: "on this device", or also "in your account" when signed in. */
   where?: string
+  /** How many items can't work on this device (missing datasets and what waits on them). */
+  problems?: number
   counts: { datasets: number; transforms: number; visualizations: number }
 }>()
 const emit = defineEmits<{
@@ -27,6 +29,8 @@ const emit = defineEmits<{
   (e: 'copy'): void
   (e: 'paste', text: string): void
   (e: 'reset'): void
+  (e: 'remove-unavailable'): void
+  (e: 'show-unavailable'): void
 }>()
 
 const open = ref(false)
@@ -136,6 +140,13 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
         <span v-if="dirty">● Unsaved changes — kept on this device until you save</span>
         <span v-else>✓ All changes saved {{ where ?? '' }}</span>
       </div>
+      <div v-if="problems" class="problems">
+        <span>⚠ {{ problems }} item{{ problems === 1 ? '' : 's' }} didn't load on this device — kept, in red.</span>
+        <span class="row">
+          <button class="btn" @click="(open = false), emit('show-unavailable')">Show in graph</button>
+          <button class="btn danger" @click="emit('remove-unavailable')">Remove what didn't load</button>
+        </span>
+      </div>
       <div class="row">
         <button class="btn primary" :disabled="!dirty || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
         <button class="btn" :disabled="!dirty || saving" @click="emit('revert')">Discard changes</button>
@@ -174,6 +185,16 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 </template>
 
 <style scoped>
+.problems {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--danger);
+  border-radius: 0.4rem;
+  color: var(--danger);
+  font-size: 0.78rem;
+}
 .ws {
   position: relative;
 }
@@ -275,6 +296,10 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 }
 .btn:disabled {
   opacity: 0.5;
+}
+.btn.danger {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 .file {
   display: grid;

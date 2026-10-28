@@ -85,19 +85,19 @@ describe('workspace documents (version 2)', () => {
     expect(parseWorkspaceFile(JSON.stringify({ ...file, datasets: [{ id: 'a', name: 'a', store: 'local', origin: { kind: 'magic' } }] }))).toMatchObject({ ok: false, error: expect.stringContaining('dataset') })
   })
 
-  it('loads into the current workspace, dropping datasets the database lacks and what depends on them', () => {
+  it('loads into the current workspace, keeping datasets the database lacks as unavailable, with what the document knew', () => {
     const file = toWorkspaceFile(doc, byId)
-    const r = fromWorkspaceFile(file, { id: 'w9', name: 'Other', datasetIds: [], visualizations: [], transforms: [] }, (id) => id === 'a')
+    const r = fromWorkspaceFile(file, { id: 'w9', name: 'Other', datasetIds: [], visualizations: [], transforms: [] }, (id) => id === 'a', [{ id: 'b', name: 'Dataset b', why: 'output' }])
     expect(r.missing).toEqual(['b'])
-    expect(r.droppedVisualizations).toEqual(['viz v2'])
-    expect(r.droppedTransforms).toEqual(['Join'])
-    expect(r.doc).toMatchObject({ id: 'w9', name: 'Grid', datasetIds: ['a'] })
-    expect(r.doc.visualizations).toHaveLength(1)
+    expect(r.doc).toMatchObject({ id: 'w9', name: 'Grid', datasetIds: ['a', 'b'] })
+    expect(r.doc.unavailable).toEqual({ b: { name: 'Dataset b', store: 'local', rows: 10, origin: { kind: 'output', transform: 't1', output: 'o1' }, why: 'output' } })
+    expect(r.doc.visualizations).toHaveLength(2)
     expect(r.doc.visualizations[0].id).not.toBe('v1') // fresh ids: never collide with another workspace's records
-    expect(r.doc.transforms).toHaveLength(1)
-    expect(r.doc.transforms[0]).toMatchObject({ name: 'Points', outputs: [{ key: 'o1', outputId: undefined }] })
-    const all = fromWorkspaceFile(file, doc, () => true).doc
-    expect(all.transforms.map((t) => [t.name, t.outputs[0].outputId])).toEqual([['Points', 'b'], ['Join', undefined]])
+    expect(r.doc.transforms.map((t) => [t.name, t.outputs[0].outputId])).toEqual([['Points', 'b'], ['Join', undefined]])
+    // Saved again, the facts ride along: another device still knows what "b" was.
+    const again = toWorkspaceFile(r.doc, (id) => (id === 'a' ? records.a : undefined))
+    expect(again.datasets.find((d) => d.id === 'b')).toEqual({ id: 'b', name: 'Dataset b', store: 'local', rows: 10, origin: { kind: 'output', transform: r.doc.transforms[0].id, output: 'o1' } })
+    expect(fromWorkspaceFile(file, doc, () => true).doc).not.toHaveProperty('unavailable')
   })
 
   it('reads version 1 documents: ids, placeholders, names and single-SQL transforms', () => {
@@ -160,7 +160,7 @@ describe('the default workspace file', () => {
 })
 
 describe('missingReport', () => {
-  it('names the datasets missing here and why, the transforms that could not run, and what went with them', () => {
+  it('names the datasets missing here and why, the transforms that could not run, and what waits on them', () => {
     const r = missingReport(
       [
         { id: 'd1', name: 'Plants 2024', rows: 412, why: 'elsewhere' },
@@ -169,18 +169,17 @@ describe('missingReport', () => {
         { id: 'o', name: 'Joined', why: 'output' },
       ],
       [{ name: 'Join plants', reason: "an input dataset isn't on this device" }],
-      ['Plants by state', 'Price map'],
-      ['Join plants', 'Averages'],
+      { visualizations: ['Plants by state', 'Price map'], transforms: ['Join plants', 'Averages'] },
     )
     expect(r.split('\n')).toEqual([
       '• 2 datasets uploaded on another device and kept only there: "Plants 2024" (412 rows), "Prices".',
       '• 1 dataset not on this device: "Mystery".',
       `• 1 transform that couldn't run: "Join plants" (an input dataset isn't on this device).`,
-      '• Left out with them: 2 visualizations ("Plants by state", "Price map") and 1 transform ("Averages").',
-      'Datasets uploaded on another device stay there; storing datasets in the cloud comes next.',
+      '• Waiting on them: 2 visualizations ("Plants by state", "Price map") and 1 transform ("Averages").',
+      "They're kept, in red. Replace a missing dataset (hold it in the graph), or Remove what didn't load.",
     ])
   })
   it('says nothing when everything is here', () => {
-    expect(missingReport([], [], [], [])).toBe('')
+    expect(missingReport([], [], { visualizations: [], transforms: [] })).toBe('')
   })
 })

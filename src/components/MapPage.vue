@@ -18,6 +18,7 @@ import FeatureTooltip from './map/FeatureTooltip.vue'
 import FeaturePanel from './map/FeaturePanel.vue'
 import DataExchange from './map/DataExchange.vue'
 import AddDatasetPanel from './dataset/AddDatasetPanel.vue'
+import UnavailableCard from './dataset/UnavailableCard.vue'
 import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
@@ -62,8 +63,10 @@ import {
   type TransformSpec,
   type OpContext,
   type OpResult,
+  type UnavailableDataset,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
+import { downstreamOrder, removeUnavailable as removeUnavailable_, replaceDataset as replaceDataset_, unavailability, unavailableInfo } from '../lib/workspace/unavailable'
 import { fileName, fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft, type WorkspaceFile } from '../lib/workspace/file'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
@@ -176,7 +179,7 @@ async function saveHere(): Promise<boolean> {
     request('saveWorkspace', {
       id: d.id,
       name: d.name,
-      config: { datasetIds: d.datasetIds },
+      config: { datasetIds: d.datasetIds, ...(d.unavailable ? { unavailable: d.unavailable } : {}) },
       visualizations: d.visualizations.map((v) => ({ id: v.id, name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
       transforms: d.transforms,
     }),
@@ -268,10 +271,15 @@ async function openHere(file: unknown, loading: string): Promise<string | null> 
   status.value = 'ready'
   if (!o) return null
   for (const id of o.file.datasetIds) await loadRecord(id)
-  const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id))
+  const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id), o.missing)
   resetSelection()
   doc.value = next.doc
-  const report = missingReport(o.missing, o.failed, next.droppedVisualizations, next.droppedTransforms)
+  const u = unavailability(next.doc, (id) => records.value.has(id))
+  const waiting = {
+    visualizations: next.doc.visualizations.filter((v) => u.visualizations.has(v.id)).map((v) => v.name),
+    transforms: next.doc.transforms.filter((t) => u.transforms.has(t.id)).map((t) => t.name),
+  }
+  const report = missingReport(o.missing, o.failed, waiting)
   if (report) logDebug(`workspace "${next.doc.name}": ${report.replace(/\n/g, ' ')}`, 'warn')
   return report
 }
@@ -456,10 +464,87 @@ watch(view, (v) => {
   store.set(VIEW, v)
   closeNode()
 })
-const dag = computed(() => buildDag(doc.value, (id) => records.value.get(id)))
+// What can't work on this device (datasets the workspace points at that aren't here, and what waits on them).
+const present = (id: string) => records.value.has(id)
+const unav = computed(() => unavailability(doc.value, present))
+const WHY_SHORT: Record<UnavailableDataset['why'], string> = {
+  elsewhere: 'on another device',
+  cloud: 'in the cloud, not reachable',
+  unknown: 'not on this device',
+  builtin: 'built-in not available',
+  output: 'not made here',
+}
+/** "plants", "prices" — the missing roots something waits on. */
+const waitsFor = (roots: string[]) => roots.map((r) => `"${unavailableInfo(doc.value, r).name}"`).join(', ')
+const dag = computed(() => {
+  const d = buildDag(doc.value, (id) => records.value.get(id))
+  const u = unav.value
+  for (const n of d.nodes) {
+    // An output not made on this device yet (its transform can run): its name, and what to do.
+    if (n.kind === 'dataset' && !present(n.id) && !u.datasets.has(n.id)) Object.assign(n, { label: unavailableInfo(doc.value, n.id).name, detail: 'not made yet — run its transform' })
+  }
+  if (!u.datasets.size) return d
+  for (const n of d.nodes) {
+    const roots = n.kind === 'dataset' ? u.datasets.get(n.id) : n.kind === 'transform' ? u.transforms.get(n.id) : u.visualizations.get(n.id)
+    if (!roots) continue
+    if (n.kind === 'dataset' && u.roots.includes(n.id)) {
+      const info = unavailableInfo(doc.value, n.id)
+      Object.assign(n, { problem: 'missing', label: info.name, detail: WHY_SHORT[info.why] })
+    } else Object.assign(n, { problem: 'waits', ...(n.kind === 'dataset' ? { label: unavailableInfo(doc.value, n.id).name } : {}), detail: `waits for ${waitsFor(roots)}` })
+  }
+  return d
+})
 /** The node open under the graph (by key, so it follows edits and disappears when deleted). */
 const dagKey = ref<string | null>(null)
 const dagNode = computed(() => dag.value.nodes.find((n) => n.key === dagKey.value) ?? null)
+// Red marks in the lists: what can't work here and what it waits for.
+const vizProblems = computed(() => new Map([...unav.value.visualizations].map(([id, roots]) => [id, `waits for ${waitsFor(roots)}`])))
+const trProblems = computed(() => new Map([...unav.value.transforms].map(([id, roots]) => [id, `waits for ${waitsFor(roots)}`])))
+/** What waits on a missing dataset here (its card says). */
+const waitingOn = (root: string) => ({
+  transforms: [...unav.value.transforms.values()].filter((r) => r.includes(root)).length,
+  visualizations: [...unav.value.visualizations.values()].filter((r) => r.includes(root)).length,
+})
+const problemCount = computed(() => unav.value.datasets.size + unav.value.transforms.size + unav.value.visualizations.size)
+
+/** After a replace: the transforms that read the new dataset, offered to run now. */
+const afterReplace = ref<{ name: string; order: string[]; running: boolean; message: string } | null>(null)
+async function replaceDataset(oldId: string, newId: string) {
+  const name = unavailableInfo(doc.value, oldId).name
+  const ds = await loadRecord(newId)
+  if (!ds) return void logDebug(`replace "${name}": the new dataset isn't in the database`, 'error')
+  if (!apply(replaceDataset_(doc.value, oldId, newId))) return
+  if (dagKey.value === `ds:${oldId}`) dagKey.value = `ds:${newId}`
+  const order = downstreamOrder(doc.value, newId)
+  afterReplace.value = order.length ? { name: `"${name}" → "${ds.name}"`, order, running: false, message: '' } : null
+  barMessage.value = ''
+}
+async function runAfterReplace() {
+  const a = afterReplace.value
+  if (!a) return
+  a.running = true
+  for (const id of a.order) {
+    const t = doc.value.transforms.find((x) => x.id === id)
+    const r = await runTransform(id)
+    if (!r.ok) {
+      afterReplace.value = { ...a, running: false, message: `"${t?.name}" failed: ${r.message}` }
+      return
+    }
+  }
+  afterReplace.value = null
+}
+function removeUnavailable() {
+  if (!confirm(`Remove the ${problemCount.value} items that didn't load on this device? Nothing changes until you Save (Discard brings them back).`)) return
+  apply(removeUnavailable_(doc.value, present))
+  barMessage.value = ''
+}
+function showUnavailable() {
+  const root = unav.value.roots[0]
+  if (!root) return
+  view.value = 'graph'
+  void openNode({ key: `ds:${root}`, kind: 'dataset', id: root })
+}
+
 /** ＋ Visualization: the dataset whose add form is open under the graph. */
 const dagNewViz = ref<string | null>(null)
 /** ＋ Dataset: the add-dataset form is open under the graph. */
@@ -528,6 +613,14 @@ async function runTransform(id: string, by: Caller = 'user'): Promise<RunOutcome
   if (!r.ok) {
     runStatus.value = { ...runStatus.value, [id]: { state: 'error', message: r.error.message } }
     return { ok: false, message: r.error.message }
+  }
+  // An output set to write a dataset this device doesn't have (a workspace opened elsewhere) wrote a new one: it takes the old one's place.
+  for (const w of r.data.outputs) {
+    const was = t.outputs.find((o) => o.key === w.key)?.outputId
+    if (was && was !== w.datasetId && !records.value.has(was)) {
+      await loadRecord(w.datasetId)
+      apply(replaceDataset_(doc.value, was, w.datasetId))
+    }
   }
   const lines: string[] = []
   const outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] = []
@@ -643,10 +736,13 @@ async function seedDefault() {
 
 /** Opens a saved workspace: its dataset pointers and visualization records. */
 async function open(w: WorkspaceRecord) {
-  const ids: string[] = []
-  for (const id of w.config.datasetIds) {
-    if (await loadRecord(id)) ids.push(id)
-    else logDebug(`workspace "${w.name}": dataset ${id} is no longer in the database`, 'warn')
+  // Datasets not on this device stay, unavailable, with what's known of them (red until replaced or removed).
+  const ids = [...w.config.datasetIds]
+  const unavailable: Record<string, UnavailableDataset> = {}
+  for (const id of ids) {
+    if (await loadRecord(id)) continue
+    unavailable[id] = w.config.unavailable?.[id] ?? { name: 'Unknown dataset', why: 'unknown' }
+    logDebug(`workspace "${w.name}": dataset "${unavailable[id].name}" isn't on this device`, 'warn')
   }
   const vizs: VisualizationSpec[] = []
   for (const id of w.config.visualizationIds) {
@@ -667,7 +763,10 @@ async function open(w: WorkspaceRecord) {
     if (t) transforms.push(normalizeTransform({ id: t.id, name: t.name, inputs: t.inputs, outputs: t.outputs, sql: old.sql, outputId: old.outputId, ...(t.requires?.length ? { requires: t.requires } : {}) }))
   }
   for (const t of transforms) for (const o of t.outputs) if (o.outputId) await loadRecord(o.outputId) // output names for the panel
-  doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms }
+  for (const t of transforms) for (const id of [...t.inputs.map((i) => i.datasetId), ...t.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))]) {
+    if (!records.value.has(id) && !unavailable[id] && w.config.unavailable?.[id]) unavailable[id] = w.config.unavailable[id]
+  }
+  doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}) }
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations, ${transforms.length} transforms`)
 }
 
@@ -740,6 +839,7 @@ watch(
   () => visualizations.value.map(layerKey).join('\n'),
   async () => {
     for (const v of visualizations.value) {
+      if (!records.value.has(v.datasetId)) continue // unavailable here (or not loaded yet): nothing to draw
       const key = layerKey(v)
       if (layers.value.get(v.id)?.key === key) continue
       const raw = await fetchLayer(v)
@@ -911,6 +1011,9 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :saving="saving"
           :message="barMessage"
           :where="savedWhere"
+          :problems="problemCount"
+          @remove-unavailable="removeUnavailable"
+          @show-unavailable="showUnavailable"
           :counts="{ datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length }"
           @save="save"
           @revert="revert"
@@ -924,6 +1027,14 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
       <div class="panels" aria-label="Workspace">
+      <div v-if="afterReplace" v-reveal class="box after-replace">
+        <span>Replaced {{ afterReplace.name }}. {{ afterReplace.order.length }} transform{{ afterReplace.order.length === 1 ? '' : 's' }} read{{ afterReplace.order.length === 1 ? 's' : '' }} it and can run now.</span>
+        <span v-if="afterReplace.message" class="problem-note">{{ afterReplace.message }}</span>
+        <span class="row-actions">
+          <UiButton size="tag" tone="transform" icon="▶" :disabled="afterReplace.running" @click="runAfterReplace">{{ afterReplace.running ? 'Running…' : 'Run them now' }}</UiButton>
+          <UiButton size="tag" :disabled="afterReplace.running" @click="afterReplace = null">Not now</UiButton>
+        </span>
+      </div>
 
       <template v-if="view === 'graph'">
         <div class="graph-wrap" :class="{ split: dagNode || dagNewViz || dagNewDataset }">
@@ -954,6 +1065,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :visualizations="visualizations.filter((v) => v.id === dagNode?.id)"
             :datasets="datasets"
             :data-for="dataFor"
+            :problems="vizProblems"
             @add="addVisualization"
             @update="updateVisualization"
             @remove="removeVisualization"
@@ -961,6 +1073,17 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @zoom="zoomToViz"
             @cancel-add="closeNode"
           />
+          <UnavailableCard
+            v-else-if="dagNode?.kind === 'dataset' && unav.roots.includes(dagNode.id)"
+            :id="dagNode.id"
+            :info="unavailableInfo(doc, dagNode.id)"
+            :waiting="waitingOn(dagNode.id)"
+            :in-workspace="doc.datasetIds"
+            @replace="replaceDataset"
+          />
+          <p v-else-if="dagNode?.kind === 'dataset' && unav.datasets.has(dagNode.id)" class="problem-note">
+            ⚠ "{{ unavailableInfo(doc, dagNode.id).name }}" isn't on this device. It's made by a transform that waits for {{ waitsFor(unav.datasets.get(dagNode.id)!) }}: replace that, then run it.
+          </p>
           <DatasetList
             v-else-if="dagNode?.kind === 'dataset'"
             compact
@@ -982,6 +1105,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :datasets="datasets"
             :name-of="nameOf"
             :status="runStatus"
+            :problems="trProblems"
             @add="(t) => apply(addTransform_(doc, t))"
             @update="(t) => apply(updateTransform_(doc, t))"
             @remove="(id) => apply(removeTransform_(doc, id))"
@@ -1000,6 +1124,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :visualizations="visualizations"
             :datasets="datasets"
             :data-for="dataFor"
+            :problems="vizProblems"
             @add="addVisualization"
             @update="updateVisualization"
             @remove="removeVisualization"
@@ -1019,6 +1144,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :datasets="datasets"
             :name-of="nameOf"
             :status="runStatus"
+            :problems="trProblems"
             @add="(t) => apply(addTransform_(doc, t))"
             @update="(t) => apply(updateTransform_(doc, t))"
             @remove="(id) => apply(removeTransform_(doc, id))"
@@ -1032,6 +1158,16 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             <AddDatasetPanel v-if="importing" v-reveal :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
             <UiButton v-else size="tag" tone="dataset" icon="＋" @click="importing = true">Dataset</UiButton>
           </div>
+          <UnavailableCard
+            v-for="root in unav.roots"
+            :id="root"
+            :key="root"
+            class="list-unavailable"
+            :info="unavailableInfo(doc, root)"
+            :waiting="waitingOn(root)"
+            :in-workspace="doc.datasetIds"
+            @replace="replaceDataset"
+          />
           <DatasetList
             :datasets="datasets"
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
@@ -1168,6 +1304,24 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 </template>
 
 <style scoped>
+.problem-note {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+.after-replace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+.row-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.list-unavailable {
+  margin-bottom: 0.45rem;
+}
 .page {
   display: grid;
   grid-template-columns: var(--panel-w, 21rem) 0.75rem minmax(0, 1fr);

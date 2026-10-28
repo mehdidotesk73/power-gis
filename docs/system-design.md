@@ -473,7 +473,20 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
     copy is rewritten in place; anything else → `missing` with why (`elsewhere`, `cloud`, `unknown`,
     `builtin`, `output`). Copies record the ids they stand for, so the next open reuses them, on this
     device or after a round trip through another. `missingReport` words the result for the Workspace
-    panel: datasets by name and why, transforms that couldn't run and why, what was left out with them.
+    panel: datasets by name and why, transforms that couldn't run and why, and what waits on them.
+  - **Unavailable items** (`lib/workspace/unavailable.ts`): opening never drops anything. A missing
+    dataset stays in the working copy as `doc.unavailable[id]` — the document's facts plus why —
+    saved with the workspace (`WorkspaceConfig.unavailable`; `saveWorkspace` accepts listed ids it
+    marks unavailable) and in documents (`toWorkspaceFile` falls back to those facts), so a device
+    missing data never erases it from the account's copy. `unavailability(doc, present)` gives the
+    missing **roots** (nothing here can make them) and everything waiting on them, to a fixed point;
+    a missing output whose transform can run isn't a root (Run makes it; Run all stale includes such
+    transforms). The page marks them (graph: red outline, ⚠ on roots, "waits for …"; lists: a red
+    line; the map skips them), a root's card (`UnavailableCard.vue`, via `AddDatasetPanel` with a
+    `start` tab) replaces it with a file or a dataset here (`replaceDataset`: every pointer moves),
+    then offers **Run them now** (`downstreamOrder`). Running a transform whose output pointed at a
+    missing dataset writes a new one, which takes the old id's place. The Workspace panel shows the
+    count with **Show in graph** and **Remove what didn't load** (`removeUnavailable`, a draft edit).
   - **Page** (`MapPage.vue`): Save → `saveHere` (device) then `saveToCloud`. On load and on sign-in,
     `catchUpWithCloud`: no cloud workspace yet → this device's is saved there; one saved since this
     device last saw it (`powergis.cloudSeen` = `<user>:<updatedAt>`) → opened (`openDocument`, then

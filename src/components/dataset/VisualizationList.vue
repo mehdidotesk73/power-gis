@@ -24,6 +24,8 @@ const props = defineProps<{
   dataFor: (v: VisualizationSpec) => LayerData | null
   /** Shown under the graph: no add button, hint or empty message. */
   compact?: boolean
+  /** Visualizations that can't draw on this device → why ("waits for "plants""), shown in red. */
+  problems?: Map<string, string>
 }>()
 const emit = defineEmits<{
   (e: 'update', v: VisualizationSpec): void
@@ -158,6 +160,7 @@ defineExpose({
           <span>
             {{ v.name }} <span v-if="v.kind === 'vector'" class="tag">➚</span>
             <span class="muted">{{ dsOf(v)?.name }} · {{ summary(v) }}</span>
+            <span v-if="problems?.get(v.id)" class="problem">⚠ {{ problems.get(v.id) }}</span>
           </span>
         </div>
         <Teleport defer :to="detailTarget ?? 'body'" :disabled="!!compact || !detailTarget">
@@ -173,6 +176,11 @@ defineExpose({
 </template>
 
 <style scoped>
+.problem {
+  display: block;
+  color: var(--danger);
+  font-size: 0.74rem;
+}
 .viz {
   display: grid;
   gap: 0.45rem;

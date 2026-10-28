@@ -275,7 +275,15 @@ whatever they're actually asking about.
   **`openDocument`** (server) makes ids real on this device: present (by id, `sameAs`, or a copy's
   `extensions.copyOf`) → used; built-in → reused or uploaded; output → reused if a copy's
   `extensions.sql` matches, else the transform runs (into that copy), in dependency order; else
-  `missing` with why — `missingReport` words it for the Workspace panel. Every transform output
+  `missing` with why — `missingReport` words it for the Workspace panel. **Nothing is dropped**: a
+  missing dataset stays in the working copy as `doc.unavailable[id]` (its facts + why; saved in the
+  workspace record's `config.unavailable` and in documents), and `lib/workspace/unavailable.ts`
+  works out the rest — `unavailability(doc, present)` (missing roots, and the datasets / transforms /
+  visualizations waiting on them), `replaceDataset` (the replacement takes over every pointer),
+  `removeUnavailable`, `downstreamOrder`. UI: red outlines in the graph (⚠ on roots, "waits for …"),
+  red lines in the lists, nothing drawn on the map; a root's card (`dataset/UnavailableCard.vue`)
+  offers Replace with a file / a dataset, then **Run them now**; the Workspace panel offers **Show in
+  graph** and **Remove what didn't load**. Run all stale also re-makes outputs missing here. Every transform output
   records the SQL that wrote it (`extensions.sql`). Agreed next: the same content as the agent's files
   (+ `datasets.json`, full visualization settings), a zip for Download / Load, and dataset name /
   description as draft until Save (`docs/TODO.md`).

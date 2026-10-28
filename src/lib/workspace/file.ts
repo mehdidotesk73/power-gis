@@ -11,19 +11,14 @@
 import type { VisualizationSettings, VisualizationSpec } from '../dataset/visualization'
 import { newId } from '../dataset/dataset'
 import { isSupportedBinding } from '../dataset/binding'
-import { normalizeTransform, workspaceRequires, type TransformSpec, type WorkspaceDoc } from './workspace'
+import { normalizeTransform, workspaceRequires, type DatasetOrigin, type MissingWhy, type TransformSpec, type UnavailableDataset, type WorkspaceDoc } from './workspace'
 import type { DatasetRecord, DatasetStore } from '../../shared/records'
 import { builtinTable } from '../../shared/builtins'
 
 export const FILE_FORMAT = 'powergis-workspace'
 export const FILE_VERSION = 2
 
-/** Where a dataset came from: what a device without it can do about it. */
-export type DatasetOrigin =
-  | { kind: 'builtin'; table: string; version?: number }
-  | { kind: 'output'; transform: string; output: string }
-  | { kind: 'upload'; source: string }
-  | { kind: 'unknown' }
+export type { DatasetOrigin } from './workspace'
 
 /** What the workspace knows about a dataset it points at (a snapshot, taken when the document is made). */
 export interface DatasetFact {
@@ -61,8 +56,14 @@ export function pointers(w: Pick<WorkspaceFile, 'datasetIds' | 'transforms' | 'v
 }
 
 /** A dataset's facts, from its record (if this device has it) and the workspace's transforms. */
-export function datasetFact(id: string, record: DatasetRecord | undefined, transforms: TransformSpec[]): DatasetFact {
+export function datasetFact(id: string, record: DatasetRecord | undefined, transforms: TransformSpec[], known?: UnavailableDataset): DatasetFact {
   const writer = transforms.find((t) => t.outputs.some((o) => o.outputId === id))
+  // Not on this device but known from the document it was opened from: those facts ride along (its writer is whichever transform writes it now).
+  if (!record && known) {
+    const { why: _why, ...rest } = known
+    const origin: DatasetOrigin = writer ? { kind: 'output', transform: writer.id, output: writer.outputs.find((o) => o.outputId === id)!.key } : (known.origin ?? { kind: 'unknown' })
+    return { id, ...rest, store: known.store ?? 'local', origin }
+  }
   const builtin = record?.extensions?.builtin
   const origin: DatasetOrigin = writer
     ? { kind: 'output', transform: writer.id, output: writer.outputs.find((o) => o.outputId === id)!.key }
@@ -94,7 +95,7 @@ export function toWorkspaceFile(doc: WorkspaceDoc, record: (id: string) => Datas
     ...(doc.id ? { workspaceId: doc.id } : {}),
     name: doc.name,
     ...body,
-    datasets: pointers(body).map((id) => datasetFact(id, record(id), transforms)),
+    datasets: pointers(body).map((id) => datasetFact(id, record(id), transforms, doc.unavailable?.[id])),
     ...(workspaceRequires(doc).length ? { requires: workspaceRequires(doc) } : {}),
   }
 }
@@ -221,28 +222,26 @@ export function replaceDatasetIds(file: WorkspaceFile, to: (id: string) => strin
  * The working copy a document describes, keeping the current workspace's id (a
  * loaded document replaces its contents) and giving visualizations and
  * transforms fresh ids so they never collide with another workspace's
- * records. Datasets missing from the database are dropped, with what depends
- * on them, and reported.
+ * records. Nothing is dropped: datasets missing from the database stay,
+ * marked unavailable with what the document knew of them (and why, from
+ * `missing`), and so does everything that uses them.
  */
-export function fromWorkspaceFile(
-  file: WorkspaceFile,
-  current: WorkspaceDoc,
-  inDatabase: (id: string) => boolean,
-): { doc: WorkspaceDoc; missing: string[]; droppedVisualizations: string[]; droppedTransforms: string[] } {
-  const missing = file.datasetIds.filter((id) => !inDatabase(id))
-  const datasetIds = file.datasetIds.filter((id) => inDatabase(id))
-  const vizOk = (v: VisualizationSpec) => datasetIds.includes(v.datasetId) && isSupportedBinding(v.binding) // older files had lat/lon pairs
-  const visualizations = file.visualizations.filter(vizOk).map((v) => ({ ...v, id: newId() }))
-  // Transforms need all their inputs here; an output pointer to a missing dataset is dropped (it's made anew on Run).
-  const tOk = (t: TransformSpec) => t.inputs.every((i) => datasetIds.includes(i.datasetId))
-  const transforms = file.transforms
-    .filter(tOk)
-    .map((t) => ({ ...t, id: newId(), outputs: t.outputs.map((o) => (o.outputId && !inDatabase(o.outputId) ? { ...o, outputId: undefined } : o)) }))
+export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, inDatabase: (id: string) => boolean, missing: MissingDataset[] = []): { doc: WorkspaceDoc; missing: string[] } {
+  const facts = new Map(file.datasets.map((d) => [d.id, d]))
+  const why = new Map(missing.map((m) => [m.id, m.why]))
+  const lacking = pointers(file).filter((id) => !inDatabase(id))
+  const unavailable: Record<string, UnavailableDataset> = {}
+  for (const id of lacking) {
+    const f = facts.get(id)
+    unavailable[id] = f
+      ? { name: f.name, ...(f.description ? { description: f.description } : {}), store: f.store, ...(f.rows !== undefined ? { rows: f.rows } : {}), origin: f.origin, ...(f.sameAs ? { sameAs: f.sameAs } : {}), why: why.get(id) ?? 'unknown' }
+      : { name: 'Unknown dataset', why: why.get(id) ?? 'unknown' }
+  }
+  const visualizations = file.visualizations.filter((v) => isSupportedBinding(v.binding)).map((v) => ({ ...v, id: newId() })) // older files had lat/lon pairs
+  const transforms = file.transforms.map((t) => ({ ...t, id: newId() }))
   return {
-    doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds, visualizations, transforms },
-    missing,
-    droppedVisualizations: file.visualizations.filter((v) => !datasetIds.includes(v.datasetId)).map((v) => v.name),
-    droppedTransforms: file.transforms.filter((t) => !tOk(t)).map((t) => t.name),
+    doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}) },
+    missing: lacking,
   }
 }
 
@@ -253,10 +252,10 @@ export interface MissingDataset {
   id: string
   name: string
   rows?: number
-  why: 'elsewhere' | 'cloud' | 'unknown' | 'builtin' | 'output'
+  why: MissingWhy
 }
 
-const WHY: Record<MissingDataset['why'], [string, string]> = {
+const WHY: Record<MissingWhy, [string, string]> = {
   elsewhere: ['uploaded on another device and kept only there', 'uploaded on another device and kept only there'],
   cloud: ["in the cloud but not reachable here", "in the cloud but not reachable here"],
   unknown: ['not on this device', 'not on this device'],
@@ -264,8 +263,11 @@ const WHY: Record<MissingDataset['why'], [string, string]> = {
   output: ["made by a transform that couldn't run", "made by transforms that couldn't run"],
 }
 
-/** What of an opened workspace isn't on this device, line by line: datasets by name and why, transforms that couldn't run and why, and what was left out with them. */
-export function missingReport(missing: MissingDataset[], failed: { name: string; reason: string }[], vizs: string[], transforms: string[]): string {
+/**
+ * What of an opened workspace isn't on this device, line by line: datasets by name and why,
+ * transforms that couldn't run and why, and what waits on them (kept, drawn red).
+ */
+export function missingReport(missing: MissingDataset[], failed: { name: string; reason: string }[], waiting: { visualizations: string[]; transforms: string[] }): string {
   const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`
   const list = (xs: string[]) => xs.map((x) => `"${x}"`).join(', ')
   const lines: string[] = []
@@ -277,10 +279,10 @@ export function missingReport(missing: MissingDataset[], failed: { name: string;
   }
   if (failed.length) lines.push(`• ${n(failed.length, "transform that couldn't run", "transforms that couldn't run")}: ${failed.map((f) => `"${f.name}" (${f.reason})`).join(', ')}.`)
   const failedNames = new Set(failed.map((f) => f.name))
-  const otherTransforms = transforms.filter((t) => !failedNames.has(t))
-  const leftOut = [vizs.length ? `${n(vizs.length, 'visualization')} (${list(vizs)})` : '', otherTransforms.length ? `${n(otherTransforms.length, 'transform')} (${list(otherTransforms)})` : ''].filter(Boolean)
-  if (leftOut.length) lines.push(`• Left out with them: ${leftOut.join(' and ')}.`)
-  if (missing.some((m) => m.why === 'elsewhere')) lines.push('Datasets uploaded on another device stay there; storing datasets in the cloud comes next.')
+  const otherTransforms = waiting.transforms.filter((t) => !failedNames.has(t))
+  const waits = [waiting.visualizations.length ? `${n(waiting.visualizations.length, 'visualization')} (${list(waiting.visualizations)})` : '', otherTransforms.length ? `${n(otherTransforms.length, 'transform')} (${list(otherTransforms)})` : ''].filter(Boolean)
+  if (waits.length) lines.push(`• Waiting on them: ${waits.join(' and ')}.`)
+  if (lines.length) lines.push("They're kept, in red. Replace a missing dataset (hold it in the graph), or Remove what didn't load.")
   return lines.join('\n')
 }
 

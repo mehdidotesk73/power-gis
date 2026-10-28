@@ -11,11 +11,15 @@ import type { UploadSource } from '../../shared/api'
 import { BUILTIN_TABLES } from '../../shared/builtins'
 import type { DatasetRecord } from '../../shared/records'
 
-const props = defineProps<{ inWorkspace: string[] }>()
+const props = defineProps<{
+  inWorkspace: string[]
+  /** Which source to show first (Replace with a file → CSV, with a dataset → Saved). */
+  start?: 'builtin' | 'csv' | 'json' | 'arcgis' | 'db'
+}>()
 const emit = defineEmits<{ (e: 'add', datasetIds: string[]): void; (e: 'cancel'): void }>()
 
 type Origin = 'builtin' | 'csv' | 'json' | 'arcgis' | 'db'
-const origin = ref<Origin>('builtin')
+const origin = ref<Origin>(props.start ?? 'builtin')
 const builtin = ref(BUILTIN_TABLES[0].table)
 const arcgisUrl = ref('')
 const name = ref('')

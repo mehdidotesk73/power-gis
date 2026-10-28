@@ -93,6 +93,13 @@ Track feature development, improvements, and known issues here. Move completed w
   above it (`useSplitter` `side: 'bottom'`, `powergis.minimapHeight`). The app is one screen tall
   (`App.vue`), the ☰ menu holds Help and Desktop / Phone view, and the footer is one row. Replaces the ⤢
   pop-out window.
+- **Unavailable items** — opening a workspace never drops what this device lacks: missing datasets
+  stay (`doc.unavailable`, saved in the workspace record and in documents) with everything waiting on
+  them (`lib/workspace/unavailable.ts`: `unavailability`, `replaceDataset`, `removeUnavailable`,
+  `downstreamOrder`). Red outlines in the graph (⚠ roots, "waits for …"), red lines in the lists,
+  nothing drawn on the map. A root's card (`UnavailableCard.vue`): Replace with a file / a dataset,
+  then Run them now. Workspace panel: Show in graph, Remove what didn't load. Run all stale re-makes
+  outputs missing here.
 - **Cloud workspace (Supabase, PR 2 of 4)** — signed in, **Save** also stores the workspace in
   the account (`saveCloudWorkspace`: the v2 document + its overview). Documents (v2) carry each
   dataset's facts (name, store, rows, origin), so opening anywhere (`openDocument`) uses what's here,
@@ -316,16 +323,7 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
      everything but data; the agent edits them in `datasets.json` (name, description editable;
      id, store, rows, origin read-only) and `update_dataset` goes for those fields. (b) the agent's
      files become the file form of the v2 document (+ `datasets.json`, full visualization settings),
-     and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) **Unavailable
-     items** (agreed; the PR right after #28): a missing dataset stays in the working copy as an
-     unavailable entry with its facts (name, rows, origin, why), and so does everything downstream
-     (transforms reading it, their outputs, visualizations); saved with them, so no device's save
-     drops them. Red outlines in the graph (⚠ on the missing roots, "waits for …" downstream) and red
-     marks in the lists; their visualizations don't draw. Workspace panel report: **Remove what
-     didn't load** (a draft edit) and **Show in graph**. A missing root's menu: **Replace with a
-     file…** / **Replace with a dataset…** — the new dataset takes over every pointer, then **Run
-     them now** runs the downstream transforms in order; Run all stale includes transforms whose
-     outputs are unavailable.
+     and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) ~~Unavailable items~~ (done, see Done).
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
