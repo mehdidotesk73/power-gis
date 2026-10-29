@@ -60,12 +60,13 @@ test('the default map is the socioeconomic pipeline: every output made, the numb
   expect(await explore(page, 'State averages', "SELECT counties_scored FROM state_averages WHERE state_abbr = 'CT'")).toEqual([['0']])
   expect(await explore(page, 'County metrics and scores', 'SELECT count(*) FILTER (WHERE socio_score < 0 OR socio_score > 100) FROM county_metrics_and_scores')).toEqual([['0']])
 
-  // A sample the user checked against the app (signed off 2026-10-29). Formatted in the SQL, so the cells compare as text.
-  const counties = await explore(page, 'County metrics and scores', `SELECT fips, name, printf('%.0f', median_hh_income), printf('%.2f', bachelor_pct), printf('%.2f', uninsured_pct),
-    printf('%.2f', price_to_income), printf('%.1f', socio_score) FROM county_metrics_and_scores WHERE fips IN ('01001', '06037', '17031', '48201', '36061') ORDER BY fips`)
+  // A sample the user checked against the app (signed off 2026-10-29). Formatted in the SQL, so the cells compare as text
+  // (as DOUBLE: DuckDB's printf refuses %f for an integer column).
+  const counties = await explore(page, 'County metrics and scores', `SELECT fips, name, printf('%.0f', median_hh_income::DOUBLE), printf('%.2f', bachelor_pct::DOUBLE), printf('%.2f', uninsured_pct::DOUBLE),
+    printf('%.2f', price_to_income::DOUBLE), printf('%.1f', socio_score::DOUBLE) FROM county_metrics_and_scores WHERE fips IN ('01001', '06037', '17031', '48201', '36061') ORDER BY fips`)
   expect(counties.map((r) => [r[0], ...r.slice(2)])).toEqual(COUNTIES)
-  const states = await explore(page, 'State averages', `SELECT state_abbr, CAST(counties AS VARCHAR), CAST(counties_scored AS VARCHAR), coalesce(printf('%.0f', avg_median_hh_income), '-'),
-    coalesce(printf('%.1f', socio_score), '-') FROM state_averages WHERE state_abbr IN ('CA', 'CT', 'NY', 'TX', 'WY') ORDER BY state_abbr`)
+  const states = await explore(page, 'State averages', `SELECT state_abbr, CAST(counties AS VARCHAR), CAST(counties_scored AS VARCHAR), coalesce(printf('%.0f', avg_median_hh_income::DOUBLE), '-'),
+    coalesce(printf('%.1f', socio_score::DOUBLE), '-') FROM state_averages WHERE state_abbr IN ('CA', 'CT', 'NY', 'TX', 'WY') ORDER BY state_abbr`)
   expect(states).toEqual(STATES)
 })
 
