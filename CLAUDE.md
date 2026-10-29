@@ -170,8 +170,10 @@ whatever they're actually asking about.
   datasets registry, `dataset_access` owner | write | read, `workspaces` one default per user, a
   private `datasets` bucket of `<id>/data.parquet`; RLS everywhere, explicit grants). Schema changes
   go in **new** SQL files for the user to run, never edits to the one already run. This sandbox can't
-  reach supabase.co: test the SQL on a local Postgres (`/usr/lib/postgresql/16`) with stand-ins, and
-  sign-in on the preview. **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
+  reach supabase.co: test against the local stack (`scripts/test-stack.sh`: the real schema, Auth, REST,
+  Storage; start `dockerd` first, and set `SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io`), and a
+  `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY` build of the app against it drives the UI as several users
+  (Playwright, one browser context per device). **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
   token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
   the workspace **document** (+ `overviewOf` text) and the page opens a newer one on load / sign-in
   (`catchUpWithCloud` → `openDocument`) — unless this device's last save didn't reach the account

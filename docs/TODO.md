@@ -417,6 +417,11 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 
 ## Known Issues
 
+- **A dataset added while the default map is first prepared is dropped from the workspace.** On a
+  first visit, `seedDefault` takes ~3 s and then replaces the working copy with the default map, so
+  an upload made meanwhile isn't in the workspace (it's still in ＋ Dataset → Saved). Fix: wait to show
+  the ＋ buttons until the map is ready, or merge what was added into the seeded document. Found
+  driving the UI against the local stack (2026-10-29).
 
 (Bugs, edge cases, platform-specific quirks)
 
