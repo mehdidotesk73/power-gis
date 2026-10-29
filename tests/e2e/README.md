@@ -12,6 +12,9 @@ storage), at phone or laptop size, so one test can be two people on three device
   read-only share used as input to the reader's own transform; two writers and a conflict; access
   lowered and leaving; signed out.
 
+In CI they're the `ui-tests` job: on every PR, but **not required** to merge for now (the ruleset
+requires `build`); they become required after about 10 green runs in a row.
+
 Run locally (needs Docker):
 
 ```sh

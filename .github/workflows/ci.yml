@@ -2,8 +2,14 @@ name: CI
 
 # Type-check + build every pull request, so a change that doesn't compile
 # can't reach `main`. The job name (`build`) is what you select as a required
-# status check in the branch ruleset — see the finish-setup skill. Every test
-# runs inside this one job, so the ruleset's one check covers them all.
+# status check in the branch ruleset — see the finish-setup skill. Build, unit
+# and cloud integration tests run inside that one job, so the ruleset's one
+# check covers them all.
+#
+# The UI tests (`ui-tests`) are a second job on purpose: the ruleset doesn't
+# watch it, so it shows ✓ / ✗ on every PR without blocking a merge while it
+# proves itself steady. Once it has been green for a good run of PRs, its steps
+# move back into `build` (docs/TODO.md).
 
 on:
   pull_request:
@@ -25,10 +31,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
-      # Integration and UI tests against a local Supabase stack (Docker on the
-      # runner; no account or secrets), started empty with our schema applied
-      # (scripts/test-stack.sh). The cloud tests run the server's requests; the
-      # UI tests drive a build of the app pointed at the stack (tests/e2e).
+      # Integration tests against a local Supabase stack (Docker on the runner;
+      # no account or secrets), started empty with our schema applied
+      # (scripts/test-stack.sh): the server's cloud requests as real accounts.
       - name: Start the test stack
         run: |
           eval "$(scripts/test-stack.sh)"
@@ -36,6 +41,26 @@ jobs:
           echo "SUPABASE_TEST_KEY=$SUPABASE_TEST_KEY" >> "$GITHUB_ENV"
       - name: Cloud integration tests
         run: npm run test:cloud
+      - name: Stop the stack
+        if: always()
+        run: npx supabase stop --no-backup || true
+
+  # Not required by the ruleset (see the top): the app in a browser against the
+  # same kind of stack, driven by Playwright (tests/e2e).
+  ui-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Start the test stack
+        run: |
+          eval "$(scripts/test-stack.sh)"
+          echo "SUPABASE_TEST_URL=$SUPABASE_TEST_URL" >> "$GITHUB_ENV"
+          echo "SUPABASE_TEST_KEY=$SUPABASE_TEST_KEY" >> "$GITHUB_ENV"
       - name: Build the app against the test stack
         run: |
           FETCH_DUCKDB_EXT=1 node scripts/fetch-duckdb-extensions.mjs

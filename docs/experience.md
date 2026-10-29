@@ -326,6 +326,9 @@ Two additions from reviewing it here, beyond what the originating project report
   five two-person scenarios (second device, read share used as input, two writers and a conflict,
   access lowered and leaving, signed out), with values checked against the same SQL run outside the
   app. Stable test keys (`data-testid`) on the controls they use.
+- **Non-blocking for now:** they run as a second CI job, `ui-tests`, which the branch ruleset doesn't
+  require: ✓ / ✗ on every PR, but a red one doesn't stop a merge. Build, unit and cloud integration
+  tests stay required in `build`. After about 10 green runs in a row the UI tests become required too.
 - **Gotchas:** graph nodes outside the graph's view can't be tapped until it's panned (tests use the
   List view); opening an account's workspace pops the Workspace panel open a moment later, over the
   page (tests wait for its message, then close it); Explore shows numbers without separators.
