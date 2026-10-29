@@ -698,7 +698,7 @@ async function openSync(ids: string[]) {
     kind: 'sync',
     items,
     running: false,
-    title: items.length === 1 ? `Sync "${items[0].name}"` : 'Sync with the cloud',
+    title: 'Sync with the cloud',
     intro: 'Push sends this copy to the cloud; pull replaces this copy with the cloud\'s. Choose for each, then go ahead.',
   }
 }
@@ -715,7 +715,7 @@ function openLink(ids: string[]) {
     kind: 'link',
     items,
     running: false,
-    title: items.length === 1 ? `Link "${items[0].name}" to the cloud` : 'Link to the cloud',
+    title: 'Link to the cloud',
     intro: 'Each stays here as it is, and gets a cloud copy you sync by hand (push and pull).',
   }
 }

@@ -61,7 +61,7 @@ const reasons = (it: BatchItem) => it.options.filter((o) => o.disabled).map((o) 
       <ul class="items">
         <li v-for="it in items" :key="it.id" :class="{ off: it.choice === 'skip' }">
           <div class="line">
-            <span class="name">{{ it.name }}</span>
+            <span class="name" :title="it.name">{{ it.name }}</span>
             <span v-if="it.status" class="status" :class="it.status">
               {{ it.status === 'running' ? 'Working…' : it.status === 'done' ? 'Done' : it.status === 'failed' ? 'Not done' : 'Skipped' }}
             </span>
@@ -125,6 +125,12 @@ const reasons = (it: BatchItem) => it.options.filter((o) => o.disabled).map((o) 
   border-radius: 0.8rem;
   box-shadow: var(--shadow);
 }
+.head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .head {
   display: flex;
   align-items: center;
@@ -178,8 +184,14 @@ const reasons = (it: BatchItem) => it.options.filter((o) => o.disabled).map((o) 
   gap: 0.5rem;
 }
 .name {
+  /* Long names: two lines at most, then … (the full name is its tooltip). */
+  min-width: 0;
   font-weight: 600;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .choice {
   display: inline-flex;

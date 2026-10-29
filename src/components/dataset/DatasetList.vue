@@ -131,7 +131,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
   >
     <template #default="{ item: ds }">
       <div class="title">
-        <strong>{{ ds.name }}</strong>
+        <strong :title="ds.name">{{ ds.name }}</strong>
         <span v-if="ds.description" class="desc">{{ ds.description }}</span>
         <span class="muted">
           <span
@@ -225,6 +225,14 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
 .title {
   display: grid;
   min-width: 0;
+}
+/* Long names: two lines at most, then … */
+.title > strong {
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .muted {
   color: var(--text-muted);

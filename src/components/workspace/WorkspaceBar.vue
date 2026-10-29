@@ -239,6 +239,11 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
 .lo-title {
   font-weight: 600;
 }
+.local-only li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .local-only ul {
   margin: 0;
   padding: 0.3rem 0.5rem 0.3rem 1.3rem;
