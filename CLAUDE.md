@@ -166,8 +166,8 @@ whatever they're actually asking about.
   `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. The
   agent starts from the workspace (`get_workspace`: its datasets' names, descriptions, stores),
   edits it as **files** with Anthropic's text editor tool (`str_replace_based_edit_tool`, run by us on
-  a staged copy: `workspace.json` index, `datasets.json` (name / description editable; store, rows,
-  origin read-only), `transforms/<id>.json` + `<id>.<key>.sql`,
+  a staged copy: `workspace.json` index, `datasets.json` (the document's facts: name / description editable; store,
+  cloudId, rows, structured origin, sameAs read-only), `transforms/<id>.json` + `<id>.<key>.sql`,
   `visualizations/<id>.json`, generated `overview.md`; SQL never inside JSON) and commits with
   `apply_workspace` (checks everything, returns new ids; `lib/agent/workspaceFiles.ts`). Everything
   existing is targeted by id. Our tools are `strict`. It confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
@@ -341,8 +341,8 @@ whatever they're actually asking about.
   be replaced (its transform would overwrite it). Signed in, the Workspace panel lists uploads
   **only on this device** (`onlyOnThisDevice`: not built-ins, outputs or cloud ones) in a short
   scrolling box, and Save notes them. Every transform output
-  records the SQL that wrote it (`extensions.sql`). The agent's own files still show visualizations
-  compactly and `origin` as text (`docs/TODO.md`: full settings for the agent later).
+  records the SQL that wrote it (`extensions.sql`). The agent's files are the same as the zip's: every
+  visualization setting (`readStyle` checks each part) and the structured origin in `datasets.json`.
 - **Default workspace** (the active folder's `workspace.powergis.json`, served at `data/`): a v2 document with readable ids
   (`default-county-income`, …, outputs like `default-county-metrics-and-scores`, transforms `default-t-…`).
   Its spatial step makes a first visit also download DuckDB's spatial extension (~23 MB). `seedDefault` (`MapPage.vue`)

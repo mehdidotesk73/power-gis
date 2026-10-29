@@ -341,10 +341,7 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    - **Agreed next (before PR 3):** (a) ~~dataset name / description as draft until Save, agent's
      `datasets.json`~~ (done, see Done). (b) ~~Download / Load
      use a zip of the document's file form (the agent's layout)~~ (done 2026-10-29; round trips tested).
-     Still open: the agent's own files show visualizations compactly (name, geometry, column, aggregation,
-     visible, color, opacity) and `origin` as text; giving it every setting and the structured origin
-     would make its files and the zip's identical (its validator, `buildWorkspace` in `lib/agent/tools.ts`,
-     would read full settings). (c) ~~Unavailable items~~ (done, see Done).
+     The agent's files are the same: every visualization setting, the structured origin (done). (c) ~~Unavailable items~~ (done, see Done).
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's

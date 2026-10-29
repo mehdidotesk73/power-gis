@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { documentFiles } from '../workspace/files'
+import { toWorkspaceFile } from '../workspace/file'
 import { runTool, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
@@ -96,7 +98,7 @@ describe('agent tools', () => {
 
   it('reports the drawn values so the agent can pick a scale, and accepts a fixed domain', async () => {
     const { host, state } = fakeHost()
-    const viz = (color: object) => writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: ['price'] }, { 'visualizations/price.json': { name: 'Price', datasetId: 'joined', geometry: 'geometry', column: 'price', color } })
+    const viz = (color: object) => writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: ['price'] }, { 'visualizations/price.json': { name: 'Price', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price', style: { color } } })
     expect((await viz({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] })).isError).toBe(false)
     expect(state.doc.visualizations[0].style.color).toMatchObject({ kind: 'colormap', colormap: 'rdBu', domain: [-5, 5] })
     state.doc = { ...state.doc, visualizations: [] }
@@ -110,12 +112,51 @@ describe('agent tools', () => {
     expect(await runTool(host, 'visualization_stats', { id: 'nope' })).toMatchObject({ isError: true })
   })
 
+  it('edits every visualization setting, checked: pattern, opacity by value, outline, size; the file is the zip\'s', async () => {
+    const { host, state } = fakeHost()
+    await writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: ['price'] }, { 'visualizations/price.json': { name: 'Price', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price' } })
+    const v = state.doc.visualizations[0]
+    // The agent's file holds every setting, exactly as a downloaded zip does.
+    await runTool(host, 'get_workspace', {})
+    const text = (await edit(host, { command: 'view', path: `/visualizations/${v.id}.json` })).content.replace(/^\s*\d+\t/gm, '')
+    const { id: _id, ...settings } = v
+    expect(JSON.parse(text)).toEqual(JSON.parse(JSON.stringify(settings)))
+    expect(documentFiles(toWorkspaceFile(state.doc, () => undefined)).get(`visualizations/${v.id}.json`)).toBe(`${JSON.stringify(settings, null, 2)}\n`)
+
+    const style = {
+      opacity: { kind: 'field', field: 'anything', range: [0.2, 0.9] },
+      pattern: { kind: 'field', patterns: { '10': 'hatch' }, color: '#ffffff' },
+      outline: { color: '#000000', width: 1.5 },
+      size: 4,
+    }
+    const applied = await writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: [v.id] }, { [`visualizations/${v.id}.json`]: { ...settings, style: { ...settings.style, ...style } } })
+    expect(applied.isError, applied.content).toBe(false)
+    expect(state.doc.visualizations[0].style).toMatchObject({
+      color: v.style.color,
+      opacity: { kind: 'field', field: '_value', range: [0.2, 0.9] }, // the field is always the drawn value
+      pattern: { kind: 'field', field: '_value', patterns: { '10': 'hatch' }, color: '#ffffff' },
+      outline: { color: '#000000', width: 1.5 },
+      size: 4,
+    })
+
+    const bad = await writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: [v.id] }, {
+      [`visualizations/${v.id}.json`]: { ...settings, kind: 'vector', style: { ...settings.style, pattern: { kind: 'constant', pattern: 'zigzag' }, opacity: { kind: 'constant', value: 2 }, glow: true } },
+    })
+    expect(bad.isError).toBe(true)
+    for (const bit of ['kind: "price" draws as colors ("scalar")']) expect(bad.content).toContain(bit)
+    const bad2 = await writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: [v.id] }, { [`visualizations/${v.id}.json`]: { ...settings, style: { ...settings.style, glow: true } } })
+    expect(bad2.content).toContain('unknown field "glow"')
+    const bad3 = await writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: [v.id] }, { [`visualizations/${v.id}.json`]: { ...settings, style: { ...settings.style, pattern: { kind: 'constant', pattern: 'zigzag' } } } })
+    expect(bad3.content).toContain('pattern.pattern must be one of hatch')
+  })
+
   it('renames and describes datasets in /datasets.json (store, rows, origin read-only), linked ones too, as local changes', async () => {
     const { host, calls } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices', 'shared'] })
     await runTool(host, 'get_workspace', {})
     const files = JSON.parse((await edit(host, { command: 'view', path: '/datasets.json' })).content.replace(/^\s*\d+\t/gm, ''))
-    expect(files.prices).toEqual({ name: 'PRICES', description: '', store: 'local', rows: 10, origin: 'Device · test.csv' })
-    expect(files.shared.store).toBe('cloud')
+    // The document's facts for each dataset: the origin structured, as in a downloaded zip.
+    expect(files.prices).toEqual({ name: 'PRICES', description: '', store: 'local', rows: 10, origin: { kind: 'upload', source: 'Device · test.csv' } })
+    expect(files.shared.store).toBe('remote')
     const write = (o: object) => edit(host, { command: 'create', path: '/datasets.json', file_text: JSON.stringify(o) })
     await write({ ...files, prices: { ...files.prices, rows: 11 } })
     expect((await runTool(host, 'apply_workspace', {})).content).toMatch(/"rows" is read-only/)
@@ -152,7 +193,7 @@ describe('agent tools', () => {
       {
         'transforms/join.json': { name: 'Join', inputs: [{ datasetId: 'prices', alias: 'p' }, { datasetId: 'counties', alias: 'c' }], outputs: [{ key: 'o1', name: 'Joined', outputId: 'joined' }] },
         'transforms/join.o1.sql': `${sql}\n`,
-        'visualizations/price.json': { name: 'Price', datasetId: 'joined', geometry: 'geometry', label: 'name', column: 'price', color: { kind: 'colormap', colormap: 'magma' } },
+        'visualizations/price.json': { name: 'Price', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry', label: 'name' }, column: 'price', style: { color: { kind: 'colormap', colormap: 'magma' } } },
       },
     )
     expect(built.isError, built.content).toBe(false)
@@ -241,10 +282,10 @@ describe('agent tools', () => {
       {
         'transforms/bad.json': { name: 'Bad', inputs: [{ datasetId: 'prices', alias: 'p' }], outputs: [{ key: 'o1', name: 'Out', outputId: 'shared' }] },
         'transforms/bad.o1.sql': 'SELECT 1',
-        'visualizations/a.json': { name: 'A', datasetId: 'prices', geometry: 'fips', column: 'price' },
-        'visualizations/b.json': { name: 'B', datasetId: 'counties', geometry: 'geometry', column: 'nope' },
-        'visualizations/c.json': { name: 'C', datasetId: 'counties', geometry: 'geometry', column: 'name', aggregation: 'sum' },
-        'visualizations/d.json': { name: 'D', datasetId: 'counties', geometry: 'geometry', column: 'name', color: { kind: 'colormap', colormap: 'rainbow' } },
+        'visualizations/a.json': { name: 'A', datasetId: 'prices', binding: { kind: 'geometry', column: 'fips' }, column: 'price' },
+        'visualizations/b.json': { name: 'B', datasetId: 'counties', binding: { kind: 'geometry', column: 'geometry' }, column: 'nope' },
+        'visualizations/c.json': { name: 'C', datasetId: 'counties', binding: { kind: 'geometry', column: 'geometry' }, column: 'name', aggregation: 'sum' },
+        'visualizations/d.json': { name: 'D', datasetId: 'counties', binding: { kind: 'geometry', column: 'geometry' }, column: 'name', style: { color: { kind: 'colormap', colormap: 'rainbow' } } },
       },
     )
     expect(out.isError).toBe(true)
@@ -258,7 +299,7 @@ describe('agent tools', () => {
       {
         'transforms/t.json': { name: 'T', inputs: [{ datasetId: 'prices', alias: 'p' }], outputs: [{ key: 'o1', name: 'Out', sql: 'SELECT 1' }] },
         'visualizations/v.json': '{ "name": "V", }',
-        'visualizations/w.json': { name: 'W', datasetId: 'prices', geometry: 'g', column: 'price', colour: 'red' },
+        'visualizations/w.json': { name: 'W', datasetId: 'prices', binding: { kind: 'geometry', column: 'g' }, column: 'price', colour: 'red' },
       },
     )
     for (const bit of ["SQL doesn't go in the JSON", 'its SQL file /transforms/t.o1.sql is missing', "/visualizations/v.json isn't valid JSON", 'unknown field "colour"']) expect(files.content).toContain(bit)
@@ -267,7 +308,7 @@ describe('agent tools', () => {
 
   it('reports files nothing uses, and keeps items whose files were not touched exactly', async () => {
     const { host, state } = fakeHost()
-    await writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: ['price'] }, { 'visualizations/price.json': { name: 'Price', datasetId: 'joined', geometry: 'geometry', column: 'price' } })
+    await writeAndApply(host, { datasetIds: ['joined'], transforms: [], visualizations: ['price'] }, { 'visualizations/price.json': { name: 'Price', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price' } })
     const before = state.doc
     await runTool(host, 'get_workspace', {})
     await edit(host, { command: 'create', path: '/transforms/spare.o1.sql', file_text: 'SELECT 1' })

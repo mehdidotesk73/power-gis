@@ -320,8 +320,9 @@ Two additions from reviewing it here, beyond what the originating project report
   the cloud and the default folders stay JSON. `fflate` zips (small, synchronous, works on iOS).
 - **Gotcha:** a zip re-made from the unzipped folder holds everything under the folder's name (and on a
   Mac `__MACOSX/` and `.DS_Store`): Load looks through one top folder and skips those.
-- **Not yet:** the agent still sees visualizations compactly and `origin` as text; full settings for it
-  is a separate change (its validator would read them).
+- **The agent's files are the same:** its visualization files hold every setting (checked part by part:
+  color, opacity, pattern, outline, size; a field is always the drawn value) and `datasets.json` the
+  document's facts with the structured origin (read-only). Download is only the zip.
 
 ### Agent: checking stages, re-running downstream, missing datasets; Copy graph as image — 2026-10-29
 
