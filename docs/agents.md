@@ -57,10 +57,9 @@ works on is a local copy. Agents change copies only — a linked one turns ↑ u
 and never sync (`linkToCloud` / `pushDataset` / `pullDataset` / `unlinkDataset` / `deleteFromCloud`
 refuse `caller: 'agent'`).
 
-**Agent rule: the store decides, not the source.** Any local dataset (built-in copy, upload,
-transform output) may be changed or deleted by the agent. Remote datasets are read-only to it,
-and only the user deletes them. At the start of a chat the agent lists which datasets are local
-("fair game") and suggests moving anything precious to remote.
+**Agent rule: copies here, syncs by the user.** The agent may change or delete any dataset on this
+device (built-in copy, upload, transform output, a linked copy); it never touches the cloud. A
+linked copy it changes shows ↑ until the user pushes it, and the agent says which ones it changed.
 
 ## Tools
 
@@ -206,9 +205,18 @@ come later if a role outgrows it.
 - **Transformer.** Writes SQL transforms into the draft, runs them, and checks the outputs
   (`SUMMARIZE`, row counts, join coverage, e.g. how many counties found a match). Tests a step
   first with `query_sql` (CTEs chain steps without storing anything), then writes the real
-  transform.
-- **Visualizer.** Adds visualizations of the final datasets, ordered sensibly, and explains what
-  each one shows.
+  transform. **Builds for understanding** (prompt: *Building pipelines people can follow*): stages
+  in order — clean (one transform per raw input), join (a few inputs each, LEFT JOIN onto the
+  table that defines the rows), compute, aggregate, present (shapes attached late) — and many
+  small transforms over one large one, since intermediate datasets are cheap (local, remade by
+  running their transforms) while inputs and shared outputs stay lean. Stage-numbered names
+  ("1a Clean …", "2 Join …"), one-line descriptions saying what a row is, SQL that opens with a
+  comment on what and why. Asked to restructure, it rebuilds the steps and deletes what nothing
+  uses. Learned from a real request whose first result was two large joins that were hard to
+  follow.
+- **Visualizer.** Adds visualizations of the final datasets, named for what they show with the
+  unit, the main one visible and the rest hidden so the map opens readable, ordered sensibly, and
+  explains what each one shows.
 
 **Run records.** Each chat keeps a record of the request, the clarifications, the source reports,
 the sources and usage terms, the datasets and transforms made, and the token use. Sources and

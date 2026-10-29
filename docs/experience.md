@@ -312,6 +312,16 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Agent: pipelines people can follow — 2026-10-29
+
+- **Changed:** the assistant builds transforms in stages (clean each input, join, compute,
+  aggregate, present), as many small steps rather than one large query, with stage-numbered names,
+  one-line descriptions and commented SQL; visualizations are named with their unit, and only the
+  main one starts visible. Asked for a socioeconomic score, it had made two large joins that were
+  hard to follow.
+- **Fixed:** its instructions still said cloud datasets were read-only to it and suggested moving
+  datasets to protect them; since cloud links, it changes copies here and the user syncs.
+
 ### Cloud datasets (Supabase, PR 3 of 4) — 2026-10-28
 
 - **Added:** cloud links. The app always works on copies on this device; signed in, **Link to cloud**
