@@ -18,7 +18,7 @@ import { bindingInfo, findIndex, groupDataset, queryValues, type FindIndex, type
 import { profileRows } from '../lib/dataset/profile'
 import { visualizationLayer } from '../lib/dataset/visualization'
 import { parseWorkspaceFile, parseWorkspaceObject, pointers, replaceDatasetIds, type MissingDataset, type WorkspaceFile } from '../lib/workspace/file'
-import { MAX_CLOUD_FILE, type CloudDataset, type CloudStore } from '../shared/cloud'
+import { canManage, canShare, MAX_CLOUD_FILE, type Access, type CloudDataset, type CloudMember, type CloudStore } from '../shared/cloud'
 import { decodeDatasetFile, encodeDatasetFile } from './datasetFile'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
@@ -158,6 +158,18 @@ export function createServer(db: Database, env: ServerEnv) {
     return updatedAt
   }
 
+  /** A linked dataset's cloud id. */
+  async function linkOf(id: string): Promise<string> {
+    const ds = await dataset(id)
+    return ds.link?.cloudId ?? fail('invalid', `"${ds.name}" isn't in the cloud: link it first (its menu → Link to cloud)`)
+  }
+  /** A cloud dataset's people, and the user's own access to it. */
+  async function people(c: CloudStore, cloudId: string): Promise<{ members: CloudMember[]; access?: Access }> {
+    const members = await c.members(cloudId)
+    if (!members.length) fail('not_found', "It's no longer in the cloud, or no longer shared with you")
+    const access = members.find((m) => m.you)?.access
+    return { members, ...(access ? { access } : {}) }
+  }
   /** A linked copy's state against its cloud dataset (undefined: gone from the cloud). */
   const stateOf = (link: NonNullable<DatasetRecord['link']>, cd: CloudDataset | undefined): SyncState =>
     !cd ? 'gone' : cd.updatedAt === link.version ? (link.changed ? 'ahead' : 'synced') : link.changed ? 'both' : 'behind'
@@ -467,6 +479,82 @@ export function createServer(db: Database, env: ServerEnv) {
           return { id: it.id, state, canPush: !!cd && cd.access !== 'read', ...(cd ? { version: cd.updatedAt } : {}) }
         }),
       }
+    },
+
+    async cloudDatasets(_, caller) {
+      if (caller === 'agent') fail('invalid', SYNC_REFUSAL)
+      const c = signedIn()
+      const copies = new Map((await db.list('datasets')).flatMap((d) => (d.link ? [[d.link.cloudId, d.id] as const] : [])))
+      return {
+        datasets: (await c.listDatasets()).map((cd) => ({
+          cloudId: cd.id,
+          name: cd.name,
+          description: cd.description,
+          rows: cd.rowCount,
+          access: cd.access,
+          updatedAt: cd.updatedAt,
+          ...(copies.has(cd.id) ? { localId: copies.get(cd.id) } : {}),
+        })),
+      }
+    },
+
+    async addFromCloud({ cloudId }, caller) {
+      if (caller === 'agent') fail('invalid', SYNC_REFUSAL)
+      const c = signedIn()
+      const all = await db.list('datasets')
+      const copy = all.find((d) => d.link?.cloudId === cloudId)
+      if (copy) return { datasetId: copy.id, created: false }
+      const [cd] = await c.datasets([cloudId])
+      if (!cd) fail('not_found', 'That dataset is no longer in the cloud (or not shared with you)')
+      // Its own id when this device has nothing by that id (an unlinked copy keeps its own).
+      const id = all.some((d) => d.id === cloudId) ? newId() : cloudId
+      await pull(c, cd, id)
+      return { datasetId: id, created: true }
+    },
+
+    async datasetMembers({ id }, caller) {
+      if (caller === 'agent') fail('invalid', SYNC_REFUSAL)
+      return people(signedIn(), await linkOf(id))
+    },
+
+    async shareDataset({ id, email, access }, caller) {
+      if (caller === 'agent') fail('invalid', SYNC_REFUSAL)
+      const c = signedIn()
+      const cloudId = await linkOf(id)
+      const before = await people(c, cloudId)
+      if (!canShare(before.access)) fail('invalid', 'Only its owner and people with write access can share it')
+      if (!email.trim()) fail('invalid', 'Type the email of the person to share it with')
+      const them = before.members.find((m) => m.email.toLowerCase() === email.trim().toLowerCase())
+      if (them?.you) fail('invalid', 'That is you')
+      if (them && !canManage(before.access, them).change) fail('invalid', `${them.name} has ${them.access} access, which you can't change`)
+      await c.share(cloudId, email.trim(), access)
+      return people(c, cloudId)
+    },
+
+    async setMemberAccess({ id, userId, access }, caller) {
+      if (caller === 'agent') fail('invalid', SYNC_REFUSAL)
+      const c = signedIn()
+      const cloudId = await linkOf(id)
+      const before = await people(c, cloudId)
+      const them = before.members.find((m) => m.userId === userId) ?? fail('not_found', 'That person has no access to it')
+      if (!canManage(before.access, them).change) fail('invalid', `You can't change ${them.name}'s access`)
+      await c.setAccess(cloudId, userId, access)
+      return people(c, cloudId)
+    },
+
+    async removeMember({ id, userId }, caller) {
+      if (caller === 'agent') fail('invalid', SYNC_REFUSAL)
+      const c = signedIn()
+      const cloudId = await linkOf(id)
+      const before = await people(c, cloudId)
+      const them = before.members.find((m) => m.userId === userId) ?? fail('not_found', 'That person has no access to it')
+      if (!canManage(before.access, them).remove) fail('invalid', them.access === 'owner' ? 'The owner keeps their access' : `You can't remove ${them.name}`)
+      await c.removeAccess(cloudId, userId)
+      if (!them.you) return people(c, cloudId)
+      // Left it: this copy stays, local only (the cloud dataset isn't the user's to sync any more).
+      const { link: _gone, ...rest } = await dataset(id)
+      await db.put('datasets', rest)
+      return { members: [], left: true }
     },
 
     async previewTransform({ sql: query, inputs, limit, offset }) {

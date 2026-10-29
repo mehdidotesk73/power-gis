@@ -13,6 +13,7 @@ import type { SyncState, TransformInputRef, TransformOutputRef, WorkspaceConfig 
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
 import type { MissingDataset, WorkspaceFile } from '../lib/workspace/file'
+import type { Access, CloudMember } from './cloud'
 
 export interface ApiError {
   /** `conflict`: a cloud dataset changed in the cloud since this device got it. */
@@ -78,6 +79,20 @@ export interface Api {
    * user may push (owner or write access).
    */
   cloudStatus: [{ items: { id: string; cloudId?: string }[] }, { datasets: { id: string; state: SyncState; canPush: boolean; version?: string }[] }]
+  /**
+   * Sharing (signed in; never an agent). cloudDatasets: every cloud dataset the user can see, with
+   * this device's linked copy of it if there is one.
+   */
+  cloudDatasets: [{}, { datasets: { cloudId: string; name: string; description: string; rows: number; access: Access; updatedAt: string; localId?: string }[] }]
+  /** Adds a cloud dataset to this device: its linked copy if there is one, else a new one pulled from it. */
+  addFromCloud: [{ cloudId: string }, { datasetId: string; created: boolean }]
+  /** A linked dataset's people, and the user's own access. */
+  datasetMembers: [{ id: string }, { members: CloudMember[]; access?: Access }]
+  /** Gives the account with this email read or write access to a linked dataset (or changes theirs); answers the people. */
+  shareDataset: [{ id: string; email: string; access: 'read' | 'write' }, { members: CloudMember[]; access?: Access }]
+  setMemberAccess: [{ id: string; userId: string; access: 'read' | 'write' }, { members: CloudMember[]; access?: Access }]
+  /** Takes a person's access away; the user's own is leaving the dataset, which also unlinks this copy. */
+  removeMember: [{ id: string; userId: string }, { members: CloudMember[]; access?: Access; left?: boolean }]
   /** How a dataset looks under a binding (features, unmatched rows, defaults). */
   describeBinding: [{ datasetId: string; binding: GeometryBinding }, BindingInfo]
   /** One value per feature for a visualization. */

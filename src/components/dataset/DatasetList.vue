@@ -1,6 +1,6 @@
 <script lang="ts">
 /** What the cloud actions on a dataset are. */
-export type CloudAction = 'link' | 'sync' | 'unlink' | 'delete-cloud'
+export type CloudAction = 'link' | 'sync' | 'share' | 'unlink' | 'delete-cloud'
 </script>
 
 <script setup lang="ts">
@@ -38,7 +38,7 @@ const emit = defineEmits<{
   (e: 'remove', id: string): void
   /** Delete the dataset from the database (the page confirms and updates the workspace). */
   (e: 'delete', id: string): void
-  /** A cloud action on a dataset: link it, sync it (push / pull), unlink it, or delete its cloud dataset. */
+  /** A cloud action on a dataset: link it, sync it (push / pull), share it, unlink it, or delete its cloud dataset. */
   (e: 'cloud', action: CloudAction, id: string): void
   (e: 'dismiss-note', id: string): void
   (e: 'reorder', ids: string[]): void
@@ -56,6 +56,7 @@ const cloudActions = (ds: DatasetRecord): ObjectAction[] =>
   ds.link
     ? [
         { id: 'sync', icon: '⇅', label: 'Sync…' },
+        { id: 'share', icon: '⚇', label: 'Share…' },
         { id: 'unlink', icon: '⛓', label: 'Unlink from the cloud' },
       ]
     : builtin(ds)
@@ -74,7 +75,7 @@ function onAction(id: string, ds: DatasetRecord) {
   if (id === 'explore') exploring.value = ds
   else if (id === 'edit') editing.value = editing.value === ds.id ? null : ds.id
   else if (id === 'copy') copyId(ds.id)
-  else if (id === 'link' || id === 'sync' || id === 'unlink' || id === 'delete-cloud') emit('cloud', id, ds.id)
+  else if (id === 'link' || id === 'sync' || id === 'share' || id === 'unlink' || id === 'delete-cloud') emit('cloud', id, ds.id)
   else if (id === 'remove') emit('remove', ds.id)
   else if (id === 'delete') emit('delete', ds.id)
 }
