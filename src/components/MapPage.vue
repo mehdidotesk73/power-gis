@@ -24,6 +24,7 @@ import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
 import WorkspaceBar from './workspace/WorkspaceBar.vue'
 import BatchPanel, { type BatchItem } from './dataset/BatchPanel.vue'
+import SharePanel from './dataset/SharePanel.vue'
 import type { CloudAction } from './dataset/DatasetList.vue'
 import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
@@ -614,12 +615,22 @@ const STATE_NOTE: Record<SyncState, string> = {
   gone: 'No longer in the cloud: push puts it back.',
 }
 
+/** The dataset whose people are open (SharePanel). */
+const sharing = ref<{ id: string; name: string } | null>(null)
+async function onLeft() {
+  const id = sharing.value!.id
+  sharing.value = null
+  await loadRecord(id)
+  noteOn(id, 'Left ✓ — this copy is local only now')
+}
+
 async function cloudAction(action: CloudAction, id: string) {
   const ds = records.value.get(id)
   if (!ds) return
   if (!auth.user) return noteOn(id, SIGN_IN)
   if (action === 'sync') return void openSync([id])
   if (action === 'link') return void openLink([id])
+  if (action === 'share') return void (sharing.value = { id, name: ds.name })
   if (action === 'unlink') {
     if (!confirm(`Unlink "${ds.name}" from the cloud? It stays here as a local dataset; the cloud dataset stays as it is.`)) return
     const r = await request('unlinkDataset', { id })
@@ -1568,6 +1579,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       @dblclick="assist.reset"
     />
     <AgentPanel v-show="assistantOpen" class="assistant-col" :host="agentHost" @close="assistantOpen = false" />
+    <SharePanel v-if="sharing" :id="sharing.id" :name="sharing.name" @close="sharing = null" @left="onLeft" />
     <BatchPanel v-if="batch" :title="batch.title" :intro="batch.intro" :items="batch.items" :running="batch.running" @proceed="runBatch" @close="batch = null" />
   </div>
 </template>

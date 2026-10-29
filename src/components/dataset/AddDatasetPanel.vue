@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Add a dataset to the workspace: upload a table (built-in, CSV, GeoJSON /
 // Esri JSON, ArcGIS URL) — the server stores it as a new table and returns
-// its id — or pick one already in the database. How its rows map to
+// its id — or pick one already in the database, or (signed in) one in the
+// cloud: yours or shared with you, added as this device's copy linked to it. How its rows map to
 // features is chosen per visualization.
 import UiButton from '../ui/UiButton.vue'
 import { computed, onMounted, ref } from 'vue'
@@ -9,18 +10,20 @@ import { request } from '../../client/api'
 import { listDatasets } from '../../client/datasets'
 import type { UploadSource } from '../../shared/api'
 import { BUILTIN_TABLES } from '../../shared/builtins'
+import { auth } from '../../client/auth'
+import type { Access } from '../../shared/cloud'
 import type { DatasetRecord } from '../../shared/records'
 
 const props = defineProps<{
   inWorkspace: string[]
   /** Which source to show first. */
-  start?: 'builtin' | 'csv' | 'json' | 'arcgis' | 'db'
+  start?: 'builtin' | 'csv' | 'json' | 'arcgis' | 'db' | 'cloud'
   /** The Saved list's button (Replace: "Use"). */
   pickLabel?: string
 }>()
 const emit = defineEmits<{ (e: 'add', datasetIds: string[]): void; (e: 'cancel'): void }>()
 
-type Origin = 'builtin' | 'csv' | 'json' | 'arcgis' | 'db'
+type Origin = 'builtin' | 'csv' | 'json' | 'arcgis' | 'db' | 'cloud'
 const origin = ref<Origin>(props.start ?? 'builtin')
 const builtin = ref(BUILTIN_TABLES[0].table)
 const arcgisUrl = ref('')
@@ -81,6 +84,32 @@ async function deleteStored(d: DatasetRecord) {
   if (!r.ok) error.value = r.error.message
   await refresh()
 }
+
+// ── in the cloud ───────────────────────────────────────────────────────────
+
+type CloudItem = { cloudId: string; name: string; description: string; rows: number; access: Access; updatedAt: string; localId?: string }
+const inCloud = ref<CloudItem[] | null>(null)
+/** Not in this workspace already (by its copy here). */
+const cloudAvailable = computed(() => (inCloud.value ?? []).filter((d) => !d.localId || !props.inWorkspace.includes(d.localId)))
+async function refreshCloud() {
+  error.value = ''
+  inCloud.value = null
+  const r = await request('cloudDatasets', {})
+  if (r.ok) inCloud.value = r.data.datasets
+  else ((inCloud.value = []), (error.value = r.error.message))
+}
+async function addCloud(d: CloudItem) {
+  busy.value = true
+  error.value = ''
+  progress.value = d.localId ? '' : `Pulling "${d.name}" (${d.rows.toLocaleString()} rows)…`
+  const r = await request('addFromCloud', { cloudId: d.cloudId })
+  busy.value = false
+  progress.value = ''
+  if (r.ok) emit('add', [r.data.datasetId])
+  else error.value = r.error.message
+}
+const ACCESS: Record<Access, string> = { owner: 'yours', write: 'shared with you · can push', read: 'shared with you · can pull' }
+if (origin.value === 'cloud') void refreshCloud()
 </script>
 
 <template>
@@ -91,8 +120,25 @@ async function deleteStored(d: DatasetRecord) {
       <button :class="{ on: origin === 'json' }" @click="origin = 'json'">GeoJSON / Esri</button>
       <button :class="{ on: origin === 'arcgis' }" @click="origin = 'arcgis'">ArcGIS URL</button>
       <button :class="{ on: origin === 'db' }" @click="(origin = 'db'), refresh()">Saved</button>
+      <button v-if="auth.user" :class="{ on: origin === 'cloud' }" @click="(origin = 'cloud'), refreshCloud()">Cloud</button>
     </div>
-    <template v-if="origin !== 'db'">
+    <template v-if="origin === 'cloud'">
+      <p v-if="!inCloud" class="muted small">Looking in the cloud…</p>
+      <p v-else-if="!cloudAvailable.length && !error" class="muted small">
+        {{ inCloud.length ? 'Every cloud dataset you can use is in this workspace.' : 'No cloud datasets yet: link one of yours (its menu → Link to cloud), or ask someone to share theirs with you.' }}
+      </p>
+      <ul class="stored">
+        <li v-for="d in cloudAvailable" :key="d.cloudId">
+          <span class="grow" :title="[d.name, d.description].filter(Boolean).join('\n')">
+            <strong class="clip">{{ d.name }}</strong>
+            <span class="muted small clip">{{ d.rows.toLocaleString() }} rows · {{ ACCESS[d.access] }}{{ d.localId ? ' · on this device' : '' }}</span>
+          </span>
+          <button class="btn primary" :disabled="busy" @click="addCloud(d)">{{ pickLabel ?? 'Add' }}</button>
+        </li>
+      </ul>
+      <p v-if="progress" class="muted small clip">{{ progress }}</p>
+    </template>
+    <template v-else-if="origin !== 'db'">
       <label class="row">Name <input v-model="name" type="text" :placeholder="origin === 'csv' || origin === 'json' ? '(from the file; one file only)' : '(from the source)'" /></label>
       <div v-if="origin === 'builtin'" class="row">
         <select v-model="builtin">
