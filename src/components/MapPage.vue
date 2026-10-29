@@ -1302,7 +1302,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <span>Replaced {{ afterReplace.name }}. {{ afterReplace.order.length }} transform{{ afterReplace.order.length === 1 ? '' : 's' }} read{{ afterReplace.order.length === 1 ? 's' : '' }} it and can run now.</span>
         <span v-if="afterReplace.message" class="problem-note">{{ afterReplace.message }}</span>
         <span class="row-actions">
-          <UiButton size="tag" tone="transform" icon="▶" :disabled="afterReplace.running" @click="runAfterReplace">{{ afterReplace.running ? 'Running…' : 'Run them now' }}</UiButton>
+          <UiButton data-testid="run-them-now" size="tag" tone="transform" icon="▶" :disabled="afterReplace.running" @click="runAfterReplace">{{ afterReplace.running ? 'Running…' : 'Run them now' }}</UiButton>
           <UiButton size="tag" :disabled="afterReplace.running" @click="afterReplace = null">Not now</UiButton>
         </span>
       </div>
@@ -1412,7 +1412,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <details class="box">
           <summary>Transforms</summary>
           <div v-if="staleOrder.length || staleProgress" class="stale-row">
-            <UiButton v-if="staleOrder.length && !staleProgress?.running" size="tag" tone="attention" icon="↻" @click="runAllStale">Run all stale ({{ staleOrder.length }})</UiButton>
+            <UiButton v-if="staleOrder.length && !staleProgress?.running" data-testid="run-all-stale" size="tag" tone="attention" icon="↻" @click="runAllStale">Run all stale ({{ staleOrder.length }})</UiButton>
             <span v-if="staleProgress" class="stale-msg">{{ staleProgress.text }}</span>
           </div>
           <TransformsPanel

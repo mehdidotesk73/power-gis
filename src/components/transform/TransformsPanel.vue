@@ -247,6 +247,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
       :items="transforms"
       :item-key="(t) => t.id"
       :item-label="(t) => t.name"
+      test-kind="transform"
       :actions="actions"
       :hint="compact ? '' : 'Tap and hold a transform to preview, run, edit or delete it.'"
       @action="onAction"

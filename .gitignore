@@ -40,3 +40,6 @@ __pycache__
 .env.local
 .env.*.local
 public/duckdb-ext/
+dist-e2e/
+test-results/
+playwright-report/

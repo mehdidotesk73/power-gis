@@ -137,6 +137,7 @@ defineExpose({
       :items="visualizations"
       :item-key="(v) => v.id"
       :item-label="(v) => v.name"
+      test-kind="viz"
       :actions="actions"
       reorderable
       reorder-hint="Drag ≡ to reorder · top draws on top"

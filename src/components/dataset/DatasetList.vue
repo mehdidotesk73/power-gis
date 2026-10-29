@@ -123,6 +123,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
     :items="datasets"
     :item-key="(d) => d.id"
     :item-label="(d) => d.name"
+    test-kind="dataset"
     :actions="actions"
     reorderable
     :hint="compact ? '' : 'Tap and hold a dataset for options.'"

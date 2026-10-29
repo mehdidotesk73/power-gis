@@ -179,7 +179,7 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
         <span>{{ plural(linkedCount, 'linked dataset') }}, all in sync with the cloud</span>
       </div>
       <div class="row">
-        <button class="btn primary" :disabled="(!dirty && !retry) || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
+        <button data-testid="workspace.save" class="btn primary" :disabled="(!dirty && !retry) || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
         <button class="btn" :disabled="!dirty || saving" @click="emit('revert')">Discard changes</button>
       </div>
 
@@ -210,7 +210,7 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
         <p class="note">A workspace file (or a copied workspace) holds which datasets it uses, its transforms and its visualizations — not the data itself.</p>
       </div>
       <p v-if="message" class="msg">{{ message }}</p>
-      <input ref="fileInput" class="hidden" type="file" accept=".json,application/json" @change="onFile" />
+      <input ref="fileInput" data-testid="workspace.file-input" class="hidden" type="file" accept=".json,application/json" @change="onFile" />
     </div>
   </div>
 </template>

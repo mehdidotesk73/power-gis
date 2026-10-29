@@ -128,11 +128,12 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 <template>
   <div v-reveal="mode" class="dag">
     <div v-if="!mode" class="bar">
-      <UiButton size="tag" tone="dataset" icon="＋" @click="emit('new-dataset')">Dataset</UiButton>
+      <UiButton data-testid="graph.add-dataset" size="tag" tone="dataset" icon="＋" @click="emit('new-dataset')">Dataset</UiButton>
       <UiButton size="tag" tone="transform" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">Transform</UiButton>
       <UiButton size="tag" tone="viz" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">Visualization</UiButton>
       <UiButton
         v-if="staleCount && !staleProgress?.running"
+        data-testid="run-all-stale"
         size="tag"
         tone="attention"
         icon="↻"
@@ -176,6 +177,9 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
         <button
           v-for="n in dag.nodes"
           :key="n.key"
+          :data-testid="`node.${n.kind}`"
+          :data-name="n.label"
+          :data-problem="n.problem || undefined"
           class="node"
           :class="[n.kind, n.state, n.problem, { selected: selected === n.key, picked: pickNo(n) > 0, dimmed: dimmed(n), muted: n.muted }]"
           :style="{ left: `${layout.at.get(n.key)!.x}px`, top: `${layout.at.get(n.key)!.y}px`, width: `${NODE_W}px`, height: `${NODE_H}px` }"
