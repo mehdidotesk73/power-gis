@@ -33,6 +33,8 @@ const props = withDefaults(
     itemLabel?: (item: T) => string
     /** Shown above the cards when there are any. */
     hint?: string
+    /** Stable test keys: cards are `<testKind>-card` with `data-name` = their label; menu items `menu.<action id>`. */
+    testKind?: string
   }>(),
   { reorderable: false, reorderHint: 'Drag ≡ to reorder', itemLabel: () => 'Item', hint: 'Tap and hold for options.' },
 )
@@ -144,6 +146,8 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
         v-for="item in items"
         :key="itemKey(item)"
         :data-id="itemKey(item)"
+        :data-testid="testKind ? `${testKind}-card` : undefined"
+        :data-name="itemLabel(item)"
         class="card"
         :class="{ dragging: dragging === itemKey(item), held: menuFor === itemKey(item) }"
         v-on="holdHandlers(itemKey(item))"
@@ -173,6 +177,7 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
             v-for="a in menu(item)"
             :key="a.id"
             role="menuitem"
+            :data-testid="`menu.${a.id}`"
             :class="{ danger: a.danger }"
             :disabled="a.disabled"
             @click="choose(a, item)"

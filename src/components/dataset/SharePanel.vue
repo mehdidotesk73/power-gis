@@ -65,7 +65,7 @@ const LEVEL: Record<Access, string> = { owner: 'Owner', write: 'Can push', read:
       </p>
       <p v-if="loading" class="muted">Loading…</p>
       <ul v-else class="people">
-        <li v-for="m in members" :key="m.userId">
+        <li v-for="m in members" :key="m.userId" data-testid="share.member" :data-email="m.email">
           <span class="who">
             <strong class="clip" :title="m.email">{{ m.name }}{{ m.you ? ' (you)' : '' }}</strong>
             <span v-if="m.name !== m.email" class="muted clip">{{ m.email }}</span>
@@ -98,17 +98,18 @@ const LEVEL: Record<Access, string> = { owner: 'Owner', write: 'Can push', read:
       <form v-if="!loading && mine" class="add" @submit.prevent="share">
         <input
           v-model="email"
+          data-testid="share.email"
           type="email"
           placeholder="Their account’s email"
           autocapitalize="off"
           autocomplete="off"
           :disabled="busy || !canShare(mine)"
         />
-        <select v-model="level" aria-label="Access" :disabled="busy || !canShare(mine)">
+        <select v-model="level" data-testid="share.level" aria-label="Access" :disabled="busy || !canShare(mine)">
           <option value="read">{{ LEVEL.read }}</option>
           <option value="write">{{ LEVEL.write }}</option>
         </select>
-        <UiButton tone="primary" type="submit" :disabled="busy || !canShare(mine) || !email.trim()">Share</UiButton>
+        <UiButton data-testid="share.submit" tone="primary" type="submit" :disabled="busy || !canShare(mine) || !email.trim()">Share</UiButton>
       </form>
       <p v-if="!loading && mine && !canShare(mine)" class="muted">You can pull it: only its owner and people who can push share it.</p>
       <p v-if="error" class="error">{{ error }}</p>

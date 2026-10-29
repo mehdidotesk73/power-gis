@@ -115,12 +115,12 @@ if (origin.value === 'cloud') void refreshCloud()
 <template>
   <div class="add">
     <div class="seg">
-      <button :class="{ on: origin === 'builtin' }" @click="origin = 'builtin'">Built-in</button>
-      <button :class="{ on: origin === 'csv' }" @click="origin = 'csv'">CSV file</button>
-      <button :class="{ on: origin === 'json' }" @click="origin = 'json'">GeoJSON / Esri</button>
-      <button :class="{ on: origin === 'arcgis' }" @click="origin = 'arcgis'">ArcGIS URL</button>
-      <button :class="{ on: origin === 'db' }" @click="(origin = 'db'), refresh()">Saved</button>
-      <button v-if="auth.user" :class="{ on: origin === 'cloud' }" @click="(origin = 'cloud'), refreshCloud()">Cloud</button>
+      <button data-testid="add.source.builtin" :class="{ on: origin === 'builtin' }" @click="origin = 'builtin'">Built-in</button>
+      <button data-testid="add.source.csv" :class="{ on: origin === 'csv' }" @click="origin = 'csv'">CSV file</button>
+      <button data-testid="add.source.json" :class="{ on: origin === 'json' }" @click="origin = 'json'">GeoJSON / Esri</button>
+      <button data-testid="add.source.arcgis" :class="{ on: origin === 'arcgis' }" @click="origin = 'arcgis'">ArcGIS URL</button>
+      <button data-testid="add.source.db" :class="{ on: origin === 'db' }" @click="(origin = 'db'), refresh()">Saved</button>
+      <button v-if="auth.user" data-testid="add.source.cloud" :class="{ on: origin === 'cloud' }" @click="(origin = 'cloud'), refreshCloud()">Cloud</button>
     </div>
     <template v-if="origin === 'cloud'">
       <p v-if="!inCloud" class="muted small">Looking in the cloud…</p>
@@ -147,7 +147,7 @@ if (origin.value === 'cloud') void refreshCloud()
         <button class="btn primary" :disabled="busy" @click="upload({ kind: 'builtin', table: builtin })">Add</button>
       </div>
       <label v-else-if="origin === 'csv'" class="btn file">
-        <input type="file" accept=".csv,text/csv" multiple :disabled="busy" @change="onFile($event, 'csv')" />
+        <input data-testid="add.csv-input" type="file" accept=".csv,text/csv" multiple :disabled="busy" @change="onFile($event, 'csv')" />
         Choose CSV files…
       </label>
       <label v-else-if="origin === 'json'" class="btn file">

@@ -5,11 +5,14 @@ import { nodeDuckDb } from './testEngine'
 import { MemoryDatabase } from '../shared/database'
 import { readFileSync } from 'node:fs'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
+import { parseCsv } from '../lib/data/csv'
 import { parseWorkspaceFile, replaceDatasetIds, toWorkspaceFile, type WorkspaceFile } from '../lib/workspace/file'
 import type { ApiResult } from '../shared/api'
 import type { Access, CloudDataset, CloudStore, CloudWorkspace } from '../shared/cloud'
 import { defaultScalarStyle, settingsOf, makeVisualization, ROWS } from '../lib/dataset/visualization'
 
+/** The EIA utilities-by-county workspace (the default map until 2026-10-29): exercises seeding, joins, grouping and exports. */
+const EIA_WORKSPACE = 'tests/fixtures/eia-utilities.powergis.json'
 const SQ0 = '"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))"'
 const SQ2 = '"POLYGON ((2 0, 3 0, 3 1, 2 1, 2 0))"'
 // A joined table: county shapes repeated per utility, plus a row with no shape.
@@ -286,7 +289,7 @@ describe('built-in boundary datasets and the default join', () => {
     }
     const db = new MemoryDatabase()
     const server = createServer(db, { readBuiltin: async (t) => tables[t], sql: nodeDuckDb })
-    const parsed = parseWorkspaceFile(readFileSync('public/data/default.powergis.json', 'utf8'))
+    const parsed = parseWorkspaceFile(readFileSync(EIA_WORKSPACE, 'utf8'))
     if (!parsed.ok) throw new Error(parsed.error)
     const ids: Record<string, string> = {}
     for (const d of parsed.file.datasets) if (d.origin.kind === 'builtin') ids[d.id] = data(await server.handle('uploadDataset', { source: { kind: 'builtin', table: d.origin.table } })).datasetId
@@ -338,7 +341,7 @@ describe('built-in boundary datasets and the default join', () => {
       us_states: [{ fips: '01', name: 'Alabama', abbr: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 1], [0, 0]]] } }],
     }
     const db = new MemoryDatabase()
-    const server = createServer(db, { readBuiltin: async (t) => tables[t] ?? [], sql: nodeDuckDb, readDefaultWorkspace: async () => readFileSync('public/data/default.powergis.json', 'utf8') })
+    const server = createServer(db, { readBuiltin: async (t) => tables[t] ?? [], sql: nodeDuckDb, readDefaultWorkspace: async () => readFileSync(EIA_WORKSPACE, 'utf8') })
     data(await server.handle('init', { baseUrl: '/' }))
     const { file } = data(await server.handle('seedDefaultWorkspace', {}))
     const pointers = [...file.datasetIds, ...file.visualizations.map((v) => v.datasetId), ...(file.transforms ?? []).flatMap((t) => t.inputs.map((i) => i.datasetId))]
@@ -350,6 +353,29 @@ describe('built-in boundary datasets and the default join', () => {
     expect(again.file.datasetIds).toEqual(file.datasetIds)
     expect((await db.list('datasets')).length).toBe(count)
   })
+})
+
+describe('the default map (the socioeconomic pipeline)', () => {
+  it('opens even when a step can not run here: the rest is made, what waits on it is reported', async () => {
+    // The real built-ins: the ACS county CSVs and the us-atlas shapes. Node's engine has no spatial extension,
+    // so step 1e (land area) fails here, as it would on a device that can't download the extension.
+    const topo = (f: string) => JSON.parse(readFileSync(`node_modules/us-atlas/${f}`, 'utf8'))
+    const readBuiltin = async (table: string) =>
+      table === 'us_counties' ? countyRows(topo('counties-10m.json')) : table === 'us_states' ? stateRows(topo('states-10m.json')) : parseCsv(readFileSync(`public/data/${table}.csv`, 'utf8'))
+    const db = new MemoryDatabase()
+    const server = createServer(db, { readBuiltin, sql: nodeDuckDb, readDefaultWorkspace: async () => readFileSync('public/data/default.powergis.json', 'utf8') })
+    data(await server.handle('init', { baseUrl: '/' }))
+    const { file, missing, failed } = data(await server.handle('seedDefaultWorkspace', {}))
+    // 1e for want of the extension; the five steps after it for want of its output.
+    expect(failed[0]).toMatchObject({ name: '1e County shapes and land area', reason: expect.stringContaining('spatial') })
+    expect(failed.slice(1).map((f) => f.name)).toEqual(['2a Join shapes with income and education', '2b Join insurance and home value', '3a County metrics and scores', '4a State averages (area-weighted)', '5 State map layer'])
+    expect(missing.map((m) => m.name)).toEqual(expect.arrayContaining(['County shapes and land area', 'State map layer']))
+    // The cleaning steps ran on the real tables.
+    const rows = async (name: string) => (await db.list('datasets')).find((d) => d.name === name)?.rowCount
+    for (const name of ['Clean county income', 'Clean county education', 'Clean county health insurance', 'Clean county home value']) expect(await rows(name), name).toBe(3222)
+    expect(await rows('County income (ACS)')).toBe(3222)
+    expect(file.visualizations).toHaveLength(12)
+  }, 120_000)
 })
 
 describe('cloud workspace', () => {
@@ -423,7 +449,7 @@ describe('cloud workspace', () => {
   }
   const device = (cloud: (token: string) => CloudStore) => {
     const db = new MemoryDatabase()
-    const server = createServer(db, { readBuiltin: async (t) => tables[t] ?? [], sql: nodeDuckDb, cloud, readDefaultWorkspace: async () => readFileSync('public/data/default.powergis.json', 'utf8') })
+    const server = createServer(db, { readBuiltin: async (t) => tables[t] ?? [], sql: nodeDuckDb, cloud, readDefaultWorkspace: async () => readFileSync(EIA_WORKSPACE, 'utf8') })
     return { db, server }
   }
   /** What the page does to save: the working copy as a document, with this device's dataset facts. */

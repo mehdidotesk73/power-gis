@@ -52,7 +52,7 @@ const short = (v: unknown) =>
 </script>
 
 <template>
-  <div class="editor" data-no-open>
+  <div class="editor" data-no-open :data-testid="missing ? 'missing-dataset' : 'dataset-editor'" :data-name="dataset?.name ?? missing?.info.name">
     <!-- Same fields as for a dataset that's here; a missing one's can't change (there's nothing here to change). -->
     <label>
       Name
@@ -98,7 +98,7 @@ const short = (v: unknown) =>
 
     <p v-if="writtenBy" class="muted">Made by the transform "{{ writtenBy }}": to use other data here, change the transform.</p>
     <div v-else class="replace">
-      <UiButton v-if="!replacing" size="tag" tone="dataset" icon="⇄" @click="replacing = true">Replace…</UiButton>
+      <UiButton v-if="!replacing" data-testid="dataset.replace" size="tag" tone="dataset" icon="⇄" @click="replacing = true">Replace…</UiButton>
       <template v-else>
         <div v-reveal class="lbl">Replace with</div>
         <p class="muted">What you pick takes its place everywhere in this workspace: its transforms read it and its visualizations draw it.</p>

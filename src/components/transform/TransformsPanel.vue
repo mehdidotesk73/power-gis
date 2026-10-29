@@ -247,6 +247,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
       :items="transforms"
       :item-key="(t) => t.id"
       :item-label="(t) => t.name"
+      test-kind="transform"
       :actions="actions"
       :hint="compact ? '' : 'Tap and hold a transform to preview, run, edit or delete it.'"
       @action="onAction"
@@ -311,6 +312,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
           <div v-for="o in t.outputs" :key="o.key" class="io">
             <button class="chip k-out" :class="{ on: isDocked({ kind: 'output', key: o.key }) }" title="Preview this output" @click="showInDock(t, { kind: 'output', key: o.key })">▤</button>
             <input
+              :data-testid="`transform.output-name.${o.key}`"
               class="oname"
               type="text"
               :value="o.outputId ? nameIn(o.outputId) : o.name"
@@ -320,7 +322,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
               @change="patchOutput(t, o.key, { name: ($event.target as HTMLInputElement).value })"
             />
             <span class="as">→</span>
-            <select :value="o.outputId ?? ''" aria-label="Writes to" @change="patchOutput(t, o.key, { outputId: ($event.target as HTMLSelectElement).value || undefined })">
+            <select :data-testid="`transform.writes-to.${o.key}`" :value="o.outputId ?? ''" aria-label="Writes to" @change="patchOutput(t, o.key, { outputId: ($event.target as HTMLSelectElement).value || undefined })">
               <option value="">New dataset</option>
               <option v-for="d in outputChoices(t, o)" :key="d.id" :value="d.id">{{ d.name }}</option>
             </select>
@@ -333,6 +335,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
             <label class="lbl" :for="`sql-${sk(t, o)}`">SQL → {{ outName(o) }} <span class="muted">(one SELECT; DuckDB)</span></label>
             <textarea
               :id="`sql-${sk(t, o)}`"
+              :data-testid="`transform.sql.${o.key}`"
               :ref="(el) => setSqlEl(sk(t, o), el)"
               class="sql"
               rows="6"
@@ -352,10 +355,10 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
             text in SQL.
           </p>
           <div class="row end">
-            <button class="btn primary" :disabled="status[t.id]?.state === 'running'" @click="emit('run', t.id)">
+            <button data-testid="transform.run" class="btn primary" :disabled="status[t.id]?.state === 'running'" @click="emit('run', t.id)">
               Run{{ t.outputs.length > 1 ? ` (${t.outputs.length} outputs)` : '' }}
             </button>
-            <button class="btn" @click="closeEditor">Done</button>
+            <button data-testid="transform.done" class="btn" @click="closeEditor">Done</button>
           </div>
 
           <!-- One input or output at a time; sticks to the screen bottom while the editor scrolls. -->

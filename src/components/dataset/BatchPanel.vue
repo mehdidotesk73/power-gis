@@ -59,7 +59,7 @@ const reasons = (it: BatchItem) => it.options.filter((o) => o.disabled).map((o) 
         <button v-for="o in columns" :key="o.id" class="link" @click="setAll(o.id)">{{ o.label }} all</button>
       </div>
       <ul class="items">
-        <li v-for="it in items" :key="it.id" :class="{ off: it.choice === 'skip' }">
+        <li v-for="it in items" :key="it.id" data-testid="batch.item" :data-name="it.name" :class="{ off: it.choice === 'skip' }">
           <div class="line">
             <span class="name" :title="it.name">{{ it.name }}</span>
             <span v-if="it.status" class="status" :class="it.status">
@@ -69,6 +69,7 @@ const reasons = (it: BatchItem) => it.options.filter((o) => o.disabled).map((o) 
               <button
                 v-for="o in it.options"
                 :key="o.id"
+                :data-testid="`batch.option.${o.id}`"
                 :class="{ on: it.choice === o.id }"
                 :disabled="!!o.disabled"
                 :title="o.disabled"
@@ -89,11 +90,11 @@ const reasons = (it: BatchItem) => it.options.filter((o) => o.disabled).map((o) 
       </ul>
       <div class="row">
         <template v-if="finished">
-          <UiButton tone="primary" @click="emit('close')">Done</UiButton>
+          <UiButton data-testid="batch.done" tone="primary" @click="emit('close')">Done</UiButton>
         </template>
         <template v-else>
           <UiButton :disabled="running" @click="emit('close')">Cancel</UiButton>
-          <UiButton tone="primary" :disabled="running || !chosen" @click="emit('proceed')">
+          <UiButton data-testid="batch.go" tone="primary" :disabled="running || !chosen" @click="emit('proceed')">
             {{ running ? 'Working…' : `Go ahead (${chosen})` }}
           </UiButton>
         </template>

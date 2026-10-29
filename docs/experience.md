@@ -312,6 +312,29 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Default map: the socioeconomic pipeline — 2026-10-29
+
+- **Changed:** the default map is the user's socioeconomic pipeline (six ACS county tables, now
+  built-ins, ten transforms, twelve visualizations) instead of the EIA utilities map. The EIA tables
+  stay built-ins and the old default is a test fixture. A first visit also downloads the spatial
+  extension (land area for the state averages).
+
+### UI tests in CI — 2026-10-29
+
+- **Added:** `tests/e2e`: the app in a browser against the local Supabase stack, on every PR. Your
+  socioeconomic pipeline (load, replace six uploads, run ten transforms, check rows and values) and
+  five two-person scenarios (second device, read share used as input, two writers and a conflict,
+  access lowered and leaving, signed out), with values checked against the same SQL run outside the
+  app. Stable test keys (`data-testid`) on the controls they use.
+- **Non-blocking for now:** they run as a second CI job, `ui-tests`, which the branch ruleset doesn't
+  require: ✓ / ✗ on every PR, but a red one doesn't stop a merge. Build, unit and cloud integration
+  tests stay required in `build`. After about 10 green runs in a row the UI tests become required too.
+- **Gotchas:** graph nodes outside the graph's view can't be tapped until it's panned (tests use the
+  List view); opening an account's workspace pops the Workspace panel open a moment later, over the
+  page (tests wait for its message, then close it); Explore shows numbers without separators.
+- **Data note (from the fixtures):** Connecticut gets no ACS county values: the 2022+ ACS reports its
+  nine planning regions, the shapes (and EIA) its eight old counties.
+
 ### Cloud integration tests on a real Supabase stack — 2026-10-29
 
 - **Added:** `tests/cloud` runs the real cloud code as three real accounts against `supabase start`

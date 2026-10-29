@@ -995,7 +995,14 @@ async function seedDefault() {
   const r = await call('default workspace', request('seedDefaultWorkspace', {}))
   if (!r) throw new Error('the default workspace could not be prepared')
   for (const id of r.file.datasetIds) await loadRecord(id)
-  apply({ ok: true, doc: fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id)).doc })
+  // What couldn't be made here (a step whose SQL extension didn't download, say) stays, in red, and is reported.
+  const next = fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id), r.missing)
+  apply({ ok: true, doc: next.doc })
+  if (r.failed.length || r.missing.length) {
+    const report = missingReport(r.missing, r.failed, { visualizations: [], transforms: [] })
+    logDebug(`default map: ${report.replace(/\n/g, ' ')}`, 'warn')
+    barMessage.value = `Parts of the default map couldn't be made here:\n${report}`
+  }
   loadingMsg.value = 'Loading data…'
 }
 
@@ -1251,7 +1258,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 </script>
 
 <template>
-  <div ref="pageEl" class="page" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.size.value}px`, '--minimap-h': `${minimap.size.value}px` }">
+  <div ref="pageEl" class="page" :data-ready="loaded && status === 'ready' ? 'yes' : 'no'" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.size.value}px`, '--minimap-h': `${minimap.size.value}px` }">
     <!-- List | Graph and ⤢ / ✕: the top of the side panel in explore, of the whole page in setup. -->
     <div class="view-row">
       <div class="view-switch" role="group" aria-label="Show as">
@@ -1302,7 +1309,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <span>Replaced {{ afterReplace.name }}. {{ afterReplace.order.length }} transform{{ afterReplace.order.length === 1 ? '' : 's' }} read{{ afterReplace.order.length === 1 ? 's' : '' }} it and can run now.</span>
         <span v-if="afterReplace.message" class="problem-note">{{ afterReplace.message }}</span>
         <span class="row-actions">
-          <UiButton size="tag" tone="transform" icon="▶" :disabled="afterReplace.running" @click="runAfterReplace">{{ afterReplace.running ? 'Running…' : 'Run them now' }}</UiButton>
+          <UiButton data-testid="run-them-now" size="tag" tone="transform" icon="▶" :disabled="afterReplace.running" @click="runAfterReplace">{{ afterReplace.running ? 'Running…' : 'Run them now' }}</UiButton>
           <UiButton size="tag" :disabled="afterReplace.running" @click="afterReplace = null">Not now</UiButton>
         </span>
       </div>
@@ -1412,7 +1419,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <details class="box">
           <summary>Transforms</summary>
           <div v-if="staleOrder.length || staleProgress" class="stale-row">
-            <UiButton v-if="staleOrder.length && !staleProgress?.running" size="tag" tone="attention" icon="↻" @click="runAllStale">Run all stale ({{ staleOrder.length }})</UiButton>
+            <UiButton v-if="staleOrder.length && !staleProgress?.running" data-testid="run-all-stale" size="tag" tone="attention" icon="↻" @click="runAllStale">Run all stale ({{ staleOrder.length }})</UiButton>
             <span v-if="staleProgress" class="stale-msg">{{ staleProgress.text }}</span>
           </div>
           <TransformsPanel
