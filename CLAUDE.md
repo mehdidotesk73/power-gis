@@ -131,8 +131,8 @@ whatever they're actually asking about.
   `datasetIds`, ordered `visualizationIds`), `datasets` (registry: data table name, columns, row
   count, origin, description, `extensions`), `transforms` (SQL, inputs `{datasetId, alias}`, output
   id), `visualizations` (dataset id + settings). **Each dataset is its own data table**
-  (`ds_<uuid>`). **Stores**: `DatasetRecord.store` `local` (this device) | `remote` (Supabase, later;
-  `moveDataset` says it isn't available yet), missing = local; **users see "Local" / "Cloud"** — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
+  (`ds_<uuid>`). **Stores**: every dataset's rows are here; `storeOf(d)` is `remote` when it's linked to a cloud
+  dataset (`DatasetRecord.link`), else `local`; **users see "Local" / "Cloud" (↑ ↓ ↑↓)** — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
   properties**.
 - **Assistant (agents)** (`docs/agents.md`): **✦ Assistant** in the header opens a chat with the
   dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
@@ -154,8 +154,8 @@ whatever they're actually asking about.
   the workspace only with the user's OK, through `list_datasets`, which reads the app's one
   **dataset finder** (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry
   later); the prompt names no datasets. Agents
-  read any dataset but change only **local** ones: tools check it, and the server refuses
-  `caller: 'agent'` writes to remote datasets (`request(type, payload, 'agent')`).
+  change this device's copies only (a linked one turns ↑) and never sync: the server refuses
+  `caller: 'agent'` on every link / push / pull request (`request(type, payload, 'agent')`).
 - **Accounts (Supabase)**: project `rorqzjnwqwlyusagzcxy`; `client/supabase.ts` (URL + publishable
   key, committed — public by design), `client/auth.ts` (reactive `auth`; sign up / in / out, reset
   and change password, display name, delete account via `rpc('delete_my_account')`; actions answer
@@ -168,8 +168,25 @@ whatever they're actually asking about.
   sign-in on the preview. **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
   token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
   the workspace **document** (+ `overviewOf` text) and the page opens a newer one on load / sign-in
-  (`catchUpWithCloud` → `openDocument`). Next: cloud
-  datasets, sharing (`docs/TODO.md`).
+  (`catchUpWithCloud` → `openDocument`) — unless this device's last save didn't reach the account
+  (`powergis.cloudPending`): then it sends that one up instead. Every request that may reach the cloud
+  first re-sends the session's current token (`onBeforeCloud` in `client/api.ts` → `syncCloudAuth`): the
+  worker's copy went stale or missing on iOS and read as signed out. **Cloud links** (manual sync): the app only ever works on **local copies**;
+  a dataset is local only, or **linked** (`DatasetRecord.link` = `{cloudId, version, changed?}`: its cloud
+  dataset, the version it last matched, changed here since). Nothing reaches the cloud but the user's
+  syncs, never an agent: requests `linkToCloud` (first push; the cloud id is the dataset's own id when
+  free), `pushDataset` (`conflict` when the cloud moved on, unless `overwrite`), `pullDataset` (also makes
+  a copy under the document's id with `cloudId`), `unlinkDataset`, `deleteFromCloud` (owner), `cloudStatus`
+  (state `synced` / `ahead` ↑ / `behind` ↓ / `both` ↑↓ / `gone`, and `canPush`: owner or write). Push for
+  owner / write, pull for everyone. A transform run, rename or description marks a linked copy ↑. Rows
+  travel as `<cloudId>/data.arrow.gz` (`server/datasetFile.ts`: gzip Arrow IPC, read without DuckDB —
+  Parquet needs a DuckDB extension download). The page checks states on load and every minute
+  (`checkCloud`). Every sync goes through the **review panel** (`dataset/BatchPanel.vue`): the same
+  buttons on every line (**Push · Pull · Skip**, or **Link · Skip**), the ones that don't apply disabled
+  with the reason; ↑↓ starts as Skip. Workspace panel: **Link to cloud…** (uploads only here), **Sync
+  all…** (linked ones not in sync). `openDocument` pulls linked datasets this device lacks (outputs too)
+  under the document's ids; ones already here keep their copy. Built-ins are never linked. 50 MB a file
+  (`MAX_CLOUD_FILE`). Later: auto-sync, live transforms. Next: sharing (`docs/TODO.md`).
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
     device files, in-memory tables, ArcGIS features via `featureTable`).
@@ -312,8 +329,8 @@ whatever they're actually asking about.
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
-  Menus: datasets — Explore, Edit, Copy id, Move to cloud storage, Reorder, Remove from workspace,
-  Delete dataset; visualizations
+  Menus: datasets — Explore, Edit, Copy id, Link to cloud (linked: Sync…, Unlink from the cloud),
+  Reorder, Remove from workspace, Delete dataset (this device's copy), Delete from the cloud (linked); visualizations
   (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
   data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
   (`useDoubleTap`: two clicks on one card within 350 ms; not on buttons, fields or `[data-no-open]`
@@ -330,7 +347,8 @@ whatever they're actually asking about.
   `layoutDag(dag, 'vertical' | 'horizontal')` places them and `edgePath` draws edges (automatic;
   only the ↓ / → direction is remembered per device, `powergis.dagDirection`). The graph **pans and
   zooms** (`dag/usePanZoom.ts` + `lib/panZoom.ts`): drag; Shift + wheel or pinch; on phones
-  touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. Transforms show **not run yet** (no
+  touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. Dataset nodes carry a **store dot** before DATASET (violet = cloud, gray = this device; a yellow
+  ring = an output out of date or not made yet: `DagNode.store` / `pending`). Transforms show **not run yet** (no
   output) or **needs re-run** (an input's `updatedAt` is newer than the output's; `transformState`).
   **↻ Run all stale** (graph toolbar + list Transforms panel, only when there's something to run) runs
   `staleRunOrder`: every stale transform plus everything downstream of one, inputs first, stopping at

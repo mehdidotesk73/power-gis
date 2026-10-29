@@ -53,12 +53,32 @@ export interface DatasetRecord extends BaseRecord {
   origin: string
   /** Where the rows are kept; records from before stores existed are local. */
   store?: DatasetStore
+  /** Linked to a cloud dataset: which one, the version this copy last matched, and whether it changed here since. */
+  link?: CloudLink
   description?: string
   /** What's in each column; computed whenever the data table is written. */
   profile?: DatasetProfile
   /** Open slot for features to attach their own metadata (e.g. `builtin`, the table a built-in copy came from). */
   extensions?: Record<string, unknown>
 }
+
+/**
+ * A local copy's link to a cloud dataset. Everything the app reads and writes is the local copy;
+ * the cloud changes only by a sync the user starts (push / pull). `version`: the cloud's version
+ * (its `updated_at`) when this copy last matched it; `changed`: this copy changed since (rows, name
+ * or description) and has something to push.
+ */
+export interface CloudLink {
+  cloudId: string
+  version: string
+  changed?: boolean
+}
+
+/** A linked dataset's state against the cloud: `ahead` ↑, `behind` ↓, `both` ↑↓, `gone` (no longer in the cloud). */
+export type SyncState = 'synced' | 'ahead' | 'behind' | 'both' | 'gone'
+
+/** The state as far as this device knows without asking the cloud (`behind` / `both` need its version). */
+export const localSyncState = (d: Pick<DatasetRecord, 'link'>): SyncState | undefined => (d.link ? (d.link.changed ? 'ahead' : 'synced') : undefined)
 
 /** An input of a transform: a dataset, and the table name the SQL calls it by. */
 export interface TransformInputRef {
@@ -99,6 +119,7 @@ export interface Tables {
 export type TableName = keyof Tables
 export const TABLES: TableName[] = ['users', 'workspaces', 'datasets', 'transforms', 'visualizations']
 
-export const storeOf = (d: Pick<DatasetRecord, 'store'>): DatasetStore => d.store ?? 'local'
+/** Linked to a cloud dataset (shown as Cloud) or local only. Every dataset's rows are on this device either way. */
+export const storeOf = (d: Pick<DatasetRecord, 'link'>): DatasetStore => (d.link ? 'remote' : 'local')
 
 export const dataTableName = (datasetId: string) => `ds_${datasetId.replace(/-/g, '')}`

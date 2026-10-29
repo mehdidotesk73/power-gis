@@ -147,12 +147,12 @@ export function downstreamOrder(doc: WorkspaceDoc, datasetId: string): string[] 
  */
 export function onlyOnThisDevice(
   doc: WorkspaceDoc,
-  record: (id: string) => { id: string; name: string; store?: 'local' | 'remote'; extensions?: Record<string, unknown> } | undefined,
+  record: (id: string) => { id: string; name: string; link?: unknown; extensions?: Record<string, unknown> } | undefined,
 ): { id: string; name: string }[] {
   const written = new Set(doc.transforms.flatMap((t) => t.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))))
   return doc.datasetIds.flatMap((id) => {
     const d = record(id)
-    if (!d || written.has(id) || (d.store ?? 'local') !== 'local' || typeof d.extensions?.builtin === 'string') return []
+    if (!d || written.has(id) || d.link || typeof d.extensions?.builtin === 'string') return []
     return [{ id, name: d.name }]
   })
 }

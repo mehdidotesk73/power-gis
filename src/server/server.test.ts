@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { emptyWorkspace } from '../lib/workspace/workspace'
 import { createServer } from './server'
 import { nodeDuckDb } from './testEngine'
 import { MemoryDatabase } from '../shared/database'
@@ -6,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
 import { parseWorkspaceFile, replaceDatasetIds, toWorkspaceFile, type WorkspaceFile } from '../lib/workspace/file'
 import type { ApiResult } from '../shared/api'
-import type { CloudStore, CloudWorkspace } from '../shared/cloud'
+import type { CloudDataset, CloudStore, CloudWorkspace } from '../shared/cloud'
 import { defaultScalarStyle, settingsOf, makeVisualization, ROWS } from '../lib/dataset/visualization'
 
 const SQ0 = '"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))"'
@@ -124,31 +125,30 @@ describe('server', () => {
     expect(await db.readRows(`ds_${a.replace(/-/g, '')}`)).toBeUndefined()
   })
 
-  it('keeps new datasets in the local store; moving to remote is not available yet', async () => {
+  it('keeps new datasets local; linking one to the cloud needs a signed-in user', async () => {
     const { db, server } = setup()
     const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
-    expect((await db.get('datasets', datasetId))!.store).toBe('local')
-    expect(data(await server.handle('moveDataset', { id: datasetId, to: 'local' }))).toEqual({ datasetId, store: 'local' })
-    expect(await server.handle('moveDataset', { id: datasetId, to: 'remote' })).toMatchObject({ ok: false, error: { code: 'unsupported' } })
-    expect((await db.get('datasets', datasetId))!.store).toBe('local')
+    expect((await db.get('datasets', datasetId))!.link).toBeUndefined()
+    expect(await server.handle('linkToCloud', { id: datasetId })).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+    expect((await db.get('datasets', datasetId))!.link).toBeUndefined()
   })
 
-  it("refuses an agent's changes to remote datasets, and allows them on local ones", async () => {
+  it('lets an agent change local copies, linked ones too (they turn ↑), but never sync', async () => {
     const { db, server } = setup()
     const { datasetId } = data(await server.handle('uploadDataset', { source: { kind: 'csv', file: file('p.csv', CSV) } }))
     const local = (await db.get('datasets', datasetId))!
-    const remoteId = crypto.randomUUID()
-    await db.put('datasets', { ...local, id: remoteId, table: `ds_${remoteId.replace(/-/g, '')}`, store: 'remote' })
-    await db.writeRows(`ds_${remoteId.replace(/-/g, '')}`, (await db.readRows(local.table))!)
-    const writes = (outputId: string) => ({ transform: { id: 't', name: 'T', inputs: [{ datasetId, alias: 'p' }], outputs: [{ key: 'o', name: 'out', sql: 'SELECT county FROM p', outputId }] } })
-    expect(await server.handle('runTransform', writes(remoteId), 'agent')).toMatchObject({ ok: false, error: { message: expect.stringContaining('only local datasets') } })
-    expect(await server.handle('deleteDataset', { id: remoteId }, 'agent')).toMatchObject({ ok: false })
-    expect(await server.handle('updateDataset', { id: remoteId, name: 'x' }, 'agent')).toMatchObject({ ok: false })
-    expect(await server.handle('moveDataset', { id: datasetId, to: 'local' }, 'agent')).toMatchObject({ ok: false })
-    // Reading a remote dataset is fine; so are changes to local ones, and the user may do anything.
-    expect(data(await server.handle('previewTransform', { sql: 'SELECT count(*) AS n FROM r', inputs: [{ datasetId: remoteId, alias: 'r' }] }, 'agent')).rows[0].n).toBe(4)
-    expect(data(await server.handle('runTransform', { transform: { ...writes(remoteId).transform, outputs: [{ key: 'o', name: 'out', sql: 'SELECT county FROM r' }], inputs: [{ datasetId: remoteId, alias: 'r' }] } }, 'agent')).outputs[0].created).toBe(true)
-    data(await server.handle('deleteDataset', { id: remoteId }))
+    const linkedId = crypto.randomUUID()
+    await db.put('datasets', { ...local, id: linkedId, table: `ds_${linkedId.replace(/-/g, '')}`, link: { cloudId: linkedId, version: 'v1' } })
+    await db.writeRows(`ds_${linkedId.replace(/-/g, '')}`, (await db.readRows(local.table))!)
+    const writes = { transform: { id: 't', name: 'T', inputs: [{ datasetId, alias: 'p' }], outputs: [{ key: 'o', name: 'out', sql: 'SELECT county FROM p', outputId: linkedId }] } }
+    data(await server.handle('runTransform', writes, 'agent'))
+    expect((await db.get('datasets', linkedId))!.link).toEqual({ cloudId: linkedId, version: 'v1', changed: true })
+    for (const [type, payload] of [['linkToCloud', { id: datasetId }], ['pushDataset', { id: linkedId }], ['pullDataset', { id: linkedId }], ['unlinkDataset', { id: linkedId }], ['deleteFromCloud', { id: linkedId }]] as const) {
+      expect(await server.handle(type, payload as never, 'agent')).toMatchObject({ ok: false, error: { message: expect.stringContaining('Only the user syncs') } })
+    }
+    // Deleting a linked dataset deletes this device's copy only.
+    data(await server.handle('deleteDataset', { id: linkedId }, 'agent'))
+    expect(await db.get('datasets', linkedId)).toBeUndefined()
   })
 
   it('renames datasets and reports unknown requests and ids', async () => {
@@ -364,7 +364,20 @@ describe('cloud workspace', () => {
     let saved: CloudWorkspace | null = null
     let overview = ''
     let n = 0
+    const datasets = new Map<string, CloudDataset>()
+    const files = new Map<string, Uint8Array>()
+    let v = 0
+    const version = () => `2026-10-29T00:00:${String(++v).padStart(2, '0')}Z`
     const store: CloudStore = {
+      datasets: async (ids) => ids.flatMap((id) => (datasets.has(id) ? [structuredClone(datasets.get(id)!)] : [])),
+      putDataset: async (d, f) => {
+        const updatedAt = version()
+        datasets.set(d.id, { ...structuredClone(d), updatedAt, sizeBytes: f.byteLength, hasFile: true, access: datasets.get(d.id)?.access ?? 'owner' })
+        files.set(d.id, f)
+        return { updatedAt }
+      },
+      readFile: async (id) => files.get(id) ?? Promise.reject(new Error('no file')),
+      deleteDataset: async (id) => void (datasets.delete(id), files.delete(id)),
       defaultWorkspace: async () => saved,
       saveDefaultWorkspace: async (w) => {
         saved = { id: saved?.id ?? 'w1', name: w.name, file: JSON.parse(JSON.stringify(w.file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
@@ -372,7 +385,7 @@ describe('cloud workspace', () => {
         return { id: saved.id, updatedAt: saved.updatedAt }
       },
     }
-    return { cloud: () => store, saved: () => saved?.file as WorkspaceFile, overview: () => overview }
+    return { cloud: () => store, saved: () => saved?.file as WorkspaceFile, overview: () => overview, datasets }
   }
   const device = (cloud: () => CloudStore) => {
     const db = new MemoryDatabase()
@@ -392,6 +405,75 @@ describe('cloud workspace', () => {
     expect(data(await server.handle('setAuth', { accessToken: 'token' }))).toEqual({ signedIn: true })
     expect(data(await server.handle('cloudWorkspace', {}))).toEqual({ workspace: null })
     expect(data(await server.handle('setAuth', { accessToken: null }))).toEqual({ signedIn: false })
+  })
+
+  it('links a dataset to the cloud; other devices pull it; push / pull / both, as the user chooses', async () => {
+    const account = fakeCloud()
+    const a = device(account.cloud)
+    data(await a.server.handle('setAuth', { accessToken: 't' }))
+    const own = data(await a.server.handle('uploadDataset', { source: { kind: 'csv', file: file('mine.csv', 'fips,x\n01001,1\n01003,2\n') } })).datasetId
+    // A document saved before the dataset was linked: it says "an upload kept on device A".
+    const local = (await a.db.get('datasets', own))!
+    const savedEarly = toWorkspaceFile({ ...emptyWorkspace('W'), datasetIds: [own] }, (id) => (id === own ? local : undefined))
+    expect(savedEarly.datasets[0]).toMatchObject({ store: 'local', origin: { kind: 'upload' } })
+    const { cloudId } = data(await a.server.handle('linkToCloud', { id: own }))
+    expect(cloudId).toBe(own) // the first link uses the dataset's own id
+    const onA = (await a.db.get('datasets', own))!
+    expect(onA.link).toEqual({ cloudId, version: account.datasets.get(cloudId)!.updatedAt })
+    const status = async (srv: typeof a.server, id = own) => data(await srv.handle('cloudStatus', { items: [{ id }] })).datasets[0]
+    expect(await status(a.server)).toMatchObject({ state: 'synced', canPush: true })
+
+    // Device B opens the early document anyway: found in the cloud, pulled under its id, not missing.
+    const b = device(account.cloud)
+    data(await b.server.handle('setAuth', { accessToken: 't' }))
+    expect(data(await b.server.handle('openDocument', { file: savedEarly })).missing).toEqual([])
+    expect(await b.db.readRows(onA.table)).toEqual([{ fips: '01001', x: 1 }, { fips: '01003', x: 2 }])
+    expect((await b.db.get('datasets', own))!.link?.cloudId).toBe(cloudId)
+    // A document made after linking carries the cloud id.
+    expect(toWorkspaceFile({ ...emptyWorkspace('W'), datasetIds: [own] }, () => onA).datasets[0]).toMatchObject({ store: 'remote', cloudId })
+
+    // A rewrites it: ↑ here; B sees ↓ once A pushes, and pulls it.
+    const rewrite = (srv: typeof a.server, by: number) => srv.handle('runTransform', { transform: { id: 't', name: 'T', inputs: [{ datasetId: own, alias: 'm' }], outputs: [{ key: 'o', name: 'mine', sql: `SELECT fips, x * ${by} AS x FROM m`, outputId: own }] } })
+    data(await rewrite(a.server, 10))
+    expect(await status(a.server)).toMatchObject({ state: 'ahead' })
+    expect(await status(b.server)).toMatchObject({ state: 'synced' }) // nothing pushed yet
+    data(await a.server.handle('pushDataset', { id: own }))
+    expect(await status(a.server)).toMatchObject({ state: 'synced' })
+    expect(await status(b.server)).toMatchObject({ state: 'behind' })
+    data(await b.server.handle('pullDataset', { id: own }))
+    expect((await b.db.readRows(onA.table))!.map((r) => r.x)).toEqual([10, 20])
+
+    // Both change it: ↑↓. Pushing without overwrite is a conflict; overwrite pushes; the other side can pull.
+    data(await rewrite(a.server, 2))
+    data(await a.server.handle('pushDataset', { id: own }))
+    data(await rewrite(b.server, 3))
+    expect(await status(b.server)).toMatchObject({ state: 'both' })
+    expect(await b.server.handle('pushDataset', { id: own })).toMatchObject({ ok: false, error: { code: 'conflict' } })
+    data(await b.server.handle('pushDataset', { id: own, overwrite: true }))
+    expect(await status(b.server)).toMatchObject({ state: 'synced' })
+    expect(await status(a.server)).toMatchObject({ state: 'behind' })
+
+    // A rename is a change here (↑), pushed with the next sync.
+    data(await a.server.handle('pullDataset', { id: own }))
+    data(await a.server.handle('updateDataset', { id: own, name: 'Mine, renamed' }))
+    expect(await status(a.server)).toMatchObject({ state: 'ahead' })
+    data(await a.server.handle('pushDataset', { id: own }))
+    expect(account.datasets.get(cloudId)!.name).toBe('Mine, renamed')
+
+    // Read-only access: pull yes, push no.
+    account.datasets.get(cloudId)!.access = 'read'
+    expect(await status(b.server)).toMatchObject({ state: 'behind', canPush: false })
+    expect(await b.server.handle('pushDataset', { id: own, overwrite: true })).toMatchObject({ ok: false, error: { message: expect.stringContaining('only read') } })
+    account.datasets.get(cloudId)!.access = 'owner'
+
+    // Unlink: B keeps its copy, local only; the cloud dataset stays. Delete from the cloud: A's copy stays too.
+    data(await b.server.handle('unlinkDataset', { id: own }))
+    expect((await b.db.get('datasets', own))!.link).toBeUndefined()
+    expect(account.datasets.has(cloudId)).toBe(true)
+    data(await a.server.handle('deleteFromCloud', { id: own }))
+    expect(account.datasets.has(cloudId)).toBe(false)
+    expect(await a.db.get('datasets', own)).toMatchObject({ name: 'Mine, renamed' })
+    expect((await a.db.get('datasets', own))!.link).toBeUndefined()
   })
 
   it('opens a document on another device: built-ins and outputs made there, an upload reported by name', async () => {

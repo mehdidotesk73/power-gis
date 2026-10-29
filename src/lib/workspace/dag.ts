@@ -26,6 +26,10 @@ export interface DagNode {
   muted?: boolean
   /** Can't work on this device: a missing dataset, or something waiting on one (lib/workspace/unavailable.ts). */
   problem?: 'missing' | 'waits'
+  /** Datasets: where they're kept (cloud or this device). */
+  store?: 'local' | 'remote'
+  /** Datasets: a transform's output that's out of date (its transform needs a re-run) or not made yet. */
+  pending?: boolean
   row: number
   /** Position within the row, 0 = left. */
   order: number
@@ -51,6 +55,8 @@ export interface DagDataset {
   name: string
   rowCount: number
   updatedAt: string
+  /** Linked to a cloud dataset (shown as a violet dot). */
+  link?: unknown
 }
 
 const dsKey = (id: string) => `ds:${id}`
@@ -115,7 +121,7 @@ export function buildDag(doc: WorkspaceDoc, dataset: (id: string) => DagDataset 
   const addDataset = (id: string) => {
     if (nodes.has(dsKey(id))) return
     const d = dataset(id)
-    nodes.set(dsKey(id), { key: dsKey(id), kind: 'dataset', id, label: d?.name ?? 'Missing dataset', detail: d ? `${d.rowCount.toLocaleString()} rows` : 'not in the database', row: 0, order: 0 })
+    nodes.set(dsKey(id), { key: dsKey(id), kind: 'dataset', id, label: d?.name ?? 'Missing dataset', detail: d ? `${d.rowCount.toLocaleString()} rows` : 'not in the database', store: d?.link ? 'remote' : 'local', row: 0, order: 0 })
   }
   for (const id of doc.datasetIds) addDataset(id)
   for (const t of doc.transforms) {
@@ -133,6 +139,11 @@ export function buildDag(doc: WorkspaceDoc, dataset: (id: string) => DagDataset 
     nodes.set(trKey(t.id), { key: trKey(t.id), kind: 'transform', id: t.id, label: t.name, detail, state, row: 0, order: 0 })
     for (const i of t.inputs) edges.push({ from: dsKey(i.datasetId), to: trKey(t.id) })
     for (const o of t.outputs) if (o.outputId) edges.push({ from: trKey(t.id), to: dsKey(o.outputId) })
+    // Its outputs are out of date while it needs a run (or not made yet, when not here).
+    for (const o of t.outputs) {
+      const n = o.outputId ? nodes.get(dsKey(o.outputId)) : undefined
+      if (n && (state !== 'ready' || !dataset(n.id))) n.pending = true
+    }
   }
 
   // Rows by depth (a transform reading its own output can't loop forever).

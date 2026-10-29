@@ -23,6 +23,8 @@ import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
 import WorkspaceBar from './workspace/WorkspaceBar.vue'
+import BatchPanel, { type BatchItem } from './dataset/BatchPanel.vue'
+import type { CloudAction } from './dataset/DatasetList.vue'
 import FindPanel, { type Found } from './FindPanel.vue'
 import TransformsPanel, { type RunStatus } from './transform/TransformsPanel.vue'
 import DagView from './dag/DagView.vue'
@@ -32,11 +34,11 @@ import { useSplitter } from './useSplitter'
 import type { HoverInfo } from './map/mapContext'
 import { describeBinding, forgetBindingInfo } from './dataset/useBindingInfo'
 import { request } from '../client/api'
-import { auth } from '../client/auth'
+import { auth, syncCloudAuth } from '../client/auth'
 import { readDb } from '../client/db'
 import { listDatasets } from '../client/datasets'
 import { BUILTIN_TABLES } from '../shared/builtins'
-import { storeOf, type DatasetRecord, type WorkspaceRecord } from '../shared/records'
+import { localSyncState, storeOf, type DatasetRecord, type SyncState, type WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
 import { newId, ROW_COUNT } from '../lib/dataset/dataset'
@@ -174,12 +176,20 @@ async function save() {
   const ok = await saveHere()
   saving.value = false
   if (!ok) return void (barMessage.value = 'Save failed — see View logs. Your changes are kept as a draft.')
+  // This save is newer than the account's copy until it's sent: a catch-up must send it, never open the older one over it.
+  if (auth.user) store.set(CLOUD_PENDING, auth.user.id)
   if (auth.user && cloudUser.value !== auth.user.id) await catchUpWithCloud() // the last check failed: try again (it saves here when the account has none)
   await saveToCloud()
   // Signed in, say what other devices (and anyone it's shared with) won't have.
   const local = localOnly.value
-  if (local.length && !barMessage.value) {
-    barMessage.value = `Saved. ${local.length === 1 ? '1 dataset is' : `${local.length} datasets are`} only on this device (${local.map((d) => `"${d.name}"`).join(', ')}): other devices, and anyone you share with, will see ${local.length === 1 ? 'it' : 'them'} as missing.`
+  const changed = outOfSync.value.filter((d) => d.state === 'ahead' || d.state === 'both')
+  if ((local.length || changed.length) && !barMessage.value) {
+    const quote = (l: { name: string }[]) => l.map((d) => `"${d.name}"`).join(', ')
+    barMessage.value = [
+      'Saved.',
+      local.length ? `${local.length === 1 ? '1 dataset is' : `${local.length} datasets are`} only on this device (${quote(local)}): other devices, and anyone you share with, will see ${local.length === 1 ? 'it' : 'them'} as missing.` : '',
+      changed.length ? `${changed.length === 1 ? '1 linked dataset has' : `${changed.length} linked datasets have`} changes here not pushed to the cloud (${quote(changed)}): Sync… pushes them.` : '',
+    ].filter(Boolean).join(' ')
   }
 }
 
@@ -214,6 +224,8 @@ async function saveHere(): Promise<boolean> {
 
 /** `<user id>:<updatedAt>` of the cloud workspace this device last saved or opened. */
 const CLOUD_SEEN = 'powergis.cloudSeen'
+/** `<user id>` when this device's last save didn't reach the account: the next catch-up sends it up instead of opening the account's older one. */
+const CLOUD_PENDING = 'powergis.cloudPending'
 /** The user whose cloud workspace this page has caught up with (null: signed out, or not yet). */
 const cloudUser = ref<string | null>(null)
 const cloudError = ref('')
@@ -235,11 +247,13 @@ async function saveToCloud() {
   const r = await request('saveCloudWorkspace', { file, overview: overviewOf(file) })
   if (!r.ok) {
     cloudError.value = r.error.message
+    store.set(CLOUD_PENDING, user)
     logDebug(`save to your account: ${r.error.message}`, 'warn')
-    barMessage.value = `Saved on this device, but not in your account: ${r.error.message}`
+    barMessage.value = `Saved on this device, but not in your account: ${r.error.message}. Save again to retry; it's also sent next time the app opens.`
     return
   }
   cloudError.value = ''
+  store.set(CLOUD_PENDING, null)
   store.set(CLOUD_SEEN, `${user}:${r.data.updatedAt}`)
 }
 
@@ -257,6 +271,12 @@ async function catchUpWithCloud() {
   cloudError.value = ''
   const w = r.data.workspace
   if (!w) return void (await saveToCloud()) // a new account: this device's workspace becomes its own
+  // This device saved after the account's copy but couldn't send it: send it now, rather than open the older one.
+  if (store.get(CLOUD_PENDING) === user) {
+    await saveToCloud()
+    if (!cloudError.value) barMessage.value = 'Sent your last save to your account (it had not reached it).'
+    return
+  }
   if (store.get(CLOUD_SEEN) === `${user}:${w.updatedAt}`) return
   store.set(CLOUD_SEEN, `${user}:${w.updatedAt}`)
   if (dirty.value && !confirm(`Your account has a workspace saved ${when(w.updatedAt)}. Open it here? Your unsaved changes on this device will be replaced.`)) {
@@ -538,6 +558,202 @@ const waitingOn = (root: string) => ({
 /** Uploads kept only on this device (signed in, they're what other devices and other people won't have). */
 const localOnly = computed(() => (auth.user ? onlyOnThisDevice(doc.value, (id) => records.value.get(id)) : []))
 const problemCount = computed(() => unav.value.datasets.size + unav.value.transforms.size + unav.value.visualizations.size)
+
+// ── cloud links ────────────────────────────────────────────────────────────
+// Every dataset here is a local copy; a linked one also has a cloud dataset.
+// Nothing reaches the cloud but the user's syncs: Link to cloud (the first
+// push), and Push / Pull per dataset, chosen in a review panel (BatchPanel:
+// Push · Pull · Skip on every line, the ones that don't apply disabled).
+// Signed in, linked datasets' states are checked on load and every minute.
+
+const SIGN_IN = 'Sign in (☰ → Sign in) to use the cloud.'
+/** Short notes on dataset cards (a cloud action's outcome). */
+const datasetNotes = ref(new Map<string, string>())
+const noteOn = (id: string, text: string) => void (datasetNotes.value = new Map(datasetNotes.value).set(id, text))
+function dismissNote(id: string) {
+  const m = new Map(datasetNotes.value)
+  m.delete(id)
+  datasetNotes.value = m
+}
+const rows = (id: string) => (records.value.get(id)?.rowCount ?? 0).toLocaleString()
+
+/** Linked datasets' states and push rights, as last checked against the cloud. */
+const cloudStates = ref(new Map<string, { state: SyncState; canPush: boolean }>())
+const syncStates = computed(() => {
+  const m = new Map<string, SyncState>()
+  for (const d of datasets.value) {
+    if (!d.link) continue
+    const known = cloudStates.value.get(d.id)?.state
+    // A change made here since the last check shows at once.
+    m.set(d.id, known === 'synced' && d.link.changed ? 'ahead' : known === 'behind' && d.link.changed ? 'both' : (known ?? localSyncState(d)!))
+  }
+  return m
+})
+const linked = computed(() => datasets.value.filter((d) => d.link))
+/** Linked datasets that aren't in sync (what Sync all… lists). */
+const outOfSync = computed(() => linked.value.filter((d) => syncStates.value.get(d.id) !== 'synced').map((d) => ({ id: d.id, name: d.name, state: syncStates.value.get(d.id)! })))
+
+async function checkCloud(ids = linked.value.map((d) => d.id)) {
+  if (!auth.user || !ids.length) return
+  const r = await request('cloudStatus', { items: ids.map((id) => ({ id })) })
+  if (!r.ok) return void logDebug(`cloud check: ${r.error.message}`, 'warn')
+  const m = new Map(cloudStates.value)
+  for (const x of r.data.datasets) m.set(x.id, { state: x.state, canPush: x.canPush })
+  cloudStates.value = m
+}
+watch([() => auth.user?.id, loaded, () => linked.value.map((d) => d.id).join()], () => void checkCloud())
+let cloudTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => (cloudTimer = setInterval(() => document.visibilityState === 'visible' && void checkCloud(), 60_000)))
+onBeforeUnmount(() => clearInterval(cloudTimer))
+
+const STATE_NOTE: Record<SyncState, string> = {
+  synced: 'In sync with the cloud.',
+  ahead: 'Changed here (↑): push to update the cloud.',
+  behind: 'Newer in the cloud (↓): pull to update this copy.',
+  both: 'Changed here and in the cloud (↑↓): push overwrites the cloud\'s version; pull replaces yours.',
+  gone: 'No longer in the cloud: push puts it back.',
+}
+
+async function cloudAction(action: CloudAction, id: string) {
+  const ds = records.value.get(id)
+  if (!ds) return
+  if (!auth.user) return noteOn(id, SIGN_IN)
+  if (action === 'sync') return void openSync([id])
+  if (action === 'link') return void openLink([id])
+  if (action === 'unlink') {
+    if (!confirm(`Unlink "${ds.name}" from the cloud? It stays here as a local dataset; the cloud dataset stays as it is.`)) return
+    const r = await request('unlinkDataset', { id })
+    await loadRecord(id)
+    return noteOn(id, r.ok ? 'Unlinked ✓ — local only now' : r.error.message)
+  }
+  if (!confirm(`Delete "${ds.name}" from the cloud? Everyone's copies stay on their devices, unlinked. It can't be undone.`)) return
+  const r = await request('deleteFromCloud', { id })
+  await loadRecord(id)
+  noteOn(id, r.ok ? 'Deleted from the cloud ✓ — this copy is local only now' : r.error.message)
+}
+
+/**
+ * Signed in, datasets that didn't load here are looked for in the cloud (by their cloud id, or
+ * their own id: they may have been linked since the workspace was saved) and pulled: they stop
+ * being red. Each id is tried once per session; a failure leaves it as it was.
+ */
+const triedCloud = new Set<string>()
+async function recoverFromCloud() {
+  if (!auth.user || !loaded.value) return
+  const ids = [...unav.value.datasets.keys()].filter((id) => !present(id) && !triedCloud.has(id))
+  if (!ids.length) return
+  if (!(await syncCloudAuth())) return
+  ids.forEach((id) => triedCloud.add(id))
+  const items = ids.map((id) => ({ id, ...(doc.value.unavailable?.[id]?.cloudId ? { cloudId: doc.value.unavailable[id].cloudId } : {}) }))
+  const status = await request('cloudStatus', { items })
+  if (!status.ok) return
+  const found: string[] = []
+  for (const s of status.data.datasets) {
+    if (s.state === 'gone') continue
+    const r = await request('pullDataset', { id: s.id, ...items.find((i) => i.id === s.id) })
+    if (r.ok && (await loadRecord(s.id))) found.push(s.id)
+  }
+  if (!found.length) return
+  const left = { ...doc.value.unavailable }
+  const names = found.map((id) => `"${left[id]?.name ?? records.value.get(id)?.name ?? id}"`)
+  for (const id of found) delete left[id]
+  doc.value = { ...doc.value, unavailable: Object.keys(left).length ? left : undefined }
+  barMessage.value = `Pulled from the cloud: ${names.join(', ')}.${unav.value.roots.length ? '' : ' Everything loads now.'}`
+}
+watch([() => auth.user?.id, loaded, () => unav.value.datasets.size], () => void recoverFromCloud())
+
+// ── the review panel (BatchPanel) ──────────────────────────────────────────
+
+const batch = ref<{ kind: 'sync' | 'link'; title: string; intro: string; items: BatchItem[]; running: boolean } | null>(null)
+
+/** Sync: Push · Pull · Skip for each, the ones that don't apply disabled. */
+async function openSync(ids: string[]) {
+  if (!auth.user || !(await syncCloudAuth())) return void (barMessage.value = SIGN_IN)
+  await checkCloud(ids)
+  const items: BatchItem[] = ids.flatMap((id) => {
+    const d = records.value.get(id)
+    if (!d?.link) return []
+    const state = syncStates.value.get(id) ?? 'synced'
+    const canPush = cloudStates.value.get(id)?.canPush ?? true
+    const push = state === 'synced' || state === 'behind' ? 'nothing to push' : !canPush ? 'you can only read this cloud dataset' : undefined
+    const pull = state === 'synced' || state === 'ahead' ? 'nothing new in the cloud' : state === 'gone' ? 'it\'s no longer in the cloud' : undefined
+    const choice = state === 'ahead' || state === 'gone' ? (push ? 'skip' : 'push') : state === 'behind' ? 'pull' : 'skip'
+    return [
+      {
+        id,
+        name: d.name,
+        note: `${STATE_NOTE[state]} ${rows(id)} rows here.`,
+        ...(state === 'both' ? { warn: 'Both changed: choose which wins, or skip.' } : {}),
+        options: [
+          { id: 'push', label: 'Push ↑', ...(push ? { disabled: push } : {}) },
+          { id: 'pull', label: 'Pull ↓', ...(pull ? { disabled: pull } : {}) },
+          { id: 'skip', label: 'Skip' },
+        ],
+        choice,
+      },
+    ]
+  })
+  if (!items.length) return
+  batch.value = {
+    kind: 'sync',
+    items,
+    running: false,
+    title: 'Sync with the cloud',
+    intro: 'Push sends this copy to the cloud; pull replaces this copy with the cloud\'s. Choose for each, then go ahead.',
+  }
+}
+
+/** Link to cloud: Link · Skip for each local dataset (built-ins aren't linked). */
+function openLink(ids: string[]) {
+  const items: BatchItem[] = ids.flatMap((id) => {
+    const d = records.value.get(id)
+    if (!d || d.link) return []
+    return [{ id, name: d.name, note: `Makes a cloud dataset from this one (${rows(id)} rows) and links them. Other devices can then pull it.`, options: [{ id: 'link', label: 'Link' }, { id: 'skip', label: 'Skip' }], choice: 'link' }]
+  })
+  if (!items.length) return
+  batch.value = {
+    kind: 'link',
+    items,
+    running: false,
+    title: 'Link to the cloud',
+    intro: 'Each stays here as it is, and gets a cloud copy you sync by hand (push and pull).',
+  }
+}
+async function openBatch(kind: 'sync' | 'link') {
+  if (!auth.user) return void (barMessage.value = SIGN_IN)
+  if (kind === 'sync') await openSync(outOfSync.value.map((d) => d.id))
+  else openLink(localOnly.value.map((d) => d.id))
+}
+
+async function runBatch() {
+  const b = batch.value
+  if (!b) return
+  b.running = true
+  if (!(await syncCloudAuth())) {
+    for (const it of b.items) if (it.choice !== 'skip') ((it.status = 'failed'), (it.result = 'Not done: you are signed out. Sign in (☰ → Sign in) and try again.'))
+    b.running = false
+    return
+  }
+  for (const it of b.items) {
+    if (it.choice === 'skip') {
+      it.status = 'skipped'
+      continue
+    }
+    it.status = 'running'
+    const r =
+      it.choice === 'link'
+        ? await request('linkToCloud', { id: it.id })
+        : it.choice === 'push'
+          ? await request('pushDataset', { id: it.id, overwrite: !!it.warn || cloudStates.value.get(it.id)?.state === 'gone' })
+          : await request('pullDataset', { id: it.id })
+    await loadRecord(it.id)
+    const done = { link: 'Linked ✓ — other devices can pull it', push: 'Pushed ✓ — the cloud has this version', pull: 'Pulled ✓ — this copy matches the cloud' }[it.choice as 'link' | 'push' | 'pull']
+    it.status = r.ok ? 'done' : 'failed'
+    it.result = r.ok ? done : r.error.code === 'conflict' ? 'Not pushed: it changed in the cloud meanwhile. Sync again to choose.' : `Not done: ${r.error.message}`
+  }
+  b.running = false
+  await checkCloud()
+}
 
 /** The transform writing a dataset, by name (an output can't be replaced: its transform would overwrite it). */
 const writtenBy = (id: string) => doc.value.transforms.find((t) => t.outputs.some((o) => o.outputId === id))?.name
@@ -1049,8 +1265,13 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :saving="saving"
           :message="barMessage"
           :where="savedWhere"
+          :retry="!!cloudError"
           :problems="problemCount"
           :local-only="localOnly"
+          :out-of-sync="outOfSync"
+          :linked-count="linked.length"
+          @link-all="openBatch('link')"
+          @sync-all="openBatch('sync')"
           @remove-unavailable="removeUnavailable"
           @show-unavailable="showUnavailable"
           :counts="{ datasets: doc.datasetIds.length, transforms: doc.transforms.length, visualizations: doc.visualizations.length }"
@@ -1131,7 +1352,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
             @remove="removeDataset"
             @delete="deleteDataset"
-            @changed="loadRecord"
+            :notes="datasetNotes"
+            :sync-states="syncStates"
+            @cloud="cloudAction"
+            @dismiss-note="dismissNote"
             @reorder="reorderDatasets"
             @update="updateDataset"
             @replace="replaceDataset"
@@ -1212,7 +1436,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :viz-count="(id) => visualizations.filter((v) => v.datasetId === id).length"
             @remove="removeDataset"
             @delete="deleteDataset"
-            @changed="loadRecord"
+            :notes="datasetNotes"
+            :sync-states="syncStates"
+            @cloud="cloudAction"
+            @dismiss-note="dismissNote"
             @reorder="reorderDatasets"
             @update="updateDataset"
             @replace="replaceDataset"
@@ -1341,6 +1568,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       @dblclick="assist.reset"
     />
     <AgentPanel v-show="assistantOpen" class="assistant-col" :host="agentHost" @close="assistantOpen = false" />
+    <BatchPanel v-if="batch" :title="batch.title" :intro="batch.intro" :items="batch.items" :running="batch.running" @proceed="runBatch" @close="batch = null" />
   </div>
 </template>
 

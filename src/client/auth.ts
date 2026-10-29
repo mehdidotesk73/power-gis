@@ -9,7 +9,8 @@ import { reactive } from 'vue'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import { logDebug } from '../debug'
-import { request } from './api'
+import { onBeforeCloud, request } from './api'
+import { cloudFilePath } from '../shared/cloud'
 
 export interface Profile {
   id: string
@@ -49,6 +50,21 @@ supabase.auth.onAuthStateChange((event, session) => {
   // Not awaited inside the callback: Supabase calls back while it holds its lock.
   else if (changed || !auth.profile) setTimeout(() => void loadProfile(), 0)
 })
+
+/**
+ * Hands the server this session's current token (refreshed if it expired, e.g. while the phone
+ * slept), before anything that goes to the cloud. Answers whether it's signed in there.
+ */
+export async function syncCloudAuth(): Promise<boolean> {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token ?? null
+  sentToken = token
+  const r = await request('setAuth', { accessToken: token })
+  const on = r.ok && r.data.signedIn
+  if (token && !on) logDebug(`cloud sign-in: the server didn't take this session (${r.ok ? 'signed out there' : r.error.message})`, 'warn')
+  return on
+}
+onBeforeCloud(syncCloudAuth)
 
 /** Where links in our emails come back to: this app, on whichever site (production or a preview). */
 const here = () => `${location.origin}${location.pathname}`
@@ -136,7 +152,13 @@ export async function deleteAccount(password: string): Promise<string | null> {
   if (!email) return 'Sign in first.'
   const check = await supabase.auth.signInWithPassword({ email, password })
   if (check.error) return /invalid login credentials/i.test(check.error.message) ? 'Your password is wrong.' : fail('checking your password', check.error)
-  // Cloud datasets' files go first once they exist (PR 3): storage deletes go through its API.
+  // Your cloud datasets' files go first: the database can't delete storage files itself.
+  const mine = await supabase.from('datasets').select('id').eq('created_by', auth.user!.id)
+  if (mine.error) return fail('listing your cloud datasets', mine.error)
+  if (mine.data.length) {
+    const gone = await supabase.storage.from('datasets').remove(mine.data.map((d) => cloudFilePath(d.id)))
+    if (gone.error) return fail("deleting your cloud datasets' files", gone.error)
+  }
   const { error } = await supabase.rpc('delete_my_account')
   if (error) return fail('deleting the account', error)
   // The account is gone on the server; forget the session here.

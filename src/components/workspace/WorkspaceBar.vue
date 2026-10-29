@@ -13,6 +13,8 @@ const props = defineProps<{
   name: string
   dirty: boolean
   saving: boolean
+  /** Saved here but not in the account: Save stays available to try again. */
+  retry?: boolean
   message: string
   /** Where saved changes live: "on this device", or also "in your account" when signed in. */
   where?: string
@@ -20,6 +22,10 @@ const props = defineProps<{
   problems?: number
   /** Signed in: the workspace's uploads kept only on this device. */
   localOnly?: { id: string; name: string }[]
+  /** Linked datasets not in sync with the cloud, with their state. */
+  outOfSync?: { id: string; name: string; state: 'synced' | 'ahead' | 'behind' | 'both' | 'gone' }[]
+  /** How many of the workspace's datasets are linked to the cloud. */
+  linkedCount?: number
   counts: { datasets: number; transforms: number; visualizations: number }
 }>()
 const emit = defineEmits<{
@@ -33,6 +39,9 @@ const emit = defineEmits<{
   (e: 'reset'): void
   (e: 'remove-unavailable'): void
   (e: 'show-unavailable'): void
+  /** Review, then link these to the cloud / sync these with it (BatchPanel). */
+  (e: 'link-all'): void
+  (e: 'sync-all'): void
 }>()
 
 const open = ref(false)
@@ -103,6 +112,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onDown, true)
 })
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: '⚠ gone' } as const
 </script>
 
 <template>
@@ -154,10 +164,22 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
         <ul>
           <li v-for="d in localOnly" :key="d.id">{{ d.name }}</li>
         </ul>
-        <span class="lo-note">Other devices, and anyone you share with, see these as missing. Storing datasets in the cloud comes next.</span>
+        <span class="lo-note">Other devices, and anyone you share with, see these as missing.</span>
+        <button class="btn" @click="(open = false), emit('link-all')">⇡ Link to cloud…</button>
+      </div>
+      <div v-if="outOfSync?.length" class="local-only changed">
+        <span class="lo-title">● Not in sync with the cloud ({{ outOfSync.length }})</span>
+        <ul>
+          <li v-for="d in outOfSync" :key="d.id">{{ d.name }} <span class="arrows">{{ ARROWS[d.state] }}</span></li>
+        </ul>
+        <span class="lo-note">↑ changed here · ↓ newer in the cloud · ↑↓ both. Syncing datasets is separate from saving the workspace.</span>
+        <button class="btn" @click="(open = false), emit('sync-all')">⇅ Sync all…</button>
+      </div>
+      <div v-else-if="linkedCount" class="cloud-line">
+        <span>{{ plural(linkedCount, 'linked dataset') }}, all in sync with the cloud</span>
       </div>
       <div class="row">
-        <button class="btn primary" :disabled="!dirty || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
+        <button class="btn primary" :disabled="(!dirty && !retry) || saving" @click="emit('save')">{{ saving ? 'Saving…' : 'Save' }}</button>
         <button class="btn" :disabled="!dirty || saving" @click="emit('revert')">Discard changes</button>
       </div>
 
@@ -194,6 +216,20 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 </template>
 
 <style scoped>
+.local-only .btn {
+  align-self: flex-start;
+}
+.local-only.changed .lo-title {
+  color: var(--warn);
+}
+.cloud-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
 .local-only {
   display: flex;
   flex-direction: column;
@@ -202,6 +238,11 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 }
 .lo-title {
   font-weight: 600;
+}
+.local-only li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .local-only ul {
   margin: 0;

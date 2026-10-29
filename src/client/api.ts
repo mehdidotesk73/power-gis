@@ -43,8 +43,25 @@ function connect(): Worker {
   return worker
 }
 
+/** Requests that may reach the cloud: each first hands the server the session's current sign-in (`beforeCloud`). */
+const CLOUD_REQUESTS = new Set<RequestType>(['cloudWorkspace', 'saveCloudWorkspace', 'openDocument', 'linkToCloud', 'pushDataset', 'pullDataset', 'deleteFromCloud', 'cloudStatus'])
+let beforeCloud: (() => Promise<unknown>) | null = null
+/**
+ * Set by the account code: sends the server the current token. Run before every cloud request,
+ * since the server's copy of it can go stale or missing (a token refreshed while the phone slept,
+ * a restarted worker) and a stale one reads as signed out.
+ */
+export function onBeforeCloud(fn: () => Promise<unknown>) {
+  beforeCloud = fn
+}
+
 /** `caller: 'agent'` marks an agent's request: the server refuses its changes to remote datasets. */
-export function request<K extends RequestType>(type: K, payload: Payload<K>, caller: Caller = 'user'): Promise<ApiResult<Response<K>>> {
+export async function request<K extends RequestType>(type: K, payload: Payload<K>, caller: Caller = 'user'): Promise<ApiResult<Response<K>>> {
+  if (CLOUD_REQUESTS.has(type) && beforeCloud) await beforeCloud().catch(() => undefined)
+  return send(type, payload, caller)
+}
+
+function send<K extends RequestType>(type: K, payload: Payload<K>, caller: Caller = 'user'): Promise<ApiResult<Response<K>>> {
   if (type === 'init' || type === 'setAuth') replay.set(type, plain(payload))
   const id = nextId++
   return new Promise((resolve) => {

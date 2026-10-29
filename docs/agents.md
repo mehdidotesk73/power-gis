@@ -49,11 +49,13 @@ their own edits.
 **(built)** Every dataset has a `store` (`DatasetRecord.store`, missing = `local`):
 
 - **local**: on this device (IndexedDB). As many as the device holds.
-- **cloud** (`remote` in code): the shared database (Supabase, later), within its storage limit.
+- **cloud** (`remote` in code): Supabase (the `datasets` table + a rows file in its bucket), with a copy here.
 
-The two stores have the same functions; only the storage behind them differs. The user moves a
-dataset between stores (`moveDataset`; the dataset keeps its id, so pointers stay valid). Until
-Supabase exists, moving to remote answers "Remote storage isn't available yet".
+The two stores have the same functions; only the storage behind them differs. The user stores a
+dataset to the cloud and syncs it by hand (push / pull); every dataset the app (and the agent)
+works on is a local copy. Agents change copies only — a linked one turns ↑ until the user pushes —
+and never sync (`linkToCloud` / `pushDataset` / `pullDataset` / `unlinkDataset` / `deleteFromCloud`
+refuse `caller: 'agent'`).
 
 **Agent rule: the store decides, not the source.** Any local dataset (built-in copy, upload,
 transform output) may be changed or deleted by the agent. Remote datasets are read-only to it,
@@ -170,7 +172,7 @@ Gated tools are refused, with a message the agent can act on, when:
 
 **(built)** The check runs **in the server** too: agent requests carry `caller: 'agent'`
 (`request(type, payload, 'agent')`), and the server refuses their `runTransform` into a remote
-output, `deleteDataset` / `updateDataset` of a remote dataset, and any `moveDataset`. A bug in a tool can't bypass it. The tool wrappers check first,
+output, any link / push / pull / unlink / delete-from-cloud request (changing local copies, linked ones too, is allowed). A bug in a tool can't bypass it. The tool wrappers check first,
 so the agent gets a clear message.
 
 ### What the user does

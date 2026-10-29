@@ -375,8 +375,7 @@ export function assembleFiles(
         ...(typeof e.description === 'string' && e.description.trim() !== (d.description ?? '') ? { description: e.description.trim() } : {}),
       }
       if (!Object.keys(patch).length) continue
-      if (d.store === 'remote') errors.push(`${w}: in cloud storage — only the user can rename or describe it`)
-      else datasetEdits[id] = patch
+      datasetEdits[id] = patch
     }
   }
 

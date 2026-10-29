@@ -127,7 +127,7 @@ export const TOOLS: ToolSpec[] = [
       'How the files work: an item exists when its id is listed in /workspace.json (transforms; visualizations, whose order is draw order, first on top); its file is /transforms/<id>.json or /visualizations/<id>.json, and the file name is the id. To add an item, create its file under a short name you choose (e.g. by_state) and add that name to the list; it gets a real id when applied (the reply says which). To remove one, take its id out of the list. Datasets join the workspace through "datasetIds".',
       'Transforms: {"name", "inputs": [{"datasetId", "alias"}], "outputs": [{"key", "name", "outputId"?}]}; each output\'s SQL is the plain file /transforms/<id>.<key>.sql (never SQL inside JSON). Leave outputId out for a new output: it writes a new dataset on its first run. A new or changed transform does nothing until run_transform.',
       `Visualizations: {"name", "datasetId", "geometry" (a point / polyline / region column), "label"? (a column naming each feature), "column" (or "${ROWS}"), "aggregation"? (${AGG_NAMES.join(', ')}), "visible"?, "color"?, "opacity"? (0–1)}; color: {"kind": "colormap", "colormap", "reverse"?, "scale"? ("linear" / "log"), "domain"? ([min, max])} | {"kind": "categorical", "palette"?} | {"kind": "constant", "color": "#rrggbb"}. Items you didn't edit stay exactly as they are.`,
-      'dryRun: check and describe the change without applying it. Refused if the user changed the workspace since get_workspace, or if a transform would write a cloud dataset.',
+      'dryRun: check and describe the change without applying it. Refused if the user changed the workspace since get_workspace.',
     ].join('\n\n'),
     inputSchema: {
       type: 'object',
@@ -143,13 +143,13 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'run_transform',
     description:
-      'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns row counts and dataset ids. Refused if an output would write a cloud dataset.',
+      'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns row counts and dataset ids. It changes this device\'s copies only: an output linked to the cloud turns ↑ (changed here) until the user syncs it.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
   {
     name: 'delete_dataset',
     description:
-      'Delete a local dataset and its rows for good (and its visualizations). Refused for cloud datasets, and while a workspace transform reads it. Use it to clean up datasets you made that are no longer needed.',
+      'Delete a dataset\'s copy on this device and its rows for good (and its visualizations); a linked dataset\'s cloud copy stays. Refused while a workspace transform reads it. Use it to clean up datasets you made that are no longer needed.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
 ]
@@ -399,7 +399,6 @@ async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): P
         if (!o.outputId) continue
         const out = await host.dataset(o.outputId)
         need(out, `${where}: output "${o.name}" writes dataset "${o.outputId}", which doesn't exist (leave outputId out to make a new one)`)
-        need(storeOf(out) === 'local', `${where}: output "${o.name}" would write "${out.name}", a cloud dataset — agents change only local datasets`)
       }
       const t: TransformSpec = { id: (raw.id as string | undefined) ?? newId(), name: raw.name, inputs, outputs }
       const r = addTransform(doc, t)
@@ -627,10 +626,6 @@ async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(t, `No transform "${input.id}" in the workspace (get_workspace lists them; never guess an id)`)
   const pending = pendingEdits(host)
   if (pending) return pending
-  for (const o of t.outputs) {
-    const out = o.outputId ? await host.dataset(o.outputId) : undefined
-    if (out && storeOf(out) === 'remote') return err(`Output "${o.name}" writes "${out.name}", a cloud dataset — agents change only local datasets.`, 'refused: cloud output')
-  }
   const r = await host.runTransform(t.id)
   if (!r.ok) return err(r.message, 'SQL error')
   return ok({ outputs: r.outputs }, r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · '))
@@ -640,7 +635,6 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
   need(str(input.id), '`id` is required')
   const d = await host.dataset(input.id)
   need(d, `No dataset "${input.id}"`)
-  if (storeOf(d) === 'remote') return err(`"${d.name}" is in cloud storage — only the user can delete it.`, 'refused: cloud dataset')
   const pending = pendingEdits(host)
   if (pending) return pending
   const reader = host.doc().transforms.find((t) => t.inputs.some((i) => i.datasetId === d.id))
