@@ -8,7 +8,8 @@ storage), at phone or laptop size, so one test can be two people on three device
   every output's rows, invariants and a sample via Explore), and as a file whose tables are uploads
   (`tests/fixtures/socioeconomic.powergis.json`: load, replace the six missing uploads with their CSVs
   from `defaults/socioeconomic/`, Run all stale). Needs DuckDB's spatial extension, which the CI build hosts.
-- `workspace.spec.ts`: Download makes a `.powergis.zip`; Load on a fresh device opens the same workspace.
+- `workspace.spec.ts`: Download makes a `.powergis.zip`; Load on a fresh device opens the same workspace. And the
+  user's phone check: download, change, download, Discard; Copy, Load the second zip, Paste the first back.
 - `graph.spec.ts`: Copy graph as image puts a PNG of the graph's window on the clipboard.
 - `cloud.spec.ts`: two people, several devices, the state-income workspace: a second device; a
   read-only share used as input to the reader's own transform; two writers and a conflict; access

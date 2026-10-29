@@ -239,7 +239,9 @@ whatever they're actually asking about.
   + `<id>.<key>.sql`, `visualizations/<id>.json` (every setting), generated `overview.md` — the agent's
   layout and paths; Load takes the zip (one top folder and Mac extras looked through) or a document's JSON
   (older downloads; Copy / Paste stay JSON via the clipboard; Paste opens a box filled from the
-  clipboard). Pointers + settings, never rows; loading replaces the
+  clipboard). **Every file the app saves goes through `client/saveFile.ts`**: the share sheet on phones
+  (iOS Safari's blob download left the page ignoring taps for the clipboard and file picker), a plain
+  download elsewhere. Pointers + settings, never rows; loading replaces the
   working copy (fresh visualization ids, datasets missing from the database dropped and reported).
   Details: `docs/system-design.md` §4.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its

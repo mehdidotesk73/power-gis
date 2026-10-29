@@ -74,6 +74,7 @@ import {
 import { downstreamOrder, onlyOnThisDevice, removeUnavailable as removeUnavailable_, replaceDataset as replaceDataset_, unavailability, unavailableInfo } from '../lib/workspace/unavailable'
 import { fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft, type Parsed, type WorkspaceFile } from '../lib/workspace/file'
 import { unzipDocument, zipDocument, zipName } from '../lib/workspace/files'
+import { saveFile } from '../client/saveFile'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -345,12 +346,8 @@ const rename = (name: string) => apply(renameWorkspace(doc.value, name))
 
 /** Downloads the workspace as a zip of its files (lib/workspace/files.ts): workspace.json, datasets.json, SQL files, … */
 function download() {
-  const blob = new Blob([zipDocument(documentOf(doc.value))], { type: 'application/zip' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = zipName(doc.value.name)
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  // On phones this opens the share sheet (Save to Files): Safari's own download left Copy / Paste / Load dead.
+  void saveFile(new Blob([zipDocument(documentOf(doc.value))], { type: 'application/zip' }), zipName(doc.value.name))
 }
 
 /** Copies the workspace (the same JSON as a workspace file) to the clipboard. */

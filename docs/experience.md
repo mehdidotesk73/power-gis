@@ -318,6 +318,10 @@ Two additions from reviewing it here, beyond what the originating project report
   agent's layout (`workspace.json`, `datasets.json`, a JSON and a `.sql` per transform output, a JSON per
   visualization with every setting, `overview.md`). Load takes the zip or the older JSON; Copy / Paste,
   the cloud and the default folders stay JSON. `fflate` zips (small, synchronous, works on iOS).
+- **Gotcha (iPhone):** after Safari downloaded a blob from a clicked link, the page ignored taps for
+  the clipboard and the file picker until reloaded: Copy, Paste and Load stopped working, with nothing
+  in the log. Files are now saved through `client/saveFile.ts`: the share sheet (Save to Files) on
+  phones, a plain download elsewhere — the workspace zip, ArcGIS exports and the graph picture's fallback.
 - **Gotcha:** a zip re-made from the unzipped folder holds everything under the folder's name (and on a
   Mac `__MACOSX/` and `.DS_Store`): Load looks through one top folder and skips those.
 - **The agent's files are the same:** its visualization files hold every setting (checked part by part:
