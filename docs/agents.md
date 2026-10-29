@@ -213,10 +213,20 @@ come later if a role outgrows it.
   ("1a Clean …", "2 Join …"), one-line descriptions saying what a row is, SQL that opens with a
   comment on what and why. Asked to restructure, it rebuilds the steps and deletes what nothing
   uses. Learned from a real request whose first result was two large joins that were hard to
-  follow.
-- **Visualizer.** Adds visualizations of the final datasets, named for what they show with the
-  unit, the main one visible and the rest hidden so the map opens readable, ordered sensibly, and
-  explains what each one shows.
+  follow. **Checks each stage** (prompt: *Checking each stage*) before building on it: one row per
+  key, joins keep their rows (unmatched keys counted and named), values in range, nulls only where
+  expected. After changing or re-running a transform it runs everything downstream, so nothing it
+  touched is left stale. The facts come with every run: `run_transform` returns a **check** per output
+  (`lib/agent/checks.ts`, from the output's profile): its rows and each input's, the columns unique on
+  every row, each column's nulls / distinct / range, and flags (more rows than any input, no unique
+  column, an empty column, no rows). A **reviewer pass** (a separate call with fresh context that reads
+  the request and the files, a bounded fix round) is planned after scouting and scraping. **Missing datasets** (red; "missing on this device" in the overview) are
+  never built on or worked around: it names them and what waits on them, and points to Replace….
+- **Visualizer.** (prompt: *Visualizations people can read*) One visualization per question, named
+  for what it shows with the unit, drawn from the present stage's datasets; a measure shown at two
+  levels gets matching names and the same colors; the main one visible and the rest hidden so the
+  map opens readable, ordered sensibly. Its summary says which final datasets are worth linking to
+  the cloud (intermediates are remade wherever the workspace opens).
 
 **Run records.** Each chat keeps a record of the request, the clarifications, the source reports,
 the sources and usage terms, the datasets and transforms made, and the token use. Sources and

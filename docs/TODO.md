@@ -314,8 +314,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    tools: `get_workspace` (where it starts), `list_datasets` (the app's dataset finder; only with
    the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, the text editor + `apply_workspace` (was `update_workspace`),
    `run_transform`, `update_dataset`, `delete_dataset`, the server-side gate for `caller: 'agent'`.
-4. **Next, in this order (agreed 2026-10-29):** (a) the agent's additional instructions (with
-   Copy graph as image); (b) the workspace zip format (item (b) under Supabase below); (c) **scouting and
+4. **Next, in this order (agreed 2026-10-29):** (a) ~~the agent's additional instructions (with
+   Copy graph as image)~~ (done); (b) the workspace zip format (item (b) under Supabase below); (c) **scouting and
    scraping**: web search / fetch for the agent, `create_dataset(rows)` (local, size-capped) for data
    it collects itself, scout source reports, run records. Options for **D1** (fetch + create_dataset, no
    agent code) and **D2** (agent-written scripts: Managed Agents container vs. Pyodide) are written up
@@ -346,6 +346,14 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
      built-in one sends only a few emails an hour.
+
+### Agent reviewer pass (agreed 2026-10-29; after scouting and scraping)
+
+For builds big enough to need an approved plan: when the builder finishes, a separate call with fresh
+context gets only the request, the overview, the SQL files and the visualization settings, and returns
+findings (does it answer the request, is it understandable, do paired layers match). The builder fixes
+them once (at most twice) and reports what it left. Maybe a different model than the builder. Measure on
+the socioeconomic request with and without it before keeping it.
 
 ### Automated tests (agreed 2026-10-29)
 
@@ -400,8 +408,6 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 
 ### Backlog
 
-- **Copy the graph as an image** (DAG toolbar → copy a PNG of the graph to the clipboard, for sharing a
-  pipeline). To come back to with the agent's additional instructions.
 
 - EIA-861 customers / sales / revenue as a separate built-in (per utility × state)
 - Real vector dataset (e.g. EIA-930 balancing-authority interchange flows) to replace the demo arrows

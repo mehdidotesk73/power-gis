@@ -312,6 +312,23 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Agent: checking stages, re-running downstream, missing datasets; Copy graph as image — 2026-10-29
+
+- **Agent prompt:** new sections *Checking each stage* (one row per key, joins keep their rows,
+  values in range, unmatched keys reported) and *Visualizations people can read* (one question each,
+  from the present stage, matching names and colors for a measure at two levels). It re-runs what
+  depends on a transform it changed, never builds on a missing dataset (names it, points to
+  Replace…), and its summary says which final datasets are worth linking (intermediates are remade
+  anywhere). Naming rules live in one place. The overview says "missing on this device".
+- **Checks computed by the app:** `run_transform` returns, per output, rows against the inputs',
+  unique columns (keys), nulls, distinct values, ranges and flags, from the output's profile, so the
+  agent checks every stage without spending queries on it. A separate reviewer agent was discussed:
+  a bounded review pass at the end comes after scouting and scraping, not a back-and-forth loop.
+- **Copy graph as image:** ⧉ in the graph's corner copies what its window shows as a PNG. Drawn on a
+  canvas from the layout (browsers have no DOM screenshot; html-to-canvas tricks are unreliable on
+  iOS Safari). **Gotcha:** iOS refuses a clipboard write that starts after an await, so the
+  ClipboardItem is made at once with the PNG as a promise.
+
 ### ＋ waits for the default map; sample values locked — 2026-10-29
 
 - **Fixed:** on a first visit, a dataset added while the default map was still being prepared was

@@ -10,6 +10,7 @@ import UiButton from '../ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { vReveal } from '../reveal'
 import { usePanZoom } from './usePanZoom'
+import { copyPng, graphPng } from './graphImage'
 import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode } from '../../lib/workspace/dag'
 
 const props = defineProps<{
@@ -78,6 +79,23 @@ let resizer: ResizeObserver | null = null
 onBeforeUnmount(() => resizer?.disconnect())
 watch(() => [layout.value.width, layout.value.height, direction.value, props.dag.nodes.length > 0], () => nextTick(refit))
 const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+
+/** Copies what the graph's window shows (as panned and zoomed) as a PNG; downloads it where the clipboard can't take images. */
+const copied = ref('')
+let copiedTimer: ReturnType<typeof setTimeout> | undefined
+async function copyImage() {
+  const el = viewport.value
+  if (!el) return
+  const at = { ...view.value }
+  try {
+    const how = await copyPng(() => graphPng(el, props.dag, layout.value, at, el.clientWidth, el.clientHeight), 'graph.png')
+    copied.value = how === 'copied' ? 'Copied ✓' : 'Saved as graph.png'
+  } catch (e) {
+    copied.value = `Couldn’t copy: ${(e as Error).message}`
+  }
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => (copied.value = ''), 2500)
+}
 
 /** One curve per edge, through the points its layout gave it (lib/workspace/dag.ts edgePath). */
 const paths = computed(() =>
@@ -210,7 +228,9 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
         <UiButton size="compact" icon="＋" aria-label="Zoom in" title="Zoom in" @click="zoomBy(1.25)" />
         <UiButton size="compact" icon="−" aria-label="Zoom out" title="Zoom out" @click="zoomBy(0.8)" />
         <UiButton size="compact" icon="⤢" aria-label="Fit the graph" title="Fit" @click="fit" />
+        <UiButton data-testid="graph.copy-image" size="compact" icon="⧉" aria-label="Copy what's shown as an image" title="Copy what's shown as an image" @click="copyImage" />
       </div>
+      <p v-if="copied" class="copied" role="status">{{ copied }}</p>
     </div>
     <p v-if="dag.nodes.length && !mode" class="muted hint">
       Tap a node to open it.
@@ -313,6 +333,18 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   display: grid;
   gap: 0.25rem;
   cursor: default;
+}
+.copied {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  margin: 0;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.4rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  font-size: 0.74rem;
+  pointer-events: none;
 }
 .edges {
   position: absolute;
