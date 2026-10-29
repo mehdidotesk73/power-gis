@@ -159,6 +159,12 @@ Track feature development, improvements, and known issues here. Move completed w
   server refuses its changes to remote datasets (`caller: 'agent'`). `src/lib/agent/` (provider
   contract, loop, tools, prompt), `src/client/agent/claude.ts`, `components/agent/AgentPanel.vue`.
 
+- **Default folders** — `defaults/<folder>/` (tables in `folder.json`, CSVs, the workspace);
+  `defaults/active.json` picks the one the build ships (built-ins + default map). `socioeconomic`
+  only; the EIA utilities data and the demo vectors were removed (the user will rebuild the utilities map
+  as a folder in the app). Later: several folders offered in one build (a chooser), or a folder
+  fetched at build time when too big for git.
+
 ## Next (Current Sprint)
 
 One-time setup — tick these off as they're done:

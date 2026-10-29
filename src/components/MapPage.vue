@@ -6,8 +6,8 @@
 // the rows behind a feature, and saving the workspace (on Save; until then
 // edits are a draft kept on the device). Top of the
 // visualization list draws on top. The starting workspace comes from a
-// workspace file (public/data/default.powergis.json): built-in datasets, a
-// join transform and its visualizations — nothing here knows what they hold.
+// default folder's workspace file (defaults/<folder>/workspace.powergis.json): built-in datasets,
+// transforms and visualizations — nothing here knows what they hold.
 import UiButton from './ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import MapView from './map/MapView.vue'

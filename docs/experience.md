@@ -312,6 +312,21 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Default folders — 2026-10-29
+
+- **Added:** `defaults/<folder>/`: each a complete starting map (`folder.json` listing its tables,
+  their CSVs, `workspace.powergis.json`). `defaults/active.json` picks the one the app ships: its tables
+  are the built-ins, its workspace the default map; other folders don't ship. Today only `socioeconomic`.
+  `public/data/` is gone.
+- **Removed:** the EIA-861 utilities data (its CSVs, `scripts/build_utility_counties.py`) and the demo
+  vector field. The utilities map will be rebuilt as a folder with the app's own tools. Its workspace
+  stays as a unit-test fixture over made-up tables (`tests/fixtures/utilities-join.powergis.json`).
+- **Why in the repo, not a data branch:** a build reads the folder at build time, so a separate branch
+  would need a fetch step in every build (Netlify, CI, local) and could drift from the code that reads
+  it. A few MB of CSVs is fine in git; a folder too big for that can later be fetched by the same plugin.
+- **Gotcha:** a workspace that names a built-in only another folder has opens with that dataset missing
+  ("a built-in table this version of the app doesn't have"), like any missing dataset.
+
 ### Default map: the socioeconomic pipeline — 2026-10-29
 
 - **Changed:** the default map is the user's socioeconomic pipeline (six ACS county tables, now

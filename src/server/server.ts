@@ -5,7 +5,7 @@
 // never as throws.
 
 import type { ApiError, ApiResult, Caller, Payload, RequestType, Response, UploadSource } from '../shared/api'
-import { builtinTable, BUILTIN_TABLES } from '../shared/builtins'
+import { builtinTable, BUILTIN_TABLES, type BuiltinTable } from '../shared/builtins'
 import type { Database } from '../shared/database'
 import { dataTableName, type DatasetRecord, type SyncState, type TransformInputRef, type TransformRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
 import { featureTable, type DataRecord } from '../lib/data/connectors'
@@ -23,12 +23,14 @@ import { decodeDatasetFile, encodeDatasetFile } from './datasetFile'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
 export interface ServerEnv {
-  /** A built-in table's rows (CSVs shipped with the app, boundary polygons, demo data). */
+  /** A built-in table's rows (the default folder's CSVs, boundary polygons). */
   readBuiltin(table: string, baseUrl: string): Promise<DataRecord[]>
+  /** The built-in tables: the active default folder's, unless given (tests give their own). */
+  builtins?: BuiltinTable[]
   fetchImpl?: typeof fetch
   /** Opens the SQL engine (DuckDB) on first use. Without one, transforms are unsupported. */
   sql?: () => Promise<SqlEngine>
-  /** The default workspace file's text (public/data/default.powergis.json). */
+  /** The default workspace file's text (the default folder's workspace.powergis.json). */
   readDefaultWorkspace?(baseUrl: string): Promise<string>
   /** The cloud, as the user whose access token it is (Supabase). Without it, cloud requests are unsupported. */
   cloud?: (accessToken: string) => CloudStore
@@ -51,6 +53,7 @@ type Handlers = { [K in RequestType]: (p: Payload<K>, caller: Caller) => Promise
 /** Requests that change existing datasets; an agent may make them only on local ones. */
 
 export function createServer(db: Database, env: ServerEnv) {
+  const builtins = env.builtins ?? BUILTIN_TABLES
   let baseUrl = '/'
   // The device's one local user: found or made once, on first need (init or a save),
   // so a restarted worker that missed init still knows who saves.
@@ -207,7 +210,7 @@ export function createServer(db: Database, env: ServerEnv) {
         return { rows: featureTable(layer.features), origin: `ArcGIS · ${layer.name}`, name: layer.name }
       }
       case 'builtin': {
-        const b = builtinTable(source.table) ?? fail('not_found', `No built-in table "${source.table}"`)
+        const b = builtinTable(source.table, builtins) ?? fail('not_found', `No built-in table "${source.table}"`)
         return { rows: await env.readBuiltin(b.table, baseUrl), origin: `Built-in · ${b.table}`, name: b.label, description: b.description, extensions: { builtin: b.table, version: b.version } }
       }
     }
@@ -259,7 +262,7 @@ export function createServer(db: Database, env: ServerEnv) {
           lost(fact, 'cloud')
         }
       } else if (o.kind === 'builtin') {
-        const b = BUILTIN_TABLES.find((x) => x.table === o.table)
+        const b = builtinTable(o.table, builtins)
         if (!b) lost(fact, 'builtin')
         else {
           const have = records.find((d) => d.extensions?.builtin === o.table && d.extensions?.version === b.version)

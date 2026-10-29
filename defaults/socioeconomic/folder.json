@@ -1,0 +1,62 @@
+{
+  "name": "County socioeconomic score",
+  "description": "Income, education, health insurance and housing affordability per county (Census ACS), scored 0–100, with area-weighted state averages.",
+  "tables": [
+    {
+      "table": "us_counties",
+      "label": "US counties",
+      "description": "County polygons (Census 2017, 1:10m, via us-atlas): fips, name, county, state, state_fips, geometry.",
+      "source": "boundary",
+      "version": 1
+    },
+    {
+      "table": "us_states",
+      "label": "US states",
+      "description": "State and territory polygons (Census 2017, 1:10m, via us-atlas): fips, name, abbr, geometry.",
+      "source": "boundary",
+      "version": 1
+    },
+    {
+      "table": "county_income",
+      "label": "County income (ACS)",
+      "description": "Census ACS county estimates: median household and per-capita income, aggregate income, households and mean income, each with its margin of error (GEOID = county FIPS). Placeholder values (zero or below) mean not available.",
+      "source": "csv",
+      "version": 1
+    },
+    {
+      "table": "county_education",
+      "label": "County education (ACS B15003)",
+      "description": "Census ACS table B15003, educational attainment of people 25 and over, per county: every attainment level as an estimate (_E) and margin of error (_M); GEOID = county FIPS.",
+      "source": "csv",
+      "version": 1
+    },
+    {
+      "table": "county_health_insurance",
+      "label": "County health insurance (ACS B27010)",
+      "description": "Census ACS table B27010, health insurance coverage by age, per county: estimates (_E) and margins of error (_M); GEOID = county FIPS.",
+      "source": "csv",
+      "version": 1
+    },
+    {
+      "table": "county_home_value",
+      "label": "County home value (ACS B25077, B25075)",
+      "description": "Census ACS tables B25077 (median home value) and B25075 (homes by value band), per county: estimates (_E) and margins of error (_M); GEOID = county FIPS. Placeholders like -666666666 mean not available.",
+      "source": "csv",
+      "version": 1
+    },
+    {
+      "table": "county_rent",
+      "label": "County rent (ACS B25064, B25063)",
+      "description": "Census ACS tables B25064 (median gross rent) and B25063 (rentals by rent band), per county: estimates (_E) and margins of error (_M); GEOID = county FIPS.",
+      "source": "csv",
+      "version": 1
+    },
+    {
+      "table": "county_columns",
+      "label": "ACS county columns (dictionary)",
+      "description": "What each ACS column in the county tables means: column, meaning, table and universe.",
+      "source": "csv",
+      "version": 1
+    }
+  ]
+}

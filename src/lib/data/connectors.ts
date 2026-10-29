@@ -2,9 +2,9 @@
 // interface, so swapping the built-in CSVs for a file on the device, or later
 // a database, doesn't touch the map code.
 //
-//   StaticFileConnector  — CSVs shipped with the app (public/data/<table>.csv)
+//   StaticFileConnector  — CSVs shipped with the app (the default folder's, served at data/<table>.csv)
 //   LocalFileConnector   — CSV files the user picks on their device
-//   MemoryConnector      — tables already in memory (demo data, parsed GeoJSON/Esri)
+//   MemoryConnector      — tables already in memory (parsed GeoJSON/Esri)
 //   (database)           — e.g. Supabase: implement DataConnector with
 //                          readTable(name) = select * from <name>. Not built yet.
 //

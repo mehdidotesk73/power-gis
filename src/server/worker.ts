@@ -7,7 +7,6 @@ import { supabaseCloud } from './cloud'
 import { IndexedDbDatabase } from '../shared/idb'
 import { StaticFileConnector } from '../lib/data/connectors'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
-import { demoVectorRows } from '../lib/demo'
 import { BUILTIN_TABLES } from '../shared/builtins'
 import type { RequestMessage, ResponseMessage } from '../shared/api'
 
@@ -21,13 +20,12 @@ const server = createServer(new IndexedDbDatabase(), {
   // DuckDB (and its ~34 MB of wasm) loads only when a transform first runs.
   sql: () => import('./duckdb').then((m) => m.openDuckDb({ extensionRepository: new URL(`${import.meta.env.BASE_URL}duckdb-ext`, self.location.origin).href })),
   async readDefaultWorkspace(baseUrl) {
-    const r = await fetch(`${baseUrl}data/default.powergis.json`)
+    const r = await fetch(`${baseUrl}data/workspace.powergis.json`)
     if (!r.ok) throw new Error(`default workspace: HTTP ${r.status}`)
     return r.text()
   },
   cloud: supabaseCloud,
   async readBuiltin(table, baseUrl) {
-    if (table === 'demo_vectors') return demoVectorRows()
     if (table === 'us_counties') return countyRows(await topo(countiesUrl))
     if (table === 'us_states') return stateRows(await topo(statesUrl))
     const csvs = BUILTIN_TABLES.filter((t) => t.source === 'csv').map((t) => t.table)

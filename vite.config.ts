@@ -1,4 +1,6 @@
 import { execSync } from 'node:child_process'
+import { readdirSync, readFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -33,12 +35,41 @@ function emitVersionJson(): Plugin {
   }
 }
 
+// The default folder this build ships (defaults/active.json → defaults/<folder>/):
+// its CSVs and workspace.powergis.json are served at `data/` in dev and emitted
+// into the build's `data/`. Only that folder's files ship; its folder.json is
+// read by src/shared/builtins.ts.
+function defaultFolder(): Plugin {
+  const folder = JSON.parse(readFileSync('defaults/active.json', 'utf8')).folder as string
+  const dir = join('defaults', folder)
+  const files = () => readdirSync(dir).filter((f) => f.endsWith('.csv') || f === 'workspace.powergis.json')
+  let base = '/'
+  return {
+    name: 'default-folder',
+    configResolved(config) {
+      base = config.base
+    },
+    configureServer(server) {
+      server.middlewares.use(`${base}data/`, (req, res, next) => {
+        const name = basename(decodeURIComponent((req.url ?? '').split('?')[0]))
+        if (!files().includes(name)) return next()
+        res.setHeader('Content-Type', name.endsWith('.csv') ? 'text/csv' : 'application/json')
+        res.end(readFileSync(join(dir, name)))
+      })
+    },
+    generateBundle() {
+      for (const name of files()) this.emitFile({ type: 'asset', fileName: `data/${name}`, source: readFileSync(join(dir, name)) })
+    },
+  }
+}
+
 export default defineConfig({
   // The server worker loads DuckDB on demand (a code-split dynamic import), which needs ES-module workers.
   worker: { format: 'es' },
   plugins: [
     vue(),
     emitVersionJson(),
+    defaultFolder(),
     VitePWA({
       registerType: 'autoUpdate',
       // src/pwa.ts registers the SW itself (periodic update checks + reload).

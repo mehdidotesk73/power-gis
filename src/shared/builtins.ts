@@ -1,30 +1,55 @@
-// Tables that ship with the app. Uploading one stores a copy in the
-// database as an ordinary dataset, marked `extensions.builtin = table` and
-// `extensions.version` so the default workspace can reuse an existing copy
-// instead of uploading again — only while its shape is current.
+// Tables that ship with the app. They come from the **default folder** this
+// build points at (`defaults/active.json` → `defaults/<folder>/`): its
+// `folder.json` lists the tables, its CSVs hold their rows and its
+// `workspace.powergis.json` is the default map. Other folders' tables are not
+// built-ins in this build.
+//
+// Uploading one stores a copy in the database as an ordinary dataset, marked
+// `extensions.builtin = table` and `extensions.version` so the default
+// workspace can reuse an existing copy instead of uploading again — only while
+// its shape is current.
+import active from '../../defaults/active.json'
 
 export interface BuiltinTable {
   table: string
   label: string
   description: string
-  /** Where the server reads it: a CSV in public/data, polygons from us-atlas, or generated. */
-  source: 'csv' | 'boundary' | 'generated'
+  /** Where the server reads it: a CSV in the default folder, or polygons from us-atlas. */
+  source: 'csv' | 'boundary'
   /** Bump when the table's columns or contents change: older stored copies stop being reused. */
   version: number
 }
 
-export const BUILTIN_TABLES: BuiltinTable[] = [
-  { table: 'us_counties', label: 'US counties', source: 'boundary', version: 1, description: 'County polygons (Census 2017, 1:10m, via us-atlas): fips, name, county, state, state_fips, geometry.' },
-  { table: 'us_states', label: 'US states', source: 'boundary', version: 1, description: 'State and territory polygons (Census 2017, 1:10m, via us-atlas): fips, name, abbr, geometry.' },
-  { table: 'county_income', label: 'County income (ACS)', source: 'csv', version: 1, description: 'Census ACS county estimates: median household and per-capita income, aggregate income, households and mean income, each with its margin of error (GEOID = county FIPS). Placeholder values (zero or below) mean not available.' },
-  { table: 'county_education', label: 'County education (ACS B15003)', source: 'csv', version: 1, description: 'Census ACS table B15003, educational attainment of people 25 and over, per county: every attainment level as an estimate (_E) and margin of error (_M); GEOID = county FIPS.' },
-  { table: 'county_health_insurance', label: 'County health insurance (ACS B27010)', source: 'csv', version: 1, description: 'Census ACS table B27010, health insurance coverage by age, per county: estimates (_E) and margins of error (_M); GEOID = county FIPS.' },
-  { table: 'county_home_value', label: 'County home value (ACS B25077, B25075)', source: 'csv', version: 1, description: 'Census ACS tables B25077 (median home value) and B25075 (homes by value band), per county: estimates (_E) and margins of error (_M); GEOID = county FIPS. Placeholders like -666666666 mean not available.' },
-  { table: 'county_rent', label: 'County rent (ACS B25064, B25063)', source: 'csv', version: 1, description: 'Census ACS tables B25064 (median gross rent) and B25063 (rentals by rent band), per county: estimates (_E) and margins of error (_M); GEOID = county FIPS.' },
-  { table: 'county_columns', label: 'ACS county columns (dictionary)', source: 'csv', version: 1, description: 'What each ACS column in the county tables means: column, meaning, table and universe.' },
-  { table: 'utilities', label: 'EIA-861 utilities', source: 'csv', version: 3, description: 'One row per electric utility: EIA id, name, ownership type, short-form filer (EIA-861 2025, via PUDL).' },
-  { table: 'utility_counties', label: 'EIA-861 utility ↔ county links', source: 'csv', version: 2, description: 'Many-to-many links: one row per utility per county it serves (utility_id_eia, county_fips).' },
-  { table: 'demo_vectors', label: 'Demo vector field (synthetic)', source: 'generated', version: 1, description: 'A synthetic vector field for trying arrows.' },
-]
+/** A default folder: what it is, and the tables it makes built-in. */
+export interface DefaultFolder {
+  /** The folder's directory name under `defaults/`. */
+  id: string
+  name: string
+  description: string
+  tables: BuiltinTable[]
+}
 
-export const builtinTable = (table: string) => BUILTIN_TABLES.find((t) => t.table === table)
+const SOURCES = ['csv', 'boundary']
+const specs = import.meta.glob<Omit<DefaultFolder, 'id'>>('../../defaults/*/folder.json', { eager: true, import: 'default' })
+
+/** Every default folder in the repo, by id. */
+export const DEFAULT_FOLDERS: Record<string, DefaultFolder> = Object.fromEntries(
+  Object.entries(specs).map(([path, spec]) => {
+    const id = /defaults\/([^/]+)\/folder\.json$/.exec(path)![1]
+    for (const t of spec.tables) {
+      if (!SOURCES.includes(t.source)) throw new Error(`defaults/${id}/folder.json: "${t.table}" has source "${t.source}"`)
+    }
+    return [id, { id, ...spec }]
+  }),
+)
+
+/** The folder this build ships. */
+export const ACTIVE_FOLDER: DefaultFolder =
+  DEFAULT_FOLDERS[active.folder] ??
+  (() => {
+    throw new Error(`defaults/active.json points at "${active.folder}", which has no defaults/${active.folder}/folder.json`)
+  })()
+
+export const BUILTIN_TABLES: BuiltinTable[] = ACTIVE_FOLDER.tables
+
+export const builtinTable = (table: string, tables: BuiltinTable[] = BUILTIN_TABLES) => tables.find((t) => t.table === table)
