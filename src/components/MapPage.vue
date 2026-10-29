@@ -147,6 +147,9 @@ const savedSnap = ref('')
 const saving = ref(false)
 const barMessage = ref('')
 const dirty = computed(() => loaded.value && snapshot(doc.value) !== savedSnap.value)
+/** The default map is being prepared: it replaces the working copy when done, so ＋ waits until then. */
+const seeding = ref(false)
+const canAdd = computed(() => loaded.value && status.value === 'ready' && !seeding.value)
 
 const store = {
   get: (k: string) => {
@@ -992,7 +995,8 @@ function zoomToViz(vizId: string) {
  */
 async function seedDefault() {
   loadingMsg.value = 'Preparing the default map (the first time runs its transforms)…'
-  const r = await call('default workspace', request('seedDefaultWorkspace', {}))
+  seeding.value = true
+  const r = await call('default workspace', request('seedDefaultWorkspace', {})).finally(() => (seeding.value = false))
   if (!r) throw new Error('the default workspace could not be prepared')
   for (const id of r.file.datasetIds) await loadRecord(id)
   // What couldn't be made here (a step whose SQL extension didn't download, say) stays, in red, and is reported.
@@ -1322,6 +1326,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             :selected="dagKey"
             :stale-count="staleOrder.length"
             :stale-progress="staleProgress"
+            :adding="canAdd"
             @select="openNode"
             @new-transform="newTransformFrom"
             @new-viz="newVizFor"
@@ -1404,6 +1409,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           <summary>Visualizations</summary>
           <VisualizationList
             ref="vizList"
+            :hide-add="!canAdd"
             :visualizations="visualizations"
             :datasets="datasets"
             :data-for="dataFor"
@@ -1424,6 +1430,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           </div>
           <TransformsPanel
             :transforms="doc.transforms"
+            :hide-add="!canAdd"
             :datasets="datasets"
             :name-of="nameOf"
             :status="runStatus"
@@ -1439,7 +1446,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           <summary>Datasets</summary>
           <div class="import-wrap">
             <AddDatasetPanel v-if="importing" v-reveal :in-workspace="doc.datasetIds" @add="onAddDataset" @cancel="importing = false" />
-            <UiButton v-else size="tag" tone="dataset" icon="＋" @click="importing = true">Dataset</UiButton>
+            <UiButton v-else-if="canAdd" size="tag" tone="dataset" icon="＋" @click="importing = true">Dataset</UiButton>
           </div>
           <DatasetEditor
             v-for="root in unav.roots"

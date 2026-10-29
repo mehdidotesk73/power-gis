@@ -314,12 +314,13 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    tools: `get_workspace` (where it starts), `list_datasets` (the app's dataset finder; only with
    the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, the text editor + `apply_workspace` (was `update_workspace`),
    `run_transform`, `update_dataset`, `delete_dataset`, the server-side gate for `caller: 'agent'`.
-4. **Before starting: a deep end-to-end test pass** (remind the user when we get here) — every
-   component on phone and laptop, signed out and in, then the two-user, several-device script under
-   *Testing with two users* below. Then **scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
-   size-capped) for data it collects itself, scout source reports, run records. Options for
-   **D1** (fetch + create_dataset, no agent code) and **D2** (agent-written scripts: Managed Agents
-   container vs. Pyodide) are written up in `docs/agents.md` → *Next: scouting and scraping*.
+4. **Next, in this order (agreed 2026-10-29):** (a) the agent's additional instructions (with
+   Copy graph as image); (b) the workspace zip format (item (b) under Supabase below); (c) **scouting and
+   scraping**: web search / fetch for the agent, `create_dataset(rows)` (local, size-capped) for data
+   it collects itself, scout source reports, run records. Options for **D1** (fetch + create_dataset, no
+   agent code) and **D2** (agent-written scripts: Managed Agents container vs. Pyodide) are written up
+   in `docs/agents.md` → *Next: scouting and scraping*. No separate deep end-to-end pass first: the UI
+   checks run on every PR, and whatever the user tests by hand later becomes a UI check (a repeat test).
 5. **Supabase** (project `rorqzjnwqwlyusagzcxy`; whole schema in `supabase/schema.sql`, already run).
    Four PRs:
    1. ~~Accounts~~ (done, see Done): sign up / in, profile, change / reset password.
@@ -349,8 +350,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 ### Automated tests (agreed 2026-10-29)
 
 - ~~**A. Cloud integration tests**~~ (done): `tests/cloud` against a local Supabase stack in CI.
-- ~~**B. UI scenarios (Playwright)**~~ (done; the pipeline's sample values await the user's sign-off,
-  then they're locked in), built against the same local stack, in their own **non-blocking** CI job
+- ~~**B. UI scenarios (Playwright)**~~ (done; the pipeline's sample values signed off by the user
+  2026-10-29 and checked exactly), built against the same local stack, in their own **non-blocking** CI job
   `ui-tests` (not required by the ruleset). **Promote** them into `build` (required) after about 10
   green runs in a row; tell the user whenever the job goes red. The
   socioeconomic fixture pipeline (`tests/fixtures`: upload the 6 CSVs, load the workspace, Replace the
@@ -361,7 +362,7 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
   lower, leave, delete from the cloud); (5) signed out / fresh device. Stable `data-testid` keys on
   what the tests touch; phone size with touch and desktop. Expected values signed off by the user.
 
-### Testing with two users (plan; run before step 4)
+### Testing with two users (manual script; most of it now runs as UI checks in `tests/e2e`)
 
 Sharing and sync need more than one person and more than one device. Setup, once:
 
@@ -425,12 +426,6 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 (CI/CD, deployment, build process improvements)
 
 ## Known Issues
-
-- **A dataset added while the default map is first prepared is dropped from the workspace.** On a
-  first visit, `seedDefault` takes ~3 s and then replaces the working copy with the default map, so
-  an upload made meanwhile isn't in the workspace (it's still in ＋ Dataset → Saved). Fix: wait to show
-  the ＋ buttons until the map is ready, or merge what was added into the seeded document. Found
-  driving the UI against the local stack (2026-10-29).
 
 (Bugs, edge cases, platform-specific quirks)
 

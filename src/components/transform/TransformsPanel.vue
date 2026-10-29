@@ -36,6 +36,8 @@ const props = defineProps<{
   status: Record<string, RunStatus>
   /** Shown under the graph: no ＋ button, hint or empty message. */
   compact?: boolean
+  /** Hides the ＋ button (the page is still preparing the workspace). */
+  hideAdd?: boolean
   /** Every transform in the workspace (when `transforms` is a subset): no two may write one dataset. */
   allTransforms?: TransformSpec[]
   /** Transforms that can't run on this device → why ("waits for "plants""), shown in red. */
@@ -238,7 +240,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
 
 <template>
   <div class="transforms">
-    <UiButton v-if="!compact" size="tag" tone="transform" icon="＋" class="add-pill" :disabled="!datasets.length" @click="create">Transform</UiButton>
+    <UiButton v-if="!compact && !hideAdd" size="tag" tone="transform" icon="＋" class="add-pill" :disabled="!datasets.length" @click="create">Transform</UiButton>
     <p v-if="!transforms.length && !compact" class="muted">
       No transforms yet. A transform is SQL over your datasets — joins, filters, sums, or building a point from latitude and longitude —
       whose results become datasets.
