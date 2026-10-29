@@ -145,7 +145,8 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   `pullDataset` / `unlinkDataset` / `deleteFromCloud` / `cloudStatus` (cloud links: every dataset is a
   local copy, a linked one also has a cloud dataset — `DatasetRecord.link` `{cloudId, version, changed}`;
   rows as a gzip Arrow file in the bucket; manual push / pull, `conflict` when the cloud moved on unless
-  `overwrite`; never an agent), `describeBinding` (features,
+  `overwrite`; never an agent), `cloudDatasets` / `addFromCloud` / `datasetMembers` / `shareDataset` /
+  `setMemberAccess` / `removeMember` (sharing, below), `describeBinding` (features,
   unmatched rows, defaults), `queryVisualization` (one value per feature), `featureRows`,
   `previewTransform`, `runTransform`, `profileDataset`,
   `saveWorkspace` (upserts its visualization and transform records, deletes dropped ones), `deleteWorkspace`.
@@ -526,6 +527,18 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   its file; anyone but the owner can leave. `access_level(ds)` (security definer) is the one check
   the policies share. Sharing looks people up one exact email at a time (`find_user_by_email`), so
   no one can list every user; `dataset_members(ds)` lists a dataset's people to its members.
+- **Sharing** (PR 4; no SQL of its own: the schema had it all): **Share…** on a linked dataset's menu
+  opens `dataset/SharePanel.vue` — its people (`datasetMembers` → `dataset_members(ds)`), add by email
+  (`shareDataset`: `find_user_by_email`, then an access row; already a member → their level changes),
+  change a level (`setMemberAccess`), remove someone or **Leave** (`removeMember`; leaving also unlinks
+  this copy, which stays local). `canManage(mine, them)` / `canShare(mine)` (`shared/cloud.ts`) are the
+  RLS rules written once in TS: the server checks them first to say why not (RLS skips a forbidden
+  update or delete without an error, so `server/cloud.ts` treats "no row returned" as refused), and the
+  panel disables what they forbid. The recipient finds it in **＋ Dataset → Cloud** (signed in):
+  `cloudDatasets` lists every cloud dataset RLS lets them see (theirs and shared), with this device's
+  linked copy if any; `addFromCloud` answers that copy, or pulls a new one under the cloud id (a new id
+  when an unlinked copy already holds it, so it's never overwritten). The agent's `list_datasets` stays
+  local: taking a dataset from the cloud is a sync, and agents never sync.
 - **Tested** against a local Postgres 16 with stand-ins for `auth` and `storage` (three users through
   grant / upgrade / refused downgrade / refused owner removal / file upload / delete). This sandbox
   can't reach supabase.co, so sign-in itself is tested on the preview.

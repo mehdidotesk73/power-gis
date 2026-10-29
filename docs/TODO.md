@@ -308,7 +308,9 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    tools: `get_workspace` (where it starts), `list_datasets` (the app's dataset finder; only with
    the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, the text editor + `apply_workspace` (was `update_workspace`),
    `run_transform`, `update_dataset`, `delete_dataset`, the server-side gate for `caller: 'agent'`.
-4. **Scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
+4. **Before starting: a deep end-to-end test pass** (remind the user when we get here) — every
+   component on phone and laptop, signed out and in, then the two-user, several-device script under
+   *Testing with two users* below. Then **scouting and scraping**: web search / fetch for the agent, `create_dataset(rows)` (local,
    size-capped) for data it collects itself, scout source reports, run records. Options for
    **D1** (fetch + create_dataset, no agent code) and **D2** (agent-written scripts: Managed Agents
    container vs. Pyodide) are written up in `docs/agents.md` → *Next: scouting and scraping*.
@@ -325,22 +327,54 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
       version check; pull newer), **live transforms** (run when stale; one running + one waiting, the
       newest replacing the waiting), list cloud datasets not in any workspace here (dataset finder /
       `list_datasets`), Supabase Realtime instead of the minute check, a storage meter.
-   4. **Sharing**: a dataset's people (`dataset_members`), add by email (`find_user_by_email`),
-      read / write levels, owner-only removal of write and delete (all enforced by RLS).
+   4. ~~Sharing~~ (done): **Share…** on a linked dataset (people, add by email as Can pull / Can push,
+      change, remove, Leave; `canManage` mirrors RLS); recipients add it from **＋ Dataset → Cloud**.
+      Later: see who changed what (version history), invite someone without an account yet, a
+      "shared" mark on cards.
    - **Agreed next (before PR 3):** (a) ~~dataset name / description as draft until Save, agent's
      `datasets.json`~~ (done, see Done). (b) the agent's
      files become the file form of the v2 document (+ `datasets.json`, full visualization settings),
      and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) ~~Unavailable items~~ (done, see Done).
-   - **Cloud datasets (agreed shape):** local edits to a cloud dataset make a **draft linked to it**
-     ("Cloud · changed here"; others keep the cloud version) until **Save dataset** uploads it, or
-     **Discard local changes**; **Make a local copy** gives an independent dataset; saving datasets is
-     its own act, apart from Save workspace (which reminds about unsaved dataset changes); **Store
-     all in the cloud** on the Workspace panel's "Only on this device" list (ids kept, so pointers
-     don't change).
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
      built-in one sends only a few emails an hour.
+
+### Testing with two users (plan; run before step 4)
+
+Sharing and sync need more than one person and more than one device. Setup, once:
+
+- **Two test accounts**, both reaching the user's inbox through Gmail's plus addresses:
+  `mehdi.esk73+a@gmail.com` (**A**, display name "Test A") and `mehdi.esk73+b@gmail.com` (**B**, "Test
+  B"). Supabase treats them as different accounts; confirm each from its email. (The built-in sender
+  allows only a few emails an hour: make them one at a time.)
+- **Devices = separate browser storage.** Each of these is its own device to the app: the phone's
+  Safari, a laptop browser profile, a second profile (Chrome → Add profile) and a private window
+  (starts empty, forgets everything on close: a brand-new device every time). **Each address is its
+  own device too**: a deploy preview and production don't share storage, and neither do two previews.
+- A suggested cast: **A on the phone**, **A on the laptop** (profile 1: same person, second device),
+  **B on the laptop** (profile 2), and a **private window** for "fresh device / signed out".
+
+The script (manual first; each step names who does it where, and what they should see):
+
+1. A (phone) uploads a CSV, links it → Cloud. A (laptop) opens the workspace → the dataset is pulled.
+2. A (laptop) runs a transform over it, renames it → Cloud ↑; pushes. A (phone) → Cloud ↓ within a
+   minute; pulls.
+3. Both A's change it → ↑↓ on each; one pushes, the other's push is a conflict → Skip / Pull / overwrite.
+4. A shares it with B as **Can pull**. B (laptop) → ＋ Dataset → Cloud lists it → Add → a linked copy.
+   B can pull, can't push (greyed, with the reason), can't share.
+5. A raises B to **Can push**. B changes and pushes; A sees ↓. B shares it with a third address (or
+   tries A's: "That is you").
+6. B leaves → B's copy stays, local only; it's gone from B's Cloud list. A removes / re-shares.
+7. A deletes it from the cloud → B's copy shows "No longer in the cloud".
+8. Workspaces: B opens a workspace pointing at A's dataset before and after sharing (missing → pulled).
+9. Signed out / private window: everything local still works; cloud items say to sign in.
+
+Later, automated: a Playwright script with one browser context per device (contexts don't share
+storage), signed in as A and B, run against a deploy preview from a **manual** GitHub Actions workflow
+(GitHub can reach Supabase; this sandbox can't), passwords as repository secrets, everything it makes
+named `e2e-…` and deleted at the end. Not part of the required `build` job. Once real users arrive, a
+separate Supabase project for tests (the free plan allows two) keeps test data out of theirs.
 
 ### Backlog
 

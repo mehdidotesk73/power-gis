@@ -186,7 +186,12 @@ whatever they're actually asking about.
   with the reason; ↑↓ starts as Skip. Workspace panel: **Link to cloud…** (uploads only here), **Sync
   all…** (linked ones not in sync). `openDocument` pulls linked datasets this device lacks (outputs too)
   under the document's ids; ones already here keep their copy. Built-ins are never linked. 50 MB a file
-  (`MAX_CLOUD_FILE`). Later: auto-sync, live transforms. Next: sharing (`docs/TODO.md`).
+  (`MAX_CLOUD_FILE`). Later: auto-sync, live transforms. **Sharing**: a linked dataset's **Share…**
+  (`dataset/SharePanel.vue`; requests `datasetMembers`, `shareDataset` by email, `setMemberAccess`,
+  `removeMember` — your own = Leave, which unlinks this copy); `canManage` / `canShare` in
+  `shared/cloud.ts` mirror the RLS rules (the server checks them first; RLS skips forbidden rows
+  silently). Recipients add it from **＋ Dataset → Cloud** (`cloudDatasets`, `addFromCloud`: a linked
+  copy). The agent's `list_datasets` stays local.
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
     device files, in-memory tables, ArcGIS features via `featureTable`).
@@ -329,7 +334,7 @@ whatever they're actually asking about.
   are also heard on the window, since moving a row in the DOM can drop pointer capture on iOS and
   leave it looking dragged). Cards set `-webkit-touch-callout: none` / `user-select: none` (inputs,
   textareas and tables inside stay selectable) and `touch-action: pan-y`.
-  Menus: datasets — Explore, Edit, Copy id, Link to cloud (linked: Sync…, Unlink from the cloud),
+  Menus: datasets — Explore, Edit, Copy id, Link to cloud (linked: Sync…, Share…, Unlink from the cloud),
   Reorder, Remove from workspace, Delete dataset (this device's copy), Delete from the cloud (linked); visualizations
   (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
   data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
@@ -423,7 +428,7 @@ src/
     dag/DagView.vue        the workspace graph: datasets → transforms → outputs → visualizations
     FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
-    dataset/            AddDatasetPanel, DatasetList, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
+    dataset/            AddDatasetPanel (+ Cloud source), DatasetList, BatchPanel (sync review), SharePanel, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal

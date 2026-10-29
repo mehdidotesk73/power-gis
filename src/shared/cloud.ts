@@ -26,7 +26,46 @@ export interface CloudStore {
   readFile(id: string): Promise<Uint8Array>
   /** Deletes the dataset and its file (owners only). */
   deleteDataset(id: string): Promise<void>
+
+  /** Every cloud dataset the user can see (theirs and the ones shared with them). */
+  listDatasets(): Promise<CloudDataset[]>
+  /** Who has access to a dataset (the user too, marked `you`). */
+  members(id: string): Promise<CloudMember[]>
+  /** Gives the person with this email read or write access (or changes theirs); fails when no account uses it. */
+  share(id: string, email: string, access: Exclude<Access, 'owner'>): Promise<void>
+  /** Changes a member's access. */
+  setAccess(id: string, userId: string, access: Exclude<Access, 'owner'>): Promise<void>
+  /** Takes a member's access away (the user's own: leaving it). */
+  removeAccess(id: string, userId: string): Promise<void>
 }
+
+export type Access = 'owner' | 'write' | 'read'
+
+/** One person with access to a cloud dataset. */
+export interface CloudMember {
+  userId: string
+  email: string
+  name: string
+  access: Access
+  /** The signed-in user. */
+  you?: boolean
+}
+
+/**
+ * What a member with access `mine` may do to member `them` — the database's own rules
+ * (supabase/schema.sql, the dataset_access policies), checked here first to say why not:
+ * the owner changes and removes anyone else; writers share (read or write), raise readers to
+ * write and remove readers; anyone but the owner can leave.
+ */
+export function canManage(mine: Access | undefined, them: CloudMember): { change: boolean; remove: boolean } {
+  if (them.access === 'owner' || !mine) return { change: false, remove: false }
+  if (them.you) return { change: false, remove: true }
+  if (mine === 'owner') return { change: true, remove: true }
+  if (mine === 'write' && them.access === 'read') return { change: true, remove: true }
+  return { change: false, remove: false }
+}
+/** Whether a member with this access may share the dataset with someone new. */
+export const canShare = (mine: Access | undefined) => mine === 'owner' || mine === 'write'
 
 /** What the cloud keeps about a dataset besides its rows file. */
 export interface CloudDatasetDetails {
@@ -45,7 +84,7 @@ export interface CloudDataset extends CloudDatasetDetails {
   /** Whether it has a rows file yet. */
   hasFile: boolean
   /** The signed-in user's access: owner and write may push, everyone with access may pull. */
-  access: 'owner' | 'write' | 'read'
+  access: Access
 }
 
 /** A dataset's rows file in the cloud bucket: `<id>/data.arrow.gz` (server/datasetFile.ts). */

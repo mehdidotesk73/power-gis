@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
 import { parseWorkspaceFile, replaceDatasetIds, toWorkspaceFile, type WorkspaceFile } from '../lib/workspace/file'
 import type { ApiResult } from '../shared/api'
-import type { CloudDataset, CloudStore, CloudWorkspace } from '../shared/cloud'
+import type { Access, CloudDataset, CloudStore, CloudWorkspace } from '../shared/cloud'
 import { defaultScalarStyle, settingsOf, makeVisualization, ROWS } from '../lib/dataset/visualization'
 
 const SQ0 = '"POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))"'
@@ -359,35 +359,69 @@ describe('cloud workspace', () => {
     utilities: [{ utility_id_eia: '195', utility_name: 'Alabama Power Co', entity_type: 'Investor Owned' }],
     us_states: [{ fips: '01', name: 'Alabama', abbr: 'AL', geometry: { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 1], [0, 0]]] } }],
   }
-  /** One account's cloud, shared by every device that signs in. */
+  /**
+   * The cloud, shared by every device that signs in: the access token is the user (`t`, `alice`,
+   * `bob`; email `<token>@example.com`). Datasets are seen through access rows, as with row-level security.
+   */
   function fakeCloud() {
     let saved: CloudWorkspace | null = null
     let overview = ''
     let n = 0
-    const datasets = new Map<string, CloudDataset>()
+    const datasets = new Map<string, Omit<CloudDataset, 'access'>>()
     const files = new Map<string, Uint8Array>()
+    /** cloud id → user → access */
+    const access = new Map<string, Map<string, Access>>()
     let v = 0
     const version = () => `2026-10-29T00:00:${String(++v).padStart(2, '0')}Z`
-    const store: CloudStore = {
-      datasets: async (ids) => ids.flatMap((id) => (datasets.has(id) ? [structuredClone(datasets.get(id)!)] : [])),
-      putDataset: async (d, f) => {
-        const updatedAt = version()
-        datasets.set(d.id, { ...structuredClone(d), updatedAt, sizeBytes: f.byteLength, hasFile: true, access: datasets.get(d.id)?.access ?? 'owner' })
-        files.set(d.id, f)
-        return { updatedAt }
-      },
-      readFile: async (id) => files.get(id) ?? Promise.reject(new Error('no file')),
-      deleteDataset: async (id) => void (datasets.delete(id), files.delete(id)),
-      defaultWorkspace: async () => saved,
-      saveDefaultWorkspace: async (w) => {
-        saved = { id: saved?.id ?? 'w1', name: w.name, file: JSON.parse(JSON.stringify(w.file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
-        overview = w.overview
-        return { id: saved.id, updatedAt: saved.updatedAt }
-      },
+    const levelOf = (id: string, user: string) => access.get(id)?.get(user)
+    const as = (user: string): CloudStore => {
+      const seen = (id: string): CloudDataset[] => {
+        const level = levelOf(id, user)
+        return datasets.has(id) && level ? [{ ...structuredClone(datasets.get(id)!), access: level }] : []
+      }
+      const mustSee = (id: string) => levelOf(id, user) ?? Promise.reject(new Error('not found'))
+      return {
+        datasets: async (ids) => ids.flatMap(seen),
+        listDatasets: async () => [...datasets.keys()].flatMap(seen),
+        putDataset: async (d, f) => {
+          if (!datasets.has(d.id)) access.set(d.id, new Map([[user, 'owner']]))
+          else if (!['owner', 'write'].includes(levelOf(d.id, user) ?? '')) throw new Error('row-level security')
+          const updatedAt = version()
+          datasets.set(d.id, { ...structuredClone(d), updatedAt, sizeBytes: f.byteLength, hasFile: true })
+          files.set(d.id, f)
+          return { updatedAt }
+        },
+        readFile: async (id) => (levelOf(id, user) && files.get(id)) || Promise.reject(new Error('no file')),
+        deleteDataset: async (id) => void (datasets.delete(id), files.delete(id), access.delete(id)),
+        members: async (id) => {
+          await mustSee(id)
+          return [...access.get(id)!].map(([u, a]) => ({ userId: u, email: `${u}@example.com`, name: u, access: a, ...(u === user ? { you: true } : {}) }))
+        },
+        share: async (id, email, level) => {
+          await mustSee(id)
+          const u = email.trim().toLowerCase().split('@')[0]
+          if (!['t', 'alice', 'bob', 'carol'].includes(u)) throw new Error(`No account uses ${email}`)
+          access.get(id)!.set(u, level)
+        },
+        setAccess: async (id, u, level) => void access.get(id)!.set(u, level),
+        removeAccess: async (id, u) => void access.get(id)!.delete(u),
+        defaultWorkspace: async () => saved,
+        saveDefaultWorkspace: async (w) => {
+          saved = { id: saved?.id ?? 'w1', name: w.name, file: JSON.parse(JSON.stringify(w.file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
+          overview = w.overview
+          return { id: saved.id, updatedAt: saved.updatedAt }
+        },
+      }
     }
-    return { cloud: () => store, saved: () => saved?.file as WorkspaceFile, overview: () => overview, datasets }
+    return {
+      cloud: (token: string) => as(token),
+      saved: () => saved?.file as WorkspaceFile,
+      overview: () => overview,
+      datasets,
+      setAccess: (id: string, user: string, level: Access) => access.get(id)!.set(user, level),
+    }
   }
-  const device = (cloud: () => CloudStore) => {
+  const device = (cloud: (token: string) => CloudStore) => {
     const db = new MemoryDatabase()
     const server = createServer(db, { readBuiltin: async (t) => tables[t] ?? [], sql: nodeDuckDb, cloud, readDefaultWorkspace: async () => readFileSync('public/data/default.powergis.json', 'utf8') })
     return { db, server }
@@ -461,10 +495,10 @@ describe('cloud workspace', () => {
     expect(account.datasets.get(cloudId)!.name).toBe('Mine, renamed')
 
     // Read-only access: pull yes, push no.
-    account.datasets.get(cloudId)!.access = 'read'
+    account.setAccess(cloudId, 't', 'read')
     expect(await status(b.server)).toMatchObject({ state: 'behind', canPush: false })
     expect(await b.server.handle('pushDataset', { id: own, overwrite: true })).toMatchObject({ ok: false, error: { message: expect.stringContaining('only read') } })
-    account.datasets.get(cloudId)!.access = 'owner'
+    account.setAccess(cloudId, 't', 'owner')
 
     // Unlink: B keeps its copy, local only; the cloud dataset stays. Delete from the cloud: A's copy stays too.
     data(await b.server.handle('unlinkDataset', { id: own }))
@@ -474,6 +508,63 @@ describe('cloud workspace', () => {
     expect(account.datasets.has(cloudId)).toBe(false)
     expect(await a.db.get('datasets', own)).toMatchObject({ name: 'Mine, renamed' })
     expect((await a.db.get('datasets', own))!.link).toBeUndefined()
+  })
+
+  it('shares a dataset: people by email, read / write levels, adding from the cloud, leaving', async () => {
+    const account = fakeCloud()
+    const alice = device(account.cloud)
+    const bob = device(account.cloud)
+    data(await alice.server.handle('setAuth', { accessToken: 'alice' }))
+    data(await bob.server.handle('setAuth', { accessToken: 'bob' }))
+    const id = data(await alice.server.handle('uploadDataset', { source: { kind: 'csv', file: file('prices.csv', 'fips,p\n01001,5\n') } })).datasetId
+    // Not in the cloud yet: nothing to share.
+    expect(await alice.server.handle('datasetMembers', { id })).toMatchObject({ ok: false, error: { message: expect.stringContaining('link it first') } })
+    data(await alice.server.handle('linkToCloud', { id }))
+    expect(data(await alice.server.handle('datasetMembers', { id }))).toEqual({ access: 'owner', members: [{ userId: 'alice', email: 'alice@example.com', name: 'alice', access: 'owner', you: true }] })
+
+    // Bob sees nothing until Alice shares it.
+    expect(data(await bob.server.handle('cloudDatasets', {})).datasets).toEqual([])
+    expect(await alice.server.handle('shareDataset', { id, email: 'nobody@example.com', access: 'read' })).toMatchObject({ ok: false, error: { message: expect.stringContaining('No account') } })
+    expect(await alice.server.handle('shareDataset', { id, email: 'alice@example.com', access: 'read' })).toMatchObject({ ok: false, error: { message: 'That is you' } })
+    const shared = data(await alice.server.handle('shareDataset', { id, email: ' Bob@example.com ', access: 'read' }))
+    expect(shared.members.map((m) => [m.userId, m.access])).toEqual([['alice', 'owner'], ['bob', 'read']])
+    const listed = data(await bob.server.handle('cloudDatasets', {})).datasets
+    expect(listed).toEqual([expect.objectContaining({ cloudId: id, name: 'prices', rows: 1, access: 'read' })])
+    expect(listed[0].localId).toBeUndefined()
+
+    // Bob adds it: a linked copy under its id; adding again answers the same copy.
+    expect(data(await bob.server.handle('addFromCloud', { cloudId: id }))).toEqual({ datasetId: id, created: true })
+    expect(data(await bob.server.handle('addFromCloud', { cloudId: id }))).toEqual({ datasetId: id, created: false })
+    expect(data(await bob.server.handle('cloudDatasets', {})).datasets[0].localId).toBe(id)
+    expect((await bob.db.get('datasets', id))!.link?.cloudId).toBe(id)
+    // Reading: he can pull, not push, and not share.
+    expect(await bob.server.handle('pushDataset', { id, overwrite: true })).toMatchObject({ ok: false })
+    expect(await bob.server.handle('shareDataset', { id, email: 'carol@example.com', access: 'read' })).toMatchObject({ ok: false, error: { message: expect.stringContaining('write access can share') } })
+
+    // Write access: Bob pushes and shares (readers only he may change); the owner stays out of his reach.
+    data(await alice.server.handle('setMemberAccess', { id, userId: 'bob', access: 'write' }))
+    data(await bob.server.handle('updateDataset', { id, name: 'Prices (Bob)' }))
+    data(await bob.server.handle('pushDataset', { id }))
+    expect(data(await alice.server.handle('cloudStatus', { items: [{ id }] })).datasets[0].state).toBe('behind')
+    data(await bob.server.handle('shareDataset', { id, email: 'carol@example.com', access: 'read' }))
+    data(await bob.server.handle('setMemberAccess', { id, userId: 'carol', access: 'write' }))
+    expect(await bob.server.handle('removeMember', { id, userId: 'carol' })).toMatchObject({ ok: false }) // a writer now
+    expect(await bob.server.handle('removeMember', { id, userId: 'alice' })).toMatchObject({ ok: false, error: { message: 'The owner keeps their access' } })
+    data(await alice.server.handle('removeMember', { id, userId: 'carol' }))
+
+    // Bob leaves: his copy stays, local only; he no longer sees it in the cloud.
+    expect(data(await bob.server.handle('removeMember', { id, userId: 'bob' }))).toEqual({ members: [], left: true })
+    expect((await bob.db.get('datasets', id))!.link).toBeUndefined()
+    expect(data(await bob.server.handle('cloudDatasets', {})).datasets).toEqual([])
+    // Shared again, adding it doesn't overwrite his unlinked copy (which kept the id): a new one is made.
+    data(await alice.server.handle('shareDataset', { id, email: 'bob@example.com', access: 'read' }))
+    const again = data(await bob.server.handle('addFromCloud', { cloudId: id }))
+    expect(again.created).toBe(true)
+    expect(again.datasetId).not.toBe(id)
+    expect((await bob.db.get('datasets', id))!.link).toBeUndefined()
+
+    // Agents never share.
+    expect(await alice.server.handle('shareDataset', { id, email: 'carol@example.com', access: 'read' }, 'agent')).toMatchObject({ ok: false, error: { message: expect.stringContaining('Only the user') } })
   })
 
   it('opens a document on another device: built-ins and outputs made there, an upload reported by name', async () => {
