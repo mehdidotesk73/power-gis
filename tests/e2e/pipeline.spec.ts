@@ -27,6 +27,23 @@ async function expectOutputs(page: Page) {
   for (const [output, rows] of OUTPUTS) await expect(card(page, 'dataset', output), output).toContainText(`${rows} rows`, { timeout: 180_000 })
 }
 
+/** Counties: fips, median household income, bachelor's %, uninsured %, home price ÷ income, socio score. */
+const COUNTIES = [
+  ['01001', '72481', '29.14', '7.28', '2.86', '63.0'],
+  ['06037', '90112', '36.01', '8.21', '9.26', '56.0'],
+  ['17031', '83498', '42.72', '8.85', '3.89', '60.5'],
+  ['36061', '103931', '64.19', '4.22', '10.49', '71.2'],
+  ['48201', '74983', '34.24', '20.90', '3.69', '46.8'],
+]
+/** States: counties, counties scored, average median household income, socio score (Connecticut unscored). */
+const STATES = [
+  ['CA', '58', '58', '81121', '48.9'],
+  ['CT', '8', '0', '-', '-'],
+  ['NY', '62', '62', '74287', '69.4'],
+  ['TX', '254', '250', '64940', '40.4'],
+  ['WY', '23', '23', '75535', '45.8'],
+]
+
 test.afterEach(closeDevices)
 
 test('the default map is the socioeconomic pipeline: every output made, the numbers hold', async ({ browser }) => {
@@ -43,10 +60,14 @@ test('the default map is the socioeconomic pipeline: every output made, the numb
   expect(await explore(page, 'State averages', "SELECT counties_scored FROM state_averages WHERE state_abbr = 'CT'")).toEqual([['0']])
   expect(await explore(page, 'County metrics and scores', 'SELECT count(*) FILTER (WHERE socio_score < 0 OR socio_score > 100) FROM county_metrics_and_scores')).toEqual([['0']])
 
-  // A sample for the user to check against the app (printed in CI's log; locked in once confirmed).
-  const counties = await explore(page, 'County metrics and scores', "SELECT fips, name, median_hh_income, bachelor_pct, uninsured_pct, price_to_income, socio_score FROM county_metrics_and_scores WHERE fips IN ('01001', '06037', '17031', '48201', '36061') ORDER BY fips")
-  const states = await explore(page, 'State averages', "SELECT state_abbr, counties, counties_scored, avg_median_hh_income, socio_score FROM state_averages WHERE state_abbr IN ('CA', 'CT', 'NY', 'TX', 'WY') ORDER BY state_abbr")
-  console.log(`[for sign-off] counties:\n${counties.map((r) => r.join(' | ')).join('\n')}\n[for sign-off] states:\n${states.map((r) => r.join(' | ')).join('\n')}`)
+  // A sample the user checked against the app (signed off 2026-10-29). Formatted in the SQL, so the cells compare as text
+  // (as DOUBLE: DuckDB's printf refuses %f for an integer column).
+  const counties = await explore(page, 'County metrics and scores', `SELECT fips, name, printf('%.0f', median_hh_income::DOUBLE), printf('%.2f', bachelor_pct::DOUBLE), printf('%.2f', uninsured_pct::DOUBLE),
+    printf('%.2f', price_to_income::DOUBLE), printf('%.1f', socio_score::DOUBLE) FROM county_metrics_and_scores WHERE fips IN ('01001', '06037', '17031', '48201', '36061') ORDER BY fips`)
+  expect(counties.map((r) => [r[0], ...r.slice(2)])).toEqual(COUNTIES)
+  const states = await explore(page, 'State averages', `SELECT state_abbr, CAST(counties AS VARCHAR), CAST(counties_scored AS VARCHAR), coalesce(printf('%.0f', avg_median_hh_income::DOUBLE), '-'),
+    coalesce(printf('%.1f', socio_score::DOUBLE), '-') FROM state_averages WHERE state_abbr IN ('CA', 'CT', 'NY', 'TX', 'WY') ORDER BY state_abbr`)
+  expect(states).toEqual(STATES)
 })
 
 const UPLOADS = ['county_income', 'county_education', 'county_health_insurance', 'county_home_value', 'county_rent', 'county_columns']

@@ -17,6 +17,18 @@ points at (`defaults/README.md`).
 
 Built with Vue 3 + TypeScript + Vite (PWA) and MapLibre GL.
 
+## How it's built
+
+I lead the product and its design. I set the architecture: the browser-side client / server split;
+datasets, transforms and visualizations as separate building blocks; local copies with manual cloud
+sync, plus the sharing and access rules; and default folders. I also define the features and
+interaction details, and how the AI assistant should work. Claude Code writes the code from that
+direction, one pull request per change. I review every preview on physical devices, and use screenshots and logs to communicate bugs, and merge each PR myself.
+
+**Tests.** I set the testing approach: real-database integration tests and two-person, multi-device UI
+scenarios on every PR; mock data and a reference pipeline that I built in the app; and expected values
+that I sign off on. Claude writes and maintains the test code and the CI setup.
+
 ## Links
 
 - Live site: https://powergis.netlify.app
@@ -30,6 +42,9 @@ npm run dev     # dev server at http://localhost:5173
 npm run build   # type-check + bundle
 npm test        # unit tests (vitest)
 ```
+
+Cloud integration and UI tests run against a local Supabase stack (Docker): see
+[tests/e2e/README.md](./tests/e2e/README.md).
 
 ## Docs
 
