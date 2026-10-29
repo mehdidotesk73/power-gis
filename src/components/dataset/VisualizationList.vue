@@ -24,6 +24,8 @@ const props = defineProps<{
   dataFor: (v: VisualizationSpec) => LayerData | null
   /** Shown under the graph: no add button, hint or empty message. */
   compact?: boolean
+  /** Hides the ＋ button (the page is still preparing the workspace). */
+  hideAdd?: boolean
   /** Visualizations that can't draw on this device → why ("waits for "plants""), shown in red. */
   problems?: Map<string, string>
 }>()
@@ -130,7 +132,7 @@ defineExpose({
         <button class="btn primary" :disabled="!addInfo?.features" @click="confirmAdd">Add</button>
       </div>
     </div>
-    <UiButton v-else-if="!compact" size="tag" tone="viz" icon="＋" class="add-pill" :disabled="!datasets.length" @click="openAdd">Visualization</UiButton>
+    <UiButton v-else-if="!compact && !hideAdd" size="tag" tone="viz" icon="＋" class="add-pill" :disabled="!datasets.length" @click="openAdd">Visualization</UiButton>
 
     <p v-if="!visualizations.length && !compact" class="muted">No visualizations yet.</p>
     <ObjectList

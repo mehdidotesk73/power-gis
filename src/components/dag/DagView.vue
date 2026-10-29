@@ -20,6 +20,8 @@ const props = defineProps<{
   staleCount?: number
   /** While running, "Running 2 of 3 · …"; then the outcome. */
   staleProgress?: { running: boolean; text: string } | null
+  /** False while the page is still preparing the workspace: the ＋ buttons wait (an item added then would be lost). */
+  adding?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'select', node: DagNode | null): void
@@ -146,9 +148,11 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 <template>
   <div v-reveal="mode" class="dag">
     <div v-if="!mode" class="bar">
-      <UiButton data-testid="graph.add-dataset" size="tag" tone="dataset" icon="＋" @click="emit('new-dataset')">Dataset</UiButton>
-      <UiButton data-testid="graph.add-transform" size="tag" tone="transform" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">Transform</UiButton>
-      <UiButton size="tag" tone="viz" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">Visualization</UiButton>
+      <template v-if="adding !== false">
+        <UiButton data-testid="graph.add-dataset" size="tag" tone="dataset" icon="＋" @click="emit('new-dataset')">Dataset</UiButton>
+        <UiButton data-testid="graph.add-transform" size="tag" tone="transform" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">Transform</UiButton>
+        <UiButton size="tag" tone="viz" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">Visualization</UiButton>
+      </template>
       <UiButton
         v-if="staleCount && !staleProgress?.running"
         data-testid="run-all-stale"

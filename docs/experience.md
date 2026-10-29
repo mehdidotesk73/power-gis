@@ -329,6 +329,15 @@ Two additions from reviewing it here, beyond what the originating project report
   iOS Safari). **Gotcha:** iOS refuses a clipboard write that starts after an await, so the
   ClipboardItem is made at once with the PNG as a promise.
 
+### ＋ waits for the default map; sample values locked — 2026-10-29
+
+- **Fixed:** on a first visit, a dataset added while the default map was still being prepared was
+  dropped (the prepared map replaced the working copy). The ＋ buttons (graph and lists) now appear
+  only once the workspace is ready, and hide again while Reset prepares it.
+- **Tests:** the pipeline UI test checks the county and state sample values the user signed off,
+  formatted in SQL (`printf`) so the cells compare as text.
+- **README:** "How it's built": who designs, who codes, how it's tested.
+
 ### Default folders — 2026-10-29
 
 - **Added:** `defaults/<folder>/`: each a complete starting map (`folder.json` listing its tables,
