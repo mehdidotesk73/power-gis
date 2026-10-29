@@ -46,8 +46,8 @@ UI structure — one page, the **Map**:
   visualizations (the county score shows first), from the **default folder** `defaults/socioeconomic/`.
   **Default folders** (`defaults/<folder>/`: `folder.json` listing its tables, their CSVs,
   `workspace.powergis.json`; `defaults/README.md`): the build ships only the one `defaults/active.json`
-  points at — its tables are the built-ins, its workspace the default map. The EIA utilities map it
-  replaced is the folder `defaults/eia-utilities/` (not active; the server's unit tests open it).
+  points at — its tables are the built-ins, its workspace the default map. (The EIA utilities map it
+  replaced was removed with its data; it may come back as a folder built in the app.)
 
 The entire app is wrapped inside a header and footer. The header provides the app title, a **☰ menu** (outlined green while signed in, and its account item's ◉ green; **Sign in** / your name, which opens the account window — signing in closes it; Help, which opens the conceptual-docs modal, and on touch devices **Desktop view / Phone view**), and an "Update available" affordance that surfaces when a newer PWA build is live. The footer (one row, small type) provides the current build id/timestamp, version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
 
@@ -108,21 +108,13 @@ whatever they're actually asking about.
   doesn't watch — ✓ / ✗ on every PR, never blocking, while they prove steady. Tell the user whenever
   it goes red (a red non-blocking check is easy to ignore); after about 10 green runs in a row, move its
   steps back into `build` (`docs/TODO.md`).
-- **External data dependencies:** the basemap (dark vector tiles, free, no key: OpenFreeMap dark, else CARTO Dark Matter, else a plain background), and — only when
-  rebuilding the CSV — the PUDL mirror of EIA-861 on S3. The app's own data is static (the default folder in `defaults/`).
-  From this sandbox eia.gov and census.gov are blocked; the PUDL S3 bucket is reachable. You cannot
+- **External data dependencies:** the basemap (dark vector tiles, free, no key: OpenFreeMap dark, else CARTO Dark Matter, else a plain background).
+  The app's own data is static (the default folder in `defaults/`).
+  From this sandbox eia.gov and census.gov are blocked; the PUDL S3 bucket (EIA data) is reachable. You cannot
   see the rendered map here unless you drive a headless browser; lean on the user's screenshots.
 
 ## Data
 
-- `scripts/build_utility_counties.py [year]` regenerates the normalized EIA-861 tables from PUDL:
-  `defaults/eia-utilities/utilities.csv` (one row per utility: id, name, ownership type, short-form filer) and
-  `utility_counties.csv` (the many-to-many links: `utility_id_eia`, `county_fips`; retired FIPS
-  codes mapped to their successors). Built-ins only when that folder is the active one (with
-  `us_counties`, `us_states` and `demo_vectors`). Utilities per county, a utility's territory, utilities per state
-  (states ⋈ counties ⋈ links ⋈ utilities, grouped) are all transforms. Customers / sales / revenue
-  (EIA reports them per utility per state) can come back later as a separate built-in. It needs `pandas` + `pyarrow`;
-  downloads are cached in `scripts/.cache/` (git-ignored).
 - **ACS county tables** (the default map's data): built-in `county_income`, `county_education`
   (B15003), `county_health_insurance` (B27010), `county_home_value` (B25077, B25075), `county_rent`
   (B25064, B25063) and `county_columns` (what each column means), CSVs in `defaults/socioeconomic/` (3,222 counties
@@ -437,7 +429,6 @@ src/
     dataset/               columns, aggregate, binding (+ wkt), query (server-side grouping), profile, visualization
     search.ts              ranked type-ahead search (optional typo-tolerant `fuzzy`)
     data/csv.ts            CSV → records
-    demo.ts                synthetic vector field for exercising the arrow widget
   shared/                  client ↔ server contract: api, records (tables), database, idb, builtins, sqlExtensions (+ .json allowlist)
   server/                  the server (Web Worker today): server.ts handlers, worker.ts entry, sql.ts + duckdb.ts (transforms)
   client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter),
@@ -467,12 +458,11 @@ src/
     account/AccountModal.vue  sign in / create account / reset password / your profile
 defaults/                  default folders: active.json (the one this build ships), README.md;
   socioeconomic/           folder.json, county_*.csv (ACS), workspace.powergis.json (the default map)
-  eia-utilities/           folder.json, utilities.csv + utility_counties.csv (generated), workspace.powergis.json
 supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor;
                            config.toml (the local test stack only)
 tests/cloud/               cloud integration tests (real Supabase stack); tests/e2e/ UI tests (Playwright);
-                           tests/fixtures/ workspace files (socioeconomic with uploads, state-income, counties-only)
-scripts/                   data build scripts; fetch-duckdb-extensions.mjs (prebuild, Netlify only); test-stack.sh (local Supabase for tests)
+                           tests/fixtures/ workspace files (socioeconomic with uploads, state-income, counties-only, utilities-join)
+scripts/                   fetch-duckdb-extensions.mjs (prebuild, Netlify only); test-stack.sh (local Supabase for tests)
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)
   experience.md            what didn't work + per-merge version history

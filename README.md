@@ -13,7 +13,7 @@ typed properties, and visualizes data on them through reusable map widgets:
 affordability) and area-weighted state averages, from six Census ACS county tables built into the app
 and the built-in county and state shapes, by ten SQL transforms. Data and workspace come from a
 **default folder** (`defaults/socioeconomic/`); the app ships whichever folder `defaults/active.json`
-points at (`defaults/README.md`). The earlier EIA-861 utilities map is the folder `defaults/eia-utilities/`.
+points at (`defaults/README.md`).
 
 Built with Vue 3 + TypeScript + Vite (PWA) and MapLibre GL.
 
@@ -29,12 +29,6 @@ npm install
 npm run dev     # dev server at http://localhost:5173
 npm run build   # type-check + bundle
 npm test        # unit tests (vitest)
-```
-
-Rebuild the data (needs Python with `pandas` and `pyarrow`):
-
-```bash
-python scripts/build_utility_counties.py [year]
 ```
 
 ## Docs

@@ -161,7 +161,8 @@ Track feature development, improvements, and known issues here. Move completed w
 
 - **Default folders** — `defaults/<folder>/` (tables in `folder.json`, CSVs, the workspace);
   `defaults/active.json` picks the one the build ships (built-ins + default map). `socioeconomic`
-  (active) and `eia-utilities`. Later: several folders offered in one build (a chooser), or a folder
+  only; the EIA utilities data and the demo vectors were removed (the user will rebuild the utilities map
+  as a folder in the app). Later: several folders offered in one build (a chooser), or a folder
   fetched at build time when too big for git.
 
 ## Next (Current Sprint)

@@ -2,7 +2,7 @@
 // build points at (`defaults/active.json` → `defaults/<folder>/`): its
 // `folder.json` lists the tables, its CSVs hold their rows and its
 // `workspace.powergis.json` is the default map. Other folders' tables are not
-// built-ins in this build (tests can still read them, by folder).
+// built-ins in this build.
 //
 // Uploading one stores a copy in the database as an ordinary dataset, marked
 // `extensions.builtin = table` and `extensions.version` so the default
@@ -14,8 +14,8 @@ export interface BuiltinTable {
   table: string
   label: string
   description: string
-  /** Where the server reads it: a CSV in the default folder, polygons from us-atlas, or generated. */
-  source: 'csv' | 'boundary' | 'generated'
+  /** Where the server reads it: a CSV in the default folder, or polygons from us-atlas. */
+  source: 'csv' | 'boundary'
   /** Bump when the table's columns or contents change: older stored copies stop being reused. */
   version: number
 }
@@ -29,7 +29,7 @@ export interface DefaultFolder {
   tables: BuiltinTable[]
 }
 
-const SOURCES = ['csv', 'boundary', 'generated']
+const SOURCES = ['csv', 'boundary']
 const specs = import.meta.glob<Omit<DefaultFolder, 'id'>>('../../defaults/*/folder.json', { eager: true, import: 'default' })
 
 /** Every default folder in the repo, by id. */

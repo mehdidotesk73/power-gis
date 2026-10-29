@@ -7,7 +7,6 @@ import { supabaseCloud } from './cloud'
 import { IndexedDbDatabase } from '../shared/idb'
 import { StaticFileConnector } from '../lib/data/connectors'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
-import { demoVectorRows } from '../lib/demo'
 import { BUILTIN_TABLES } from '../shared/builtins'
 import type { RequestMessage, ResponseMessage } from '../shared/api'
 
@@ -27,7 +26,6 @@ const server = createServer(new IndexedDbDatabase(), {
   },
   cloud: supabaseCloud,
   async readBuiltin(table, baseUrl) {
-    if (table === 'demo_vectors') return demoVectorRows()
     if (table === 'us_counties') return countyRows(await topo(countiesUrl))
     if (table === 'us_states') return stateRows(await topo(statesUrl))
     const csvs = BUILTIN_TABLES.filter((t) => t.source === 'csv').map((t) => t.table)

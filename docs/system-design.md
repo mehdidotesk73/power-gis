@@ -361,12 +361,12 @@ visualization it follows the top visible one (they load one by one).
 
 The first visit (and Workspace → Reset) opens the **default folder**'s workspace. Default folders live in
 `defaults/<folder>/` (`defaults/README.md`): `folder.json` (name, description, tables: `table`, `label`,
-`description`, `source` csv | boundary | generated, `version`), a `<table>.csv` per csv table, and
+`description`, `source` csv | boundary, `version`), a `<table>.csv` per csv table, and
 `workspace.powergis.json`, a v2 workspace document. `defaults/active.json` names the one this build ships:
 
 - `src/shared/builtins.ts` reads every `folder.json` (`import.meta.glob`, so tests see them all as
   `DEFAULT_FOLDERS`) and exports the active one's tables as `BUILTIN_TABLES`; `createServer` takes
-  another folder's through `env.builtins` (the server tests open the EIA folder this way).
+  other tables through `env.builtins` (the server tests give their own).
 - `vite.config.ts`'s `default-folder` plugin serves the active folder's CSVs and workspace at `data/` in
   development and emits them into the build's `data/`; other folders don't ship.
 - `src/lib/workspace/file.test.ts` checks every folder: tables and CSVs match, the workspace's built-ins
@@ -379,7 +379,7 @@ built-ins reused or uploaded, transforms run in order (or earlier copies of the 
 be made here is reported like any opened workspace's — and the page opens it with `fromWorkspaceFile`,
 unsaved like any loaded file (the very first one is saved at once). The active folder today is
 `socioeconomic` (six ACS county tables + county / state shapes, ten transforms, twelve visualizations; its
-step 1e loads DuckDB's spatial extension). `eia-utilities` holds the earlier default (utilities by county).
+step 1e loads DuckDB's spatial extension).
 The first run loads DuckDB (~6 s on a desktop); later visits reuse the stored outputs.
 
 ### Dataset profiles

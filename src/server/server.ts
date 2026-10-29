@@ -23,9 +23,9 @@ import { decodeDatasetFile, encodeDatasetFile } from './datasetFile'
 import { createSqlRunner, type SqlEngine, type SqlInput } from './sql'
 
 export interface ServerEnv {
-  /** A built-in table's rows (the default folder's CSVs, boundary polygons, demo data). */
+  /** A built-in table's rows (the default folder's CSVs, boundary polygons). */
   readBuiltin(table: string, baseUrl: string): Promise<DataRecord[]>
-  /** The built-in tables: the active default folder's, unless given (tests open other folders). */
+  /** The built-in tables: the active default folder's, unless given (tests give their own). */
   builtins?: BuiltinTable[]
   fetchImpl?: typeof fetch
   /** Opens the SQL engine (DuckDB) on first use. Without one, transforms are unsupported. */
