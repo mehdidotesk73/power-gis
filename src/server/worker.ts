@@ -21,7 +21,7 @@ const server = createServer(new IndexedDbDatabase(), {
   // DuckDB (and its ~34 MB of wasm) loads only when a transform first runs.
   sql: () => import('./duckdb').then((m) => m.openDuckDb({ extensionRepository: new URL(`${import.meta.env.BASE_URL}duckdb-ext`, self.location.origin).href })),
   async readDefaultWorkspace(baseUrl) {
-    const r = await fetch(`${baseUrl}data/default.powergis.json`)
+    const r = await fetch(`${baseUrl}data/workspace.powergis.json`)
     if (!r.ok) throw new Error(`default workspace: HTTP ${r.status}`)
     return r.text()
   },

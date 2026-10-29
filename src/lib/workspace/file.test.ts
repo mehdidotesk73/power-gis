@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, pointers, replaceDatasetIds, snapshot, toWorkspaceFile } from './file'
 import type { DatasetRecord } from '../../shared/records'
-import { builtinTable } from '../../shared/builtins'
-import { existsSync, readFileSync } from 'node:fs'
+import { ACTIVE_FOLDER, builtinTable, DEFAULT_FOLDERS } from '../../shared/builtins'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import { workspaceRequires, type WorkspaceDoc } from './workspace'
 
@@ -104,10 +104,10 @@ describe('workspace documents (version 2)', () => {
   it('reads version 1 documents: ids, placeholders, names and single-SQL transforms', () => {
     const v1 = {
       format: 'powergis-workspace', version: 1, exportedAt: '', name: 'Old',
-      datasetIds: ['transform:0', 'builtin:utilities', 'plain-id'],
+      datasetIds: ['transform:0', 'builtin:us_counties', 'plain-id'],
       names: { 'plain-id': 'plants' },
       visualizations: [{ name: 'V', datasetId: 'plain-id', settings: { ...viz('x', 'x'), id: undefined, name: undefined, datasetId: undefined } }],
-      transforms: [{ name: 'Old', sql: 'SELECT 1', inputs: [{ datasetId: 'builtin:utilities', alias: 'u' }], outputId: 'transform:0' }],
+      transforms: [{ name: 'Old', sql: 'SELECT 1', inputs: [{ datasetId: 'builtin:us_counties', alias: 'u' }], outputId: 'transform:0' }],
     }
     const r = parseWorkspaceFile(JSON.stringify(v1))
     if (!r.ok) throw new Error(r.error)
@@ -116,7 +116,7 @@ describe('workspace documents (version 2)', () => {
     expect(t).toMatchObject({ name: 'Old', outputs: [{ key: 'o1', name: 'Old', sql: 'SELECT 1', outputId: 'transform:0' }] })
     expect(r.file.datasets).toEqual([
       { id: 'transform:0', name: 'Old', store: 'local', origin: { kind: 'output', transform: t.id, output: 'o1' } },
-      { id: 'builtin:utilities', name: 'EIA-861 utilities', store: 'local', origin: { kind: 'builtin', table: 'utilities' } },
+      { id: 'builtin:us_counties', name: 'US counties', store: 'local', origin: { kind: 'builtin', table: 'us_counties' } },
       { id: 'plain-id', name: 'plants', store: 'local', origin: { kind: 'unknown' } },
     ])
     expect(r.file.visualizations[0]).toMatchObject({ name: 'V', datasetId: 'plain-id', kind: 'scalar' })
@@ -147,31 +147,45 @@ describe('workspace documents (version 2)', () => {
   })
 })
 
-describe('the default workspace file', () => {
-  const parsed = parseWorkspaceFile(readFileSync('public/data/default.powergis.json', 'utf8'))
+describe('the default folders (defaults/<folder>/)', () => {
+  const dirs = readdirSync('defaults', { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)
 
-  it('is the socioeconomic pipeline over built-ins: every built-in exists with its file, every transform is wired', () => {
+  it('the build points at one of them, and every folder has a folder.json', () => {
+    expect(Object.keys(DEFAULT_FOLDERS).sort()).toEqual(dirs.sort())
+    expect(dirs).toContain(ACTIVE_FOLDER.id)
+    expect(ACTIVE_FOLDER.id).toBe('socioeconomic')
+  })
+
+  it.each(dirs)('%s: its workspace opens on its own tables, each with its file', (dir) => {
+    const folder = DEFAULT_FOLDERS[dir]
+    const tables = folder.tables.map((t) => t.table)
+    expect(new Set(tables).size, 'table names are unique').toBe(tables.length)
+    for (const t of folder.tables) if (t.source === 'csv') expect(existsSync(`defaults/${dir}/${t.table}.csv`), t.table).toBe(true)
+    const csvs = readdirSync(`defaults/${dir}`).filter((f) => f.endsWith('.csv')).map((f) => f.slice(0, -4))
+    expect(csvs.filter((c) => !tables.includes(c)), 'CSVs no table names').toEqual([])
+    const parsed = parseWorkspaceFile(readFileSync(`defaults/${dir}/workspace.powergis.json`, 'utf8'))
+    if (!parsed.ok) throw new Error(parsed.error)
+    for (const d of parsed.file.datasets) if (d.origin.kind === 'builtin') expect(builtinTable(d.origin.table, folder.tables), d.origin.table).toBeTruthy()
+    // Every transform input is a dataset of the file; every output is written by exactly one transform.
+    const ids = new Set(parsed.file.datasets.map((d) => d.id))
+    for (const t of parsed.file.transforms) for (const i of t.inputs) expect(ids.has(i.datasetId), `${t.name} ← ${i.datasetId}`).toBe(true)
+    const outputs = parsed.file.transforms.flatMap((t) => t.outputs.map((o) => o.outputId))
+    expect(new Set(outputs).size).toBe(outputs.length)
+    for (const d of parsed.file.datasets.filter((d) => d.origin.kind === 'output')) expect(outputs).toContain(d.id)
+  })
+
+  it('socioeconomic (the default map): the pipeline over built-ins, in ten stages, the county score showing', () => {
+    const parsed = parseWorkspaceFile(readFileSync('defaults/socioeconomic/workspace.powergis.json', 'utf8'))
     if (!parsed.ok) throw new Error(parsed.error)
     const file = parsed.file
     expect(file.version).toBe(2)
     const builtins = file.datasets.flatMap((d) => (d.origin.kind === 'builtin' ? [d.origin.table] : []))
     expect(builtins.sort()).toEqual(['county_columns', 'county_education', 'county_health_insurance', 'county_home_value', 'county_income', 'county_rent', 'us_counties', 'us_states'])
-    for (const table of builtins) {
-      const b = builtinTable(table)
-      expect(b, table).toBeTruthy()
-      if (b!.source === 'csv') expect(existsSync(`public/data/${table}.csv`), table).toBe(true)
-    }
-    // Ten transforms in stages; every input is a dataset of the file, every output is written by exactly one of them.
     expect(file.transforms.map((t) => t.name)).toEqual([
       '1a Clean county income', '1b Clean county education', '1c Clean county health insurance', '1d Clean county home value',
       '1e County shapes and land area', '2a Join shapes with income and education', '2b Join insurance and home value',
       '3a County metrics and scores', '4a State averages (area-weighted)', '5 State map layer',
     ])
-    const ids = new Set(file.datasets.map((d) => d.id))
-    for (const t of file.transforms) for (const i of t.inputs) expect(ids.has(i.datasetId), `${t.name} ← ${i.datasetId}`).toBe(true)
-    const outputs = file.transforms.flatMap((t) => t.outputs.map((o) => o.outputId))
-    expect(new Set(outputs).size).toBe(outputs.length)
-    for (const d of file.datasets.filter((d) => d.origin.kind === 'output')) expect(outputs).toContain(d.id)
     expect(file.requires).toEqual(['spatial'])
     // One visualization shows when the map opens: the county score.
     expect(file.visualizations.every((v) => v.binding.kind === 'geometry')).toBe(true)

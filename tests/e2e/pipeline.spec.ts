@@ -1,6 +1,6 @@
 // The socioeconomic pipeline: built-in county and state shapes and six ACS
 // county tables, ten transforms in five stages, twelve visualizations. It is
-// the default map (public/data/default.powergis.json), and also a workspace
+// the default map (defaults/socioeconomic/workspace.powergis.json), and also a workspace
 // file whose tables are uploads (tests/fixtures/socioeconomic.powergis.json).
 // Its spatial step (1e, land area) needs DuckDB's spatial extension, which the
 // CI build hosts with the app.

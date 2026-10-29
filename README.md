@@ -11,9 +11,9 @@ typed properties, and visualizes data on them through reusable map widgets:
 
 **Default map:** a county socioeconomic score (income, education, health insurance, housing
 affordability) and area-weighted state averages, from six Census ACS county tables built into the app
-(`public/data/county_*.csv`) and the built-in county and state shapes, by ten SQL transforms in the
-default workspace file (`public/data/default.powergis.json`). The EIA-861 utility tables
-(`scripts/build_utility_counties.py`) remain built-ins.
+and the built-in county and state shapes, by ten SQL transforms. Data and workspace come from a
+**default folder** (`defaults/socioeconomic/`); the app ships whichever folder `defaults/active.json`
+points at (`defaults/README.md`). The earlier EIA-861 utilities map is the folder `defaults/eia-utilities/`.
 
 Built with Vue 3 + TypeScript + Vite (PWA) and MapLibre GL.
 

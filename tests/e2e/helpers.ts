@@ -5,7 +5,8 @@ import { createClient } from '@supabase/supabase-js'
 
 export const FIXTURES = new URL('../fixtures/', import.meta.url).pathname
 /** The built-in CSVs (the ACS county tables are also the socioeconomic fixture's uploads). */
-export const DATA = new URL('../../public/data/', import.meta.url).pathname
+/** The default map's folder: its CSVs are the files a test uploads in place of built-ins. */
+export const DATA = new URL('../../defaults/socioeconomic/', import.meta.url).pathname
 const supabaseUrl = process.env.SUPABASE_TEST_URL ?? 'http://127.0.0.1:54321'
 const supabaseKey = process.env.SUPABASE_TEST_KEY ?? ''
 const run = Math.random().toString(36).slice(2, 7)

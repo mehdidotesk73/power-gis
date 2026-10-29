@@ -359,17 +359,28 @@ visualization it follows the top visible one (they load one by one).
 
 ### Default workspace
 
-The first visit (and Workspace → Reset) opens `public/data/default.powergis.json`, a v2 workspace document
-with readable ids: four built-in datasets (`origin: builtin`) and the transform output
-`default-utilities-by-county` (`origin: output`). The server's `seedDefaultWorkspace` (the worker reads the
-file: `env.readDefaultWorkspace`; `MapPage.seedDefault` only asks and opens the result) runs `openDocument`
-on it — built-ins reused or uploaded, the transform run once (or its earlier copy reused) — and the page opens it with
-`fromWorkspaceFile`, unsaved like any loaded file (the very first one is saved at once). Today's file:
-`utilities` + `utility_counties` (links) + `us_counties` + `us_states`; the transform **Utilities by
-county** (`counties LEFT JOIN links LEFT JOIN utilities` — counties no utility reports keep one empty
-row, so they draw as 0); visualizations Number of utilities (count of
-`utility_id_eia`), Most common ownership, Co-op present (hatch) and State borders (`us_states`).
-The first run loads DuckDB (~6 s on a desktop); later visits reuse the stored output.
+The first visit (and Workspace → Reset) opens the **default folder**'s workspace. Default folders live in
+`defaults/<folder>/` (`defaults/README.md`): `folder.json` (name, description, tables: `table`, `label`,
+`description`, `source` csv | boundary | generated, `version`), a `<table>.csv` per csv table, and
+`workspace.powergis.json`, a v2 workspace document. `defaults/active.json` names the one this build ships:
+
+- `src/shared/builtins.ts` reads every `folder.json` (`import.meta.glob`, so tests see them all as
+  `DEFAULT_FOLDERS`) and exports the active one's tables as `BUILTIN_TABLES`; `createServer` takes
+  another folder's through `env.builtins` (the server tests open the EIA folder this way).
+- `vite.config.ts`'s `default-folder` plugin serves the active folder's CSVs and workspace at `data/` in
+  development and emits them into the build's `data/`; other folders don't ship.
+- `src/lib/workspace/file.test.ts` checks every folder: tables and CSVs match, the workspace's built-ins
+  are the folder's, every transform input exists and every output has one writer.
+
+The workspace has readable ids (`default-county-income`, outputs like `default-county-metrics-and-scores`,
+transforms `default-t-…`). The server's `seedDefaultWorkspace` (the worker reads the file:
+`env.readDefaultWorkspace`; `MapPage.seedDefault` only asks and opens the result) runs `openDocument` on it —
+built-ins reused or uploaded, transforms run in order (or earlier copies of the same SQL reused); what can't
+be made here is reported like any opened workspace's — and the page opens it with `fromWorkspaceFile`,
+unsaved like any loaded file (the very first one is saved at once). The active folder today is
+`socioeconomic` (six ACS county tables + county / state shapes, ten transforms, twelve visualizations; its
+step 1e loads DuckDB's spatial extension). `eia-utilities` holds the earlier default (utilities by county).
+The first run loads DuckDB (~6 s on a desktop); later visits reuse the stored outputs.
 
 ### Dataset profiles
 

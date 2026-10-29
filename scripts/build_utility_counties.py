@@ -4,7 +4,7 @@ Source: EIA-861 "Service Territory" + "Sales to Ultimate Customers", as
 published (cleaned, with county FIPS codes attached) by the Catalyst
 Cooperative PUDL project: https://catalyst.coop/pudl/
 
-Outputs (public/data/), normalized — join them in a transform:
+Outputs (defaults/eia-utilities/, the EIA default folder), normalized — join them in a transform:
   utilities.csv         one row per utility: EIA id, name, ownership type, short-form filer
   utility_counties.csv  one row per (utility, county): the service-territory links
 
@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 
 PUDL = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/stable"
-OUT = Path(__file__).resolve().parent.parent / "public" / "data"
+OUT = Path(__file__).resolve().parent.parent / "defaults" / "eia-utilities"
 CACHE = Path(__file__).resolve().parent / ".cache"
 
 # Retired county FIPS codes still found in EIA-861 → their successors.
