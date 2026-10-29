@@ -399,8 +399,6 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 
 ### Backlog
 
-- **Copy the graph as an image** (DAG toolbar → copy a PNG of the graph to the clipboard, for sharing a
-  pipeline). To come back to with the agent's additional instructions.
 
 - EIA-861 customers / sales / revenue as a separate built-in (per utility × state)
 - Real vector dataset (e.g. EIA-930 balancing-authority interchange flows) to replace the demo arrows

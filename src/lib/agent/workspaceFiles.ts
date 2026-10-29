@@ -439,7 +439,7 @@ export function overviewText(files: Files, doc: WorkspaceDoc, info: OverviewInfo
   lines.push(`## Datasets (${dsIds.length})`)
   for (const id of dsIds) {
     const d = info.datasets.find((x) => x.id === id)
-    lines.push(d ? `- ${id}  "${d.name}"  ${[d.store, d.rows !== undefined ? `${d.rows.toLocaleString()} rows` : '', d.origin].filter(Boolean).join(' · ')}${d.description ? `\n    ${d.description}` : ''}` : `- ${id}  (not in the database)`)
+    lines.push(d ? `- ${id}  "${d.name}"  ${[d.store, d.rows !== undefined ? `${d.rows.toLocaleString()} rows` : '', d.origin].filter(Boolean).join(' · ')}${d.description ? `\n    ${d.description}` : ''}` : `- ${id}  (missing on this device)`)
   }
   const trs = list('transforms')
   lines.push('', `## Transforms (${trs.length})`)

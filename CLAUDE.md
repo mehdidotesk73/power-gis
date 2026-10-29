@@ -375,7 +375,7 @@ whatever they're actually asking about.
   `layoutDag(dag, 'vertical' | 'horizontal')` places them and `edgePath` draws edges (automatic;
   only the ↓ / → direction is remembered per device, `powergis.dagDirection`). The graph **pans and
   zooms** (`dag/usePanZoom.ts` + `lib/panZoom.ts`): drag; Shift + wheel or pinch; on phones
-  touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. Dataset nodes carry a **store dot** before DATASET (violet = cloud, gray = this device; a yellow
+  touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. **⧉ Copy as image** (in the zoom buttons): `dag/graphImage.ts` draws what the window shows (pan + zoom) on a canvas from the layout and page tokens (no DOM screenshot), at 2× or more; the clipboard write starts inside the tap with the PNG still being drawn (iOS), else it downloads `graph.png`. Dataset nodes carry a **store dot** before DATASET (violet = cloud, gray = this device; a yellow
   ring = an output out of date or not made yet: `DagNode.store` / `pending`). Transforms show **not run yet** (no
   output) or **needs re-run** (an input's `updatedAt` is newer than the output's; `transformState`).
   **↻ Run all stale** (graph toolbar + list Transforms panel, only when there's something to run) runs
