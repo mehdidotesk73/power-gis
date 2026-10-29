@@ -1,0 +1,295 @@
+column,meaning,table,universe
+B15003_E001,Estimate: Total,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M001,Margin of error: Total,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E002,Estimate: Total > No schooling completed,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M002,Margin of error: Total > No schooling completed,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E003,Estimate: Total > Nursery school,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M003,Margin of error: Total > Nursery school,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E004,Estimate: Total > Kindergarten,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M004,Margin of error: Total > Kindergarten,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E005,Estimate: Total > 1st grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M005,Margin of error: Total > 1st grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E006,Estimate: Total > 2nd grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M006,Margin of error: Total > 2nd grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E007,Estimate: Total > 3rd grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M007,Margin of error: Total > 3rd grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E008,Estimate: Total > 4th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M008,Margin of error: Total > 4th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E009,Estimate: Total > 5th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M009,Margin of error: Total > 5th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E010,Estimate: Total > 6th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M010,Margin of error: Total > 6th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E011,Estimate: Total > 7th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M011,Margin of error: Total > 7th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E012,Estimate: Total > 8th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M012,Margin of error: Total > 8th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E013,Estimate: Total > 9th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M013,Margin of error: Total > 9th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E014,Estimate: Total > 10th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M014,Margin of error: Total > 10th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E015,Estimate: Total > 11th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M015,Margin of error: Total > 11th grade,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E016,"Estimate: Total > 12th grade, no diploma",Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M016,"Margin of error: Total > 12th grade, no diploma",Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E017,Estimate: Total > Regular high school diploma,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M017,Margin of error: Total > Regular high school diploma,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E018,Estimate: Total > GED or alternative credential,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M018,Margin of error: Total > GED or alternative credential,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E019,"Estimate: Total > Some college, less than 1 year",Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M019,"Margin of error: Total > Some college, less than 1 year",Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E020,"Estimate: Total > Some college, 1 or more years, no degree",Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M020,"Margin of error: Total > Some college, 1 or more years, no degree",Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E021,Estimate: Total > Associate's degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M021,Margin of error: Total > Associate's degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E022,Estimate: Total > Bachelor's degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M022,Margin of error: Total > Bachelor's degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E023,Estimate: Total > Master's degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M023,Margin of error: Total > Master's degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E024,Estimate: Total > Professional school degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M024,Margin of error: Total > Professional school degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_E025,Estimate: Total > Doctorate degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B15003_M025,Margin of error: Total > Doctorate degree,Educational Attainment for the Population 25 Years and Over,Population 25 years and over
+B27010_E001,Estimate: Total,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M001,Margin of error: Total,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E002,Estimate: Total > Under 19 years,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M002,Margin of error: Total > Under 19 years,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E003,Estimate: Total > Under 19 years > With one type of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M003,Margin of error: Total > Under 19 years > With one type of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E004,Estimate: Total > Under 19 years > With one type of health insurance coverage > With employer-based health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M004,Margin of error: Total > Under 19 years > With one type of health insurance coverage > With employer-based health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E005,Estimate: Total > Under 19 years > With one type of health insurance coverage > With direct-purchase health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M005,Margin of error: Total > Under 19 years > With one type of health insurance coverage > With direct-purchase health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E006,Estimate: Total > Under 19 years > With one type of health insurance coverage > With Medicare coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M006,Margin of error: Total > Under 19 years > With one type of health insurance coverage > With Medicare coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E007,Estimate: Total > Under 19 years > With one type of health insurance coverage > With Medicaid/means-tested public coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M007,Margin of error: Total > Under 19 years > With one type of health insurance coverage > With Medicaid/means-tested public coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E008,Estimate: Total > Under 19 years > With one type of health insurance coverage > With TRICARE/military health coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M008,Margin of error: Total > Under 19 years > With one type of health insurance coverage > With TRICARE/military health coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E009,Estimate: Total > Under 19 years > With one type of health insurance coverage > With VA Health Care only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M009,Margin of error: Total > Under 19 years > With one type of health insurance coverage > With VA Health Care only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E010,Estimate: Total > Under 19 years > With two or more types of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M010,Margin of error: Total > Under 19 years > With two or more types of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E011,Estimate: Total > Under 19 years > With two or more types of health insurance coverage > With employer-based and direct-purchase coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M011,Margin of error: Total > Under 19 years > With two or more types of health insurance coverage > With employer-based and direct-purchase coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E012,Estimate: Total > Under 19 years > With two or more types of health insurance coverage > With employer-based and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M012,Margin of error: Total > Under 19 years > With two or more types of health insurance coverage > With employer-based and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E013,Estimate: Total > Under 19 years > With two or more types of health insurance coverage > With Medicare and Medicaid/means-tested public coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M013,Margin of error: Total > Under 19 years > With two or more types of health insurance coverage > With Medicare and Medicaid/means-tested public coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E014,Estimate: Total > Under 19 years > With two or more types of health insurance coverage > Other private only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M014,Margin of error: Total > Under 19 years > With two or more types of health insurance coverage > Other private only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E015,Estimate: Total > Under 19 years > With two or more types of health insurance coverage > Other public only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M015,Margin of error: Total > Under 19 years > With two or more types of health insurance coverage > Other public only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E016,Estimate: Total > Under 19 years > With two or more types of health insurance coverage > Other coverage combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M016,Margin of error: Total > Under 19 years > With two or more types of health insurance coverage > Other coverage combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E017,Estimate: Total > Under 19 years > No health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M017,Margin of error: Total > Under 19 years > No health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E018,Estimate: Total > 19 to 34 years,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M018,Margin of error: Total > 19 to 34 years,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E019,Estimate: Total > 19 to 34 years > With one type of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M019,Margin of error: Total > 19 to 34 years > With one type of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E020,Estimate: Total > 19 to 34 years > With one type of health insurance coverage > With employer-based health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M020,Margin of error: Total > 19 to 34 years > With one type of health insurance coverage > With employer-based health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E021,Estimate: Total > 19 to 34 years > With one type of health insurance coverage > With direct-purchase health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M021,Margin of error: Total > 19 to 34 years > With one type of health insurance coverage > With direct-purchase health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E022,Estimate: Total > 19 to 34 years > With one type of health insurance coverage > With Medicare coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M022,Margin of error: Total > 19 to 34 years > With one type of health insurance coverage > With Medicare coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E023,Estimate: Total > 19 to 34 years > With one type of health insurance coverage > With Medicaid/means-tested public coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M023,Margin of error: Total > 19 to 34 years > With one type of health insurance coverage > With Medicaid/means-tested public coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E024,Estimate: Total > 19 to 34 years > With one type of health insurance coverage > With TRICARE/military health coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M024,Margin of error: Total > 19 to 34 years > With one type of health insurance coverage > With TRICARE/military health coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E025,Estimate: Total > 19 to 34 years > With one type of health insurance coverage > With VA Health Care only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M025,Margin of error: Total > 19 to 34 years > With one type of health insurance coverage > With VA Health Care only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E026,Estimate: Total > 19 to 34 years > With two or more types of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M026,Margin of error: Total > 19 to 34 years > With two or more types of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E027,Estimate: Total > 19 to 34 years > With two or more types of health insurance coverage > With employer-based and direct-purchase coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M027,Margin of error: Total > 19 to 34 years > With two or more types of health insurance coverage > With employer-based and direct-purchase coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E028,Estimate: Total > 19 to 34 years > With two or more types of health insurance coverage > With employer-based and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M028,Margin of error: Total > 19 to 34 years > With two or more types of health insurance coverage > With employer-based and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E029,Estimate: Total > 19 to 34 years > With two or more types of health insurance coverage > With Medicare and Medicaid/means-tested public coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M029,Margin of error: Total > 19 to 34 years > With two or more types of health insurance coverage > With Medicare and Medicaid/means-tested public coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E030,Estimate: Total > 19 to 34 years > With two or more types of health insurance coverage > Other private only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M030,Margin of error: Total > 19 to 34 years > With two or more types of health insurance coverage > Other private only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E031,Estimate: Total > 19 to 34 years > With two or more types of health insurance coverage > Other public only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M031,Margin of error: Total > 19 to 34 years > With two or more types of health insurance coverage > Other public only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E032,Estimate: Total > 19 to 34 years > With two or more types of health insurance coverage > Other coverage combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M032,Margin of error: Total > 19 to 34 years > With two or more types of health insurance coverage > Other coverage combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E033,Estimate: Total > 19 to 34 years > No health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M033,Margin of error: Total > 19 to 34 years > No health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E034,Estimate: Total > 35 to 64 years,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M034,Margin of error: Total > 35 to 64 years,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E035,Estimate: Total > 35 to 64 years > With one type of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M035,Margin of error: Total > 35 to 64 years > With one type of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E036,Estimate: Total > 35 to 64 years > With one type of health insurance coverage > With employer-based health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M036,Margin of error: Total > 35 to 64 years > With one type of health insurance coverage > With employer-based health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E037,Estimate: Total > 35 to 64 years > With one type of health insurance coverage > With direct-purchase health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M037,Margin of error: Total > 35 to 64 years > With one type of health insurance coverage > With direct-purchase health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E038,Estimate: Total > 35 to 64 years > With one type of health insurance coverage > With Medicare coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M038,Margin of error: Total > 35 to 64 years > With one type of health insurance coverage > With Medicare coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E039,Estimate: Total > 35 to 64 years > With one type of health insurance coverage > With Medicaid/means-tested public coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M039,Margin of error: Total > 35 to 64 years > With one type of health insurance coverage > With Medicaid/means-tested public coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E040,Estimate: Total > 35 to 64 years > With one type of health insurance coverage > With TRICARE/military health coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M040,Margin of error: Total > 35 to 64 years > With one type of health insurance coverage > With TRICARE/military health coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E041,Estimate: Total > 35 to 64 years > With one type of health insurance coverage > With VA Health Care only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M041,Margin of error: Total > 35 to 64 years > With one type of health insurance coverage > With VA Health Care only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E042,Estimate: Total > 35 to 64 years > With two or more types of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M042,Margin of error: Total > 35 to 64 years > With two or more types of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E043,Estimate: Total > 35 to 64 years > With two or more types of health insurance coverage > With employer-based and direct-purchase coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M043,Margin of error: Total > 35 to 64 years > With two or more types of health insurance coverage > With employer-based and direct-purchase coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E044,Estimate: Total > 35 to 64 years > With two or more types of health insurance coverage > With employer-based and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M044,Margin of error: Total > 35 to 64 years > With two or more types of health insurance coverage > With employer-based and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E045,Estimate: Total > 35 to 64 years > With two or more types of health insurance coverage > With direct-purchase and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M045,Margin of error: Total > 35 to 64 years > With two or more types of health insurance coverage > With direct-purchase and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E046,Estimate: Total > 35 to 64 years > With two or more types of health insurance coverage > With Medicare and Medicaid/means-tested public coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M046,Margin of error: Total > 35 to 64 years > With two or more types of health insurance coverage > With Medicare and Medicaid/means-tested public coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E047,Estimate: Total > 35 to 64 years > With two or more types of health insurance coverage > Other private only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M047,Margin of error: Total > 35 to 64 years > With two or more types of health insurance coverage > Other private only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E048,Estimate: Total > 35 to 64 years > With two or more types of health insurance coverage > Other public only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M048,Margin of error: Total > 35 to 64 years > With two or more types of health insurance coverage > Other public only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E049,Estimate: Total > 35 to 64 years > With two or more types of health insurance coverage > Other coverage combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M049,Margin of error: Total > 35 to 64 years > With two or more types of health insurance coverage > Other coverage combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E050,Estimate: Total > 35 to 64 years > No health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M050,Margin of error: Total > 35 to 64 years > No health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E051,Estimate: Total > 65 years and over,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M051,Margin of error: Total > 65 years and over,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E052,Estimate: Total > 65 years and over > With one type of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M052,Margin of error: Total > 65 years and over > With one type of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E053,Estimate: Total > 65 years and over > With one type of health insurance coverage > With employer-based health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M053,Margin of error: Total > 65 years and over > With one type of health insurance coverage > With employer-based health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E054,Estimate: Total > 65 years and over > With one type of health insurance coverage > With direct-purchase health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M054,Margin of error: Total > 65 years and over > With one type of health insurance coverage > With direct-purchase health insurance only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E055,Estimate: Total > 65 years and over > With one type of health insurance coverage > With Medicare coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M055,Margin of error: Total > 65 years and over > With one type of health insurance coverage > With Medicare coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E056,Estimate: Total > 65 years and over > With one type of health insurance coverage > With TRICARE/military health coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M056,Margin of error: Total > 65 years and over > With one type of health insurance coverage > With TRICARE/military health coverage only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E057,Estimate: Total > 65 years and over > With one type of health insurance coverage > With VA Health Care only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M057,Margin of error: Total > 65 years and over > With one type of health insurance coverage > With VA Health Care only,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E058,Estimate: Total > 65 years and over > With two or more types of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M058,Margin of error: Total > 65 years and over > With two or more types of health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E059,Estimate: Total > 65 years and over > With two or more types of health insurance coverage > With employer-based and direct-purchase coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M059,Margin of error: Total > 65 years and over > With two or more types of health insurance coverage > With employer-based and direct-purchase coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E060,Estimate: Total > 65 years and over > With two or more types of health insurance coverage > With employer-based and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M060,Margin of error: Total > 65 years and over > With two or more types of health insurance coverage > With employer-based and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E061,Estimate: Total > 65 years and over > With two or more types of health insurance coverage > With direct-purchase and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M061,Margin of error: Total > 65 years and over > With two or more types of health insurance coverage > With direct-purchase and Medicare coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E062,Estimate: Total > 65 years and over > With two or more types of health insurance coverage > With Medicare and Medicaid/means-tested public coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M062,Margin of error: Total > 65 years and over > With two or more types of health insurance coverage > With Medicare and Medicaid/means-tested public coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E063,Estimate: Total > 65 years and over > With two or more types of health insurance coverage > Other private only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M063,Margin of error: Total > 65 years and over > With two or more types of health insurance coverage > Other private only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E064,Estimate: Total > 65 years and over > With two or more types of health insurance coverage > Other public only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M064,Margin of error: Total > 65 years and over > With two or more types of health insurance coverage > Other public only combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E065,Estimate: Total > 65 years and over > With two or more types of health insurance coverage > Other coverage combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M065,Margin of error: Total > 65 years and over > With two or more types of health insurance coverage > Other coverage combinations,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_E066,Estimate: Total > 65 years and over > No health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B27010_M066,Margin of error: Total > 65 years and over > No health insurance coverage,Types of Health Insurance Coverage by Age,Civilian noninstitutionalized population
+B25077_E001,Estimate: Median value (dollars),Median Value (Dollars),Owner-occupied housing units
+B25077_M001,Margin of error: Median value (dollars),Median Value (Dollars),Owner-occupied housing units
+B25075_E001,Estimate: Total,Value,Owner-occupied housing units
+B25075_M001,Margin of error: Total,Value,Owner-occupied housing units
+B25075_E002,"Estimate: Total > Less than $10,000",Value,Owner-occupied housing units
+B25075_M002,"Margin of error: Total > Less than $10,000",Value,Owner-occupied housing units
+B25075_E003,"Estimate: Total > $10,000 to $14,999",Value,Owner-occupied housing units
+B25075_M003,"Margin of error: Total > $10,000 to $14,999",Value,Owner-occupied housing units
+B25075_E004,"Estimate: Total > $15,000 to $19,999",Value,Owner-occupied housing units
+B25075_M004,"Margin of error: Total > $15,000 to $19,999",Value,Owner-occupied housing units
+B25075_E005,"Estimate: Total > $20,000 to $24,999",Value,Owner-occupied housing units
+B25075_M005,"Margin of error: Total > $20,000 to $24,999",Value,Owner-occupied housing units
+B25075_E006,"Estimate: Total > $25,000 to $29,999",Value,Owner-occupied housing units
+B25075_M006,"Margin of error: Total > $25,000 to $29,999",Value,Owner-occupied housing units
+B25075_E007,"Estimate: Total > $30,000 to $34,999",Value,Owner-occupied housing units
+B25075_M007,"Margin of error: Total > $30,000 to $34,999",Value,Owner-occupied housing units
+B25075_E008,"Estimate: Total > $35,000 to $39,999",Value,Owner-occupied housing units
+B25075_M008,"Margin of error: Total > $35,000 to $39,999",Value,Owner-occupied housing units
+B25075_E009,"Estimate: Total > $40,000 to $49,999",Value,Owner-occupied housing units
+B25075_M009,"Margin of error: Total > $40,000 to $49,999",Value,Owner-occupied housing units
+B25075_E010,"Estimate: Total > $50,000 to $59,999",Value,Owner-occupied housing units
+B25075_M010,"Margin of error: Total > $50,000 to $59,999",Value,Owner-occupied housing units
+B25075_E011,"Estimate: Total > $60,000 to $69,999",Value,Owner-occupied housing units
+B25075_M011,"Margin of error: Total > $60,000 to $69,999",Value,Owner-occupied housing units
+B25075_E012,"Estimate: Total > $70,000 to $79,999",Value,Owner-occupied housing units
+B25075_M012,"Margin of error: Total > $70,000 to $79,999",Value,Owner-occupied housing units
+B25075_E013,"Estimate: Total > $80,000 to $89,999",Value,Owner-occupied housing units
+B25075_M013,"Margin of error: Total > $80,000 to $89,999",Value,Owner-occupied housing units
+B25075_E014,"Estimate: Total > $90,000 to $99,999",Value,Owner-occupied housing units
+B25075_M014,"Margin of error: Total > $90,000 to $99,999",Value,Owner-occupied housing units
+B25075_E015,"Estimate: Total > $100,000 to $124,999",Value,Owner-occupied housing units
+B25075_M015,"Margin of error: Total > $100,000 to $124,999",Value,Owner-occupied housing units
+B25075_E016,"Estimate: Total > $125,000 to $149,999",Value,Owner-occupied housing units
+B25075_M016,"Margin of error: Total > $125,000 to $149,999",Value,Owner-occupied housing units
+B25075_E017,"Estimate: Total > $150,000 to $174,999",Value,Owner-occupied housing units
+B25075_M017,"Margin of error: Total > $150,000 to $174,999",Value,Owner-occupied housing units
+B25075_E018,"Estimate: Total > $175,000 to $199,999",Value,Owner-occupied housing units
+B25075_M018,"Margin of error: Total > $175,000 to $199,999",Value,Owner-occupied housing units
+B25075_E019,"Estimate: Total > $200,000 to $249,999",Value,Owner-occupied housing units
+B25075_M019,"Margin of error: Total > $200,000 to $249,999",Value,Owner-occupied housing units
+B25075_E020,"Estimate: Total > $250,000 to $299,999",Value,Owner-occupied housing units
+B25075_M020,"Margin of error: Total > $250,000 to $299,999",Value,Owner-occupied housing units
+B25075_E021,"Estimate: Total > $300,000 to $399,999",Value,Owner-occupied housing units
+B25075_M021,"Margin of error: Total > $300,000 to $399,999",Value,Owner-occupied housing units
+B25075_E022,"Estimate: Total > $400,000 to $499,999",Value,Owner-occupied housing units
+B25075_M022,"Margin of error: Total > $400,000 to $499,999",Value,Owner-occupied housing units
+B25075_E023,"Estimate: Total > $500,000 to $749,999",Value,Owner-occupied housing units
+B25075_M023,"Margin of error: Total > $500,000 to $749,999",Value,Owner-occupied housing units
+B25075_E024,"Estimate: Total > $750,000 to $999,999",Value,Owner-occupied housing units
+B25075_M024,"Margin of error: Total > $750,000 to $999,999",Value,Owner-occupied housing units
+B25075_E025,"Estimate: Total > $1,000,000 to $1,499,999",Value,Owner-occupied housing units
+B25075_M025,"Margin of error: Total > $1,000,000 to $1,499,999",Value,Owner-occupied housing units
+B25075_E026,"Estimate: Total > $1,500,000 to $1,999,999",Value,Owner-occupied housing units
+B25075_M026,"Margin of error: Total > $1,500,000 to $1,999,999",Value,Owner-occupied housing units
+B25075_E027,"Estimate: Total > $2,000,000 or more",Value,Owner-occupied housing units
+B25075_M027,"Margin of error: Total > $2,000,000 or more",Value,Owner-occupied housing units
+B25064_E001,Estimate: Median gross rent,Median Gross Rent (Dollars),Renter-occupied housing units paying cash rent
+B25064_M001,Margin of error: Median gross rent,Median Gross Rent (Dollars),Renter-occupied housing units paying cash rent
+B25063_E001,Estimate: Total,Gross Rent,Renter-occupied housing units
+B25063_M001,Margin of error: Total,Gross Rent,Renter-occupied housing units
+B25063_E002,Estimate: Total > With cash rent,Gross Rent,Renter-occupied housing units
+B25063_M002,Margin of error: Total > With cash rent,Gross Rent,Renter-occupied housing units
+B25063_E003,Estimate: Total > With cash rent > Less than $100,Gross Rent,Renter-occupied housing units
+B25063_M003,Margin of error: Total > With cash rent > Less than $100,Gross Rent,Renter-occupied housing units
+B25063_E004,Estimate: Total > With cash rent > $100 to $149,Gross Rent,Renter-occupied housing units
+B25063_M004,Margin of error: Total > With cash rent > $100 to $149,Gross Rent,Renter-occupied housing units
+B25063_E005,Estimate: Total > With cash rent > $150 to $199,Gross Rent,Renter-occupied housing units
+B25063_M005,Margin of error: Total > With cash rent > $150 to $199,Gross Rent,Renter-occupied housing units
+B25063_E006,Estimate: Total > With cash rent > $200 to $249,Gross Rent,Renter-occupied housing units
+B25063_M006,Margin of error: Total > With cash rent > $200 to $249,Gross Rent,Renter-occupied housing units
+B25063_E007,Estimate: Total > With cash rent > $250 to $299,Gross Rent,Renter-occupied housing units
+B25063_M007,Margin of error: Total > With cash rent > $250 to $299,Gross Rent,Renter-occupied housing units
+B25063_E008,Estimate: Total > With cash rent > $300 to $349,Gross Rent,Renter-occupied housing units
+B25063_M008,Margin of error: Total > With cash rent > $300 to $349,Gross Rent,Renter-occupied housing units
+B25063_E009,Estimate: Total > With cash rent > $350 to $399,Gross Rent,Renter-occupied housing units
+B25063_M009,Margin of error: Total > With cash rent > $350 to $399,Gross Rent,Renter-occupied housing units
+B25063_E010,Estimate: Total > With cash rent > $400 to $449,Gross Rent,Renter-occupied housing units
+B25063_M010,Margin of error: Total > With cash rent > $400 to $449,Gross Rent,Renter-occupied housing units
+B25063_E011,Estimate: Total > With cash rent > $450 to $499,Gross Rent,Renter-occupied housing units
+B25063_M011,Margin of error: Total > With cash rent > $450 to $499,Gross Rent,Renter-occupied housing units
+B25063_E012,Estimate: Total > With cash rent > $500 to $549,Gross Rent,Renter-occupied housing units
+B25063_M012,Margin of error: Total > With cash rent > $500 to $549,Gross Rent,Renter-occupied housing units
+B25063_E013,Estimate: Total > With cash rent > $550 to $599,Gross Rent,Renter-occupied housing units
+B25063_M013,Margin of error: Total > With cash rent > $550 to $599,Gross Rent,Renter-occupied housing units
+B25063_E014,Estimate: Total > With cash rent > $600 to $649,Gross Rent,Renter-occupied housing units
+B25063_M014,Margin of error: Total > With cash rent > $600 to $649,Gross Rent,Renter-occupied housing units
+B25063_E015,Estimate: Total > With cash rent > $650 to $699,Gross Rent,Renter-occupied housing units
+B25063_M015,Margin of error: Total > With cash rent > $650 to $699,Gross Rent,Renter-occupied housing units
+B25063_E016,Estimate: Total > With cash rent > $700 to $749,Gross Rent,Renter-occupied housing units
+B25063_M016,Margin of error: Total > With cash rent > $700 to $749,Gross Rent,Renter-occupied housing units
+B25063_E017,Estimate: Total > With cash rent > $750 to $799,Gross Rent,Renter-occupied housing units
+B25063_M017,Margin of error: Total > With cash rent > $750 to $799,Gross Rent,Renter-occupied housing units
+B25063_E018,Estimate: Total > With cash rent > $800 to $899,Gross Rent,Renter-occupied housing units
+B25063_M018,Margin of error: Total > With cash rent > $800 to $899,Gross Rent,Renter-occupied housing units
+B25063_E019,Estimate: Total > With cash rent > $900 to $999,Gross Rent,Renter-occupied housing units
+B25063_M019,Margin of error: Total > With cash rent > $900 to $999,Gross Rent,Renter-occupied housing units
+B25063_E020,"Estimate: Total > With cash rent > $1,000 to $1,249",Gross Rent,Renter-occupied housing units
+B25063_M020,"Margin of error: Total > With cash rent > $1,000 to $1,249",Gross Rent,Renter-occupied housing units
+B25063_E021,"Estimate: Total > With cash rent > $1,250 to $1,499",Gross Rent,Renter-occupied housing units
+B25063_M021,"Margin of error: Total > With cash rent > $1,250 to $1,499",Gross Rent,Renter-occupied housing units
+B25063_E022,"Estimate: Total > With cash rent > $1,500 to $1,999",Gross Rent,Renter-occupied housing units
+B25063_M022,"Margin of error: Total > With cash rent > $1,500 to $1,999",Gross Rent,Renter-occupied housing units
+B25063_E023,"Estimate: Total > With cash rent > $2,000 to $2,499",Gross Rent,Renter-occupied housing units
+B25063_M023,"Margin of error: Total > With cash rent > $2,000 to $2,499",Gross Rent,Renter-occupied housing units
+B25063_E024,"Estimate: Total > With cash rent > $2,500 to $2,999",Gross Rent,Renter-occupied housing units
+B25063_M024,"Margin of error: Total > With cash rent > $2,500 to $2,999",Gross Rent,Renter-occupied housing units
+B25063_E025,"Estimate: Total > With cash rent > $3,000 to $3,499",Gross Rent,Renter-occupied housing units
+B25063_M025,"Margin of error: Total > With cash rent > $3,000 to $3,499",Gross Rent,Renter-occupied housing units
+B25063_E026,"Estimate: Total > With cash rent > $3,500 or more",Gross Rent,Renter-occupied housing units
+B25063_M026,"Margin of error: Total > With cash rent > $3,500 or more",Gross Rent,Renter-occupied housing units
+B25063_E027,Estimate: Total > No cash rent,Gross Rent,Renter-occupied housing units
+B25063_M027,Margin of error: Total > No cash rent,Gross Rent,Renter-occupied housing units
