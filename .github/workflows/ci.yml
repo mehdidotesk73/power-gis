@@ -2,7 +2,8 @@ name: CI
 
 # Type-check + build every pull request, so a change that doesn't compile
 # can't reach `main`. The job name (`build`) is what you select as a required
-# status check in the branch ruleset — see the finish-setup skill.
+# status check in the branch ruleset — see the finish-setup skill. Every test
+# runs inside this one job, so the ruleset's one check covers them all.
 
 on:
   pull_request:
@@ -24,3 +25,13 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      # Integration tests: the real cloud code against a local Supabase stack
+      # (Docker on the runner; no account or secrets), started empty with our
+      # schema applied (scripts/test-stack.sh).
+      - name: Cloud integration tests
+        run: |
+          eval "$(scripts/test-stack.sh)"
+          npm run test:cloud
+      - name: Stop the stack
+        if: always()
+        run: npx supabase stop --no-backup || true

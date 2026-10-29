@@ -340,6 +340,18 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
      built-in one sends only a few emails an hour.
 
+### Automated tests (agreed 2026-10-29)
+
+- ~~**A. Cloud integration tests**~~ (done): `tests/cloud` against a local Supabase stack in CI.
+- **B. UI scenarios (Playwright)**, built against the same local stack, in the `build` job: the
+  socioeconomic fixture pipeline (`tests/fixtures`: upload the 6 CSVs, load the workspace, Replace the
+  missing uploads, Run them now, check counts and values; needs the spatial extension, so it runs in
+  the browser), then (1) same user, second device: linked uploads and outputs pulled, local-only ones
+  red; (2) a final output shared read-only and used as another user's input; (3) a state aggregate
+  shared writable, both users compute and push → conflict, pull / overwrite; (4) access rules (remove,
+  lower, leave, delete from the cloud); (5) signed out / fresh device. Stable `data-testid` keys on
+  what the tests touch; phone size with touch and desktop. Expected values signed off by the user.
+
 ### Testing with two users (plan; run before step 4)
 
 Sharing and sync need more than one person and more than one device. Setup, once:

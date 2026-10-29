@@ -20,8 +20,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const COLUMNS = 'id, name, description, columns, row_count, meta, file_path, size_bytes, created_by, updated_at'
 type Row = { id: string; name: string; description: string; columns: unknown; row_count: number; meta: unknown; file_path: string | null; size_bytes: number | null; created_by: string | null; updated_at: string }
 
-export function supabaseCloud(accessToken: string): CloudStore {
-  const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
+export function supabaseCloud(accessToken: string, project = { url: SUPABASE_URL, key: SUPABASE_KEY }): CloudStore {
+  const sb = createClient(project.url, project.key, {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   })
@@ -109,9 +109,12 @@ export function supabaseCloud(accessToken: string): CloudStore {
       return new Uint8Array(await r.data.arrayBuffer())
     },
     async deleteDataset(id) {
+      // The file first: its delete policy reads the access rows, which go with the dataset row.
       const r = await sb.storage.from(BUCKET).remove([filePath(id)])
       if (r.error) throw new Error(r.error.message)
-      check(await sb.from('datasets').delete().eq('id', id))
+      // Row-level security skips a dataset the user may not delete without an error: none back = refused.
+      const rows = check(await sb.from('datasets').delete().eq('id', id).select('id')) as unknown[]
+      if (!rows.length) throw new Error('Only its owner can delete it from the cloud')
     },
     async defaultWorkspace() {
       const row = check(await sb.from('workspaces').select('id, name, config, updated_at').eq('is_default', true).maybeSingle())

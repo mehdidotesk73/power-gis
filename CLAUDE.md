@@ -85,7 +85,13 @@ whatever they're actually asking about.
 - **Unit tests:** `npm test` (vitest). Tests live beside the code as `src/lib/*.test.ts` and cover
   the foundations later features sit on: the schema, style → expression translation, ArcGIS
   conversion, and the utility CSV join.
-- **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, one job named `build`), and the
+- **Cloud integration tests:** `tests/cloud/` (`npm run test:cloud`, kept out of `npm test`) run the real
+  `server/cloud.ts` and server requests as several real accounts against a local Supabase stack
+  (`eval "$(scripts/test-stack.sh)"`: `supabase start` via the npm `supabase` CLI, Docker, no account;
+  our `supabase/*.sql` applied in order; `supabase/config.toml` is that local stack's config only).
+  Builds can point at another project with `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY`.
+- **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, one job named `build`; the cloud
+  integration tests run in it too), and the
   branch ruleset requires it to pass before merge. Tests stay inside that one job — never a separate
   job, since the ruleset only watches `build`.
 - **External data dependencies:** the basemap (dark vector tiles, free, no key: OpenFreeMap dark, else CARTO Dark Matter, else a plain background), and — only when
@@ -435,8 +441,10 @@ src/
     agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)
     account/AccountModal.vue  sign in / create account / reset password / your profile
 public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
-supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor
-scripts/                   data build scripts; fetch-duckdb-extensions.mjs (prebuild, Netlify only)
+supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor;
+                           config.toml (the local test stack only)
+tests/cloud/               cloud integration tests (real Supabase stack); tests/fixtures/ test data (socioeconomic workspace + CSVs)
+scripts/                   data build scripts; fetch-duckdb-extensions.mjs (prebuild, Netlify only); test-stack.sh (local Supabase for tests)
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)
   experience.md            what didn't work + per-merge version history

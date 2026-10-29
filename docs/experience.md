@@ -312,6 +312,20 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Cloud integration tests on a real Supabase stack — 2026-10-29
+
+- **Added:** `tests/cloud` runs the real cloud code as three real accounts against `supabase start`
+  (Docker, no account), in CI's `build` job: two devices of one user (link, pull, push, conflict,
+  overwrite, rename), sharing (read / write, the rules checked in the database directly, leaving,
+  delete from the cloud) and private workspaces.
+- **Fixed (found by it):** deleting a cloud dataset without owner access "succeeded": row-level
+  security skips the row without an error. `deleteDataset` now asks for the deleted row back and
+  refuses when none comes (the app already checked ownership first, so the UI never hit it).
+- **Dead end:** loading DuckDB extensions in the Node test engine (duckdb-wasm's blocking Node
+  build) hangs, from a URL or a local path. Tests that need spatial run in the browser instead.
+- **Gotcha:** the Supabase CLI pulls its images from AWS's public registry by default; where that's
+  blocked, `SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io` uses Docker Hub's copies.
+
 ### Sharing (Supabase, PR 4 of 4) — 2026-10-29
 
 - **Added:** **Share…** on a cloud dataset: its people, add someone by their account's email as **Can
