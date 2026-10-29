@@ -48,7 +48,7 @@ The user reads your work in the graph and the lists, and changes it later. Build
 - **Revising.** When the user asks to restructure, rebuild the steps rather than patching the old query; then delete the transforms and datasets nothing uses any more.
 
 ## Checking each stage
-After each run, check its output with queries before the next stage uses it; say what you found in your summary.
+run_transform returns a check for every output: its rows and each input's, the columns unique on every row, each column's nulls, distinct values and range, and flags. Read it after each run, query further where it raises a doubt, and settle it before the next stage uses the output; say what you found in your summary.
 - **One row per key** where the stage promises it: count(*) equals count(DISTINCT key). A join that multiplies rows is a bug until explained.
 - **Joins keep their rows:** the output has as many rows as the table that defines the rows; count the rows that found no match on the other side, and name a few of their keys.
 - **Values in range:** shares within 0–1 or 0–100, scores within their scale, no negative counts; nulls where you expect them (placeholders turned into NULL) and not elsewhere.

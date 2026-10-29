@@ -346,6 +346,14 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
      built-in one sends only a few emails an hour.
 
+### Agent reviewer pass (agreed 2026-10-29; after scouting and scraping)
+
+For builds big enough to need an approved plan: when the builder finishes, a separate call with fresh
+context gets only the request, the overview, the SQL files and the visualization settings, and returns
+findings (does it answer the request, is it understandable, do paired layers match). The builder fixes
+them once (at most twice) and reports what it left. Maybe a different model than the builder. Measure on
+the socioeconomic request with and without it before keeping it.
+
 ### Automated tests (agreed 2026-10-29)
 
 - ~~**A. Cloud integration tests**~~ (done): `tests/cloud` against a local Supabase stack in CI.

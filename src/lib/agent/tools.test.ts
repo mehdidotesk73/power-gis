@@ -287,7 +287,10 @@ describe('agent tools', () => {
       ],
     }
     const { host, calls } = fakeHost(doc)
-    expect((await runTool(host, 'run_transform', { id: 't1' })).summary).toBe('10 rows → JOINED')
+    const run = await runTool(host, 'run_transform', { id: 't1' })
+    expect(run.summary).toBe('10 rows → JOINED')
+    // Each output comes with its check: rows against the inputs', columns (lib/agent/checks.ts).
+    expect(json(run.content).outputs[0].check).toMatchObject({ inputs: [{ alias: 's' }], columns: [{ name: 'name' }, { name: 'price' }, { name: 'geometry' }] })
     // A linked (cloud) output is this device's copy too: the run changes it here (it turns ↑ until the user syncs).
     expect((await runTool(host, 'run_transform', { id: 't2' })).isError).toBe(false)
     expect(await runTool(host, 'delete_dataset', { id: 'prices' })).toMatchObject({ isError: true, summary: 'refused: still used' })

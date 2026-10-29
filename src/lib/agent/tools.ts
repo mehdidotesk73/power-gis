@@ -17,6 +17,7 @@ import { COLORMAPS, type ColormapName } from '../colormaps'
 import type { PaletteName } from '../palettes'
 import { MAGNITUDE_FIELD, type ColorEncoding } from '../style'
 import { addDataset, addTransform, addVisualization, newOutput, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
+import { outputCheck } from './checks'
 import { transformState } from '../workspace/dag'
 import { snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
@@ -143,7 +144,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'run_transform',
     description:
-      'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns row counts and dataset ids. It changes this device\'s copies only: an output linked to the cloud turns ↑ (changed here) until the user syncs it.',
+      'Run one transform of the workspace (its current SQL): every output is written, or none if any SQL fails. New output datasets join the workspace (without visualizations). Returns, per output, its dataset id and a check: its rows and each input\'s, the columns unique on every row (keys), each column\'s nulls, distinct values and range, and flags worth a look (more rows than any input, no unique column, an empty column). It changes this device\'s copies only: an output linked to the cloud turns ↑ (changed here) until the user syncs it.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   },
   {
@@ -628,7 +629,16 @@ async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   if (pending) return pending
   const r = await host.runTransform(t.id)
   if (!r.ok) return err(r.message, 'SQL error')
-  return ok({ outputs: r.outputs }, r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · '))
+  // The facts for checking each stage, from each output's profile: rows against the inputs', keys, nulls, ranges, flags.
+  const inputs = await Promise.all(t.inputs.map(async (i) => ({ alias: i.alias, record: await host.dataset(i.datasetId) })))
+  const outputs = await Promise.all(
+    r.outputs.map(async (o) => {
+      const d = await host.dataset(o.datasetId)
+      return { ...o, ...(d ? { check: outputCheck(d, inputs) } : {}) }
+    }),
+  )
+  const flagged = outputs.reduce((n, o) => n + (o.check?.flags.length ?? 0), 0)
+  return ok({ outputs }, `${r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · ')}${flagged ? ` · ${plural(flagged, 'flag')}` : ''}`)
 }
 
 async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> {
