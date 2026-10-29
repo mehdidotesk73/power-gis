@@ -303,7 +303,8 @@ whatever they're actually asking about.
   columns, List | Graph over a **mini map** on the left, that section on the right. Phones: List | Graph,
   then that section, scrolling together (the page scrolls, head sticky) above a mini map anchored at the
   bottom (sticky; `scroll-padding` keeps revealed items clear of both). The mini map's height is dragged
-  from the bar above it on both (`useSplitter` with `side: 'bottom'`, `--minimap-h`, `powergis.minimapHeight`). **New-item flows scroll each step
+  from the bar above it on both (`useSplitter` with `side: 'bottom'`, `--minimap-h`, `powergis.minimapHeight`).
+  It **starts minimized** to a **▴ Map** bar (`mapMin`; tap opens it, ▾ at the drag bar's end minimizes it again). **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
 - **Explore** (`dataset/ExploreModal.vue`, a dataset's menu): a window with a SQL box (starts
   `SELECT * FROM <dataset>`) over a docked results table, **200 rows a page** (Prev / Next) with the

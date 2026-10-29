@@ -318,6 +318,7 @@ Two additions from reviewing it here, beyond what the originating project report
   agent's layout (`workspace.json`, `datasets.json`, a JSON and a `.sql` per transform output, a JSON per
   visualization with every setting, `overview.md`). Load takes the zip or the older JSON; Copy / Paste,
   the cloud and the default folders stay JSON. `fflate` zips (small, synchronous, works on iOS).
+- **Setup's mini map** starts minimized to a ▴ Map bar (phone and computer); tap to open, ▾ to minimize.
 - **Gotcha (iPhone):** after Safari downloaded a blob from a clicked link, the page ignored taps for
   the clipboard and the file picker until reloaded: Copy, Paste and Load stopped working, with nothing
   in the log. Files are now saved through `client/saveFile.ts`: the share sheet (Save to Files) on

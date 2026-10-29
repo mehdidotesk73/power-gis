@@ -487,6 +487,9 @@ const panelWidth = panel.size
 const assist = useSplitter({ key: 'powergis.assistantWidth', initial: 400, min: 300, maxShare: 0.5, side: 'right' })
 // Setup's mini map: drag the bar above it to make it taller or shorter.
 const minimap = useSplitter({ key: 'powergis.minimapHeight', initial: 220, min: 96, maxShare: 0.7, side: 'bottom' })
+/** Setup's mini map starts minimized to a bar; tapping the bar opens it, ▾ minimizes it again. */
+const mapMin = ref(true)
+const minimapHeight = computed(() => (mode.value === 'setup' && mapMin.value ? '2.4rem' : `${minimap.size.value}px`))
 
 // Two modes. Explore puts the map first: on desktop the List | Graph panel on
 // the left, search above the map and export below it; on phones the map fills
@@ -1266,7 +1269,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 </script>
 
 <template>
-  <div ref="pageEl" class="page" :data-ready="loaded && status === 'ready' ? 'yes' : 'no'" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.size.value}px`, '--minimap-h': `${minimap.size.value}px` }">
+  <div ref="pageEl" class="page" :data-ready="loaded && status === 'ready' ? 'yes' : 'no'" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.size.value}px`, '--minimap-h': minimapHeight }">
     <!-- List | Graph and ⤢ / ✕: the top of the side panel in explore, of the whole page in setup. -->
     <div class="view-row">
       <div class="view-switch" role="group" aria-label="Show as">
@@ -1499,8 +1502,21 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     />
 
     <section class="map-col">
+    <button v-if="mode === 'setup' && mapMin" data-testid="minimap.show" class="minimap-bar" aria-label="Show the map" @click="mapMin = false">
+      <span aria-hidden="true">▴</span> Map
+    </button>
+    <UiButton
+      v-if="mode === 'setup' && !mapMin"
+      data-testid="minimap.hide"
+      class="minimap-hide"
+      size="compact"
+      icon="▾"
+      aria-label="Minimize the map"
+      title="Minimize the map"
+      @click="mapMin = true"
+    />
     <div
-      v-show="mode === 'setup'"
+      v-show="mode === 'setup' && !mapMin"
       class="splitter map-splitter"
       role="separator"
       aria-orientation="horizontal"
@@ -1520,7 +1536,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       </button>
       <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
     </div>
-    <section class="map-wrap">
+    <section v-show="!(mode === 'setup' && mapMin)" class="map-wrap">
       <MapView ref="mapView" @background-click="selected = null">
         <template v-for="r in rendered" :key="`${r.layer.id}-${r.layer.kind}`">
           <ScalarLayer
@@ -1772,6 +1788,34 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   border-radius: 2px;
   background: var(--border);
   transition: background 0.15s;
+}
+/* Setup: the minimized map, a bar to tap; open, a ▾ in its corner minimizes it again. */
+.minimap-bar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.minimap-hide {
+  position: absolute;
+  top: 0;
+  right: 0.4rem;
+  z-index: 3;
+}
+/* Open, the drag bar is tall enough for ▾ at its end, clear of the map's own controls. */
+.page.setup .map-splitter {
+  height: 1.9rem;
+}
+.page.setup .map-col {
+  position: relative;
 }
 /* Setup: the bar above the mini map; drag up for a taller map. Tall enough to grab with a thumb. */
 .map-splitter {
