@@ -312,6 +312,17 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Workspace files as a zip — 2026-10-29
+
+- **Changed:** Download makes `<name>.powergis.zip`: the workspace document as small files in the
+  agent's layout (`workspace.json`, `datasets.json`, a JSON and a `.sql` per transform output, a JSON per
+  visualization with every setting, `overview.md`). Load takes the zip or the older JSON; Copy / Paste,
+  the cloud and the default folders stay JSON. `fflate` zips (small, synchronous, works on iOS).
+- **Gotcha:** a zip re-made from the unzipped folder holds everything under the folder's name (and on a
+  Mac `__MACOSX/` and `.DS_Store`): Load looks through one top folder and skips those.
+- **Not yet:** the agent still sees visualizations compactly and `origin` as text; full settings for it
+  is a separate change (its validator would read them).
+
 ### Agent: checking stages, re-running downstream, missing datasets; Copy graph as image — 2026-10-29
 
 - **Agent prompt:** new sections *Checking each stage* (one row per key, joins keep their rows,

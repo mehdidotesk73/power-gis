@@ -72,7 +72,8 @@ import {
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
 import { downstreamOrder, onlyOnThisDevice, removeUnavailable as removeUnavailable_, replaceDataset as replaceDataset_, unavailability, unavailableInfo } from '../lib/workspace/unavailable'
-import { fileName, fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft, type WorkspaceFile } from '../lib/workspace/file'
+import { fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft, type Parsed, type WorkspaceFile } from '../lib/workspace/file'
+import { unzipDocument, zipDocument, zipName } from '../lib/workspace/files'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -342,11 +343,12 @@ function resetSelection() {
 
 const rename = (name: string) => apply(renameWorkspace(doc.value, name))
 
+/** Downloads the workspace as a zip of its files (lib/workspace/files.ts): workspace.json, datasets.json, SQL files, … */
 function download() {
-  const blob = new Blob([JSON.stringify(documentOf(doc.value), null, 2)], { type: 'application/json' })
+  const blob = new Blob([zipDocument(documentOf(doc.value))], { type: 'application/zip' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
-  a.download = fileName(doc.value)
+  a.download = zipName(doc.value.name)
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }
@@ -362,11 +364,16 @@ async function copyWorkspace() {
   }
 }
 
-const loadFile = async (f: File) => loadWorkspaceText(await f.text(), 'file')
+/** A workspace file: a zip of its files (what Download makes), or a document's JSON (older downloads, Copy). */
+async function loadFile(f: File) {
+  const bytes = new Uint8Array(await f.arrayBuffer())
+  const zipped = bytes[0] === 0x50 && bytes[1] === 0x4b // "PK"
+  await loadWorkspaceText(zipped ? unzipDocument(bytes) : parseWorkspaceFile(new TextDecoder().decode(bytes)), 'file')
+}
 
-/** Replaces the working copy with a workspace file's contents (from a file or pasted text). */
-async function loadWorkspaceText(text: string, from: 'file' | 'paste') {
-  const parsed = parseWorkspaceFile(text)
+/** Replaces the working copy with a workspace document (from a file or pasted text). */
+async function loadWorkspaceText(input: string | Parsed, from: 'file' | 'paste') {
+  const parsed = typeof input === 'string' ? parseWorkspaceFile(input) : input
   if (!parsed.ok) return void (barMessage.value = parsed.error)
   if (dirty.value && !confirm(`Replace your unsaved changes with the ${from === 'file' ? 'workspace from this file' : 'pasted workspace'}?`)) return
   const report = await openHere(parsed.file, 'Opening the workspace…')

@@ -407,8 +407,11 @@ requests, not workspace ops, since datasets are shared records.
   localStorage (`powergis.draft`) and restored on the next visit if it belongs to the opened
   workspace (pointers to datasets since deleted are dropped). **Discard** re-opens the saved
   workspace. Dataset uploads and edits are server writes right away — only the workspace is a draft.
-- **Workspace files** (`file.ts`): `toWorkspaceFile` → `.powergis.json` with `format`, `version`,
-  name, dataset ids and visualization settings — pointers, never rows. `parseWorkspaceFile` rejects
+- **Workspace files** (`file.ts`, `files.ts`): `toWorkspaceFile` makes the document (`format`, `version`,
+  name, dataset ids and facts, transforms, visualization settings — pointers, never rows); Download zips its
+  file form (`files.ts`: `documentFiles` → `workspace.json`, `datasets.json`, `transforms/<id>.json` +
+  `<id>.<key>.sql`, `visualizations/<id>.json`, `overview.md`; the agent's paths), Load reads a zip
+  (`unzipDocument` → `filesDocument` → `parseWorkspaceObject`) or JSON. `parseWorkspaceFile` rejects
   anything else with a readable reason. `fromWorkspaceFile` loads into the current workspace (keeps
   its id), gives visualizations fresh ids (so they never collide with another workspace's records),
   and drops datasets the database doesn't have, reporting them. The load is a draft until Save.

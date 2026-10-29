@@ -64,12 +64,11 @@ export function canonical(v: unknown): string {
 
 // ── the files ──────────────────────────────────────────────────────────────
 
-/** Path → contents, paths without a leading slash. */
-export type Files = Map<string, string>
+// The layout is the workspace document's file form (lib/workspace/files.ts: Download / Load zips it):
+// the same paths, so people and the agent see one workspace the same way.
+import { DATASETS, INDEX, OVERVIEW, sqlPath, transformPath, vizPath, type Files } from '../workspace/files'
+export { DATASETS, INDEX, OVERVIEW, sqlPath, transformPath, vizPath, type Files }
 
-export const INDEX = 'workspace.json'
-export const DATASETS = 'datasets.json'
-export const OVERVIEW = 'overview.md'
 const NAME = '[A-Za-z0-9_-]+'
 const TRANSFORM_FILE = new RegExp(`^transforms/(${NAME})\\.json$`)
 const SQL_FILE = new RegExp(`^transforms/(${NAME})\\.(${NAME})\\.sql$`)
@@ -99,9 +98,6 @@ const datasetEntry = (d: DatasetFacts) => ({
 })
 
 const pretty = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
-export const transformPath = (id: string) => `transforms/${id}.json`
-export const sqlPath = (id: string, key: string) => `transforms/${id}.${key}.sql`
-export const vizPath = (id: string) => `visualizations/${id}.json`
 
 /** The draft as files (`dataset` looks up what datasets.json says about each of its datasets). */
 export function workspaceFiles(doc: WorkspaceDoc, dataset: (id: string) => DatasetFacts | undefined = () => undefined): Files {
