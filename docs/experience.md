@@ -312,6 +312,16 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Sharing (Supabase, PR 4 of 4) — 2026-10-29
+
+- **Added:** **Share…** on a cloud dataset: its people, add someone by their account's email as **Can
+  pull** (read) or **Can push** (write), change a level, remove someone, or **Leave**. What you may do
+  follows your access (the owner manages everyone; pushers share and manage readers). People find what's
+  shared with them in **＋ Dataset → Cloud**, which adds a copy linked to it.
+- **Gotcha:** row-level security doesn't fail a forbidden UPDATE or DELETE, it matches no rows. The
+  app asks for the changed rows back and treats none as refused, and checks the same rules first
+  (`canManage`) so it can say why.
+
 ### Cloud datasets (Supabase, PR 3 of 4) — 2026-10-28
 
 - **Added:** cloud links. The app always works on copies on this device; signed in, **Link to cloud**

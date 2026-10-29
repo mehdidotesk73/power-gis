@@ -3,7 +3,7 @@
 // so the database's row-level security sees that user.
 import { createClient } from '@supabase/supabase-js'
 import { SUPABASE_KEY, SUPABASE_URL } from '../shared/supabaseConfig'
-import { cloudFilePath as filePath, DATASET_FILE, type CloudDataset, type CloudStore } from '../shared/cloud'
+import { cloudFilePath as filePath, DATASET_FILE, type Access, type CloudDataset, type CloudMember, type CloudStore } from '../shared/cloud'
 
 /** The user the token is for (its `sub`), to tell which datasets they own. */
 function tokenUser(token: string): string | undefined {
@@ -42,18 +42,45 @@ export function supabaseCloud(accessToken: string): CloudStore {
     hasFile: !!r.file_path,
     access: !!me && r.created_by === me ? 'owner' : 'read',
   })
+  /** Fills in the user's own access (owner / write / read: who may push) from their access rows. */
+  async function withAccess(rows: CloudDataset[]): Promise<CloudDataset[]> {
+    if (me && rows.length) {
+      const mine = check(await sb.from('dataset_access').select('dataset_id, access').in('dataset_id', rows.map((r) => r.id)).eq('user_id', me)) as { dataset_id: string; access: Access }[]
+      for (const r of rows) r.access = mine.find((a) => a.dataset_id === r.id)?.access ?? r.access
+    }
+    return rows
+  }
   return {
     async datasets(ids) {
       // Cloud ids are uuids: anything else (a readable id from a document) can't be there, and would fail the query.
       ids = ids.filter((id) => UUID.test(id))
       if (!ids.length) return []
-      const rows = (check(await sb.from('datasets').select(COLUMNS).in('id', ids)) as Row[]).map(asDataset)
-      // The user's own access rows (owner / write / read) say who may push.
-      if (me && rows.length) {
-        const mine = check(await sb.from('dataset_access').select('dataset_id, access').in('dataset_id', rows.map((r) => r.id)).eq('user_id', me)) as { dataset_id: string; access: CloudDataset['access'] }[]
-        for (const r of rows) r.access = mine.find((a) => a.dataset_id === r.id)?.access ?? r.access
-      }
-      return rows
+      return withAccess((check(await sb.from('datasets').select(COLUMNS).in('id', ids)) as Row[]).map(asDataset))
+    },
+    async listDatasets() {
+      // Row-level security answers only what the user may see.
+      return withAccess((check(await sb.from('datasets').select(COLUMNS).order('updated_at', { ascending: false })) as Row[]).map(asDataset))
+    },
+    async members(id) {
+      const rows = check(await sb.rpc('dataset_members', { ds: id })) as { user_id: string; email: string; display_name: string | null; access: Access }[]
+      return rows.map((r): CloudMember => ({ userId: r.user_id, email: r.email, name: r.display_name || r.email, access: r.access, ...(r.user_id === me ? { you: true } : {}) }))
+    },
+    async share(id, email, access) {
+      const found = (check(await sb.rpc('find_user_by_email', { lookup: email })) as { id: string }[])[0]
+      if (!found) throw new Error(`No account uses ${email.trim()}: they need to create one first (☰ → Sign in)`)
+      const ins = await sb.from('dataset_access').insert({ dataset_id: id, user_id: found.id, access, granted_by: me })
+      // Already has access: change it instead.
+      if (ins.error?.code === '23505') return this.setAccess(id, found.id, access)
+      if (ins.error) throw new Error(ins.error.message)
+    },
+    async setAccess(id, userId, access) {
+      const rows = check(await sb.from('dataset_access').update({ access }).eq('dataset_id', id).eq('user_id', userId).select('user_id')) as unknown[]
+      // Row-level security skips a row the user may not change, without an error.
+      if (!rows.length) throw new Error("You can't change that person's access")
+    },
+    async removeAccess(id, userId) {
+      const rows = check(await sb.from('dataset_access').delete().eq('dataset_id', id).eq('user_id', userId).select('user_id')) as unknown[]
+      if (!rows.length) throw new Error("You can't remove that person's access")
     },
     async putDataset(d, file) {
       if (!UUID.test(d.id)) throw new Error(`"${d.name}" has an id the cloud can't keep (${d.id}); make a local copy first`)
