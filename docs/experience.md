@@ -326,6 +326,16 @@ Two additions from reviewing it here, beyond what the originating project report
 - **Gotcha:** the Supabase CLI pulls its images from AWS's public registry by default; where that's
   blocked, `SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io` uses Docker Hub's copies.
 
+### Agent: pipelines people can follow — 2026-10-29
+
+- **Changed:** the assistant builds transforms in stages (clean each input, join, compute,
+  aggregate, present), as many small steps rather than one large query, with stage-numbered names,
+  one-line descriptions and commented SQL; visualizations are named with their unit, and only the
+  main one starts visible. Asked for a socioeconomic score, it had made two large joins that were
+  hard to follow.
+- **Fixed:** its instructions still said cloud datasets were read-only to it and suggested moving
+  datasets to protect them; since cloud links, it changes copies here and the user syncs.
+
 ### Sharing (Supabase, PR 4 of 4) — 2026-10-29
 
 - **Added:** **Share…** on a cloud dataset: its people, add someone by their account's email as **Can
