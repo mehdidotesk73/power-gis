@@ -23,8 +23,7 @@ I lead the product and its design. I set the architecture: the browser-side clie
 datasets, transforms and visualizations as separate building blocks; local copies with manual cloud
 sync, plus the sharing and access rules; and default folders. I also define the features and
 interaction details, and how the AI assistant should work. Claude Code writes the code from that
-direction, one pull request per change. I review every preview on my phone, send screenshots and logs
-back, and merge each PR myself.
+direction, one pull request per change. I review every preview on physical devices, and use screenshots and logs to communicate bugs, and merge each PR myself.
 
 **Tests.** I set the testing approach: real-database integration tests and two-person, multi-device UI
 scenarios on every PR; mock data and a reference pipeline that I built in the app; and expected values
