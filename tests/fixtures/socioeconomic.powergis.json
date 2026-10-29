@@ -1,0 +1,398 @@
+{
+  "format": "powergis-workspace",
+  "version": 2,
+  "exportedAt": "2026-10-29T05:03:42.538Z",
+  "workspaceId": "3860bcfa-3223-4a26-9978-eefc6c52322a",
+  "name": "PowerGIS",
+  "datasetIds": [
+    "169b2d66-096c-4b13-94cb-5708133d7110",
+    "8de3a1d5-c26e-4bda-9223-3d4e3cb47400",
+    "5ac86f1c-ed41-4833-a434-8945c68cc9cc",
+    "a7679b67-bfdf-4fee-8d9f-fe1803706e91",
+    "f5f60334-7051-4fbf-a15e-6920ba3fe088",
+    "b8010f4e-0d1e-4908-a425-c6c4db50d9f3",
+    "7ab0de5c-738c-454b-ae32-53b0f1a04078",
+    "5f0f00fd-ba6e-4d87-bc60-bf99d21d47a7",
+    "a0b79a30-8c2d-4689-a8fd-c4e2e9c729e3",
+    "363756ba-dba8-4dd0-a308-1b45f472c4a1",
+    "2c0fd5c2-1032-48fb-a551-19ab2cdded68",
+    "bf6c65e1-4e44-4e8e-8cef-4b50ad49a623",
+    "7a05a96f-a81b-460c-82f4-f0434201ad0e",
+    "c49951e3-b7b6-46f3-809f-e2febb03dbed",
+    "a2f9262d-1312-4c51-8e8f-350e0a1eb154",
+    "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb",
+    "cd3ce048-b69e-45fe-b077-47e28305fccc",
+    "c58e8e25-8489-4abd-889f-bc7b4fe0a276"
+  ],
+  "transforms": [
+    {
+      "id": "be27fcef-3d28-4e7c-83d2-54a2550f1da7",
+      "name": "1a Clean county income",
+      "inputs": [{ "datasetId": "f5f60334-7051-4fbf-a15e-6920ba3fe088", "alias": "inc" }],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "Clean county income",
+          "sql": "-- One row per county. Negative or zero income values are placeholders, so they become NULL.\nSELECT\n  GEOID AS fips,\n  CASE WHEN median_hh_income > 0 THEN median_hh_income END AS median_hh_income,\n  CASE WHEN per_capita_income > 0 THEN per_capita_income END AS per_capita_income\nFROM inc",
+          "outputId": "a0b79a30-8c2d-4689-a8fd-c4e2e9c729e3"
+        }
+      ]
+    },
+    {
+      "id": "3c8f3717-c6da-4e6e-95e7-633f7d709cd4",
+      "name": "1b Clean county education",
+      "inputs": [{ "datasetId": "7ab0de5c-738c-454b-ae32-53b0f1a04078", "alias": "edu" }],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "Clean county education",
+          "sql": "-- Educational attainment, population 25+ (table B15003).\n-- bachelor_plus = bachelor's + master's + professional + doctorate.\nSELECT\n  GEOID AS fips,\n  B15003_E001 AS edu_pop_25plus,\n  B15003_E022 + B15003_E023 + B15003_E024 + B15003_E025 AS bachelor_plus,\n  round(100.0 * (B15003_E022 + B15003_E023 + B15003_E024 + B15003_E025)\n        / NULLIF(B15003_E001, 0), 2) AS bachelor_pct\nFROM edu",
+          "outputId": "363756ba-dba8-4dd0-a308-1b45f472c4a1"
+        }
+      ]
+    },
+    {
+      "id": "0bc5feee-5882-4cba-9268-a1284f76158a",
+      "name": "1c Clean county health insurance",
+      "inputs": [{ "datasetId": "5ac86f1c-ed41-4833-a434-8945c68cc9cc", "alias": "ins" }],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "Clean county health insurance",
+          "sql": "-- Health insurance coverage (table B27010). Uninsured = no coverage in each age group, summed.\nSELECT\n  GEOID AS fips,\n  B27010_E001 AS insurance_pop,\n  B27010_E017 + B27010_E033 + B27010_E050 + B27010_E066 AS uninsured_n,\n  round(100.0 * (B27010_E017 + B27010_E033 + B27010_E050 + B27010_E066)\n        / NULLIF(B27010_E001, 0), 2) AS uninsured_pct\nFROM ins",
+          "outputId": "2c0fd5c2-1032-48fb-a551-19ab2cdded68"
+        }
+      ]
+    },
+    {
+      "id": "8f779903-ba35-42c0-a4bf-8e3e571b9316",
+      "name": "1d Clean county home value",
+      "inputs": [{ "datasetId": "b8010f4e-0d1e-4908-a425-c6c4db50d9f3", "alias": "hv" }],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "Clean county home value",
+          "sql": "-- Median home value (table B25077). Placeholder values like -666666666 become NULL.\nSELECT\n  GEOID AS fips,\n  CASE WHEN B25077_E001 > 0 THEN B25077_E001 END AS home_value\nFROM hv",
+          "outputId": "bf6c65e1-4e44-4e8e-8cef-4b50ad49a623"
+        }
+      ]
+    },
+    {
+      "id": "8e099e4d-4e2b-48d0-a737-60790eddea8a",
+      "name": "1e County shapes and land area",
+      "inputs": [{ "datasetId": "169b2d66-096c-4b13-94cb-5708133d7110", "alias": "us" }],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "County shapes and land area",
+          "sql": "-- One row per county polygon, with its area in km2 (geodesic) used as the weight for state averages.\nSELECT\n  fips,\n  name,\n  county,\n  state,\n  state_fips,\n  round(ST_Area_Spheroid(ST_FlipCoordinates(ST_GeomFromGeoJSON(geometry))) / 1000000.0, 1) AS area_km2,\n  geometry\nFROM us",
+          "outputId": "7a05a96f-a81b-460c-82f4-f0434201ad0e"
+        }
+      ],
+      "requires": ["spatial"]
+    },
+    {
+      "id": "49efb3db-82c8-4010-9425-7aee6eeae651",
+      "name": "2a Join shapes with income and education",
+      "inputs": [
+        { "datasetId": "7a05a96f-a81b-460c-82f4-f0434201ad0e", "alias": "geo" },
+        { "datasetId": "a0b79a30-8c2d-4689-a8fd-c4e2e9c729e3", "alias": "inc" },
+        { "datasetId": "363756ba-dba8-4dd0-a308-1b45f472c4a1", "alias": "edu" }
+      ],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "Counties with income and education",
+          "sql": "-- Keep every county shape; add income and education by FIPS code (LEFT JOIN, so no county is dropped).\nSELECT\n  g.*,\n  i.median_hh_income,\n  i.per_capita_income,\n  e.edu_pop_25plus,\n  e.bachelor_plus,\n  e.bachelor_pct\nFROM geo g\nLEFT JOIN inc i ON i.fips = g.fips\nLEFT JOIN edu e ON e.fips = g.fips",
+          "outputId": "c49951e3-b7b6-46f3-809f-e2febb03dbed"
+        }
+      ]
+    },
+    {
+      "id": "549ce939-ae1f-4f21-95bb-d5b2de490542",
+      "name": "2b Join insurance and home value",
+      "inputs": [
+        { "datasetId": "c49951e3-b7b6-46f3-809f-e2febb03dbed", "alias": "base" },
+        { "datasetId": "2c0fd5c2-1032-48fb-a551-19ab2cdded68", "alias": "ins" },
+        { "datasetId": "bf6c65e1-4e44-4e8e-8cef-4b50ad49a623", "alias": "hv" }
+      ],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "Counties with all factors",
+          "sql": "-- Add health insurance and home value by FIPS code (LEFT JOIN, so every county is kept).\nSELECT\n  b.*,\n  ins.insurance_pop,\n  ins.uninsured_n,\n  ins.uninsured_pct,\n  hv.home_value\nFROM base b\nLEFT JOIN ins ON ins.fips = b.fips\nLEFT JOIN hv ON hv.fips = b.fips",
+          "outputId": "a2f9262d-1312-4c51-8e8f-350e0a1eb154"
+        }
+      ]
+    },
+    {
+      "id": "5c52f5aa-4080-4fc0-b269-0be8970f69a1",
+      "name": "3a County metrics and scores",
+      "inputs": [{ "datasetId": "a2f9262d-1312-4c51-8e8f-350e0a1eb154", "alias": "base" }],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "County metrics and scores",
+          "sql": "-- Derived metrics and 0-100 scores. Each factor is a percentile rank among counties\n-- that have all four inputs; socio_score is the equal-weight average of the four scores.\nWITH m AS (\n  SELECT\n    *,\n    home_value * 1.0 / NULLIF(median_hh_income, 0) AS price_to_income\n  FROM base\n),\nok AS (\n  SELECT fips, median_hh_income, bachelor_pct, uninsured_pct, price_to_income\n  FROM m\n  WHERE median_hh_income IS NOT NULL AND bachelor_pct IS NOT NULL\n    AND uninsured_pct IS NOT NULL AND price_to_income IS NOT NULL\n),\nranked AS (\n  SELECT\n    fips,\n    percent_rank() OVER (ORDER BY median_hh_income) AS r_income,\n    percent_rank() OVER (ORDER BY bachelor_pct) AS r_edu,\n    percent_rank() OVER (ORDER BY uninsured_pct DESC) AS r_health,\n    percent_rank() OVER (ORDER BY price_to_income DESC) AS r_housing\n  FROM ok\n)\nSELECT\n  m.fips, m.name, m.county, m.state, m.state_fips, m.area_km2,\n  m.median_hh_income, m.per_capita_income,\n  m.bachelor_pct, m.uninsured_pct, m.home_value,\n  round(m.price_to_income, 2) AS price_to_income,\n  round(100 * r.r_income, 1) AS income_score,\n  round(100 * r.r_edu, 1) AS education_score,\n  round(100 * r.r_health, 1) AS health_score,\n  round(100 * r.r_housing, 1) AS housing_score,\n  round(100 * (r.r_income + r.r_edu + r.r_health + r.r_housing) / 4, 1) AS socio_score,\n  m.geometry\nFROM m\nLEFT JOIN ranked r ON r.fips = m.fips",
+          "outputId": "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb"
+        }
+      ]
+    },
+    {
+      "id": "fdcd9408-905f-40f5-95e5-d59e3fe21469",
+      "name": "4a State averages (area-weighted)",
+      "inputs": [{ "datasetId": "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb", "alias": "cm" }],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "State averages",
+          "sql": "-- Each state's average of the county values, weighted by county area (area_km2).\n-- For each metric only counties with a value count, in both the sum and the weight total.\nSELECT\n  state_fips,\n  any_value(state) AS state_abbr,\n  count(*) AS counties,\n  count(socio_score) AS counties_scored,\n  round(sum(area_km2), 0) AS area_km2,\n  round(sum(median_hh_income * area_km2) FILTER (WHERE median_hh_income IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE median_hh_income IS NOT NULL), 0), 0) AS avg_median_hh_income,\n  round(sum(bachelor_pct * area_km2) FILTER (WHERE bachelor_pct IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE bachelor_pct IS NOT NULL), 0), 2) AS avg_bachelor_pct,\n  round(sum(uninsured_pct * area_km2) FILTER (WHERE uninsured_pct IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE uninsured_pct IS NOT NULL), 0), 2) AS avg_uninsured_pct,\n  round(sum(price_to_income * area_km2) FILTER (WHERE price_to_income IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE price_to_income IS NOT NULL), 0), 2) AS avg_price_to_income,\n  round(sum(income_score * area_km2) FILTER (WHERE income_score IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE income_score IS NOT NULL), 0), 1) AS income_score,\n  round(sum(education_score * area_km2) FILTER (WHERE education_score IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE education_score IS NOT NULL), 0), 1) AS education_score,\n  round(sum(health_score * area_km2) FILTER (WHERE health_score IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE health_score IS NOT NULL), 0), 1) AS health_score,\n  round(sum(housing_score * area_km2) FILTER (WHERE housing_score IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE housing_score IS NOT NULL), 0), 1) AS housing_score,\n  round(sum(socio_score * area_km2) FILTER (WHERE socio_score IS NOT NULL)\n        / NULLIF(sum(area_km2) FILTER (WHERE socio_score IS NOT NULL), 0), 1) AS socio_score\nFROM cm\nGROUP BY state_fips",
+          "outputId": "cd3ce048-b69e-45fe-b077-47e28305fccc"
+        }
+      ]
+    },
+    {
+      "id": "00987e66-8e9a-4420-9048-b1a58dbe9f7a",
+      "name": "5 State map layer",
+      "inputs": [
+        { "datasetId": "8de3a1d5-c26e-4bda-9223-3d4e3cb47400", "alias": "st" },
+        { "datasetId": "cd3ce048-b69e-45fe-b077-47e28305fccc", "alias": "avg" }
+      ],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "State map layer",
+          "sql": "-- State shapes with their area-weighted averages, ready to map.\nSELECT\n  st.fips AS state_fips,\n  st.name AS state_name,\n  avg.state_abbr,\n  avg.counties,\n  avg.counties_scored,\n  avg.area_km2,\n  avg.avg_median_hh_income,\n  avg.avg_bachelor_pct,\n  avg.avg_uninsured_pct,\n  avg.avg_price_to_income,\n  avg.income_score,\n  avg.education_score,\n  avg.health_score,\n  avg.housing_score,\n  avg.socio_score,\n  st.geometry\nFROM st\nLEFT JOIN avg ON avg.state_fips = st.fips",
+          "outputId": "c58e8e25-8489-4abd-889f-bc7b4fe0a276"
+        }
+      ]
+    }
+  ],
+  "visualizations": [
+    {
+      "id": "88454baa-7aec-4b21-84f5-96b9516466e9",
+      "datasetId": "c58e8e25-8489-4abd-889f-bc7b4fe0a276",
+      "name": "State socioeconomic score (area-weighted average)",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "state_name" },
+      "column": "socio_score",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.5 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "viridis", "domain": [30, 70] }
+      }
+    },
+    {
+      "id": "8e98b236-19fe-4178-b854-149fcfe4b1dc",
+      "datasetId": "c58e8e25-8489-4abd-889f-bc7b4fe0a276",
+      "name": "State income score (area-weighted average)",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "state_name" },
+      "column": "income_score",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.6 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "viridis", "domain": [0, 100] }
+      }
+    },
+    {
+      "id": "c6a8fdcd-22a4-4728-bdc7-c8fbb274f871",
+      "datasetId": "c58e8e25-8489-4abd-889f-bc7b4fe0a276",
+      "name": "State education score (area-weighted average)",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "state_name" },
+      "column": "education_score",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.6 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "viridis", "domain": [0, 100] }
+      }
+    },
+    {
+      "id": "e6d6f737-37be-43ca-b3a4-393c61bb4b5a",
+      "datasetId": "c58e8e25-8489-4abd-889f-bc7b4fe0a276",
+      "name": "State health score (area-weighted average)",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "state_name" },
+      "column": "health_score",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.6 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "viridis", "domain": [0, 100] }
+      }
+    },
+    {
+      "id": "61aa3a16-52da-4dff-a40b-dfea8644e69b",
+      "datasetId": "c58e8e25-8489-4abd-889f-bc7b4fe0a276",
+      "name": "State housing affordability score (area-weighted average)",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "state_name" },
+      "column": "housing_score",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.6 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "viridis", "domain": [0, 100] }
+      }
+    },
+    {
+      "id": "8566ac36-85a9-494d-9474-68338d00bb41",
+      "datasetId": "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb",
+      "name": "County socioeconomic score (0-100)",
+      "visible": true,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+      "column": "socio_score",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.8 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "viridis" }
+      }
+    },
+    {
+      "id": "11a35ddf-9974-4a88-8a88-5a50467a759a",
+      "datasetId": "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb",
+      "name": "County median household income",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+      "column": "median_hh_income",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.8 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "viridis" }
+      }
+    },
+    {
+      "id": "87df7d43-b5a6-49ee-a31a-c81b0aee3d3c",
+      "datasetId": "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb",
+      "name": "County share of adults with a bachelor's degree or higher (%)",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+      "column": "bachelor_pct",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.8 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "viridis" }
+      }
+    },
+    {
+      "id": "831fd14a-0cec-4513-9e40-5731b438d1a6",
+      "datasetId": "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb",
+      "name": "County uninsured rate (%)",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+      "column": "uninsured_pct",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.8 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "ylOrRd", "domain": [2.8, 22.1] }
+      }
+    },
+    {
+      "id": "aeebbb6a-5fb1-4f2e-a259-ef2bcab39052",
+      "datasetId": "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb",
+      "name": "County home price-to-income ratio",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+      "column": "price_to_income",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.8 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "colormap", "field": "_value", "colormap": "ylOrRd", "domain": [1.5, 6.8] }
+      }
+    },
+    {
+      "id": "dcc066ed-c79a-4ce8-a33a-7c9349227030",
+      "datasetId": "8de3a1d5-c26e-4bda-9223-3d4e3cb47400",
+      "name": "fips",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+      "column": "fips",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.75 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "categorical", "field": "_value" }
+      }
+    },
+    {
+      "id": "37564b7d-e945-44b1-8234-6c37c1d5ebf7",
+      "datasetId": "169b2d66-096c-4b13-94cb-5708133d7110",
+      "name": "fips",
+      "visible": false,
+      "binding": { "kind": "geometry", "column": "geometry", "label": "name" },
+      "column": "fips",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": { "kind": "constant", "value": 0.75 },
+        "pattern": { "kind": "none" },
+        "outline": { "color": "#0b0f18", "width": 0.3, "opacity": 0.6 },
+        "size": 2,
+        "color": { "kind": "categorical", "field": "_value" }
+      }
+    }
+  ],
+  "datasets": [
+    { "id": "169b2d66-096c-4b13-94cb-5708133d7110", "name": "US counties", "description": "County polygons (Census 2017, 1:10m, via us-atlas): fips, name, county, state, state_fips, geometry.", "store": "local", "rows": 3231, "origin": { "kind": "builtin", "table": "us_counties", "version": 1 } },
+    { "id": "8de3a1d5-c26e-4bda-9223-3d4e3cb47400", "name": "US states", "description": "State and territory polygons (Census 2017, 1:10m, via us-atlas): fips, name, abbr, geometry.", "store": "local", "rows": 56, "origin": { "kind": "builtin", "table": "us_states", "version": 1 } },
+    { "id": "5ac86f1c-ed41-4833-a434-8945c68cc9cc", "name": "county_health_insurance", "store": "local", "rows": 3222, "origin": { "kind": "upload", "source": "Device · county_health_insurance.csv" } },
+    { "id": "a7679b67-bfdf-4fee-8d9f-fe1803706e91", "name": "county_rent", "store": "local", "rows": 3222, "origin": { "kind": "upload", "source": "Device · county_rent.csv" } },
+    { "id": "f5f60334-7051-4fbf-a15e-6920ba3fe088", "name": "county_income", "store": "local", "rows": 3222, "origin": { "kind": "upload", "source": "Device · county_income.csv" } },
+    { "id": "b8010f4e-0d1e-4908-a425-c6c4db50d9f3", "name": "county_home_value", "store": "local", "rows": 3222, "origin": { "kind": "upload", "source": "Device · county_home_value.csv" } },
+    { "id": "7ab0de5c-738c-454b-ae32-53b0f1a04078", "name": "county_education", "store": "local", "rows": 3222, "origin": { "kind": "upload", "source": "Device · county_education.csv" } },
+    { "id": "5f0f00fd-ba6e-4d87-bc60-bf99d21d47a7", "name": "county_columns", "store": "local", "rows": 294, "origin": { "kind": "upload", "source": "Device · county_columns.csv" } },
+    { "id": "a0b79a30-8c2d-4689-a8fd-c4e2e9c729e3", "name": "Clean county income", "description": "One row per county: median and per-capita household income, with placeholder values removed.", "store": "local", "rows": 3222, "origin": { "kind": "output", "transform": "be27fcef-3d28-4e7c-83d2-54a2550f1da7", "output": "out" } },
+    { "id": "363756ba-dba8-4dd0-a308-1b45f472c4a1", "name": "Clean county education", "description": "One row per county: adults 25+ and the count and share with a bachelor's degree or higher.", "store": "local", "rows": 3222, "origin": { "kind": "output", "transform": "3c8f3717-c6da-4e6e-95e7-633f7d709cd4", "output": "out" } },
+    { "id": "2c0fd5c2-1032-48fb-a551-19ab2cdded68", "name": "Clean county health insurance", "description": "One row per county: insured population and the uninsured count and percentage.", "store": "local", "rows": 3222, "origin": { "kind": "output", "transform": "0bc5feee-5882-4cba-9268-a1284f76158a", "output": "out" } },
+    { "id": "bf6c65e1-4e44-4e8e-8cef-4b50ad49a623", "name": "Clean county home value", "description": "One row per county: median home value, with placeholder values removed.", "store": "local", "rows": 3222, "origin": { "kind": "output", "transform": "8f779903-ba35-42c0-a4bf-8e3e571b9316", "output": "out" } },
+    { "id": "7a05a96f-a81b-460c-82f4-f0434201ad0e", "name": "County shapes and land area", "description": "One row per county polygon with its FIPS code, names, and land area in km2 (used as the state-average weight).", "store": "local", "rows": 3231, "origin": { "kind": "output", "transform": "8e099e4d-4e2b-48d0-a737-60790eddea8a", "output": "out" } },
+    { "id": "c49951e3-b7b6-46f3-809f-e2febb03dbed", "name": "Counties with income and education", "description": "County shapes joined by FIPS with the clean income and education values (all counties kept).", "store": "local", "rows": 3231, "origin": { "kind": "output", "transform": "49efb3db-82c8-4010-9425-7aee6eeae651", "output": "out" } },
+    { "id": "a2f9262d-1312-4c51-8e8f-350e0a1eb154", "name": "Counties with all factors", "description": "County shapes joined with income, education, health insurance and home value (all counties kept).", "store": "local", "rows": 3231, "origin": { "kind": "output", "transform": "549ce939-ae1f-4f21-95bb-d5b2de490542", "output": "out" } },
+    { "id": "ddabd1fd-c7e8-4d52-aebb-647821ef4ccb", "name": "County metrics and scores", "description": "County map layer: price-to-income ratio, 0-100 percentile scores for income, education, health and housing, and socio_score (their average).", "store": "local", "rows": 3231, "origin": { "kind": "output", "transform": "5c52f5aa-4080-4fc0-b269-0be8970f69a1", "output": "out" } },
+    { "id": "cd3ce048-b69e-45fe-b077-47e28305fccc", "name": "State averages", "description": "Per state: county metrics and scores averaged with county land area as weights.", "store": "local", "rows": 56, "origin": { "kind": "output", "transform": "fdcd9408-905f-40f5-95e5-d59e3fe21469", "output": "out" } },
+    { "id": "c58e8e25-8489-4abd-889f-bc7b4fe0a276", "name": "State map layer", "description": "State shapes with their area-weighted averages and scores, ready to map.", "store": "local", "rows": 56, "origin": { "kind": "output", "transform": "00987e66-8e9a-4420-9048-b1a58dbe9f7a", "output": "out" } }
+  ],
+  "requires": ["spatial"]
+}
