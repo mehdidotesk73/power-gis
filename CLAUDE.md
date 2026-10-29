@@ -90,8 +90,13 @@ whatever they're actually asking about.
   (`eval "$(scripts/test-stack.sh)"`: `supabase start` via the npm `supabase` CLI, Docker, no account;
   our `supabase/*.sql` applied in order; `supabase/config.toml` is that local stack's config only).
   Builds can point at another project with `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY`.
+- **UI tests:** `tests/e2e/` (Playwright, `npm run build:e2e` against the stack, then `npm run test:e2e`):
+  the app in a browser, one context per device, two people: the socioeconomic fixture pipeline and
+  the cloud scenarios (`tests/e2e/README.md`). Elements by **stable test keys** (`data-testid`: cards
+  `<kind>-card` + `data-name`, menu items `menu.<action>`, nodes `node.<kind>`, …) — keep them when
+  changing those controls, and add one to anything a new test touches.
 - **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, one job named `build`; the cloud
-  integration tests run in it too), and the
+  integration and UI tests run in it too, against the local stack), and the
   branch ruleset requires it to pass before merge. Tests stay inside that one job — never a separate
   job, since the ruleset only watches `build`.
 - **External data dependencies:** the basemap (dark vector tiles, free, no key: OpenFreeMap dark, else CARTO Dark Matter, else a plain background), and — only when
@@ -445,7 +450,8 @@ src/
 public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
 supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor;
                            config.toml (the local test stack only)
-tests/cloud/               cloud integration tests (real Supabase stack); tests/fixtures/ test data (socioeconomic workspace + CSVs)
+tests/cloud/               cloud integration tests (real Supabase stack); tests/e2e/ UI tests (Playwright);
+                           tests/fixtures/ test data (socioeconomic + state-income workspaces, CSVs)
 scripts/                   data build scripts; fetch-duckdb-extensions.mjs (prebuild, Netlify only); test-stack.sh (local Supabase for tests)
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)

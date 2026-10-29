@@ -25,13 +25,34 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
-      # Integration tests: the real cloud code against a local Supabase stack
-      # (Docker on the runner; no account or secrets), started empty with our
-      # schema applied (scripts/test-stack.sh).
-      - name: Cloud integration tests
+      # Integration and UI tests against a local Supabase stack (Docker on the
+      # runner; no account or secrets), started empty with our schema applied
+      # (scripts/test-stack.sh). The cloud tests run the server's requests; the
+      # UI tests drive a build of the app pointed at the stack (tests/e2e).
+      - name: Start the test stack
         run: |
           eval "$(scripts/test-stack.sh)"
-          npm run test:cloud
+          echo "SUPABASE_TEST_URL=$SUPABASE_TEST_URL" >> "$GITHUB_ENV"
+          echo "SUPABASE_TEST_KEY=$SUPABASE_TEST_KEY" >> "$GITHUB_ENV"
+      - name: Cloud integration tests
+        run: npm run test:cloud
+      - name: Build the app against the test stack
+        run: |
+          FETCH_DUCKDB_EXT=1 node scripts/fetch-duckdb-extensions.mjs
+          VITE_SUPABASE_URL="$SUPABASE_TEST_URL" VITE_SUPABASE_KEY="$SUPABASE_TEST_KEY" npm run build:e2e
+      - name: UI tests
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Keep the UI test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
       - name: Stop the stack
         if: always()
         run: npx supabase stop --no-backup || true

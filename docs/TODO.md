@@ -343,7 +343,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 ### Automated tests (agreed 2026-10-29)
 
 - ~~**A. Cloud integration tests**~~ (done): `tests/cloud` against a local Supabase stack in CI.
-- **B. UI scenarios (Playwright)**, built against the same local stack, in the `build` job: the
+- ~~**B. UI scenarios (Playwright)**~~ (done; the pipeline's sample values await the user's sign-off,
+  then they're locked in), built against the same local stack, in the `build` job: the
   socioeconomic fixture pipeline (`tests/fixtures`: upload the 6 CSVs, load the workspace, Replace the
   missing uploads, Run them now, check counts and values; needs the spatial extension, so it runs in
   the browser), then (1) same user, second device: linked uploads and outputs pulled, local-only ones

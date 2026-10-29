@@ -312,6 +312,19 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### UI tests in CI — 2026-10-29
+
+- **Added:** `tests/e2e`: the app in a browser against the local Supabase stack, on every PR. Your
+  socioeconomic pipeline (load, replace six uploads, run ten transforms, check rows and values) and
+  five two-person scenarios (second device, read share used as input, two writers and a conflict,
+  access lowered and leaving, signed out), with values checked against the same SQL run outside the
+  app. Stable test keys (`data-testid`) on the controls they use.
+- **Gotchas:** graph nodes outside the graph's view can't be tapped until it's panned (tests use the
+  List view); opening an account's workspace pops the Workspace panel open a moment later, over the
+  page (tests wait for its message, then close it); Explore shows numbers without separators.
+- **Data note (from the fixtures):** Connecticut gets no ACS county values: the 2022+ ACS reports its
+  nine planning regions, the shapes (and EIA) its eight old counties.
+
 ### Cloud integration tests on a real Supabase stack — 2026-10-29
 
 - **Added:** `tests/cloud` runs the real cloud code as three real accounts against `supabase start`

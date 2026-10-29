@@ -14,8 +14,9 @@ export interface User {
   password: string
 }
 /** A new account on the local stack (no confirmation email there). */
+let made = 0
 export async function account(name: string): Promise<User> {
-  const user = { name, email: `${name}-${run}@example.com`, password: 'test-password-1' }
+  const user = { name, email: `${name}-${run}-${++made}@example.com`, password: 'test-password-1' }
   const sb = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const { error } = await sb.auth.signUp({ email: user.email, password: user.password })
   if (error) throw new Error(`sign up ${user.email}: ${error.message}`)
@@ -132,4 +133,79 @@ export async function saveWorkspace(page: Page) {
   await page.getByTestId('workspace.save').click()
   await expect(page.getByText(/All changes saved/)).toBeVisible()
   await page.getByRole('button', { name: /^Workspace/ }).click()
+}
+
+/** Shares a dataset (its menu → Share…) with someone, as Can pull (read) or Can push (write). */
+export async function share(page: Page, dataset: string, user: User, level: 'read' | 'write') {
+  await listPanel(page, 'Datasets')
+  await cardAction(page, card(page, 'dataset', dataset), 'share')
+  const dialog = page.getByRole('dialog', { name: /^Share/ })
+  await dialog.getByTestId('share.email').fill(user.email)
+  await dialog.getByTestId('share.level').selectOption(level)
+  await dialog.getByTestId('share.submit').click()
+  await expect(dialog.locator(`[data-testid="share.member"][data-email="${user.email}"]`)).toBeVisible()
+  await dialog.getByRole('button', { name: 'Close' }).click()
+}
+
+/** ＋ Dataset → Cloud → Add, for a cloud dataset someone shared (or one of yours). */
+export async function addFromCloud(page: Page, name: string) {
+  await listPanel(page, 'Datasets')
+  const panel = page.locator('details', { has: page.locator('summary', { hasText: /^Datasets$/ }) })
+  await panel.getByRole('button', { name: 'Dataset', exact: true }).click()
+  await panel.getByTestId('add.source.cloud').click()
+  await panel.locator('.stored li', { hasText: name }).getByRole('button', { name: 'Add' }).click()
+  await expect(card(page, 'dataset', name)).toContainText('Cloud')
+}
+
+/** The sync panel for one dataset (its menu → Sync…); answers its line, to choose on. */
+export async function openSync(page: Page, dataset: string) {
+  await listPanel(page, 'Datasets')
+  await cardAction(page, card(page, 'dataset', dataset), 'sync')
+  return page.locator(`[data-testid="batch.item"][data-name="${dataset}"]`)
+}
+
+/** ＋ Transform in the graph: tap the inputs, Next, name the output, write the SQL (optionally into an existing dataset), Run. */
+export async function newTransform(page: Page, o: { inputs: string[]; output: string; sql: string; writesTo?: string }) {
+  await closeWorkspacePanel(page)
+  await openSetup(page)
+  await page.getByRole('button', { name: 'Graph', exact: true }).click()
+  await page.getByTestId('graph.add-transform').click()
+  for (const input of o.inputs) await node(page, 'dataset', input).click()
+  await page.getByTestId('graph.next').click()
+  if (o.writesTo) await page.locator('[data-testid^="transform.writes-to."]').first().selectOption({ label: o.writesTo })
+  else {
+    await page.locator('[data-testid^="transform.output-name."]').first().fill(o.output)
+    await page.locator('[data-testid^="transform.output-name."]').first().press('Tab')
+  }
+  const sql = page.locator('[data-testid^="transform.sql."]').first()
+  await sql.fill(o.sql)
+  await sql.press('Tab')
+  await page.getByTestId('transform.run').click()
+}
+
+/** One line of the sync panel: choose an option, Go ahead, Done. */
+export async function syncOne(page: Page, dataset: string, option: 'push' | 'pull') {
+  const line = await openSync(page, dataset)
+  await line.getByTestId(`batch.option.${option}`).click()
+  await page.getByTestId('batch.go').click()
+  await page.getByTestId('batch.done').click()
+}
+
+/** Reloads the page (the app checks cloud states on load) and waits for it to settle. */
+export async function reload(page: Page) {
+  await page.reload()
+  await ready(page)
+}
+
+/** Runs SQL in a dataset's Explore window (its menu → Explore) and answers the result's rows, as the table shows them. */
+export async function explore(page: Page, dataset: string, sql: string): Promise<string[][]> {
+  await listPanel(page, 'Datasets')
+  await cardAction(page, card(page, 'dataset', dataset), 'explore')
+  const win = page.getByLabel(`Explore ${dataset}`)
+  await win.getByLabel('SQL').fill(sql)
+  await win.getByRole('button', { name: 'Run', exact: true }).click()
+  await expect(win.locator('.pager')).toBeVisible()
+  const rows = await win.locator('table tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => (td.textContent ?? '').trim())))
+  await win.getByRole('button', { name: 'Close' }).click()
+  return rows
 }

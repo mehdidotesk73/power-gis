@@ -129,7 +129,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   <div v-reveal="mode" class="dag">
     <div v-if="!mode" class="bar">
       <UiButton data-testid="graph.add-dataset" size="tag" tone="dataset" icon="＋" @click="emit('new-dataset')">Dataset</UiButton>
-      <UiButton size="tag" tone="transform" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">Transform</UiButton>
+      <UiButton data-testid="graph.add-transform" size="tag" tone="transform" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('transform')">Transform</UiButton>
       <UiButton size="tag" tone="viz" icon="＋" :disabled="!dag.nodes.some((n) => n.kind === 'dataset')" @click="start('viz')">Visualization</UiButton>
       <UiButton
         v-if="staleCount && !staleProgress?.running"
@@ -157,7 +157,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
       <span v-else>Tap the dataset to visualize.</span>
       <span class="actions">
         <button class="btn" @click="cancel">Cancel</button>
-        <button v-if="mode === 'transform'" class="btn primary" :disabled="!picked.length" @click="next">Next</button>
+        <button v-if="mode === 'transform'" data-testid="graph.next" class="btn primary" :disabled="!picked.length" @click="next">Next</button>
       </span>
     </div>
 
