@@ -995,7 +995,14 @@ async function seedDefault() {
   const r = await call('default workspace', request('seedDefaultWorkspace', {}))
   if (!r) throw new Error('the default workspace could not be prepared')
   for (const id of r.file.datasetIds) await loadRecord(id)
-  apply({ ok: true, doc: fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id)).doc })
+  // What couldn't be made here (a step whose SQL extension didn't download, say) stays, in red, and is reported.
+  const next = fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id), r.missing)
+  apply({ ok: true, doc: next.doc })
+  if (r.failed.length || r.missing.length) {
+    const report = missingReport(r.missing, r.failed, { visualizations: [], transforms: [] })
+    logDebug(`default map: ${report.replace(/\n/g, ' ')}`, 'warn')
+    barMessage.value = `Parts of the default map couldn't be made here:\n${report}`
+  }
   loadingMsg.value = 'Loading data…'
 }
 
@@ -1251,7 +1258,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 </script>
 
 <template>
-  <div ref="pageEl" class="page" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.size.value}px`, '--minimap-h': `${minimap.size.value}px` }">
+  <div ref="pageEl" class="page" :data-ready="loaded && status === 'ready' ? 'yes' : 'no'" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.size.value}px`, '--minimap-h': `${minimap.size.value}px` }">
     <!-- List | Graph and ⤢ / ✕: the top of the side panel in explore, of the whole page in setup. -->
     <div class="view-row">
       <div class="view-switch" role="group" aria-label="Show as">

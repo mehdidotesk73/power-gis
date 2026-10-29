@@ -2,7 +2,9 @@
 // UI: each device is its own browser context (its own storage), as a phone
 // and a laptop are. Data: the state-income workspace (tests/fixtures).
 import { expect, test } from '@playwright/test'
-import { account, addFromCloud, card, cardAction, device, explore, LAPTOP, linkToCloud, listPanel, newTransform, node, openSync, PHONE, ready, reload, saveWorkspace, setUpStateIncome, share, signIn, syncOne } from './helpers'
+import { closeDevices, account, addFromCloud, card, cardAction, device, explore, LAPTOP, linkToCloud, listPanel, newTransform, node, openSync, PHONE, ready, reload, saveWorkspace, setUpStateIncome, share, signIn, startSmall, syncOne } from './helpers'
+
+test.afterEach(closeDevices)
 
 test('one person, two devices: what is linked arrives, what is only on the first device is named as missing', async ({ browser }) => {
   const anna = await account('anna')
@@ -42,6 +44,7 @@ test("shared to read: the reader builds on it, pulls the owner's changes, and ca
 
   const b = await device(browser, LAPTOP)
   await signIn(b, ben)
+  await startSmall(b)
   await addFromCloud(b, 'State income')
   await expect(card(b, 'dataset', 'State income')).toContainText('56 rows')
 
@@ -99,9 +102,10 @@ test('two writers: both compute the state averages and push; the second gets ↑
   await share(a, 'State income', ben, 'write')
 
   // Ben: the shared county data and the state dataset; he computes the averages himself from the built-in
-  // counties (on his default map) and writes them into his copy of the state dataset.
+  // counties and writes them into his copy of the state dataset.
   const b = await device(browser, LAPTOP)
   await signIn(b, ben)
+  await startSmall(b)
   await addFromCloud(b, 'county_income')
   await addFromCloud(b, 'State income')
   await newTransform(b, {

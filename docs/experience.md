@@ -312,6 +312,13 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Default map: the socioeconomic pipeline — 2026-10-29
+
+- **Changed:** the default map is the user's socioeconomic pipeline (six ACS county tables, now
+  built-ins, ten transforms, twelve visualizations) instead of the EIA utilities map. The EIA tables
+  stay built-ins and the old default is a test fixture. A first visit also downloads the spatial
+  extension (land area for the state averages).
+
 ### UI tests in CI — 2026-10-29
 
 - **Added:** `tests/e2e`: the app in a browser against the local Supabase stack, on every PR. Your

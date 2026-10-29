@@ -1,10 +1,11 @@
-// The socioeconomic workspace (tests/fixtures): built-in county and state
-// shapes, six uploaded CSVs, ten transforms in five stages and twelve
-// visualizations. Loaded from its file on a fresh device, its uploads are
-// missing; each is replaced with its CSV through the dataset panel, then the
-// transforms run, and every output must have the expected rows.
-import { expect, test } from '@playwright/test'
-import { card, device, explore, FIXTURES, listPanel, loadWorkspaceFile, node } from './helpers'
+// The socioeconomic pipeline: built-in county and state shapes and six ACS
+// county tables, ten transforms in five stages, twelve visualizations. It is
+// the default map (public/data/default.powergis.json), and also a workspace
+// file whose tables are uploads (tests/fixtures/socioeconomic.powergis.json).
+// Its spatial step (1e, land area) needs DuckDB's spatial extension, which the
+// CI build hosts with the app.
+import { expect, test, type Page } from '@playwright/test'
+import { closeDevices, card, DATA, device, explore, FIXTURES, listPanel, loadWorkspaceFile, node } from './helpers'
 
 /** Each transform's output and the rows it must have (as the app showed them on the user's phone). */
 const OUTPUTS: [string, string][] = [
@@ -19,36 +20,22 @@ const OUTPUTS: [string, string][] = [
   ['State averages', '56'],
   ['State map layer', '56'],
 ]
-const UPLOADS = ['county_income', 'county_education', 'county_health_insurance', 'county_home_value', 'county_rent', 'county_columns']
 
-test('the socioeconomic workspace: load, replace its uploads, run, check every output', async ({ browser }) => {
-  const page = await device(browser)
-  await loadWorkspaceFile(page, `${FIXTURES}socioeconomic.powergis.json`)
-  await page.screenshot({ path: 'test-results/pipeline-1-loaded.png' })
-
-  // Its uploads aren't on this device: each is a missing root in the graph.
-  for (const name of UPLOADS) await expect(node(page, 'dataset', name)).toHaveAttribute('data-problem', 'missing')
-
-  // Replace each with its file, in the list: a missing dataset shows its panel with Replace….
-  await page.getByRole('button', { name: 'List', exact: true }).click()
-  await page.locator('summary', { hasText: /^Datasets$/ }).click()
-  for (const name of UPLOADS) {
-    const missing = page.locator(`[data-testid="missing-dataset"][data-name="${name}"]`)
-    await missing.getByTestId('dataset.replace').click()
-    await missing.getByTestId('add.source.csv').click()
-    await missing.getByTestId('add.csv-input').setInputFiles(`${FIXTURES}${name}.csv`)
-    await expect(missing).toHaveCount(0)
-  }
-  await page.screenshot({ path: 'test-results/pipeline-2-replaced.png' })
-
-  // Run everything (↻ Run all stale also makes outputs this device doesn't have yet), in dependency order.
-  await page.locator('summary', { hasText: /^Transforms$/ }).click()
-  await page.getByTestId('run-all-stale').first().click()
-  // Every output dataset gets its rows (a transform whose inputs were all built-ins already ran while the
-  // file opened; the rest run now, in order). A missing output shows as a missing panel until it's made.
+/** Every output dataset has its rows (they're made while the workspace opens, or by Run all stale). */
+async function expectOutputs(page: Page) {
   await listPanel(page, 'Datasets')
   for (const [output, rows] of OUTPUTS) await expect(card(page, 'dataset', output), output).toContainText(`${rows} rows`, { timeout: 180_000 })
-  await page.screenshot({ path: 'test-results/pipeline-3-ran.png' })
+}
+
+test.afterEach(closeDevices)
+
+test('the default map is the socioeconomic pipeline: every output made, the numbers hold', async ({ browser }) => {
+  const page = await device(browser) // a fresh device opens the default map
+  for (const table of ['County income (ACS)', 'County education (ACS B15003)', 'US counties', 'US states']) {
+    await listPanel(page, 'Datasets')
+    await expect(card(page, 'dataset', table), table).toContainText('Built-in')
+  }
+  await expectOutputs(page)
 
   // What must hold whatever the exact numbers: every county counted once, 56 states and territories, scores
   // within 0–100, and Connecticut unscored (ACS reports its new planning regions, the shapes its old counties).
@@ -60,4 +47,28 @@ test('the socioeconomic workspace: load, replace its uploads, run, check every o
   const counties = await explore(page, 'County metrics and scores', "SELECT fips, name, median_hh_income, bachelor_pct, uninsured_pct, price_to_income, socio_score FROM county_metrics_and_scores WHERE fips IN ('01001', '06037', '17031', '48201', '36061') ORDER BY fips")
   const states = await explore(page, 'State averages', "SELECT state_abbr, counties, counties_scored, avg_median_hh_income, socio_score FROM state_averages WHERE state_abbr IN ('CA', 'CT', 'NY', 'TX', 'WY') ORDER BY state_abbr")
   console.log(`[for sign-off] counties:\n${counties.map((r) => r.join(' | ')).join('\n')}\n[for sign-off] states:\n${states.map((r) => r.join(' | ')).join('\n')}`)
+})
+
+const UPLOADS = ['county_income', 'county_education', 'county_health_insurance', 'county_home_value', 'county_rent', 'county_columns']
+
+test('the same pipeline from a file with uploads: missing on a fresh device, replaced, run', async ({ browser }) => {
+  const page = await device(browser)
+  await loadWorkspaceFile(page, `${FIXTURES}socioeconomic.powergis.json`)
+  // Its uploads aren't on this device: each is a missing root in the graph.
+  for (const name of UPLOADS) await expect(node(page, 'dataset', name)).toHaveAttribute('data-problem', 'missing')
+
+  // Replace each with its file, in the list: a missing dataset shows its panel with Replace….
+  await listPanel(page, 'Datasets')
+  for (const name of UPLOADS) {
+    const missing = page.locator(`[data-testid="missing-dataset"][data-name="${name}"]`)
+    await missing.getByTestId('dataset.replace').click()
+    await missing.getByTestId('add.source.csv').click()
+    await missing.getByTestId('add.csv-input').setInputFiles(`${DATA}${name}.csv`)
+    await expect(missing).toHaveCount(0)
+  }
+
+  // Run everything (↻ Run all stale also makes outputs this device doesn't have yet), in dependency order.
+  await listPanel(page, 'Transforms')
+  await page.getByTestId('run-all-stale').first().click()
+  await expectOutputs(page)
 })

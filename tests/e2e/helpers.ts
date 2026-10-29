@@ -1,9 +1,11 @@
 // Shared steps for the UI tests. Elements are found by their stable test keys
 // (data-testid) or by role and accessible name, never by layout.
-import { expect, type Browser, type BrowserContextOptions, type Locator, type Page } from '@playwright/test'
+import { expect, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 
 export const FIXTURES = new URL('../fixtures/', import.meta.url).pathname
+/** The built-in CSVs (the ACS county tables are also the socioeconomic fixture's uploads). */
+export const DATA = new URL('../../public/data/', import.meta.url).pathname
 const supabaseUrl = process.env.SUPABASE_TEST_URL ?? 'http://127.0.0.1:54321'
 const supabaseKey = process.env.SUPABASE_TEST_KEY ?? ''
 const run = Math.random().toString(36).slice(2, 7)
@@ -26,9 +28,20 @@ export async function account(name: string): Promise<User> {
 export const PHONE: BrowserContextOptions = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }
 export const LAPTOP: BrowserContextOptions = { viewport: { width: 1280, height: 860 } }
 
+const open: BrowserContext[] = []
+/** Closes the devices a test opened (call after each test, so pages don't keep running into the next). */
+export async function closeDevices() {
+  await Promise.all(open.splice(0).map((c) => c.close()))
+}
+
 /** A fresh device (its own storage), on the app, the first map drawn. */
 export async function device(browser: Browser, options: BrowserContextOptions = LAPTOP): Promise<Page> {
-  const page = await (await browser.newContext(options)).newPage()
+  const context = await browser.newContext(options)
+  open.push(context)
+  // DuckDB extensions come from the test build itself (CI hosts them, as Netlify does); never from DuckDB's
+  // servers, which some networks leave hanging (it would stall the app's worker). Refused at once instead.
+  await context.route('https://extensions.duckdb.org/**', (route) => route.abort())
+  const page = await context.newPage()
   page.on('dialog', (d) => void d.accept()) // confirm() prompts: yes
   page.on('pageerror', (e) => console.log(`[page error] ${e.message}`))
   await page.goto('/')
@@ -36,9 +49,9 @@ export async function device(browser: Browser, options: BrowserContextOptions = 
   return page
 }
 
-/** The page has settled: no loading note (the default map, an opened workspace). */
+/** The page has settled: its workspace is loaded (the default map, an opened one) and nothing is loading. */
 export async function ready(page: Page) {
-  await page.waitForFunction(() => document.body.innerText.includes('Search within') && !/Preparing the default map|Opening |Loading data…/.test(document.body.innerText), null, { timeout: 120_000 })
+  await expect(page.locator('.page[data-ready="yes"]')).toBeVisible({ timeout: 180_000 })
 }
 
 export async function signIn(page: Page, user: User) {
@@ -73,10 +86,15 @@ export async function cardAction(page: Page, target: Locator, action: string) {
 
 /** Loads a workspace file (Workspace → Load workspace file…). */
 export async function loadWorkspaceFile(page: Page, file: string) {
-  await page.getByRole('button', { name: /^Workspace/ }).click()
+  await openWorkspacePanel(page)
   await page.getByTestId('workspace.file-input').setInputFiles(file)
   await ready(page)
-  await page.getByRole('button', { name: /^Workspace/ }).click() // closes the panel
+  await closeWorkspacePanel(page)
+}
+
+/** Opens the Workspace panel (unless a report already opened it). */
+export async function openWorkspacePanel(page: Page) {
+  if (!(await page.getByRole('dialog', { name: 'Workspace' }).isVisible())) await page.getByRole('button', { name: /^Workspace/ }).click()
 }
 
 /** The List view with one of its panels (Visualizations, Transforms, Datasets) open. */
@@ -90,7 +108,7 @@ export async function listPanel(page: Page, panel: 'Visualizations' | 'Transform
 }
 
 /** Replaces a dataset this device doesn't have with a CSV file (its panel's Replace…). */
-export async function replaceMissing(page: Page, name: string, file = `${FIXTURES}${name}.csv`) {
+export async function replaceMissing(page: Page, name: string, file = `${DATA}${name}.csv`) {
   await listPanel(page, 'Datasets')
   const missing = page.locator(`[data-testid="missing-dataset"][data-name="${name}"]`)
   await missing.getByTestId('dataset.replace').click()
@@ -129,10 +147,10 @@ export async function linkToCloud(page: Page, name: string) {
 
 /** Workspace → Save, until it says all changes are saved. */
 export async function saveWorkspace(page: Page) {
-  await page.getByRole('button', { name: /^Workspace/ }).click()
+  await openWorkspacePanel(page)
   await page.getByTestId('workspace.save').click()
   await expect(page.getByText(/All changes saved/)).toBeVisible()
-  await page.getByRole('button', { name: /^Workspace/ }).click()
+  await closeWorkspacePanel(page)
 }
 
 /** Shares a dataset (its menu → Share…) with someone, as Can pull (read) or Can push (write). */
@@ -208,4 +226,9 @@ export async function explore(page: Page, dataset: string, sql: string): Promise
   const rows = await win.locator('table tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => (td.textContent ?? '').trim())))
   await win.getByRole('button', { name: 'Close' }).click()
   return rows
+}
+
+/** A small workspace (just the built-in US counties), so a test's graph stays small whatever the default map is. */
+export async function startSmall(page: Page) {
+  await loadWorkspaceFile(page, `${FIXTURES}counties-only.powergis.json`)
 }

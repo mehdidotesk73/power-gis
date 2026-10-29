@@ -652,9 +652,9 @@ export function createServer(db: Database, env: ServerEnv) {
       if (!env.readDefaultWorkspace) return fail('unsupported', 'No default workspace here')
       const parsed = parseWorkspaceFile(await env.readDefaultWorkspace(baseUrl))
       if (!parsed.ok) return fail('failed', `default workspace: ${parsed.error}`)
-      const { file, missing, failed } = await openDocument(parsed.file)
-      if (failed.length || missing.length) fail('failed', `default workspace: ${[...failed.map((f) => `${f.name}: ${f.reason}`), ...missing.map((m) => `${m.name}: ${m.why}`)].join('; ')}`)
-      return { file }
+      // What couldn't be made here (a transform needing an extension this device can't download, say)
+      // is reported, as for any opened workspace: the map opens with the rest.
+      return openDocument(parsed.file)
     },
 
     async openDocument({ file }) {

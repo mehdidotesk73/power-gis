@@ -1,0 +1,24 @@
+{
+  "format": "powergis-workspace",
+  "version": 2,
+  "exportedAt": "2026-10-29T00:00:00.000Z",
+  "name": "Counties only",
+  "datasetIds": [
+    "counties-only-us-counties"
+  ],
+  "transforms": [],
+  "visualizations": [],
+  "datasets": [
+    {
+      "id": "counties-only-us-counties",
+      "name": "US counties",
+      "store": "local",
+      "rows": 3231,
+      "origin": {
+        "kind": "builtin",
+        "table": "us_counties",
+        "version": 1
+      }
+    }
+  ]
+}

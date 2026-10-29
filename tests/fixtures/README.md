@@ -1,15 +1,11 @@
 # Test fixtures
 
-Data and workspace files the end-to-end and integration tests stage. Kept out of
-`public/` so they never ship with the app.
+Workspace files the tests open. The CSVs they use are the app's own built-ins in `public/data/`.
 
-Drop in:
-
-- **Data files**: `.csv` / `.geojson`, small (a few hundred rows at most). Name each
-  file after the dataset it becomes (e.g. `county_prices.csv` → "county_prices").
-- **Workspace**: the `.powergis.json` from Workspace → Download (or Copy, pasted
-  into a file). It carries the setup (transforms with SQL, visualizations with
-  their settings) and each dataset's name, never rows; the tests match its
-  datasets to the files here by name.
-- **Expectations** (optional): `expected.md` with what you'd check by hand
-  ("the transform gives 87 rows", "Autauga's panel shows 3 utilities").
+- `socioeconomic.powergis.json`: the default map's pipeline, as the user built it with the six ACS
+  county tables as uploads (the UI test replaces them with the CSVs).
+- `state-income.powergis.json`: a small, no-spatial pipeline (county income → state averages →
+  state map) for the two-person cloud scenarios.
+- `counties-only.powergis.json`: just the built-in US counties, so a test's graph stays small.
+- `eia-utilities.powergis.json`: the EIA utilities-by-county map (the default until 2026-10-29), for
+  the server's unit tests.

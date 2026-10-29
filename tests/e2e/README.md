@@ -4,9 +4,10 @@ The built app in a real browser (Playwright, Chromium), against a local Supabase
 typing through the same controls a person uses. Each "device" is its own browser context (its own
 storage), at phone or laptop size, so one test can be two people on three devices.
 
-- `pipeline.spec.ts`: the socioeconomic workspace (`tests/fixtures`): load its file, replace its six
-  uploads with their CSVs, Run all stale, check every output's rows and values (via Explore). Needs
-  DuckDB's spatial extension, which the CI build hosts with the app.
+- `pipeline.spec.ts`: the socioeconomic pipeline: as the **default map** (a fresh device opens it;
+  every output's rows, invariants and a sample via Explore), and as a file whose tables are uploads
+  (`tests/fixtures/socioeconomic.powergis.json`: load, replace the six missing uploads with their CSVs
+  from `public/data`, Run all stale). Needs DuckDB's spatial extension, which the CI build hosts.
 - `cloud.spec.ts`: two people, several devices, the state-income workspace: a second device; a
   read-only share used as input to the reader's own transform; two writers and a conflict; access
   lowered and leaving; signed out.

@@ -110,8 +110,11 @@ export interface Api {
     { visualization: { id: string; name: string; datasetId: string; binding: GeometryBinding; column: string; aggregation: Aggregation }; format: 'geojson' | 'agol' | 'esri' | 'csv' },
     { fileName: string; mimeType: string; text: string },
   ]
-  /** The default map as a workspace file with real dataset ids (built-ins uploaded or reused, transforms run or reused). */
-  seedDefaultWorkspace: [Record<string, never>, { file: WorkspaceFile }]
+  /**
+   * The default map as a workspace file with real dataset ids (built-ins uploaded or reused, transforms run or
+   * reused), and what couldn't be made here, as openDocument reports it.
+   */
+  seedDefaultWorkspace: [Record<string, never>, { file: WorkspaceFile; missing: MissingDataset[]; failed: { name: string; reason: string }[] }]
   /**
    * A workspace document (any version) opened on this device: its dataset ids made real here — datasets
    * present used, built-ins uploaded or reused, transform outputs reused or made by running the

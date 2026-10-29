@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, pointers, replaceDatasetIds, snapshot, toWorkspaceFile } from './file'
 import type { DatasetRecord } from '../../shared/records'
-import { readFileSync } from 'node:fs'
+import { builtinTable } from '../../shared/builtins'
+import { existsSync, readFileSync } from 'node:fs'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import { workspaceRequires, type WorkspaceDoc } from './workspace'
 
@@ -149,13 +150,32 @@ describe('workspace documents (version 2)', () => {
 describe('the default workspace file', () => {
   const parsed = parseWorkspaceFile(readFileSync('public/data/default.powergis.json', 'utf8'))
 
-  it('is a version 2 document over built-ins and its transform output', () => {
+  it('is the socioeconomic pipeline over built-ins: every built-in exists with its file, every transform is wired', () => {
     if (!parsed.ok) throw new Error(parsed.error)
-    expect(parsed.file.version).toBe(2)
-    expect(parsed.file.datasets.filter((d) => d.origin.kind === 'builtin').map((d) => (d.origin as { table: string }).table).sort()).toEqual(['us_counties', 'us_states', 'utilities', 'utility_counties'])
-    expect(parsed.file.datasets.find((d) => d.origin.kind === 'output')).toMatchObject({ id: 'default-utilities-by-county', origin: { transform: 'default-t1', output: 'o1' } })
-    expect(parsed.file.visualizations.every((v) => v.binding.kind === 'geometry')).toBe(true)
-    expect(parsed.file.visualizations.find((v) => v.name === 'Number of utilities')).toMatchObject({ datasetId: 'default-utilities-by-county', column: 'utility_id_eia', aggregation: 'count' })
+    const file = parsed.file
+    expect(file.version).toBe(2)
+    const builtins = file.datasets.flatMap((d) => (d.origin.kind === 'builtin' ? [d.origin.table] : []))
+    expect(builtins.sort()).toEqual(['county_columns', 'county_education', 'county_health_insurance', 'county_home_value', 'county_income', 'county_rent', 'us_counties', 'us_states'])
+    for (const table of builtins) {
+      const b = builtinTable(table)
+      expect(b, table).toBeTruthy()
+      if (b!.source === 'csv') expect(existsSync(`public/data/${table}.csv`), table).toBe(true)
+    }
+    // Ten transforms in stages; every input is a dataset of the file, every output is written by exactly one of them.
+    expect(file.transforms.map((t) => t.name)).toEqual([
+      '1a Clean county income', '1b Clean county education', '1c Clean county health insurance', '1d Clean county home value',
+      '1e County shapes and land area', '2a Join shapes with income and education', '2b Join insurance and home value',
+      '3a County metrics and scores', '4a State averages (area-weighted)', '5 State map layer',
+    ])
+    const ids = new Set(file.datasets.map((d) => d.id))
+    for (const t of file.transforms) for (const i of t.inputs) expect(ids.has(i.datasetId), `${t.name} ← ${i.datasetId}`).toBe(true)
+    const outputs = file.transforms.flatMap((t) => t.outputs.map((o) => o.outputId))
+    expect(new Set(outputs).size).toBe(outputs.length)
+    for (const d of file.datasets.filter((d) => d.origin.kind === 'output')) expect(outputs).toContain(d.id)
+    expect(file.requires).toEqual(['spatial'])
+    // One visualization shows when the map opens: the county score.
+    expect(file.visualizations.every((v) => v.binding.kind === 'geometry')).toBe(true)
+    expect(file.visualizations.filter((v) => v.visible !== false).map((v) => v.name)).toEqual(['County socioeconomic score (0-100)'])
   })
 })
 

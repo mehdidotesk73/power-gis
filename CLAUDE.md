@@ -39,9 +39,13 @@ UI structure — one page, the **Map**:
     transparency encodings.
   - **Hover tooltip**, **click → feature panel** (the visualizations' values plus the rows behind
     the feature), **legend**.
-- **Default map**: every US electric utility and the counties it serves (EIA Form 861, report year
-  2025), built like any user's map: built-in datasets (EIA tables + US counties / states polygons), a
-  SQL join transform and visualizations, from the workspace file `public/data/default.powergis.json`.
+- **Default map**: a county socioeconomic score (income, education, health insurance, housing
+  affordability) with area-weighted state averages, built like any user's map: built-in datasets (six
+  ACS county tables + US counties / states polygons), ten SQL transforms in stages (clean → join →
+  metrics → state averages → state map; 1e uses the spatial extension for county land area) and twelve
+  visualizations (the county score shows first), from the workspace file
+  `public/data/default.powergis.json`. The EIA utilities map it replaced is a test fixture now
+  (`tests/fixtures/eia-utilities.powergis.json`); its two EIA tables are still built-ins.
 
 The entire app is wrapped inside a header and footer. The header provides the app title, a **☰ menu** (outlined green while signed in, and its account item's ◉ green; **Sign in** / your name, which opens the account window — signing in closes it; Help, which opens the conceptual-docs modal, and on touch devices **Desktop view / Phone view**), and an "Update available" affordance that surfaces when a newer PWA build is live. The footer (one row, small type) provides the current build id/timestamp, version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
 
@@ -109,11 +113,16 @@ whatever they're actually asking about.
 - `scripts/build_utility_counties.py [year]` regenerates the normalized EIA-861 tables from PUDL:
   `public/data/utilities.csv` (one row per utility: id, name, ownership type, short-form filer) and
   `utility_counties.csv` (the many-to-many links: `utility_id_eia`, `county_fips`; retired FIPS
-  codes mapped to their successors). **Four built-ins, nothing derived:** these two plus
-  `us_counties` and `us_states`. Utilities per county, a utility's territory, utilities per state
+  codes mapped to their successors). Built-ins (no longer on the default map; still in ＋ Dataset →
+  Built-in): these two plus `us_counties` and `us_states`. Utilities per county, a utility's territory, utilities per state
   (states ⋈ counties ⋈ links ⋈ utilities, grouped) are all transforms. Customers / sales / revenue
   (EIA reports them per utility per state) can come back later as a separate built-in. It needs `pandas` + `pyarrow`;
   downloads are cached in `scripts/.cache/` (git-ignored).
+- **ACS county tables** (the default map's data): built-in `county_income`, `county_education`
+  (B15003), `county_health_insurance` (B27010), `county_home_value` (B25077, B25075), `county_rent`
+  (B25064, B25063) and `county_columns` (what each column means), CSVs in `public/data/` (3,222 counties
+  incl. Puerto Rico; `GEOID` = county FIPS). The ACS uses Connecticut's nine planning regions, so its
+  eight old counties in us-atlas get no values.
 - **Boundary datasets**: built-in `us_counties` (`fips`, `name` "Autauga, AL", `county`, `state`,
   `state_fips`, `geometry`) and `us_states` (`fips`, `name`, `abbr`, `geometry`), made from the `us-atlas`
   npm package (Census 2017, 1:10m) by `lib/data/boundaryTables.ts` in the worker. Region codes in any
@@ -331,7 +340,8 @@ whatever they're actually asking about.
   records the SQL that wrote it (`extensions.sql`). Agreed next: the same content as the agent's files
   (+ full visualization settings) and a zip for Download / Load (`docs/TODO.md`).
 - **Default workspace** (`public/data/default.powergis.json`): a v2 document with readable ids
-  (`default-utilities`, …, the output `default-utilities-by-county`). `seedDefault` (`MapPage.vue`)
+  (`default-county-income`, …, outputs like `default-county-metrics-and-scores`, transforms `default-t-…`).
+  Its spatial step makes a first visit also download DuckDB's spatial extension (~23 MB). `seedDefault` (`MapPage.vue`)
   asks the server (`seedDefaultWorkspace` → `openDocument`; the first run loads DuckDB) and opens the
   result like a loaded document. Changing the default map = editing that file. Every dataset's click panel shows its rows (`FeatureRows`).
 - **Object lists** (`components/list/ObjectList.vue`, generic over the item type): datasets,
@@ -447,11 +457,12 @@ src/
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
     agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)
     account/AccountModal.vue  sign in / create account / reset password / your profile
-public/data/               utilities.csv, utility_counties.csv (generated); default.powergis.json (default workspace)
+public/data/               county_*.csv (ACS, the default map's built-ins), utilities.csv, utility_counties.csv (generated);
+                           default.powergis.json (default workspace)
 supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor;
                            config.toml (the local test stack only)
 tests/cloud/               cloud integration tests (real Supabase stack); tests/e2e/ UI tests (Playwright);
-                           tests/fixtures/ test data (socioeconomic + state-income workspaces, CSVs)
+                           tests/fixtures/ workspace files (socioeconomic with uploads, state-income, counties-only, eia-utilities)
 scripts/                   data build scripts; fetch-duckdb-extensions.mjs (prebuild, Netlify only); test-stack.sh (local Supabase for tests)
 docs/
   TODO.md                  living backlog (Done / Next branch / Housekeeping)
