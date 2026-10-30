@@ -347,6 +347,15 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's
      built-in one sends only a few emails an hour.
 
+### Scout and scraper (agreed 2026-10-30; `docs/agents.md`)
+
+1. Proof of concept on Managed Agents (in progress): browser access, cost and time, files back.
+2. The orchestrator's tools: send the scout / send the scraper (an approval card with the brief and the
+   cap), progress in the chat, the scraper's CSVs imported as datasets, its script saved to re-run.
+3. Run records (request, briefs, sources, terms, cost); until then a dataset's source is a line in its
+   description.
+4. Component cleanup: the mini map's ▾ minimize button (looks rough; unify with the button components).
+
 ### Agent reviewer pass (agreed 2026-10-29; after scouting and scraping)
 
 For builds big enough to need an approved plan: when the builder finishes, a separate call with fresh

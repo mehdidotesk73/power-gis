@@ -265,6 +265,32 @@ usage policies live **there**, not as dataset properties.
   started (a transform run) may still finish unseen. **New chat** works while busy (stops first).
 - **(built) Limits:** 40 model turns per user message, then it stops and says "continue" carries on.
 
+## Scout and scraper (agreed 2026-10-30; proof of concept in progress)
+
+Three roles. The **orchestrator** is the in-app assistant: it works out the strategy from the user's
+request, sends the scout or the scraper with a brief, reads what comes back, confirms with the user, and
+owns the workspace (imports the scraper's CSVs as datasets, then transforms and visualizations). The
+**scout** explores broad and shallow: searches, follows links to where data actually lives, looks at
+each source lightly (format, shape, coverage, terms) and reports; it never extracts whole datasets. The
+**scraper** follows a precise brief (which sources, what to extract, the result's columns), writes and
+runs Python, and returns CSVs plus its script and sources. **They never talk to each other**: anything
+the scraper uses from the scout's findings comes through the orchestrator's brief.
+
+Both run as **Anthropic Managed Agents sessions** (the agent loop on Anthropic's side, tools in a
+container there): real Python, no browser CORS, no proxy of ours, runs on while the phone sleeps, a
+hard **spending cap per session** (budget at list prices: tokens, web searches at $10 / 1,000,
+container time at $0.08 / hour). Both have **unrestricted** web access for now (a state site's data
+often lives on another platform). **Fallback ladder** for reading a page: web_fetch → the same URL from
+a Python script in the container → a headless browser from Python → report it blocked; polite request
+rates, the site's terms respected.
+
+**Proof of concept** (`client/agent/managed.ts`, `components/agent/LabPanel.vue`: the assistant's ⚙ →
+*Test: scout & scraper*): two editable briefs (scout: the WSDOT mileage page and Home Depot's annual
+reports; scraper: Zillow's county condo CSV and a Census API table), a cap per run, live progress,
+then elapsed time, cost, report and output files (CSVs import as datasets). The environment and the
+two agents are created once and remembered on the device (`powergis.managed`). What it answers:
+whether the browser can call these endpoints directly, startup time and cost, and files coming back.
+
 ## Next: scouting and scraping
 
 Data isn't always a file to download: prices on product pages, shipping quotes from one place

@@ -346,6 +346,13 @@ Two additions from reviewing it here, beyond what the originating project report
   iOS Safari). **Gotcha:** iOS refuses a clipboard write that starts after an await, so the
   ClipboardItem is made at once with the PNG as a promise.
 
+### Scout & scraper proof of concept — 2026-10-30
+
+- **Added:** the assistant's ⚙ → *Test: scout & scraper*: runs a scout or scraper brief as an Anthropic
+  Managed Agents session with the user's key and a spending cap; shows progress, cost, the report and
+  output files (CSVs import as datasets). Decided: orchestrator / scout / scraper roles, all Python in
+  Anthropic's container (no Pyodide, no proxy), unrestricted web for both for now.
+
 ### ＋ waits for the default map; sample values locked — 2026-10-29
 
 - **Fixed:** on a first visit, a dataset added while the default map was still being prepared was
