@@ -370,6 +370,10 @@ Two additions from reviewing it here, beyond what the originating project report
   `supabase/functions/managed-relay` (a Supabase Edge Function: forwards only Managed Agents paths, the
   user's key passes through, nothing stored), and the page polls session events instead of streaming.
   Tested through the local stack's gateway and edge runtime (`tests/cloud/relay.test.ts`).
+- **First runs:** scout 39 s / $0.03, scraper 86 s / $0.02 (Haiku) — cheap. The scout guessed file
+  layouts from names, so it now peeks at one file of each kind; the scraper test brief now needs Excel,
+  a PDF table and a JavaScript-built page. The Census API needs a key now; the bulk Summary File
+  (www2.census.gov) doesn't.
 - **Decided:** the assistant picks scout and / or scraper itself after weighing what the workspace
   already holds, and asks before searching; the test panel's role picker is only for the test.
 

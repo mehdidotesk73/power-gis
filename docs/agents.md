@@ -303,11 +303,17 @@ approved on a card showing the brief and the cap.
 
 **Proof of concept** (`client/agent/managed.ts`, `components/agent/LabPanel.vue`: the assistant's ⚙ →
 *Test: scout & scraper*): two editable briefs (scout: the WSDOT mileage page and Home Depot's annual
-reports; scraper: Zillow's county condo CSV and a Census API table), a cap per run, live progress,
+reports, peeking at the files; scraper: a WSDOT Excel file, the earnings table in Home Depot's annual
+report PDF, and a JavaScript-built page, each needing a different way in), a cap per run, live progress,
 then elapsed time, cost, report and output files (CSVs import as datasets). The environment and the
 two agents are created once and remembered on the device (`powergis.managed`). What it answers:
 whether runs work through the relay, startup time and cost, and files coming back. (First answer: not
-directly from the browser — CORS — hence the relay.)
+directly from the browser — CORS — hence the relay.) **First runs (2026-10-30, Haiku):** scout 39 s,
+$0.03, a sound report but layouts guessed from file names — so the scout now **peeks** (downloads a
+file under ~20 MB and reads only sheets, headers and the first rows; PDFs: pages and where tables are).
+Scraper (Zillow + Census) 86 s, $0.02: when the Census API turned out to need a key it found the
+bulk Summary File itself, said so, and flagged the -666666666 sentinel and Connecticut's mismatched
+counties; the CSVs imported fine. Not yet exercised: Excel, PDF tables, the headless-browser rung.
 
 ## Next: scouting and scraping
 

@@ -12,18 +12,20 @@ import type { AgentHost } from '../../lib/agent/tools'
 const props = defineProps<{ apiKey: string; model: string; host: Pick<AgentHost, 'importCsv'> }>()
 
 const BRIEFS: Record<Role, string> = {
-  scout: `Look, without extracting anything, at what these two pages publish and how:
+  scout: `Find out what these two pages publish and how; peek at the files' actual layout:
 1. https://wsdot.wa.gov/about/transportation-data/travel-data/annual-mileage-and-travel-information (Washington State DOT mileage and travel data)
 2. https://ir.homedepot.com/financial-reports/annual-reports/recent (Home Depot annual reports)
-For each: the datasets or tables offered, their format (HTML table, CSV, Excel, PDF), rough shape (columns, rows), years covered, how to get them, and terms of use.`,
-  scraper: `Fetch these two tables and save each as a CSV in /mnt/session/outputs/:
-1. https://files.zillowstatic.com/research/public_csvs/zhvi/County_zhvi_uc_condo_tier_0.33_0.67_sm_sa_month.csv → zillow_county_condo.csv, reshaped long: one row per county and month, columns fips (5-digit text, from StateCodeFIPS + MunicipalCodeFIPS), county, state, month (YYYY-MM-DD), zhvi.
-2. The Census ACS 5-year 2022 median household income per county (variable B19013_001E) from https://api.census.gov/data/2022/acs/acs5?get=NAME,B19013_001E&for=county:* → census_county_income.csv with columns fips (5-digit text), name, median_hh_income.`,
+For each: the datasets or tables offered, their format (HTML table, CSV, Excel, PDF), their layout (sheets, header rows, columns, rough row count), years covered, how to get them, and terms of use.`,
+  // Each part needs a different way in: an Excel file, a table inside a PDF, a page JavaScript builds.
+  scraper: `Make these three tables and save each as a CSV in /mnt/session/outputs/:
+1. From https://wsdot.wa.gov/about/transportation-data/travel-data/annual-mileage-and-travel-information, the HPMS Excel file with public road mileage and daily VMT by county, most recent year → wsdot_county_vmt.csv with columns county, year, centerline_miles, lane_miles, daily_vmt (one row per county; no total rows).
+2. From Home Depot's most recent annual report PDF (https://ir.homedepot.com/financial-reports/annual-reports/recent), the consolidated statements of earnings → home_depot_earnings.csv with columns fiscal_year, net_sales, gross_profit, operating_income, net_earnings (in millions, one row per fiscal year shown).
+3. https://quotes.toscrape.com/js/ (the page is built by JavaScript), pages 1 to 3 → quotes_js.csv with columns page, quote, author, tags (tags joined with "; ").`,
 }
 
 const role = ref<Role>('scout')
 const briefs = ref({ ...BRIEFS })
-const cap = ref(1)
+const cap = ref(2)
 const running = ref(false)
 const log = ref<RunEvent[]>([])
 const result = ref<RunResult | null>(null)
