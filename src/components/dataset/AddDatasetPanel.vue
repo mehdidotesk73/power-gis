@@ -29,6 +29,10 @@ const builtin = ref(BUILTIN_TABLES[0].table)
 const sample = ref(SAMPLE_TABLES[0]?.table ?? '')
 const arcgisUrl = ref('')
 const name = ref('')
+/** Upload is one source with three kinds: CSV files, GeoJSON / Esri JSON files, an ArcGIS layer's URL. */
+/** Library: datasets you already have, on this device or in your account, that aren't in this workspace. */
+const inLibrary = computed(() => origin.value === 'db' || origin.value === 'cloud')
+const uploading = computed(() => origin.value === 'csv' || origin.value === 'json' || origin.value === 'arcgis')
 const busy = ref(false)
 const error = ref('')
 
@@ -118,11 +122,13 @@ if (origin.value === 'cloud') void refreshCloud()
     <div class="seg">
       <button data-testid="add.source.builtin" :class="{ on: origin === 'builtin' }" @click="origin = 'builtin'">Built-in</button>
       <button v-if="SAMPLE_TABLES.length" data-testid="add.source.sample" :class="{ on: origin === 'sample' }" @click="origin = 'sample'">Samples</button>
-      <button data-testid="add.source.csv" :class="{ on: origin === 'csv' }" @click="origin = 'csv'">CSV file</button>
-      <button data-testid="add.source.json" :class="{ on: origin === 'json' }" @click="origin = 'json'">GeoJSON / Esri</button>
-      <button data-testid="add.source.arcgis" :class="{ on: origin === 'arcgis' }" @click="origin = 'arcgis'">ArcGIS URL</button>
-      <button data-testid="add.source.db" :class="{ on: origin === 'db' }" @click="(origin = 'db'), refresh()">Saved</button>
-      <button v-if="auth.user" data-testid="add.source.cloud" :class="{ on: origin === 'cloud' }" @click="(origin = 'cloud'), refreshCloud()">Cloud</button>
+      <button data-testid="add.source.upload" :class="{ on: uploading }" @click="uploading || (origin = 'csv')">Upload</button>
+      <button data-testid="add.source.library" :class="{ on: inLibrary }" @click="inLibrary || ((origin = 'db'), refresh())">Library</button>
+    </div>
+    <div v-if="inLibrary" class="kinds" role="radiogroup" aria-label="Where your datasets are">
+      <label><input data-testid="add.source.db" type="radio" value="db" :checked="origin === 'db'" @change="(origin = 'db'), refresh()" /> On this device</label>
+      <label v-if="auth.user"><input data-testid="add.source.cloud" type="radio" value="cloud" :checked="origin === 'cloud'" @change="(origin = 'cloud'), refreshCloud()" /> In your account (cloud)</label>
+      <span v-else class="muted small">Sign in to add datasets from your account.</span>
     </div>
     <template v-if="origin === 'cloud'">
       <p v-if="!inCloud" class="muted small">Looking in the cloud…</p>
@@ -141,6 +147,11 @@ if (origin.value === 'cloud') void refreshCloud()
       <p v-if="progress" class="muted small clip">{{ progress }}</p>
     </template>
     <template v-else-if="origin !== 'db'">
+      <div v-if="uploading" class="kinds" role="radiogroup" aria-label="What to upload">
+        <label><input data-testid="add.source.csv" type="radio" value="csv" :checked="origin === 'csv'" @change="origin = 'csv'" /> CSV files</label>
+        <label><input data-testid="add.source.json" type="radio" value="json" :checked="origin === 'json'" @change="origin = 'json'" /> GeoJSON / Esri JSON</label>
+        <label><input data-testid="add.source.arcgis" type="radio" value="arcgis" :checked="origin === 'arcgis'" @change="origin = 'arcgis'" /> ArcGIS URL</label>
+      </div>
       <label class="row">Name <input v-model="name" type="text" :placeholder="origin === 'csv' || origin === 'json' ? '(from the file; one file only)' : '(from the source)'" /></label>
       <div v-if="origin === 'builtin'" class="row">
         <select v-model="builtin">
@@ -159,12 +170,12 @@ if (origin.value === 'cloud') void refreshCloud()
         Choose CSV files…
       </label>
       <label v-else-if="origin === 'json'" class="btn file">
-        <input type="file" accept=".json,.geojson,application/json,application/geo+json" multiple :disabled="busy" @change="onFile($event, 'json')" />
+        <input data-testid="add.json-input" type="file" accept=".json,.geojson,application/json,application/geo+json" multiple :disabled="busy" @change="onFile($event, 'json')" />
         Choose .geojson / Esri .json files…
       </label>
       <form v-else class="row" @submit.prevent="arcgisUrl.trim() && upload({ kind: 'arcgis', url: arcgisUrl.trim() })">
-        <input v-model="arcgisUrl" type="url" placeholder="https://…/FeatureServer/0" autocapitalize="off" />
-        <button class="btn primary" type="submit" :disabled="busy">Add</button>
+        <input v-model="arcgisUrl" data-testid="add.arcgis-url" type="url" placeholder="https://…/FeatureServer/0" autocapitalize="off" aria-label="ArcGIS layer URL" />
+        <button class="btn primary" data-testid="add.arcgis-add" type="submit" :disabled="busy">Add</button>
       </form>
       <p class="muted small clip">{{ progress || (busy ? 'Uploading…' : 'Each file is stored as its own dataset, a new table in the database (on this device for now).') }}</p>
       <template v-if="results.length && !busy">
@@ -180,7 +191,7 @@ if (origin.value === 'cloud') void refreshCloud()
       </template>
     </template>
     <template v-else>
-      <p v-if="!available.length" class="muted small">No other datasets in the database.</p>
+      <p v-if="!available.length" class="muted small">Every dataset on this device is already in this workspace.</p>
       <ul class="stored">
         <li v-for="d in available" :key="d.id">
           <span class="grow" :title="`${d.name}\n${d.origin}`">
@@ -198,6 +209,17 @@ if (origin.value === 'cloud') void refreshCloud()
 </template>
 
 <style scoped>
+.kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  font-size: 0.85rem;
+}
+.kinds label {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+}
 .add {
   display: grid;
   /* One column that can shrink: a long dataset or file name never widens the page. */

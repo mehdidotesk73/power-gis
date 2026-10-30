@@ -33,7 +33,7 @@ npm run test:e2e            # serves dist-e2e on :4173 and runs the tests
 **Finding things:** stable test keys (`data-testid`), never layout. Cards are `<kind>-card` with
 `data-name` = their name (`dataset-card`, `transform-card`, `viz-card`), menu items `menu.<action>`,
 graph nodes `node.<kind>` with `data-name`, plus keys on the add panel (`add.source.<kind>`,
-`add.csv-input`), the sync panel (`batch.item`, `batch.option.<push|pull|skip>`, `batch.go`,
+`add.csv-input`, `add.json-input`, `add.arcgis-url` under `add.source.upload`), the sync panel (`batch.item`, `batch.option.<push|pull|skip>`, `batch.go`,
 `batch.done`), the share panel (`share.email`, `share.level`, `share.submit`, `share.member`), the
 transform editor (`transform.sql.<key>`, `transform.output-name.<key>`, `transform.writes-to.<key>`,
 `transform.run`) and the workspace (`workspace.save`, `workspace.file-input`). Shared steps are in

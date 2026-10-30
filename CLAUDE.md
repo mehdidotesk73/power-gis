@@ -39,7 +39,8 @@ UI structure — one page, the **Map**:
     transparency encodings.
   - **Hover tooltip**, **click → feature panel** (the visualizations' values plus the rows behind
     the feature), **legend**.
-- **Default map**: a county socioeconomic score (income, education, health insurance, housing
+- **Sample workspace** (was the default map; a first visit now starts **empty**; the **Workspace** button pulses gently (`beckon`) while empty and its panel offers "Open the sample workspace"
+  — Workspace → **Open the sample workspace** loads it as a draft until Save): a county socioeconomic score (income, education, health insurance, housing
   affordability) with area-weighted state averages, built like any user's map: six ACS county **sample**
   tables + the **built-in** US counties / states polygons, ten SQL transforms in stages (clean → join →
   metrics → state averages → state map; 1e uses the spatial extension for county land area) and twelve
@@ -199,9 +200,13 @@ whatever they're actually asking about.
   `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY` build of the app against it drives the UI as several users
   (Playwright, one browser context per device). **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
   token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
-  the workspace **document** (+ `overviewOf` text) and the page opens a newer one on load / sign-in
-  (`catchUpWithCloud` → `openDocument`) — unless this device's last save didn't reach the account
-  (`powergis.cloudPending`): then it sends that one up instead. Every request that may reach the cloud
+  the workspace **document** (+ `overviewOf` text) and the page compares this device with the account by **fingerprint**
+  (`lib/workspace/fingerprint.ts`: SHA-256 of the setup — name, pointers, transforms, visualizations, dataset names /
+  descriptions; each device keeps `powergis.workspaceSync` = the account's and its own fingerprint at the last sync):
+  `synced`, `ahead` ↑ (sent), `behind` ↓ (opened, `catchUpWithCloud` → `openDocument`), `both` ↑↓ (the Workspace panel asks:
+  Keep this one / Open your account's), `new` (an empty device opens the account's). Save checks the account first and
+  never replaces another device's newer save; a sync is recorded only after an open succeeds. The page re-checks every minute
+  (shows ↓, acts on nothing). Every request that may reach the cloud
   first re-sends the session's current token (`onBeforeCloud` in `client/api.ts` → `syncCloudAuth`): the
   worker's copy went stale or missing on iOS and read as signed out. **Cloud links** (manual sync): the app only ever works on **local copies**;
   a dataset is local only, or **linked** (`DatasetRecord.link` = `{cloudId, version, changed?}`: its cloud
@@ -222,7 +227,7 @@ whatever they're actually asking about.
   (`dataset/SharePanel.vue`; requests `datasetMembers`, `shareDataset` by email, `setMemberAccess`,
   `removeMember` — your own = Leave, which unlinks this copy); `canManage` / `canShare` in
   `shared/cloud.ts` mirror the RLS rules (the server checks them first; RLS skips forbidden rows
-  silently). Recipients add it from **＋ Dataset → Cloud** (`cloudDatasets`, `addFromCloud`: a linked
+  silently). Recipients add it from **＋ Dataset → Library → In your account** (`cloudDatasets`, `addFromCloud`: a linked
   copy). The agent's `list_datasets` stays local.
 - **Concepts — keep the names straight:**
   - **Connector** (`src/lib/data/connectors.ts`): how the server reads a source (built-in CSVs,
@@ -362,7 +367,7 @@ whatever they're actually asking about.
   visualization setting (`readStyle` checks each part) and the structured origin in `datasets.json`.
 - **Default workspace** (the active folder's `workspace.powergis.json`, served at `data/`): a v2 document with readable ids
   (`default-county-income`, …, outputs like `default-county-metrics-and-scores`, transforms `default-t-…`).
-  Its spatial step makes a first visit also download DuckDB's spatial extension (~23 MB). `seedDefault` (`MapPage.vue`)
+  Its spatial step makes opening it also download DuckDB's spatial extension (~23 MB). `openSample` → `seedDefault` (`MapPage.vue`)
   asks the server (`seedDefaultWorkspace` → `openDocument`; the first run loads DuckDB) and opens the
   result like a loaded document. Changing the default map = editing that file, or pointing `defaults/active.json` at another folder. Every dataset's click panel shows its rows (`FeatureRows`).
 - **Object lists** (`components/list/ObjectList.vue`, generic over the item type): datasets,
@@ -393,8 +398,10 @@ whatever they're actually asking about.
   nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest
   input, its output below it, every visualization in the bottom row); `orderLayers` minimizes arrow
   crossings (virtual points for row-skipping edges, `edge.via`; barycenter sweeps + swaps);
-  `layoutDag(dag, 'vertical' | 'horizontal')` places them and `edgePath` draws edges (automatic;
-  only the ↓ / → direction is remembered per device, `powergis.dagDirection`). The graph **pans and
+  `layoutDag(dag, 'vertical' | 'horizontal')` places them — each node lined up with the weighted median of its
+  neighbours (passing arrows weigh most), sweeps down and up, so arrows run mostly straight along the flow — and
+  `edgePath` draws edges. The **layout menu** (a button under ✎ in the graph's corner, dropping down Top to bottom /
+  Left to right; any tap elsewhere closes it) picks the direction, remembered per device (`powergis.dagDirection`). The graph **pans and
   zooms** (`dag/usePanZoom.ts` + `lib/panZoom.ts`): drag; Shift + wheel or pinch; on phones
   touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. **⧉ Copy as image** (in the zoom buttons): `dag/graphImage.ts` draws what the window shows (pan + zoom) on a canvas from the layout and page tokens (no DOM screenshot), at 2× or more; the clipboard write starts inside the tap with the PNG still being drawn (iOS), else it downloads `graph.png`. Dataset nodes carry a **store dot** before DATASET (violet = cloud, gray = this device; a yellow
   ring = an output out of date or not made yet: `DagNode.store` / `pending`). Transforms show **not run yet** (no
@@ -405,11 +412,13 @@ whatever they're actually asking about.
   draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
   same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in
   the lists (only new transforms / visualizations open straight into their editors).
-  **Several at once**: Ctrl/⌘- or Shift-click picks nodes (phones: **Select**, then taps; dashed red outline),
+  **Several at once** (graph **and lists**, one selection: `components/selection.ts`, keys `ds:` / `tr:` / `viz:`; list cards via
+  `ObjectList`'s `markKey`): Ctrl/⌘- or Shift-click picks nodes or cards (phones: the **✎ tools** menu's **Select**, then taps; dashed red outline),
   **Delete** (key or button) takes them out of the workspace — `removeItems` (`lib/workspace/workspace.ts`):
   visualizations, transforms, then datasets; a dataset a remaining transform reads or writes is kept, with why;
   data is never erased. **Undo / redo** (`lib/workspace/history.ts`, `History`): every change to the working copy
-  is a step (quick ones merged, 100 kept); Ctrl/⌘+Z, Shift+Ctrl/⌘+Z or Ctrl+Y, and **↶ ↷** beside List | Graph;
+  is a step (quick ones merged, 100 kept); Ctrl/⌘+Z, Shift+Ctrl/⌘+Z or Ctrl+Y, and **↶ ↷** in the **✎ tools** (`components/EditTools.vue`: one ✎ button floating in the graph's top-left corner and
+  sticky at the top of the list view, opening to Select · Delete · ↶ · ↷ · ✕; open while something is picked);
   not while typing in a field; loading another workspace starts afresh, saving doesn't, Discard is a step;
   the app's bookkeeping (`quietly`) isn't a step. The draft only: runs and deleted data aren't undone.
   **＋ Dataset**: the add-dataset form under the graph (the new dataset's node then opens);
@@ -478,7 +487,7 @@ src/
     dag/DagView.vue        the workspace graph: datasets → transforms → outputs → visualizations
     FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
-    dataset/            AddDatasetPanel (+ Cloud source), DatasetList, BatchPanel (sync review), SharePanel, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
+    dataset/            AddDatasetPanel (Built-in · Samples · Upload [CSV / GeoJSON-Esri / ArcGIS URL] · Library [on this device / in your account]), DatasetList, BatchPanel (sync review), SharePanel, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal

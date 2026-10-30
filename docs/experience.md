@@ -326,6 +326,28 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Workspace fingerprints and the sample workspace — 2026-10-30
+
+- A first visit starts **empty** (the Workspace button pulses gently; its panel says so and offers the sample); **Workspace → Open the sample workspace**
+  loads the socioeconomic map as a draft until Save. It replaces "Reset to the default map".
+- Signed in, the workspace has a **fingerprint** (SHA-256 of its setup) on the device and in the account; the
+  Workspace panel shows ↑ / ↓ / ↑↓ like datasets, and asks which to keep when both changed. Save checks the account
+  first and never replaces another device's newer save. Replaces the "seen" / "pending" flags.
+- **✎ tools**: Select, Delete, ↶, ↷ moved into one floating menu in the graph's corner (and at the top of the list
+  view); the list view picks too (Ctrl/⌘- or Shift-click, or Select then taps; any mix of datasets, transforms and
+  visualizations) and Delete removes them all, with undo.
+- Phone layout: the graph fills the screen's free height and Fit zooms out to show it whole (min zoom 0.05); the list
+  view's tools are one thin full-width bar (open: thin buttons with the note inline); the mini map's ▾ is a thin bar
+  under the drag tab. ＋ Dataset: CSV, GeoJSON / Esri and ArcGIS URL are one **Upload** source with a choice inside, and Saved and Cloud one
+  **Library** (on this device / in your account).
+  First UI tests for GeoJSON files and ArcGIS URLs (a faked FeatureServer).
+- **Graph layout**: rows were each centered, so arrows fanned into a narrow middle and out again. Now each node lines
+  up with the median of its neighbours (sweeps down and up; passing arrows weigh most): on the sample workspace 73 of
+  95 arrow segments run straight (was 44), at the cost of a wider graph (Fit shows it whole). Averaging instead of the
+  median brought arrows closer but straightened fewer (23). ↓ / → became a **layout menu** under ✎.
+- UI tests: two devices change the workspace (the second is asked, then opens the account's; a lone change goes
+  up and the other device opens it); the sample workspace pipeline opens from the panel.
+
 ### Assistant profiles — 2026-10-30
 
 - **Fixed: a new device could replace the account's workspace with the default map.** Its first visit saved

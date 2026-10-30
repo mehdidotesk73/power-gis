@@ -305,27 +305,114 @@ const GAP_CROSS = 12
 const GAP_ALONG = { vertical: 44, horizontal: 56 }
 const PAD = 8
 
-/** Pixel positions: each row (column, left to right) centered on the widest. */
+/**
+ * Pixel positions. Rows (columns when horizontal) keep the order `orderLayers` chose; within a row each
+ * node moves toward the nodes it's linked to in the rows above and below, so arrows run mostly straight
+ * along the flow (down, or across) instead of every row being centered and the arrows fanning in and out.
+ * Passing arrows (virtual points) weigh more, so long arrows stay straight. A few sweeps down and up, each
+ * row placed as close to its wishes as the gaps allow; then everything is shifted to start at the edge.
+ */
 export function layoutDag(dag: Dag, direction: DagDirection = 'vertical'): DagLayout {
   const v = direction === 'vertical'
   const along = v ? NODE_H : NODE_W // a row's depth
   const cross = (key: string) => (isVirtual(key) ? LANE : v ? NODE_W : NODE_H)
-  const span = (layer: string[]) => layer.reduce((s, k) => s + cross(k), 0) + Math.max(0, layer.length - 1) * GAP_CROSS
-  const widest = Math.max(0, ...dag.layers.map(span))
+
+  // Links between neighbouring rows (arrows split at their virtual points), both ways.
+  const up = new Map<string, string[]>()
+  const down = new Map<string, string[]>()
+  for (const e of dag.edges) {
+    const chain = [e.from, ...(e.via ?? []), e.to]
+    for (let i = 0; i + 1 < chain.length; i++) {
+      down.set(chain[i], [...(down.get(chain[i]) ?? []), chain[i + 1]])
+      up.set(chain[i + 1], [...(up.get(chain[i + 1]) ?? []), chain[i]])
+    }
+  }
+  // Centers across the flow; start packed from 0.
+  const c = new Map<string, number>()
+  for (const layer of dag.layers) {
+    let x = 0
+    for (const k of layer) {
+      c.set(k, x + cross(k) / 2)
+      x += cross(k) + GAP_CROSS
+    }
+  }
+  const weight = (a: string, b: string) => (isVirtual(a) && isVirtual(b) ? 8 : isVirtual(a) || isVirtual(b) ? 2 : 1)
+  /** Places a row: each node as near its wish as the order and gaps allow (wishes averaged where they clash). */
+  function place(layer: string[], wish: (k: string) => number | undefined) {
+    // A node without links on that side (a dataset nothing uses, say) follows its neighbour in the row, so it
+    // never stays stranded far out where it started.
+    const wishes = layer.map((k) => wish(k))
+    const want: number[] = []
+    for (let i = 0; i < layer.length; i++) {
+      const w = wishes[i]
+      if (w !== undefined) want.push(w)
+      else if (i > 0) want.push(want[i - 1] + (cross(layer[i - 1]) + cross(layer[i])) / 2 + GAP_CROSS)
+      else want.push(Number.NaN) // the first ones: placed before the first that has a wish, below
+    }
+    const first = want.findIndex((w) => !Number.isNaN(w))
+    for (let i = first - 1; i >= 0; i--) want[i] = first < 0 ? c.get(layer[i])! : want[i + 1] - (cross(layer[i]) + cross(layer[i + 1])) / 2 - GAP_CROSS
+    if (first < 0) for (let i = 0; i < layer.length; i++) want[i] = c.get(layer[i])!
+    // Blocks of nodes pushed together: their center sits at the mean of their wishes.
+    const blocks: { start: number; end: number; pos: number }[] = []
+    const span = (i: number, j: number) => layer.slice(i, j + 1).reduce((s, k) => s + cross(k), 0) + (j - i) * GAP_CROSS
+    for (let i = 0; i < layer.length; i++) {
+      blocks.push({ start: i, end: i, pos: want[i] })
+      // Merge while this block would overlap the one before it.
+      for (;;) {
+        const b = blocks[blocks.length - 1]
+        const a = blocks[blocks.length - 2]
+        if (!a) break
+        const aRight = a.pos - cross(layer[a.start]) / 2 + span(a.start, a.end)
+        const bLeft = b.pos - cross(layer[b.start]) / 2
+        if (aRight + GAP_CROSS <= bLeft) break
+        // The merged block's first-node center: the mean over its nodes of (wish − offset from the first node).
+        const start = a.start
+        const end = b.end
+        let sum = 0
+        for (let j = start; j <= end; j++) sum += want[j] - (span(start, j) - cross(layer[j]) / 2 - cross(layer[start]) / 2)
+        blocks.splice(-2, 2, { start, end, pos: sum / (end - start + 1) })
+      }
+    }
+    for (const b of blocks) for (let j = b.start; j <= b.end; j++) c.set(layer[j], b.pos + span(b.start, j) - cross(layer[j]) / 2 - cross(layer[b.start]) / 2)
+  }
+  /** The weighted median of a node's neighbours on one side: lining up with one of them makes a straight arrow. */
+  const median = (k: string, from: Map<string, string[]>) => {
+    const ns = from.get(k) ?? []
+    if (!ns.length) return undefined
+    const xs = ns.flatMap((n) => Array<number>(weight(k, n)).fill(c.get(n)!)).sort((x, y) => x - y)
+    const m = xs.length >> 1
+    return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2
+  }
+  for (let sweep = 0; sweep < 8; sweep++) {
+    for (let r = 1; r < dag.layers.length; r++) place(dag.layers[r], (k) => median(k, up))
+    for (let r = dag.layers.length - 2; r >= 0; r--) place(dag.layers[r], (k) => median(k, down))
+  }
+  // A last pass down: each node under its parents (the flow's direction), roots under their children.
+  for (let r = 0; r < dag.layers.length; r++) place(dag.layers[r], (k) => median(k, up) ?? median(k, down))
+
+  let lo = Infinity
+  let hi = -Infinity
+  for (const layer of dag.layers)
+    for (const k of layer) {
+      lo = Math.min(lo, c.get(k)! - cross(k) / 2)
+      hi = Math.max(hi, c.get(k)! + cross(k) / 2)
+    }
+  if (!Number.isFinite(lo)) lo = hi = 0
   const at = new Map<string, { x: number; y: number }>()
   const points = new Map<string, { x: number; y: number }>()
   dag.layers.forEach((layer, r) => {
-    let c = PAD + (widest - span(layer)) / 2
     const a = PAD + r * (along + GAP_ALONG[direction])
     for (const key of layer) {
-      const size = cross(key)
-      if (isVirtual(key)) points.set(key, v ? { x: Math.round(c + size / 2), y: a + along / 2 } : { x: a + along / 2, y: Math.round(c + size / 2) })
-      else at.set(key, v ? { x: Math.round(c), y: a } : { x: a, y: Math.round(c) })
-      c += size + GAP_CROSS
+      const mid = Math.round(PAD + c.get(key)! - lo)
+      if (isVirtual(key)) points.set(key, v ? { x: mid, y: a + along / 2 } : { x: a + along / 2, y: mid })
+      else {
+        const start = Math.round(mid - cross(key) / 2)
+        at.set(key, v ? { x: start, y: a } : { x: a, y: start })
+      }
     }
   })
   const depth = dag.rows ? PAD * 2 + dag.rows * along + (dag.rows - 1) * GAP_ALONG[direction] : 0
-  const breadth = widest + PAD * 2
+  const breadth = hi - lo + PAD * 2
   return { width: v ? breadth : depth, height: v ? depth : breadth, direction, at, points }
 }
 

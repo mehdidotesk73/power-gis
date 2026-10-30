@@ -12,6 +12,7 @@
 import UiButton from '../ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { vReveal } from '../reveal'
+import { picks, useSelection } from '../selection'
 import { usePanZoom } from './usePanZoom'
 import { copyPng, graphPng } from './graphImage'
 import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode } from '../../lib/workspace/dag'
@@ -25,8 +26,6 @@ const props = defineProps<{
   staleProgress?: { running: boolean; text: string } | null
   /** False while the page is still preparing the workspace: the ＋ buttons wait (an item added then would be lost). */
   adding?: boolean
-  /** Nodes picked to delete together, by key. */
-  marked?: string[]
   /** What the last Delete did. */
   note?: string
 }>()
@@ -36,8 +35,6 @@ const emit = defineEmits<{
   (e: 'new-viz', datasetId: string): void
   (e: 'new-dataset'): void
   (e: 'run-stale'): void
-  (e: 'mark', keys: string[]): void
-  (e: 'delete', keys: string[]): void
 }>()
 
 const DIRECTION = 'powergis.dagDirection'
@@ -49,14 +46,26 @@ function readDirection(): DagDirection {
   }
 }
 const direction = ref<DagDirection>(readDirection())
-function flip() {
-  direction.value = direction.value === 'vertical' ? 'horizontal' : 'vertical'
+function setDirection(d: DagDirection) {
+  direction.value = d
+  layoutOpen.value = false
   try {
-    localStorage.setItem(DIRECTION, direction.value)
+    localStorage.setItem(DIRECTION, d)
   } catch {
     /* per-device convenience only */
   }
 }
+/** The layout menu (under ✎ in the graph's corner): open, it lists the layouts; any tap elsewhere closes it. */
+const layoutOpen = ref(false)
+const LAYOUTS: { id: DagDirection; icon: string; label: string }[] = [
+  { id: 'vertical', icon: '↓', label: 'Top to bottom' },
+  { id: 'horizontal', icon: '→', label: 'Left to right' },
+]
+const closeLayout = (e: PointerEvent) => {
+  if (!(e.target as HTMLElement | null)?.closest('.layout-menu')) layoutOpen.value = false
+}
+watch(layoutOpen, (on) => (on ? document.addEventListener('pointerdown', closeLayout, true) : document.removeEventListener('pointerdown', closeLayout, true)))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeLayout, true))
 
 const layout = computed(() => layoutDag(props.dag, direction.value))
 
@@ -64,15 +73,20 @@ const layout = computed(() => layoutDag(props.dag, direction.value))
 // enlarged), and refits when its size or direction changes.
 const viewport = ref<HTMLElement>()
 const { view, panning, fit, zoomBy } = usePanZoom(viewport, () => ({ w: layout.value.width, h: layout.value.height }))
-/** Viewport height: the graph's height at the zoom that fits its width (the CSS max-height caps it). */
+/**
+ * Viewport height: the space left below it on screen (less room for the hint under it and, in setup on a
+ * phone, the mini map's bar), so the graph uses what's there; at least 240 px.
+ */
 const viewportH = ref(240)
+const RESERVE = 130
 function refit() {
   const el = viewport.value
   if (!el) return
-  const kw = Math.min(1, (el.clientWidth - 16) / (layout.value.width || 1))
-  viewportH.value = Math.max(160, Math.round(layout.value.height * kw + 16))
+  const top = el.getBoundingClientRect().top
+  viewportH.value = Math.max(240, Math.round(window.innerHeight - Math.max(top, 0) - RESERVE))
   nextTick(fit)
 }
+const onWindowResize = () => refit()
 onMounted(() => {
   refit()
   // The box changes width without the graph changing (splitter, pop-out window): refit to use it.
@@ -83,9 +97,13 @@ onMounted(() => {
     lastW = w
   })
   if (viewport.value) resizer.observe(viewport.value)
+  window.addEventListener('resize', onWindowResize)
 })
 let resizer: ResizeObserver | null = null
-onBeforeUnmount(() => resizer?.disconnect())
+onBeforeUnmount(() => {
+  resizer?.disconnect()
+  window.removeEventListener('resize', onWindowResize)
+})
 watch(() => [layout.value.width, layout.value.height, direction.value, props.dag.nodes.length > 0], () => nextTick(refit))
 const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
@@ -138,25 +156,22 @@ const pickNo = (n: DagNode) => picked.value.indexOf(n.id) + 1
 
 // ── picking several (to delete) ──────────────────────────────────────────────
 
-/** Phones: taps pick nodes instead of opening them. */
-const selecting = ref(false)
-const marked = computed(() => props.marked ?? [])
+// The page's selection (components/selection.ts), shared with the lists; the tools (Select, Delete,
+// undo, redo) float in the graph's corner (the `tools` slot).
+const selection = useSelection()
+const marked = computed(() => selection?.marked.value ?? [])
 const isMarked = (n: DagNode) => marked.value.includes(n.key)
 function toggleMark(n: DagNode) {
   // An open node joins the selection when a second one is added.
-  const base = marked.value.length ? marked.value : props.selected && props.selected !== n.key ? [props.selected] : []
-  emit('mark', base.includes(n.key) ? base.filter((k) => k !== n.key) : [...base, n.key])
+  if (!marked.value.length && props.selected && props.selected !== n.key) selection?.toggle(props.selected)
+  selection?.toggle(n.key)
   emit('select', null)
-}
-function stopSelecting() {
-  selecting.value = false
-  emit('mark', [])
 }
 
 function tap(n: DagNode, e?: MouseEvent) {
-  if (!mode.value && (selecting.value || e?.ctrlKey || e?.metaKey || e?.shiftKey)) return toggleMark(n)
+  if (!mode.value && e && picks(selection, e)) return toggleMark(n)
   if (!mode.value) {
-    if (marked.value.length) emit('mark', [])
+    if (marked.value.length && selection) selection.marked.value = []
     return emit('select', props.selected === n.key ? null : n)
   }
   if (n.kind !== 'dataset') return
@@ -194,31 +209,6 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
       >
         Run all stale ({{ staleCount }})
       </UiButton>
-      <UiButton
-        data-testid="graph.select"
-        size="tag"
-        :active="selecting"
-        :aria-pressed="selecting"
-        title="Pick several nodes (or Ctrl/⌘- or Shift-click them), then Delete"
-        @click="selecting ? stopSelecting() : (selecting = true)"
-      >
-        {{ selecting ? 'Done' : 'Select' }}
-      </UiButton>
-      <button
-        class="flip"
-        :title="direction === 'vertical' ? 'Flowing down — switch to left to right' : 'Flowing right — switch to top to bottom'"
-        :aria-label="direction === 'vertical' ? 'Lay out left to right' : 'Lay out top to bottom'"
-        @click="flip"
-      >
-        {{ direction === 'vertical' ? '↓' : '→' }}
-      </button>
-    </div>
-    <div v-if="!mode && (marked.length || selecting)" class="banner picks" data-testid="graph.picks">
-      <span>{{ marked.length ? `${marked.length} selected` : 'Tap the nodes to remove from the workspace.' }}</span>
-      <span class="actions">
-        <button v-if="marked.length" class="btn" @click="emit('mark', [])">Clear</button>
-        <UiButton data-testid="graph.delete" size="compact" tone="danger" :disabled="!marked.length" @click="emit('delete', [...marked])">Delete</UiButton>
-      </span>
     </div>
     <p v-if="!mode && note" class="stale-msg" role="status">{{ note }}</p>
     <p v-if="!mode && staleProgress" class="stale-msg" role="status">{{ staleProgress.text }}</p>
@@ -272,6 +262,35 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
           <span class="detail">{{ n.detail }}</span>
         </button>
       </div>
+      <div v-if="!mode" class="corner-tools">
+        <slot name="tools" />
+        <div class="layout-menu" @pointerdown.stop @touchstart.stop>
+          <UiButton
+            data-testid="graph.layout"
+            size="compact"
+            :icon="LAYOUTS.find((l) => l.id === direction)!.icon"
+            :active="layoutOpen"
+            :aria-expanded="layoutOpen"
+            aria-haspopup="menu"
+            aria-label="Layout"
+            title="Layout"
+            @click="layoutOpen = !layoutOpen"
+          />
+          <div v-if="layoutOpen" class="layouts" role="menu" aria-label="Layouts">
+            <button
+              v-for="l in LAYOUTS"
+              :key="l.id"
+              role="menuitemradio"
+              :aria-checked="direction === l.id"
+              :data-testid="`graph.layout.${l.id}`"
+              :class="{ on: direction === l.id }"
+              @click="setDirection(l.id)"
+            >
+              <span class="li" aria-hidden="true">{{ l.icon }}</span>{{ l.label }}
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="zoom" @pointerdown.stop @touchstart.stop>
         <UiButton size="compact" icon="＋" aria-label="Zoom in" title="Zoom in" @click="zoomBy(1.25)" />
         <UiButton size="compact" icon="−" aria-label="Zoom out" title="Zoom out" @click="zoomBy(0.8)" />
@@ -307,17 +326,6 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   font-size: 0.74rem;
   color: var(--text-muted);
 }
-.flip {
-  margin-left: auto;
-  width: 1.6rem;
-  height: 1.6rem;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  background: var(--bg-elev-2);
-  color: var(--text);
-  font-size: 0.8rem;
-  line-height: 1;
-}
 .banner {
   justify-content: space-between;
   flex-wrap: wrap;
@@ -351,7 +359,6 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 .scroll {
   position: relative;
   overflow: hidden;
-  max-height: 70vh;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   background: var(--bg);
@@ -373,6 +380,51 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   top: 0;
   transform-origin: 0 0;
   will-change: transform;
+}
+.corner-tools {
+  position: absolute;
+  z-index: 3;
+  left: 6px;
+  top: 6px;
+  max-width: calc(100% - 12px);
+  display: grid;
+  justify-items: start;
+  gap: 0.3rem;
+}
+.layout-menu {
+  display: grid;
+  justify-items: start;
+  gap: 0.25rem;
+  cursor: default;
+}
+.layouts {
+  display: grid;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-elev) 96%, transparent);
+  box-shadow: var(--shadow);
+}
+.layouts button {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.layouts button.on {
+  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
+}
+.layouts .li {
+  width: 1rem;
+  text-align: center;
 }
 .zoom {
   position: absolute;

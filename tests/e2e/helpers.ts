@@ -50,7 +50,7 @@ export async function device(browser: Browser, options: BrowserContextOptions = 
   return page
 }
 
-/** The page has settled: its workspace is loaded (the default map, an opened one) and nothing is loading. */
+/** The page has settled: its workspace is loaded (empty on a first visit, or an opened one) and nothing is loading. */
 export async function ready(page: Page) {
   await expect(page.locator('.page[data-ready="yes"]')).toBeVisible({ timeout: 180_000 })
 }
@@ -113,7 +113,8 @@ export async function replaceMissing(page: Page, name: string, file = `${DATA}${
   await listPanel(page, 'Datasets')
   const missing = page.locator(`[data-testid="missing-dataset"][data-name="${name}"]`)
   await missing.getByTestId('dataset.replace').click()
-  await missing.getByTestId('add.source.csv').click()
+  await missing.getByTestId('add.source.upload').click()
+  await missing.getByTestId('add.source.csv').check()
   await missing.getByTestId('add.csv-input').setInputFiles(file)
   await expect(missing).toHaveCount(0)
 }
@@ -171,7 +172,8 @@ export async function addFromCloud(page: Page, name: string) {
   await listPanel(page, 'Datasets')
   const panel = page.locator('details', { has: page.locator('summary', { hasText: /^Datasets$/ }) })
   await panel.getByRole('button', { name: 'Dataset', exact: true }).click()
-  await panel.getByTestId('add.source.cloud').click()
+  await panel.getByTestId('add.source.library').click()
+  await panel.getByTestId('add.source.cloud').check()
   await panel.locator('.stored li', { hasText: name }).getByRole('button', { name: 'Add' }).click()
   await expect(card(page, 'dataset', name)).toContainText('Cloud')
 }
@@ -227,6 +229,20 @@ export async function explore(page: Page, dataset: string, sql: string): Promise
   const rows = await win.locator('table tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => (td.textContent ?? '').trim())))
   await win.getByRole('button', { name: 'Close' }).click()
   return rows
+}
+
+/** Workspace → Open the sample workspace (a fresh device starts empty), then Save it unless `save` is false. */
+export async function openSample(page: Page, save = true) {
+  await openWorkspacePanel(page)
+  await page.getByTestId('workspace.sample').click()
+  await ready(page)
+  await expect(page.locator('[data-empty="yes"]')).toHaveCount(0)
+  if (save) {
+    await openWorkspacePanel(page)
+    await page.getByTestId('workspace.save').click()
+    await expect(page.getByText(/All changes saved/)).toBeVisible()
+  }
+  if (await page.getByRole('dialog', { name: 'Workspace' }).isVisible()) await page.getByRole('button', { name: /^Workspace/ }).click()
 }
 
 /** A small workspace (just the built-in US counties), so a test's graph stays small whatever the default map is. */

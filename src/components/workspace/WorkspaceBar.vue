@@ -27,6 +27,10 @@ const props = defineProps<{
   /** How many of the workspace's datasets are linked to the cloud. */
   linkedCount?: number
   counts: { datasets: number; transforms: number; visualizations: number }
+  /** Signed in: this device against the account's workspace (lib/workspace/fingerprint.ts). */
+  sync?: 'synced' | 'new' | 'ahead' | 'behind' | 'both' | null
+  /** Nothing in the workspace yet: the button pulses gently and the panel offers the sample. */
+  empty?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'save'): void
@@ -36,7 +40,9 @@ const emit = defineEmits<{
   (e: 'load', file: File): void
   (e: 'copy'): void
   (e: 'paste', text: string): void
-  (e: 'reset'): void
+  (e: 'sample'): void
+  /** Keep this device's workspace (send it to the account) or open the account's. */
+  (e: 'resolve', choice: 'keep' | 'open'): void
   (e: 'remove-unavailable'): void
   (e: 'show-unavailable'): void
   /** Review, then link these to the cloud / sync these with it (BatchPanel). */
@@ -123,6 +129,8 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
       :icon="dirty ? '●' : undefined"
       :active="open"
       class="ws-btn"
+      :class="{ beckon: empty && !open }"
+      :data-empty="empty ? 'yes' : undefined"
       :aria-expanded="open"
       aria-haspopup="dialog"
       :title="dirty ? `${name} — unsaved changes` : name"
@@ -144,6 +152,10 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
         />
         <UiButton size="compact" icon="✎" aria-label="Rename" title="Rename" @click="editName" />
       </div>
+      <div v-if="empty" class="empty" data-testid="workspace.empty">
+        <span>This workspace is empty. Add a dataset (＋ Dataset under Set up), ask the ✦ Assistant for data, or start from the sample: a county socioeconomic map built from sample data.</span>
+        <button class="btn primary" data-testid="workspace.open-sample" @click="(open = false), emit('sample')">▤ Open the sample workspace</button>
+      </div>
       <p class="holds">
         {{ plural(counts.datasets, 'dataset') }} · {{ plural(counts.transforms, 'transform') }} · {{ plural(counts.visualizations, 'visualization') }}
       </p>
@@ -151,6 +163,15 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
       <div class="state" :class="{ dirty }">
         <span v-if="dirty">● Unsaved changes — kept on this device until you save</span>
         <span v-else>✓ All changes saved {{ where ?? '' }}</span>
+      </div>
+      <div v-if="sync === 'behind' || sync === 'both' || sync === 'ahead'" class="problems account" data-testid="workspace.sync">
+        <span v-if="sync === 'behind'">↓ Your account has a newer workspace, saved from another device.</span>
+        <span v-else-if="sync === 'ahead'">↑ Saved here, not in your account yet.</span>
+        <span v-else>↑↓ This device and your account both changed since they last matched. Which one do you keep?</span>
+        <span class="row">
+          <button v-if="sync !== 'behind'" class="btn" data-testid="workspace.keep-here" @click="emit('resolve', 'keep')">{{ sync === 'ahead' ? 'Send it' : 'Keep this one' }}</button>
+          <button v-if="sync !== 'ahead'" class="btn" data-testid="workspace.open-account" @click="emit('resolve', 'open')">Open your account's</button>
+        </span>
       </div>
       <div v-if="problems" class="problems">
         <span>⚠ {{ problems }} item{{ problems === 1 ? '' : 's' }} didn't load on this device — kept, in red.</span>
@@ -206,8 +227,8 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
             <button class="btn primary" :disabled="!pasteText.trim()" @click="loadPasted">Load</button>
           </div>
         </div>
-        <button class="item danger" @click="emit('reset')">↺ Reset to the default map</button>
-        <p class="note">A workspace file holds which datasets it uses, its transforms and its visualizations — not the data itself. Download makes a zip of small files (each transform's SQL is its own file, readable and editable); Load takes that zip or a copied workspace's JSON.</p>
+        <button class="item" data-testid="workspace.sample" @click="emit('sample')">▤ Open the sample workspace</button>
+        <p class="note">A workspace file holds which datasets it uses, its transforms and its visualizations — not the data itself. Download makes a zip of small files (each transform's SQL is its own file, readable and editable); Load takes that zip or a copied workspace's JSON. The sample workspace is an example map built from sample data; it replaces this one's setup until you Save or Discard.</p>
       </div>
       <p v-if="message" class="msg">{{ message }}</p>
       <input ref="fileInput" data-testid="workspace.file-input" class="hidden" type="file" accept=".zip,application/zip,.json,application/json" @change="onFile" />
@@ -216,6 +237,35 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
 </template>
 
 <style scoped>
+/* An empty workspace: the button pulses gently (blue = interaction) until opened. */
+.ws-btn.beckon {
+  animation: beckon 2.4s ease-in-out infinite;
+}
+@keyframes beckon {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-blue) 0%, transparent);
+    border-color: var(--border);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-blue) 35%, transparent);
+    border-color: var(--accent-blue);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-btn.beckon {
+    animation: none;
+    border-color: var(--accent-blue);
+  }
+}
+.empty {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--accent-blue);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
 .local-only .btn {
   align-self: flex-start;
 }
