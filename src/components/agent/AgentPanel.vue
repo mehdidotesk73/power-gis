@@ -3,23 +3,31 @@
 // Anthropic API key is kept on this device (localStorage) and calls go
 // straight to Anthropic. The agent works on the workspace through its tools
 // (lib/agent/tools.ts): edits land in the draft (Save / Discard as usual);
-// it may change only local datasets. When it asks for approval (ask_user), a
-// card with Approve / Reject and a notes box waits for the user's answer.
+// it may change only local datasets. When it asks something (ask_user), a card
+// with the fields and buttons it composed waits for the user's answer
+// (AskCard). It can send the scout or the scraper (Managed Agents, through our
+// relay, signed in): each run shows as a step that expands into its log and
+// results, and one still running when the page reloads is picked up again.
 // Screenshots can be pasted into the message box or attached (📎); they're
 // shrunk before sending (images.ts).
 import UiButton from '../ui/UiButton.vue'
 import LabPanel from './LabPanel.vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import AskCard from './AskCard.vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { claudeProvider, CLAUDE_MODEL, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
-import { runTool, TOOLS, type AgentHost, type UserAnswer } from '../../lib/agent/tools'
+import { runTool, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
+import { STOPPED, type Form, type FormAnswer } from '../../lib/agent/form'
+import { activeRun, downloadFile, followRun, forgetRun, SignInNeeded, startRun, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
+import { saveFile } from '../../client/saveFile'
+import { auth } from '../../client/auth'
 import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
 import { MAX_IMAGES, pastedImages, prepareImage, type Attached } from './images'
 import { addUsage, emptyUsage, type ChatSession, type ToolCall } from '../../lib/agent/provider'
 
-/** The page's side of the tools; the panel adds asking the user. */
-const props = defineProps<{ host: Omit<AgentHost, 'ask'> }>()
+/** The page's side of the tools; the panel adds asking the user and the web runs. */
+const props = defineProps<{ host: Omit<AgentHost, 'ask' | 'web' | 'importWebFile'> }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 // ── the API key (this device only) ─────────────────────────────────────────
@@ -89,8 +97,27 @@ type Item =
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean }
   | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string }
-  | { kind: 'ask'; question: string; details?: string; notes: string; answer?: UserAnswer }
+  | { kind: 'ask'; form: Form; answer?: FormAnswer }
+  | RunItem
 
+/** A scout or scraper run: a step like the others, expanding into its brief, log and results. */
+interface RunItem {
+  kind: 'run'
+  role: WebRole
+  brief: string
+  state: 'running' | 'ok' | 'error'
+  startedAt: number
+  sessionId?: string
+  log: RunEvent[]
+  result?: RunResult
+  /** The scraper's CSVs: the dataset each became, or why not. */
+  imported: { name: string; id?: string; error?: string }[]
+  error?: string
+  open: boolean
+  /** Picked up after a reload (no chat waits on it). */
+  resumed?: boolean
+  stop: { stopped: boolean }
+}
 const items = ref<Item[]>([])
 const draft = ref('')
 const busy = ref(false)
@@ -104,11 +131,11 @@ const scroller = ref<HTMLElement>()
 // ── asking the user (the ask_user tool) ────────────────────────────────────
 
 /** Resolves the question the agent is waiting on. */
-let answerPending: ((a: UserAnswer) => void) | null = null
+let answerPending: ((a: FormAnswer) => void) | null = null
 const waiting = ref(false)
-function ask(question: string, details?: string): Promise<UserAnswer> {
+function ask(form: Form): Promise<FormAnswer> {
   return new Promise((resolve) => {
-    items.value.push({ kind: 'ask', question, ...(details ? { details } : {}), notes: '' })
+    items.value.push({ kind: 'ask', form })
     const it = items.value[items.value.length - 1] as Extract<Item, { kind: 'ask' }>
     waiting.value = true
     answerPending = (a) => {
@@ -119,15 +146,135 @@ function ask(question: string, details?: string): Promise<UserAnswer> {
     }
   })
 }
-function answer(it: Extract<Item, { kind: 'ask' }>, a: UserAnswer['answer']) {
-  const notes = it.notes.trim()
-  answerPending?.({ answer: a, ...(notes ? { notes } : {}) })
+
+// ── the scout and the scraper (Managed Agents, through the relay) ──────────
+
+/** Ticks while a run is going, for its elapsed time. */
+const now = ref(Date.now())
+let ticker: ReturnType<typeof setInterval> | undefined
+const running = computed(() => items.value.some((x) => x.kind === 'run' && x.state === 'running'))
+watch(running, (r) => {
+  clearInterval(ticker)
+  if (r) ticker = setInterval(() => (now.value = Date.now()), 1000)
+})
+onBeforeUnmount(() => clearInterval(ticker))
+
+function pushRun(run: { role: WebRole; brief: string; startedAt: number; sessionId?: string }, resumed = false): RunItem {
+  items.value.push({ kind: 'run', ...run, state: 'running', log: [], imported: [], open: false, ...(resumed ? { resumed } : {}), stop: { stopped: false } })
+  return items.value[items.value.length - 1] as RunItem
 }
-const host: AgentHost = { ...props.host, ask }
+/** Stops a run from its card (the chat's Stop stops it too, while the chat waits on it). */
+function stopRun(it: RunItem) {
+  it.stop.stopped = true
+}
+const describeRunError = (e: unknown) => (e instanceof SignInNeeded ? e.message : describeError(e))
+
+/** Follows a started run in its card to the end. */
+async function follow(it: RunItem, run: ActiveRun, chat?: AbortSignal): Promise<RunResult> {
+  const signal = {
+    get stopped() {
+      return it.stop.stopped || !!chat?.aborted
+    },
+  }
+  const result = await followRun(apiKey.value, run, { onEvent: (e) => it.log.push(e), signal })
+  it.result = result
+  it.state = result.stop === 'end_turn' ? 'ok' : 'error'
+  return result
+}
+
+/** The tools' web(): sends the scout or the scraper and waits for it, the card showing its progress. */
+async function web(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string> {
+  if (!auth.user) return new SignInNeeded().message
+  if (running.value) return 'Another scout or scraper run is still going; wait for it (or stop it) first.'
+  const it = pushRun({ role, brief, startedAt: Date.now() })
+  try {
+    const run = await startRun(apiKey.value, { role, model: chatModel.value ?? model.value, brief, capDollars })
+    it.sessionId = run.sessionId
+    const r = await follow(it, run, controller?.signal)
+    return { sessionId: r.sessionId, report: r.report, files: r.files, ...(r.cost !== undefined ? { cost: r.cost } : {}), elapsedSeconds: r.elapsedSeconds, stop: r.stop }
+  } catch (e) {
+    it.state = 'error'
+    it.error = describeRunError(e)
+    return it.error
+  } finally {
+    forgetRun()
+  }
+}
+
+/** The tools' importWebFile(): one of a run's CSVs, as a new dataset. */
+async function importWebFile(fileId: string, name: string, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+  const it = [...items.value].reverse().find((x): x is RunItem => x.kind === 'run' && !!x.result?.files.some((f) => f.id === fileId))
+  let r: { ok: true; id: string } | { ok: false; message: string }
+  if (!props.host.importCsv) r = { ok: false, message: 'Importing files isn’t available here.' }
+  else {
+    try {
+      const blob = await downloadFile(apiKey.value, fileId)
+      r = await props.host.importCsv(new File([blob], name, { type: 'text/csv' }), description)
+    } catch (e) {
+      r = { ok: false, message: describeRunError(e) }
+    }
+  }
+  it?.imported.push(r.ok ? { name, id: r.id } : { name, error: r.message })
+  return r
+}
+
+/** A run still going when the page last closed: follow it again, and take in the scraper's CSVs. */
+onMounted(async () => {
+  const run = activeRun()
+  if (!run || !apiKey.value) return
+  const it = pushRun(run, true)
+  try {
+    const r = await follow(it, run)
+    if (run.role === 'scraper') {
+      const day = new Date(run.startedAt).toISOString().slice(0, 10)
+      for (const f of r.files) if (/\.csv$/i.test(f.name)) await importWebFile(f.id, f.name, `From the web, ${day} (scraper run ${r.sessionId}).`)
+    }
+  } catch (e) {
+    it.state = 'error'
+    it.error = describeRunError(e)
+  } finally {
+    forgetRun()
+  }
+})
+
+async function saveRunFile(f: { id: string; name: string }) {
+  try {
+    await saveFile(await downloadFile(apiKey.value, f.id), f.name)
+  } catch (e) {
+    items.value.push({ kind: 'note', tone: 'error', text: `Couldn't download ${f.name}: ${describeRunError(e)}` })
+  }
+}
+
+const ROLE_LABEL: Record<WebRole, string> = { scout: 'Scout', scraper: 'Scraper' }
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+/** The run's one line: while running, its time and latest step; then how it ended. */
+function runSummary(it: RunItem): string {
+  if (it.state === 'running') {
+    const last = [...it.log].reverse().find((e) => e.kind === 'tool' || e.kind === 'message')
+    return `running · ${clock((now.value - it.startedAt) / 1000)} · ${last ? last.text.split('\n')[0] : 'starting'}`
+  }
+  if (it.error) return it.error
+  const r = it.result
+  if (!r) return ''
+  const datasets = it.imported.filter((x) => x.id).length
+  return [
+    r.stop === 'end_turn' ? 'finished' : r.stop,
+    `${r.elapsedSeconds} s`,
+    r.cost !== undefined ? `$${r.cost.toFixed(2)}` : '',
+    it.role === 'scraper' ? `${datasets} dataset${datasets === 1 ? '' : 's'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+const datasetName = (id: string) => props.host.record(id)?.name ?? id
+
+const host: AgentHost = { ...props.host, ask, web, importWebFile }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
   get_workspace: 'Read the workspace',
+  send_scout: 'Send the scout',
+  send_scraper: 'Send the scraper',
   query_sql: 'Query',
   apply_workspace: 'Apply the edits',
   visualization_stats: 'Check the values drawn',
@@ -222,7 +369,8 @@ async function send() {
         onUsage: (turn) => (usage.value = addUsage(usage.value, turn)),
         onToolStart: (call) => {
           current = null
-          if (!live() || call.name === 'ask_user') return // ask_user: its card is the step
+          // ask_user: its card is the step; the scout and scraper: their approval card, then their run.
+          if (!live() || call.name === 'ask_user' || call.name === 'send_scout' || call.name === 'send_scraper') return
           items.value.push({ kind: 'tool', call, state: 'running', summary: '', open: false })
         },
         onToolEnd: (call, out: ToolOutcome) => {
@@ -252,7 +400,7 @@ async function send() {
 }
 /** Stops the run at once, whatever it's waiting on (runAgent races every step against the signal). */
 function stop() {
-  answerPending?.({ answer: 'reject', notes: 'Stopped by the user.' })
+  answerPending?.({ button: STOPPED, values: {} })
   controller?.abort()
 }
 /**
@@ -330,9 +478,14 @@ const usageText = computed(() => {
 
     <div ref="scroller" class="chat">
       <div v-if="!items.length" class="empty">
-        <p>Ask for data to be prepared or shown, for example:</p>
-        <p class="ex">“Show the latest average home price per county, and per state.”</p>
-        <p class="muted small">It reads your datasets, writes transforms and sets up visualizations in your workspace. Its edits are unsaved until you Save. It can change or delete only <b>local</b> datasets.</p>
+        <p>Ask for data to be found, prepared or shown, for example:</p>
+        <p class="ex">“Map the median rent per county, and per state.”</p>
+        <p class="ex">“How many new nursing jobs were posted per state last week?”</p>
+        <p class="muted small">
+          It starts from your workspace and says how well your datasets fit. When something's missing it can, if you agree, send a <b>scout</b> to find
+          data on the web and a <b>scraper</b> to fetch it (signed in; each run has a spending cap you approve). Then it writes transforms and sets up
+          visualizations. Its edits are unsaved until you Save.
+        </p>
       </div>
       <template v-for="(it, i) in items" :key="i">
         <div v-if="it.kind === 'user'" class="msg user">
@@ -354,19 +507,42 @@ const usageText = computed(() => {
             <pre v-if="it.result">{{ it.result.length > 4000 ? `${it.result.slice(0, 4000)}…` : it.result }}</pre>
           </div>
         </div>
-        <div v-else-if="it.kind === 'ask'" class="ask" :class="{ done: it.answer }">
-          <p class="q">{{ it.question }}</p>
-          <p v-if="it.details" class="details">{{ it.details }}</p>
-          <template v-if="!it.answer">
-            <textarea v-model="it.notes" rows="2" placeholder="Notes (optional)" aria-label="Notes for the assistant" />
-            <div class="row">
-              <UiButton size="compact" @click="answer(it, 'reject')">Reject</UiButton>
-              <UiButton size="compact" tone="ok" @click="answer(it, 'approve')">Approve</UiButton>
-            </div>
-          </template>
-          <p v-else class="answered" :class="it.answer.answer">
-            {{ it.answer.answer === 'approve' ? '✓ Approved' : '✕ Rejected' }}<span v-if="it.answer.notes"> — {{ it.answer.notes }}</span>
-          </p>
+        <AskCard v-else-if="it.kind === 'ask'" :form="it.form" :answer="it.answer" @answer="(a) => answerPending?.(a)" />
+        <div v-else-if="it.kind === 'run'" class="tool run" :class="it.state" data-testid="web-run">
+          <button class="tool-line" :aria-expanded="it.open" @click="it.open = !it.open">
+            <span class="dot" aria-hidden="true">{{ it.state === 'running' ? '…' : it.state === 'ok' ? '✓' : '⚠' }}</span>
+            <span class="name">{{ ROLE_LABEL[it.role] }}</span>
+            <span class="sum">{{ runSummary(it) }}</span>
+          </button>
+          <div v-if="it.open" class="detail">
+            <p class="sub">Brief</p>
+            <pre class="prose">{{ it.brief }}</pre>
+            <template v-if="it.log.length">
+              <p class="sub">Steps</p>
+              <ol class="steps">
+                <li v-for="(e, j) in it.log" :key="j" :class="`ev-${e.kind}`">{{ e.kind === 'message' ? e.text.split('\n')[0] : e.text }}</li>
+              </ol>
+            </template>
+            <template v-if="it.result?.report">
+              <p class="sub">{{ it.role === 'scout' ? 'Report' : 'Summary' }}</p>
+              <pre class="prose">{{ it.result.report }}</pre>
+            </template>
+            <template v-if="it.result?.files.length">
+              <p class="sub">Files</p>
+              <ul class="files">
+                <li v-for="f in it.result.files" :key="f.id">
+                  <span>{{ f.name }}</span>
+                  <template v-for="m in it.imported.filter((x) => x.name === f.name)" :key="m.name">
+                    <span v-if="m.id" class="ok-text"> → dataset “{{ datasetName(m.id) }}”</span>
+                    <span v-else class="warn-text"> → not imported: {{ m.error }}</span>
+                  </template>
+                  <UiButton size="compact" :aria-label="`Download ${f.name}`" @click="saveRunFile(f)">Download</UiButton>
+                </li>
+              </ul>
+            </template>
+            <a v-if="it.sessionId" class="trace" :href="traceUrl(it.sessionId)" target="_blank" rel="noopener">Its full trace in Anthropic's console ↗</a>
+          </div>
+          <UiButton v-if="it.state === 'running'" size="compact" class="stop-run" :disabled="it.stop.stopped" @click="stopRun(it)">{{ it.stop.stopped ? 'Stopping…' : 'Stop this run' }}</UiButton>
         </div>
         <div v-else class="note" :class="it.tone">
           <p>{{ it.text }}</p>
@@ -421,7 +597,11 @@ const usageText = computed(() => {
   border-radius: var(--radius);
   background: var(--bg-elev);
   color: var(--text);
-  font-size: 0.86rem;
+  /* The chat's three text sizes: everything in the panel (and its cards) uses one of these. */
+  --chat-fs: 0.86rem;
+  --chat-fs-sm: 0.76rem;
+  --chat-fs-xs: 0.7rem;
+  font-size: var(--chat-fs);
 }
 /* Phones: a sheet over the lower part of the screen, so the map stays in view above. */
 @media (max-width: 48rem) {
@@ -450,7 +630,7 @@ header {
   min-width: 0;
 }
 .eyebrow {
-  font-size: 0.64rem;
+  font-size: var(--chat-fs-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -471,12 +651,12 @@ header {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  font-size: 16px; /* below 16px iOS zooms on focus */
+  font: inherit; /* the panel's text size; iOS's zoom-on-focus is turned off in main.ts */
   padding: 0.35rem 0.45rem;
 }
 .lab-wrap summary {
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: var(--chat-fs-sm);
   color: var(--text-muted);
 }
 .switch {
@@ -484,7 +664,7 @@ header {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.78rem;
+  font-size: var(--chat-fs-sm);
   color: var(--warn);
 }
 .chat {
@@ -554,7 +734,8 @@ header {
   border: none;
   background: none;
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font: inherit;
+  font-size: var(--chat-fs-sm);
   text-align: left;
 }
 .tool-line .name {
@@ -585,13 +766,13 @@ header {
   padding: 0.35rem;
   border-radius: 0.3rem;
   background: var(--bg);
-  font-size: 0.7rem;
+  font-size: var(--chat-fs-xs);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .note {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--chat-fs-sm);
 }
 .note p {
   margin: 0;
@@ -599,7 +780,7 @@ header {
 .detail-box summary {
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 0.74rem;
+  font-size: var(--chat-fs-sm);
 }
 .detail-box pre {
   margin: 0.25rem 0 0;
@@ -609,7 +790,7 @@ header {
   border-radius: 0.3rem;
   background: var(--bg);
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: var(--chat-fs-xs);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -622,46 +803,60 @@ header {
 .note.error {
   color: var(--danger);
 }
-.ask {
-  display: grid;
-  gap: 0.4rem;
-  padding: 0.55rem 0.6rem;
-  border: 1px solid var(--accent-blue);
-  border-radius: 0.6rem;
-  background: color-mix(in srgb, var(--accent-blue) 8%, var(--bg-elev-2));
+.run .detail {
+  margin-top: 0.15rem;
 }
-.ask.done {
-  border-color: var(--border);
-  background: var(--bg-elev-2);
-}
-.ask p {
+.sub {
   margin: 0;
-}
-.ask .q {
-  font-weight: 600;
-}
-.ask .details {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  font-size: var(--chat-fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  font-size: 0.8rem;
 }
-.ask textarea {
-  width: 100%;
-  box-sizing: border-box;
-  resize: vertical;
-  padding: 0.35rem 0.45rem;
-  font: inherit;
-  font-size: 16px; /* below 16px iOS zooms on focus */
+.steps,
+.files {
+  margin: 0;
+  padding-left: 1.2rem;
+  max-height: 12rem;
+  overflow: auto;
+  font-size: var(--chat-fs-xs);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
-.answered {
-  font-size: 0.8rem;
+.detail pre.prose {
+  font-family: inherit;
+  font-size: var(--chat-fs-sm);
 }
-.answered.approve {
+.steps .ev-message {
+  color: var(--text);
+}
+.steps .ev-error {
+  color: var(--warn);
+}
+.files {
+  max-height: none;
+  font-size: var(--chat-fs-sm);
+  color: var(--text);
+}
+.files li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0;
+}
+.ok-text {
   color: var(--ok);
 }
-.answered.reject {
+.warn-text {
   color: var(--warn);
+}
+.trace {
+  font-size: var(--chat-fs-sm);
+}
+.stop-run {
+  margin-top: 0.25rem;
 }
 .thumbs {
   display: flex;
@@ -728,7 +923,7 @@ footer textarea {
   color: var(--text-muted);
 }
 .small {
-  font-size: 0.74rem;
+  font-size: var(--chat-fs-sm);
   margin: 0;
 }
 </style>

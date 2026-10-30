@@ -23,6 +23,7 @@ import { datasetFact, snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
 import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type DatasetFacts, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
+import { answerSummary, LIMITS, readForm, type Form, type FormAnswer } from './form'
 
 /** What the tools act through: the page's workspace copy and the server. */
 export interface AgentHost {
@@ -42,16 +43,29 @@ export interface AgentHost {
   deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
   /** Drafts a dataset's new name / description (written to it when the user saves). */
   updateDataset(id: string, patch: { name?: string; description?: string }): { ok: true } | { ok: false; message: string }
-  /** Shows the user a question (and optional details) with Approve / Reject and a notes box; resolves with their answer. */
-  ask(question: string, details?: string): Promise<UserAnswer>
+  /** Shows the user a question card (details, fields, buttons); resolves with their answer. */
+  ask(form: Form): Promise<FormAnswer>
   /** Adds a CSV file (a scraper's output) as a new dataset in the workspace, with a description. */
   importCsv?(file: File, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
+  /** Sends the scout or the scraper with a brief and a spending cap, and follows it to the end (the chat shows its progress); a message when it can't. */
+  web?(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string>
+  /** Imports one of a web run's output files (a CSV) as a new dataset; its id, or a message. */
+  importWebFile?(fileId: string, name: string, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
 }
 
-export interface UserAnswer {
-  answer: 'approve' | 'reject'
-  notes?: string
+export type WebRole = 'scout' | 'scraper'
+export interface WebRun {
+  sessionId: string
+  report: string
+  files: { id: string; name: string; bytes: number }[]
+  cost?: number
+  elapsedSeconds: number
+  /** Why it stopped: end_turn when it finished; stopped, budget_reached, terminated… otherwise. */
+  stop: string
 }
+
+/** The spending caps the approval card offers, in dollars. */
+export const WEB_CAPS = [0.5, 1, 2, 5]
 
 const PALETTES: PaletteName[] = ['auto', 'p12', 'p24', 'p60', 'many']
 const AGG_NAMES = ['first', 'count', 'distinct', 'sum', 'mean', 'min', 'max', 'mode', 'any']
@@ -74,15 +88,69 @@ export const TOOLS: ToolSpec[] = [
   },
   {
     name: 'ask_user',
-    description:
-      "Ask the user to approve or reject something, and wait for the answer. Shows your question (and optional details, such as the datasets you found relevant and your plan) with Approve / Reject buttons and a notes box. Returns {answer: 'approve' | 'reject', notes}. Use it to confirm a plan before building, and before looking outside the workspace. For an open question, ask in plain text and end your turn instead.",
+    description: [
+      'Ask the user something that needs a well-defined answer, and wait for it. Shows a card in the chat: your question, optional details, any fields, and buttons. Returns {button, values} (values by field id; a choice gives a list of the chosen options, with the user\'s own answer last).',
+      'Without fields, the buttons default to Approve / Reject: use that to confirm a plan, with the plan in details. Fields: "text" (one line, or multiline; "value" fills it in for the user to review and edit — a plan, a name, a brief) and "choice" (options; "multiple" for any number of them; "other" to let the user add their own answer). Buttons: the first is the main answer (only it needs the required fields); add others for the alternatives, e.g. ["Use this source", "Skip this data", "Find another source"].',
+      'Use it to confirm a plan before building, to ask before looking outside the workspace or on the web, and whenever the answer is a pick from options or an edit of something you drafted. Keep labels to a few words. For an open question, ask in plain text and end your turn instead.',
+    ].join(' '),
     inputSchema: {
       type: 'object',
       properties: {
-        question: { type: 'string', description: 'One short question, answerable with approve / reject.' },
+        question: { type: 'string', description: 'One short question.' },
         details: { type: 'string', description: 'Optional: what you found and what you propose, in a few short lines.' },
+        fields: {
+          type: 'array',
+          description: `Optional, at most ${LIMITS.fields}.`,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Key of this field in the answer.' },
+              kind: { type: 'string', enum: ['text', 'choice'] },
+              label: { type: 'string', description: 'A few words.' },
+              value: { type: 'string', description: 'text: filled in for the user to review and edit.' },
+              placeholder: { type: 'string', description: 'text: a hint shown while empty.' },
+              multiline: { type: 'boolean', description: 'text: several lines.' },
+              options: { type: 'array', items: { type: 'string' }, description: `choice: at most ${LIMITS.options}.` },
+              multiple: { type: 'boolean', description: 'choice: any number of options rather than one.' },
+              other: { type: 'boolean', description: 'choice: the user may add their own answer.' },
+              selected: { type: 'array', items: { type: 'string' }, description: 'choice: options chosen to start with.' },
+              required: { type: 'boolean' },
+            },
+            required: ['id', 'kind', 'label'],
+          },
+        },
+        buttons: { type: 'array', items: { type: 'string' }, description: `The answers, main one first; at most ${LIMITS.buttons}. Default: Approve, Reject without fields; Submit with them.` },
       },
       required: ['question'],
+    },
+  },
+  {
+    name: 'send_scout',
+    description:
+      "Send the scout to find out what data exists on the web for a question: it searches, follows links to where data actually lives, peeks at files' layouts, reads terms of use, and reports back (it extracts nothing). It runs in a container on Anthropic's servers, takes a minute or a few and costs cents. The user approves (and may edit) the brief and the spending cap first. Returns its report. Use it when the source isn't known; then propose a scraper brief from the report.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brief: { type: 'string', description: 'What to look for: the question, what the data must cover (what, where, when, level of detail), candidate sources if any, and what to report.' },
+        cap_dollars: { type: 'number', description: `Spending cap to propose: one of ${WEB_CAPS.join(', ')} (default 1).` },
+      },
+      required: ['brief'],
+    },
+  },
+  {
+    name: 'send_scraper',
+    description:
+      "Send the scraper to fetch data from the web into CSV tables: it writes and runs Python in a container on Anthropic's servers (downloads, Excel, PDF tables, pages built by JavaScript), checks its result, and returns CSVs that are added to the workspace as new datasets, plus its script. Takes a few minutes and costs cents. The user approves (and may edit) the brief and the spending cap first. Returns its summary and each file's dataset id.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brief: {
+          type: 'string',
+          description: "Precise: which sources (URLs), what to extract, and for each output CSV its file name and columns (with units and key formats, e.g. fips as 5-digit text), one row per what. Everything it needs: it can't ask you.",
+        },
+        cap_dollars: { type: 'number', description: `Spending cap to propose: one of ${WEB_CAPS.join(', ')} (default 2).` },
+      },
+      required: ['brief'],
     },
   },
   {
@@ -746,10 +814,60 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
 // ── ask_user ───────────────────────────────────────────────────────────────
 
 async function askUser(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  need(str(input.question) && input.question.trim(), '`question` is required')
-  need(optStr(input.details), '`details` must be text')
-  const a = await host.ask(input.question.trim(), (input.details as string | undefined)?.trim() || undefined)
-  return ok(a, `${a.answer === 'approve' ? 'approved' : 'rejected'}${a.notes ? ` · “${a.notes.length > 60 ? `${a.notes.slice(0, 60)}…` : a.notes}”` : ''}`)
+  const form = readForm(input)
+  need(typeof form !== 'string', form as string)
+  const a = await host.ask(form)
+  return ok(a, answerSummary(form, a))
+}
+
+// ── send_scout / send_scraper ──────────────────────────────────────────────
+
+const money = (n: number) => (n < 1 ? `$${n.toFixed(2)}` : `$${n}`)
+const nearestCap = (n: unknown, fallback: number) => (typeof n === 'number' && Number.isFinite(n) ? WEB_CAPS.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a)) : fallback)
+
+async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<ToolOutcome> {
+  need(str(input.brief) && input.brief.trim(), '`brief` is required')
+  if (!host.web) return err('Sending the scout or scraper isn\'t available here.')
+  const cap = nearestCap(input.cap_dollars, role === 'scout' ? 1 : 2)
+  const Role = role === 'scout' ? 'scout' : 'scraper'
+  const form: Form = {
+    question: `Send the ${Role}?`,
+    details:
+      role === 'scout'
+        ? 'It looks on the web and reports what data exists and how to get it; it fetches nothing. Edit the brief if you like.'
+        : 'It fetches the data and makes the CSVs below; they become new datasets in your workspace. Edit the brief if you like.',
+    fields: [
+      { id: 'brief', kind: 'text', label: 'Brief', value: input.brief.trim(), multiline: true, required: true },
+      { id: 'cap', kind: 'choice', label: 'Spending cap', options: WEB_CAPS.map(money), selected: [money(cap)], required: true },
+      { id: 'notes', kind: 'text', label: 'Notes for the assistant', placeholder: 'Optional' },
+    ],
+    buttons: [`Send the ${Role}`, 'Not now'],
+  }
+  const a = await host.ask(form)
+  const notes = typeof a.values.notes === 'string' && a.values.notes ? { notes: a.values.notes } : {}
+  if (a.button !== form.buttons[0]) return ok({ sent: false, button: a.button, ...notes }, 'not sent')
+  const brief = String(a.values.brief ?? '').trim() || input.brief.trim()
+  const chosen = Array.isArray(a.values.cap) ? a.values.cap[0] : undefined
+  const capDollars = WEB_CAPS.find((c) => money(c) === chosen) ?? cap
+  const run = await host.web(role, brief, capDollars)
+  if (typeof run === 'string') return err(run, `${Role} not sent`)
+  const edited = brief !== input.brief.trim() ? { briefEditedByUser: brief } : {}
+  const facts = { stop: run.stop, cost: run.cost, elapsedSeconds: run.elapsedSeconds, ...edited, ...notes }
+  const head = `${run.stop === 'end_turn' ? 'finished' : run.stop} · ${Math.round(run.elapsedSeconds)} s${run.cost !== undefined ? ` · $${run.cost.toFixed(2)}` : ''}`
+  if (role === 'scout') return ok({ report: run.report, ...facts }, head)
+  // The scraper's CSVs become datasets; the rest (its script) stays with the run.
+  const day = new Date().toISOString().slice(0, 10)
+  const files = []
+  for (const f of run.files) {
+    if (!/\.csv$/i.test(f.name) || !host.importWebFile) {
+      files.push({ name: f.name, bytes: f.bytes })
+      continue
+    }
+    const r = await host.importWebFile(f.id, f.name, `From the web, ${day} (scraper run ${run.sessionId}).`)
+    files.push(r.ok ? { name: f.name, datasetId: r.id } : { name: f.name, importError: r.message })
+  }
+  const imported = files.filter((f) => 'datasetId' in f).length
+  return ok({ summary: run.report, files, ...facts }, `${head} · ${plural(imported, 'dataset')} added`)
 }
 
 // ── dispatch ───────────────────────────────────────────────────────────────
@@ -765,6 +883,10 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await getWorkspace(host)
       case 'ask_user':
         return await askUser(host, input)
+      case 'send_scout':
+        return await sendWeb(host, 'scout', input)
+      case 'send_scraper':
+        return await sendWeb(host, 'scraper', input)
       case 'query_sql':
         return await querySql(host, input)
       case EDITOR_TOOL:

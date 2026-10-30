@@ -326,6 +326,20 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### The assistant sends the scout and the scraper — 2026-10-30
+
+- **Added:** `send_scout` / `send_scraper`: the assistant says how well the workspace fits, asks where to
+  look, and sends a run on approval (brief, cap); the run shows as a step in the chat, can be stopped, and is
+  picked up again after a reload; the scraper's CSVs become datasets.
+- **Added:** ask_user composes its card: text fields (prefilled to review), single / multiple choices with
+  the user's own answer, buttons for each alternative (the user's design).
+- **Changed:** the relay requires sign-in (checks the Supabase session token); the chat uses three text
+  sizes only, inputs included; the assistant's intro mentions the web.
+- **Gotcha:** a run log line with class `tool` picked up the step tracker's `.tool` border — give nested
+  items their own class names (`ev-…`).
+- **Tests:** UI tests fake the model's streamed turns and the relay with Playwright routes, so the whole
+  flow runs with no key and no cost.
+
 ### Workspace files as a zip — 2026-10-29
 
 - **Changed:** Download makes `<name>.powergis.zip`: the workspace document as small files in the

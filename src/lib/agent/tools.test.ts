@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { documentFiles } from '../workspace/files'
 import { toWorkspaceFile } from '../workspace/file'
+import type { Form } from './form'
 import { runTool, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
@@ -57,7 +58,7 @@ function fakeHost(doc: WorkspaceDoc = emptyWorkspace('Test')) {
       unmatchedSamples: [],
       features: [0, 1, 10, 100, 1000, 10000, null].map((value, i) => ({ key: `f${i}`, label: `F${i}`, rows: 1, value, geometry: { type: 'Point', coordinates: [0, 0] } })),
     }),
-    ask: async (question, details) => (calls.push(`ask ${question}${details ? ` | ${details}` : ''}`), { answer: 'reject', notes: 'Use 2024 only' }),
+    ask: async (form) => (calls.push(`ask ${form.question}${form.details ? ` | ${form.details}` : ''}`), { button: form.buttons[form.buttons.length - 1], values: { notes: 'Use 2024 only' } }),
   }
   return { host, state, calls }
 }
@@ -166,13 +167,58 @@ describe('agent tools', () => {
     expect(calls).toEqual(['update prices {"name":"Home prices","description":"Zillow ZHVI by county"}'])
   })
 
-  it('asks the user and hands the answer and notes back', async () => {
+  it('asks the user (Approve / Reject without fields) and hands the answer back', async () => {
     const { host, calls } = fakeHost()
     const out = await runTool(host, 'ask_user', { question: 'Build this?', details: 'Join prices onto counties' })
-    expect(json(out.content)).toEqual({ answer: 'reject', notes: 'Use 2024 only' })
-    expect(out.summary).toBe('rejected · “Use 2024 only”')
+    expect(json(out.content)).toEqual({ button: 'Reject', values: { notes: 'Use 2024 only' } })
+    expect(out.summary).toBe('Reject')
     expect(calls).toEqual(['ask Build this? | Join prices onto counties'])
     expect(await runTool(host, 'ask_user', {})).toMatchObject({ isError: true })
+    expect(await runTool(host, 'ask_user', { question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'Pick' }] })).toMatchObject({ isError: true, content: expect.stringContaining('needs options') })
+  })
+
+  it('asks with fields and buttons the agent composes', async () => {
+    const { host } = fakeHost()
+    let shown: Form | undefined
+    host.ask = async (form) => ((shown = form), { button: 'Use these', values: { years: ['2023', '2024', 'and 2019'], name: 'Prices' } })
+    const out = await runTool(host, 'ask_user', {
+      question: 'Which years?',
+      fields: [
+        { id: 'years', kind: 'choice', label: 'Years', options: ['2022', '2023', '2024'], multiple: true, other: true, selected: ['2024'] },
+        { id: 'name', kind: 'text', label: 'Dataset name', value: 'Home prices' },
+      ],
+      buttons: ['Use these', 'Skip the years'],
+    })
+    expect(shown?.buttons).toEqual(['Use these', 'Skip the years'])
+    expect(shown?.fields[0]).toMatchObject({ kind: 'choice', multiple: true, other: true, selected: ['2024'] })
+    expect(out.summary).toBe('Use these · Years: 2023, 2024, and 2019 · Dataset name: Prices')
+  })
+
+  it('sends the scout after the user approves the brief, and returns its report', async () => {
+    const { host } = fakeHost()
+    const sent: string[] = []
+    host.ask = async (form) => ({ button: form.buttons[0], values: { brief: 'Find county rents, 2024', cap: ['$0.50'], notes: '' } })
+    host.web = async (role, brief, cap) => (sent.push(`${role} ${cap} ${brief}`), { sessionId: 's1', report: 'Census ACS B25064 has it', files: [], cost: 0.03, elapsedSeconds: 40, stop: 'end_turn' })
+    const out = await runTool(host, 'send_scout', { brief: 'Find county rents', cap_dollars: 0.7 })
+    expect(sent).toEqual(['scout 0.5 Find county rents, 2024'])
+    expect(json(out.content)).toMatchObject({ report: 'Census ACS B25064 has it', cost: 0.03, briefEditedByUser: 'Find county rents, 2024' })
+    expect(out.summary).toBe('finished · 40 s · $0.03')
+  })
+
+  it("doesn't send when the user declines, and imports the scraper's CSVs when it runs", async () => {
+    const { host } = fakeHost()
+    host.web = async () => ({ sessionId: 's2', report: 'Two files', files: [{ id: 'f1', name: 'rents.csv', bytes: 10 }, { id: 'f2', name: 'script.py', bytes: 5 }, { id: 'f3', name: 'bad.csv', bytes: 1 }], elapsedSeconds: 90, stop: 'end_turn' })
+    host.ask = async () => ({ button: 'Not now', values: { notes: 'Try the Census first' } })
+    expect(json((await runTool(host, 'send_scraper', { brief: 'Fetch rents' })).content)).toEqual({ sent: false, button: 'Not now', notes: 'Try the Census first' })
+    host.ask = async (form) => ({ button: form.buttons[0], values: { brief: 'Fetch rents', cap: ['$2'] } })
+    const imports: string[] = []
+    host.importWebFile = async (id, name, description) => (imports.push(`${id} ${name} ${description.slice(0, 14)}`), id === 'f3' ? { ok: false, message: 'empty file' } : { ok: true, id: `ds-${id}` })
+    const out = await runTool(host, 'send_scraper', { brief: 'Fetch rents' })
+    expect(imports).toEqual(['f1 rents.csv From the web, ', 'f3 bad.csv From the web, '])
+    expect(json(out.content).files).toEqual([{ name: 'rents.csv', datasetId: 'ds-f1' }, { name: 'script.py', bytes: 5 }, { name: 'bad.csv', importError: 'empty file' }])
+    expect(out.summary).toBe('finished · 90 s · 1 dataset added')
+    host.web = async () => 'Sign in to send the scout or the scraper.'
+    expect(await runTool(host, 'send_scraper', { brief: 'Fetch rents' })).toMatchObject({ isError: true, content: 'Sign in to send the scout or the scraper.' })
   })
 
   it('queries any dataset, hides geometry, and reports SQL errors to the model', async () => {

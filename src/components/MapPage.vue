@@ -941,7 +941,7 @@ watch(
 // ── the assistant (agent) ──────────────────────────────────────────────────
 // The agent's tools act through the same functions as the UI (lib/agent/tools.ts).
 
-const agentHost: Omit<AgentHost, 'ask'> = {
+const agentHost: Omit<AgentHost, 'ask' | 'web' | 'importWebFile'> = {
   async importCsv(file, description) {
     const r = await request('uploadDataset', { source: { kind: 'csv', file }, name: file.name.replace(/\.csv$/i, '') })
     if (!r.ok) return { ok: false, message: r.error.message }

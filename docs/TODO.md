@@ -352,7 +352,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 1. ~~Proof of concept on Managed Agents~~ (done, #41): through the relay (`supabase/functions/
    managed-relay`, deployed by the user); fetching, peeking, Excel, PDF tables (Home Depot figures
    checked exact by the user), JavaScript pages, terms respected, CSV import; $0.02–0.16 a run.
-2. **Next PR — the orchestrator's tools:** the assistant judges what the workspace already has, offers
+2. ~~**The orchestrator's tools**~~ (done 2026-10-30, with ask_user's composed cards and the relay's
+   sign-in; the user redeploys the relay): the assistant judges what the workspace already has, offers
    to search, and picks scout and / or scraper itself; send the scout / send the scraper (an approval
    card with the brief and the cap), progress in the chat, the scraper's CSVs imported as datasets
    (source in the description), its script saved to re-run. Update the assistant's empty-state example

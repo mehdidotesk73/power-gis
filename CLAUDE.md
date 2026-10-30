@@ -168,10 +168,15 @@ whatever they're actually asking about.
   cloudId, rows, structured origin, sameAs read-only), `transforms/<id>.json` + `<id>.<key>.sql`,
   `visualizations/<id>.json`, generated `overview.md`; SQL never inside JSON) and commits with
   `apply_workspace` (checks everything, returns new ids; `lib/agent/workspaceFiles.ts`). Everything
-  existing is targeted by id. Our tools are `strict`. It confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
+  existing is targeted by id. Our tools are `strict`. It asks with `ask_user`: a card it composes (`lib/agent/form.ts`, `agent/AskCard.vue`: text fields — prefilled to
+  review —, single / multiple choices with an own answer, and buttons; returns `{button, values}`), and looks beyond
   the workspace only with the user's OK, through `list_datasets`, which reads the app's one
   **dataset finder** (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry
-  later); the prompt names no datasets. Agents
+  later); the prompt names no datasets. **Scout and scraper** (`send_scout` / `send_scraper`; `client/agent/managed.ts`):
+  Managed Agents runs through the relay (`supabase/functions/managed-relay`: browsers are refused there; it checks the
+  user's Supabase session — signed in only), approved on a card (brief, cap), followed in the chat as a step, picked up
+  again after a reload (`powergis.webRun`); the scraper's CSVs become datasets. Chat text uses three sizes only
+  (`--chat-fs`, `-sm`, `-xs` on the panel). Agents
   change this device's copies only (a linked one turns ↑) and never sync: the server refuses
   `caller: 'agent'` on every link / push / pull request (`request(type, payload, 'agent')`).
 - **Accounts (Supabase)**: project `rorqzjnwqwlyusagzcxy`; `client/supabase.ts` (URL + publishable
