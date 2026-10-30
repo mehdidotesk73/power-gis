@@ -101,13 +101,11 @@ whatever they're actually asking about.
   the cloud scenarios (`tests/e2e/README.md`). Elements by **stable test keys** (`data-testid`: cards
   `<kind>-card` + `data-name`, menu items `menu.<action>`, nodes `node.<kind>`, …) — keep them when
   changing those controls, and add one to anything a new test touches.
-- **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, job `build`: build, unit and cloud
-  integration tests, against the local stack), and the branch ruleset requires it to pass before merge.
-  Required tests stay inside that one job — never a separate job, since the ruleset only watches `build`.
-  **The one deliberate exception:** the UI tests run in a second job, `ui-tests`, which the ruleset
-  doesn't watch — ✓ / ✗ on every PR, never blocking, while they prove steady. Tell the user whenever
-  it goes red (a red non-blocking check is easy to ignore); after about 10 green runs in a row, move its
-  steps back into `build` (`docs/TODO.md`).
+- **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, job `build`: build, unit, cloud
+  integration and UI tests, against the local stack), and the branch ruleset requires it to pass before
+  merge. Tests stay inside that one job — never a separate job, since the ruleset only watches `build`.
+  (A new kind of test may start in its own non-blocking job while it proves steady, as the UI tests did
+  — then tell the user whenever it goes red, and move it into `build` once it's reliably green.)
 - **External data dependencies:** the basemap (dark vector tiles, free, no key: OpenFreeMap dark, else CARTO Dark Matter, else a plain background).
   The app's own data is static (the default folder in `defaults/`).
   From this sandbox eia.gov and census.gov are blocked; the PUDL S3 bucket (EIA data) is reachable. You cannot

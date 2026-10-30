@@ -349,17 +349,31 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 
 ### Scout and scraper (agreed 2026-10-30; `docs/agents.md`)
 
-1. Proof of concept on Managed Agents (in progress): cost and time, files back. Direct browser calls
-   are refused (CORS), so they go through the relay. **To do (user, once):** deploy
-   `supabase/functions/managed-relay` on the Supabase project, Verify JWT off.
-2. The orchestrator's tools: the assistant judges what the workspace already has, offers to search,
-   and picks scout and / or scraper itself; send the scout / send the scraper (an approval card with the
-   brief and the cap), progress in the chat, the scraper's CSVs imported as datasets, its script saved to re-run.
-3. Run records (request, briefs, sources, terms, cost); until then a dataset's source is a line in its
+1. ~~Proof of concept on Managed Agents~~ (done, #41): through the relay (`supabase/functions/
+   managed-relay`, deployed by the user); fetching, peeking, Excel, PDF tables (Home Depot figures
+   checked exact by the user), JavaScript pages, terms respected, CSV import; $0.02–0.16 a run.
+2. **Next PR — the orchestrator's tools:** the assistant judges what the workspace already has, offers
+   to search, and picks scout and / or scraper itself; send the scout / send the scraper (an approval
+   card with the brief and the cap), progress in the chat, the scraper's CSVs imported as datasets
+   (source in the description), its script saved to re-run. Update the assistant's empty-state example
+   and description (`AgentPanel.vue`: "Show the latest average home price…", "It reads your datasets,
+   writes transforms…") to say it can also find and fetch data from the web. The relay requires
+   sign-in (verify the user's Supabase token).
+3. **Data API keys, asked for when needed** (user, 2026-10-30): when a route needs a key (Adzuna,
+   Census…), the assistant asks in the chat with a **structured input card** (which key, where to get
+   it, a field) plus one or more **skip options, each with the alternative it would take instead**
+   (skip that piece of data; another source that covers it partly; an approximation) — as many as it
+   finds sensible. Keys kept for the scraper as Managed Agents vault credentials (never inside the
+   container), reused next time.
+4. Run records (request, briefs, sources, terms, cost); until then a dataset's source is a line in its
    description.
-4. Component cleanup: the mini map's ▾ minimize button (looks rough; unify with the button components).
+5. Component cleanup: the mini map's ▾ minimize button (looks rough; unify with the button components).
+6. The agent reviewer pass (below) — waits: the agents do well on their own for now.
 
-### Agent reviewer pass (agreed 2026-10-29; after scouting and scraping)
+**Future, nice to have (not soon):** scheduled scraper runs (daily, appending to a dataset), e.g. for
+true "new postings this week" counts from daily snapshots.
+
+### Agent reviewer pass (agreed 2026-10-29; after run records and component cleanup)
 
 For builds big enough to need an approved plan: when the builder finishes, a separate call with fresh
 context gets only the request, the overview, the SQL files and the visualization settings, and returns
@@ -371,9 +385,8 @@ the socioeconomic request with and without it before keeping it.
 
 - ~~**A. Cloud integration tests**~~ (done): `tests/cloud` against a local Supabase stack in CI.
 - ~~**B. UI scenarios (Playwright)**~~ (done; the pipeline's sample values signed off by the user
-  2026-10-29 and checked exactly), built against the same local stack, in their own **non-blocking** CI job
-  `ui-tests` (not required by the ruleset). **Promote** them into `build` (required) after about 10
-  green runs in a row; tell the user whenever the job goes red. The
+  2026-10-29 and checked exactly), built against the same local stack; ~~non-blocking `ui-tests` job
+  until about 10 green runs~~ (done 2026-10-30 after 14 green runs: now steps in the required `build`). The
   socioeconomic fixture pipeline (`tests/fixtures`: upload the 6 CSVs, load the workspace, Replace the
   missing uploads, Run them now, check counts and values; needs the spatial extension, so it runs in
   the browser), then (1) same user, second device: linked uploads and outputs pulled, local-only ones

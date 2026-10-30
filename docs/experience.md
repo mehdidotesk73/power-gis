@@ -374,6 +374,12 @@ Two additions from reviewing it here, beyond what the originating project report
   layouts from names, so it now peeks at one file of each kind; the scraper test brief now needs Excel,
   a PDF table and a JavaScript-built page. The Census API needs a key now; the bulk Summary File
   (www2.census.gov) doesn't.
+- **Checked:** the Home Depot earnings table read out of the PDF matched page 48 exactly (user).
+- **CI:** the UI tests moved into the required `build` job after 14 green runs in a row as their own
+  non-blocking job; they share the cloud tests' stack.
+- **Plan (user):** next the assistant's own scout / scraper tools; then API keys asked for in the chat
+  when a route needs one (an input card plus skip options, each with its alternative); run records;
+  component cleanup; the reviewer pass later. Scheduled runs are a far-off nice to have.
 - **Decided:** the assistant picks scout and / or scraper itself after weighing what the workspace
   already holds, and asks before searching; the test panel's role picker is only for the test.
 
