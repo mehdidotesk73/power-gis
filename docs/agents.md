@@ -69,7 +69,9 @@ linked copy it changes shows ↑ until the user pushes it, and the agent says wh
 | `get_workspace` | read | **Where the agent starts.** (Re)builds the **workspace files** (discarding unapplied edits) and returns `/overview.md`: every dataset, transform (with state and its SQL files) and visualization, one line each, with ids | The workspace draft + registry records (`lib/agent/workspaceFiles.ts`) |
 | `list_datasets` | read | Every dataset the user can use, outside the workspace too, local and remote (same fields + `inWorkspace`). Used only when the workspace lacks what's needed, **after asking** | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
 | `visualization_stats(id)` | read | The per-feature values a visualization draws (after aggregation): count, nulls, min, percentiles (p2…p98), max, mean, how many ≤ 0 / < 0, orders of magnitude of the positive values; text: distinct count and most common | `queryVisualization` |
-| `ask_user(question, details?)` | read | Shows a card with the question, details (what it found, its plan), **Approve / Reject** and a notes box; waits; returns `{answer, notes}` | The chat panel |
+| `ask_user(question, details?, fields?, buttons?)` | read | Shows a **card it composes** (`lib/agent/form.ts`, `components/agent/AskCard.vue`): the question, details, any **fields** — `text` (one line or multiline; `value` fills it in to review and edit: a plan, a brief) and `choice` (options; `multiple`; `other` for the user's own answer; `selected`; `required`) — and **buttons** (first = the main answer, the only one held back by required fields; default Approve / Reject without fields, Submit with them). Waits; returns `{button, values}` | The chat panel |
+| `add_builtin(table)` | gated | Adds a built-in table (state / county boundaries, the ACS county tables) to the workspace: no web. `list_datasets` lists them under `builtins` | `uploadDataset` (`builtin` source) |
+| `send_scout(brief, cap_dollars?)` / `send_scraper(brief, cap_dollars?)` | **gated** (approval card) | Shows an approval card (the brief, editable; the spending cap $0.50 / $1 / $2 / $5; notes; Send / Not now), then runs the role on Managed Agents through the relay (signed in) and follows it to the end. Scout: returns its report. Scraper: its CSVs become new datasets (description "From the web, <date> (scraper run …)"), returns its summary and each file's dataset id | `client/agent/managed.ts` (`startRun` / `followRun`), `importCsv` |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
 | `str_replace_based_edit_tool` | edits files | Anthropic's **text editor** (`text_editor_20250728`, declared by type; we run it): `view`, `create`, `str_replace`, `insert` on the workspace files only. Changes nothing until `apply_workspace` | `runEditor` over the staged files |
 | `apply_workspace(dryRun?)` | **gated** | Assembles the files, checks the whole workspace (every problem, with its file), replaces the draft; replies with the changes and the **ids of new items**; rebuilds the files | The workspace ops (`addTransform`, `addVisualization`, …) |
@@ -265,7 +267,39 @@ usage policies live **there**, not as dataset properties.
   started (a transform run) may still finish unseen. **New chat** works while busy (stops first).
 - **(built) Limits:** 40 model turns per user message, then it stops and says "continue" carries on.
 
-## Scout and scraper (agreed 2026-10-30; proof of concept in progress)
+## Scout and scraper (agreed 2026-10-30; in the assistant since 2026-10-30)
+
+**In the assistant** (the second PR): the assistant decides — it tells the user how well the workspace
+answers the request, asks (ask_user) where to look, and sends the scraper straight away when the source
+is known, the scout first when it isn't (prompt: *Data from the web*). Each run is approved on a card
+(brief, cap) and shows in the chat as a step like the others (`web-run`): running · time · latest step,
+expanding into the brief, steps, report / summary, files (Download, and the dataset each CSV became) and
+the console trace; **Stop this run** (or the chat's Stop) interrupts the session. One run at a time. The
+run in progress is remembered on the device (`powergis.webRun`): after a reload the card picks it up
+again and the scraper's CSVs are still imported (the chat itself isn't kept). The relay **requires
+sign-in**: every call carries the user's Supabase session token, which it checks with Supabase Auth
+(`/auth/v1/user`, cached a minute); signed out, the tools answer "Sign in …". UI tests fake the model
+and the relay at the network (`tests/e2e/assistant.spec.ts`).
+
+**After the first real session (user, 2026-10-30):**
+- **Files:** the scraper ends its report with `FILES: a.csv, b.geojson, script.py`; the app waits until every one
+  is listed (up to 2 minutes; files come back one by one after the run, and a big CSV once arrived after
+  the script and was missed), then names any that never came. CSV and `.geojson` outputs become datasets.
+- **Removing:** the agent removes or deletes only what it made in this chat (`madeHere`: items it created,
+  datasets its runs wrote, imports, built-ins it added; `forgetChat` on New chat); anything else only when
+  the user asked by name (`userAsked`). A stale `/workspace.json` once dropped a user's visualization.
+- **Briefs:** a running list of sources carried into every brief (a second scout had lost the first one's
+  finds); per-measure accuracy — keys exact, allowed substitutes and error, substitutions marked on their row
+  (the scraper left KY / PA population empty rather than use 2022); built-in tables before the web (it once
+  scraped state boundaries the app ships with).
+- **Composites:** only measures covering ~90% of rows; others their own layers; common scale, stated
+  weights; measures pulling opposite ways (need = demand but worse outcomes) are asked about, not averaged.
+- **Cost:** the usage line shows ≈ $ at list prices (`CLAUDE_MODELS[].price`, `chatCost`), runs included.
+- **Concept first** (user): a score, index, ranking or comparison is defined before data is sought — what it
+  measures, from whose point of view, parts with their ideal measures and directions, opposite readings
+  offered as a choice — and approved on an ask_user card; then each measure is matched to data, proxies named.
+- **Built-ins vs samples** (user): `add_builtin` covers the geographic built-ins only; samples (the ACS
+  county tables) are for the user to add — the assistant sees them only once they're in the database.
 
 Three roles. The **orchestrator** is the in-app assistant: it works out the strategy from the user's
 request, sends the scout or the scraper with a brief, reads what comes back, confirms with the user, and

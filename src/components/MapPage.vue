@@ -40,7 +40,7 @@ import { request } from '../client/api'
 import { auth, syncCloudAuth } from '../client/auth'
 import { readDb } from '../client/db'
 import { listDatasets } from '../client/datasets'
-import { BUILTIN_TABLES } from '../shared/builtins'
+import { BUILTIN_TABLES, SAMPLE_TABLES } from '../shared/builtins'
 import { localSyncState, storeOf, type DatasetRecord, type SyncState, type WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
@@ -1057,11 +1057,20 @@ watch(
 // ── the assistant (agent) ──────────────────────────────────────────────────
 // The agent's tools act through the same functions as the UI (lib/agent/tools.ts).
 
-const agentHost: Omit<AgentHost, 'ask'> = {
+const agentHost: Omit<AgentHost, 'ask' | 'web' | 'importWebFile'> = {
   async importCsv(file, description) {
-    const r = await request('uploadDataset', { source: { kind: 'csv', file }, name: file.name.replace(/\.csv$/i, '') })
+    // A table (CSV) or shapes (GeoJSON), named after the file.
+    const json = /\.(geo)?json$/i.test(file.name)
+    const r = await request('uploadDataset', { source: json ? { kind: 'json', file } : { kind: 'csv', file }, name: file.name.replace(/\.(csv|geojson|json)$/i, '') })
     if (!r.ok) return { ok: false, message: r.error.message }
     if (description) await request('updateDataset', { id: r.data.datasetId, description })
+    await onAddDataset([r.data.datasetId])
+    return { ok: true, id: r.data.datasetId }
+  },
+  builtins: () => BUILTIN_TABLES.map(({ table, label, description }) => ({ table, label, description })),
+  async addBuiltin(table) {
+    const r = await request('uploadDataset', { source: { kind: 'builtin', table } })
+    if (!r.ok) return { ok: false, message: r.error.message }
     await onAddDataset([r.data.datasetId])
     return { ok: true, id: r.data.datasetId }
   },
@@ -1387,7 +1396,7 @@ const legend = computed<LegendEntry[]>(() => {
 
 // ── export ─────────────────────────────────────────────────────────────────
 
-const csvTables = BUILTIN_TABLES.filter((t) => t.source === 'csv').map((t) => t.table)
+const csvTables = SAMPLE_TABLES.map((t) => t.table)
 const exportTarget = ref<string | null>(null)
 const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '') ?? rendered.value[0])?.layer ?? null)
 </script>

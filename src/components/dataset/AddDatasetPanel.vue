@@ -9,7 +9,7 @@ import { computed, onMounted, ref } from 'vue'
 import { request } from '../../client/api'
 import { listDatasets } from '../../client/datasets'
 import type { UploadSource } from '../../shared/api'
-import { BUILTIN_TABLES } from '../../shared/builtins'
+import { BUILTIN_TABLES, SAMPLE_TABLES } from '../../shared/builtins'
 import { auth } from '../../client/auth'
 import type { Access } from '../../shared/cloud'
 import type { DatasetRecord } from '../../shared/records'
@@ -17,15 +17,16 @@ import type { DatasetRecord } from '../../shared/records'
 const props = defineProps<{
   inWorkspace: string[]
   /** Which source to show first. */
-  start?: 'builtin' | 'csv' | 'json' | 'arcgis' | 'db' | 'cloud'
+  start?: 'builtin' | 'sample' | 'csv' | 'json' | 'arcgis' | 'db' | 'cloud'
   /** The Saved list's button (Replace: "Use"). */
   pickLabel?: string
 }>()
 const emit = defineEmits<{ (e: 'add', datasetIds: string[]): void; (e: 'cancel'): void }>()
 
-type Origin = 'builtin' | 'csv' | 'json' | 'arcgis' | 'db' | 'cloud'
+type Origin = 'builtin' | 'sample' | 'csv' | 'json' | 'arcgis' | 'db' | 'cloud'
 const origin = ref<Origin>(props.start ?? 'builtin')
 const builtin = ref(BUILTIN_TABLES[0].table)
+const sample = ref(SAMPLE_TABLES[0]?.table ?? '')
 const arcgisUrl = ref('')
 const name = ref('')
 const busy = ref(false)
@@ -116,6 +117,7 @@ if (origin.value === 'cloud') void refreshCloud()
   <div class="add">
     <div class="seg">
       <button data-testid="add.source.builtin" :class="{ on: origin === 'builtin' }" @click="origin = 'builtin'">Built-in</button>
+      <button v-if="SAMPLE_TABLES.length" data-testid="add.source.sample" :class="{ on: origin === 'sample' }" @click="origin = 'sample'">Samples</button>
       <button data-testid="add.source.csv" :class="{ on: origin === 'csv' }" @click="origin = 'csv'">CSV file</button>
       <button data-testid="add.source.json" :class="{ on: origin === 'json' }" @click="origin = 'json'">GeoJSON / Esri</button>
       <button data-testid="add.source.arcgis" :class="{ on: origin === 'arcgis' }" @click="origin = 'arcgis'">ArcGIS URL</button>
@@ -145,6 +147,12 @@ if (origin.value === 'cloud') void refreshCloud()
           <option v-for="b in BUILTIN_TABLES" :key="b.table" :value="b.table">{{ b.label }}</option>
         </select>
         <button class="btn primary" :disabled="busy" @click="upload({ kind: 'builtin', table: builtin })">Add</button>
+      </div>
+      <div v-else-if="origin === 'sample'" class="row">
+        <select v-model="sample" aria-label="Sample dataset">
+          <option v-for="b in SAMPLE_TABLES" :key="b.table" :value="b.table">{{ b.label }}</option>
+        </select>
+        <button class="btn primary" :disabled="busy || !sample" @click="upload({ kind: 'builtin', table: sample })">Add</button>
       </div>
       <label v-else-if="origin === 'csv'" class="btn file">
         <input data-testid="add.csv-input" type="file" accept=".csv,text/csv" multiple :disabled="busy" @change="onFile($event, 'csv')" />

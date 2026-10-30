@@ -11,17 +11,28 @@ import { emptyUsage, addUsage, type ChatProvider, type ChatSession, type ToolCal
 export const CLAUDE_MODEL = 'claude-haiku-5-5'
 
 /** The models offered in the assistant's settings; prices are $ per million tokens in / out. */
-export const CLAUDE_MODELS: { id: string; label: string; note: string }[] = [
-  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'default · fastest, cheapest · $0.10 / $0.50' },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'balanced · $2 / $10' },
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'stronger reasoning · $4 / $20' },
-  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', note: 'most capable · $10 / $50' },
-  { id: 'claude-opus-5', label: 'Claude Opus 5', note: 'previous Opus · $5 / $25' },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', note: 'previous Sonnet · $2 / $10' },
+export const CLAUDE_MODELS: { id: string; label: string; note: string; /** Dollars per million tokens, in / out (list prices). */ price?: [number, number] }[] = [
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'default · fastest, cheapest · $0.10 / $0.50', price: [0.1, 0.5] },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'balanced · $2 / $10', price: [2, 10] },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'stronger reasoning · $4 / $20', price: [4, 20] },
+  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', note: 'most capable · $10 / $50', price: [10, 50] },
+  { id: 'claude-opus-5', label: 'Claude Opus 5', note: 'previous Opus · $5 / $25', price: [5, 25] },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', note: 'previous Sonnet · $2 / $10', price: [2, 10] },
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', note: 'older' },
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', note: 'older' },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', note: 'older' },
 ]
+
+/**
+ * What a chat's tokens cost at list prices, in dollars (cache writes 1.25×, cache reads 0.1× the input
+ * price); undefined for a model without a known price.
+ */
+export function chatCost(u: Usage, model: string): number | undefined {
+  const price = CLAUDE_MODELS.find((m) => m.id === model)?.price
+  if (!price) return undefined
+  const [inp, out] = price
+  return (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * 0.1 + u.output * out) / 1e6
+}
 /** Models whose declined requests Anthropic can retry on its recommended fallback model (server side). */
 const SERVER_FALLBACK = new Set(['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5'])
 const MAX_TOKENS = 32000

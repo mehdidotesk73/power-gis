@@ -1,0 +1,16 @@
+{
+  "tables": [
+    {
+      "table": "us_counties",
+      "label": "US counties",
+      "description": "County polygons (Census 2017, 1:10m, via us-atlas): fips, name, county, state, state_fips, geometry.",
+      "version": 1
+    },
+    {
+      "table": "us_states",
+      "label": "US states",
+      "description": "State and territory polygons (Census 2017, 1:10m, via us-atlas): fips, name, abbr, geometry.",
+      "version": 1
+    }
+  ]
+}
