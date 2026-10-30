@@ -4,6 +4,7 @@
 // page's tokens, so the picture matches the app.
 import { edgePath, NODE_H, NODE_W, type Dag, type DagLayout, type DagNode } from '../../lib/workspace/dag'
 import { ellipsize, wrapLines } from '../../lib/textFit'
+import { saveFile } from '../../client/saveFile'
 
 export interface GraphView {
   x: number
@@ -158,11 +159,7 @@ export async function copyPng(make: () => Promise<Blob>, fileName: string): Prom
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
     return 'copied'
   } catch {
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(await blob)
-    a.download = fileName
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
+    await saveFile(await blob, fileName)
     return 'downloaded'
   }
 }

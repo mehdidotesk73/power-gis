@@ -91,10 +91,14 @@ cloud ones refused), applied like any edit — a draft (`WorkspaceDoc.datasetEdi
   ＋ Dataset → Saved and the default map's seeding). Today that's the datasets on this device;
   with Supabase it becomes these plus the remote registry's datasets the user may access, and the
   agent sees both without changes. Columns, types and values come from queries (`SUMMARIZE`).
-- Visualizations go in and out in a **compact form**: `{id?, name, datasetId, geometry, label?,
-  column, aggregation?, visible?, color?: {kind: colormap | categorical | constant, …}, opacity?}`.
-  The tool fills the rest from the app's own defaults (`makeVisualization`); a kept id keeps its
-  style (`retarget`).
+- Visualizations go in and out with **every setting** (the same file as a downloaded zip's):
+  `{kind, name, datasetId, visible, binding: {kind: geometry, column, label?}, column, aggregation,
+  style}`. A new one needs only name, datasetId, binding and column: the rest comes from the app's
+  defaults (`makeVisualization`; a kept id keeps its style, `retarget`). Each style part given is
+  checked (`readStyle` in `tools.ts`: color, opacity, pattern, outline, size; arrows' size) and
+  replaces the default's; the encodings' `field` is always the drawn value, and `kind` must match
+  what the column draws as. `datasets.json` holds the document's facts (`datasetFact`): name and
+  description editable, store / cloudId / rows / structured origin / sameAs read-only.
 - **The workspace is files the agent edits** (`lib/agent/workspaceFiles.ts`). Resending the whole
   workspace failed with Haiku: a big nested payload with SQL inside JSON came back stringified, and
   the retry that got through dropped a transform and every visualization. Now the agent edits a
@@ -104,7 +108,7 @@ cloud ones refused), applied like any edit — a draft (`WorkspaceDoc.datasetEdi
   /workspace.json              index: name, datasetIds, transform ids, visualization ids (draw order)
   /transforms/<id>.json        name, inputs, outputs (key, name, outputId)
   /transforms/<id>.<key>.sql   that output's SQL, plain (found by name: no reference to get wrong)
-  /visualizations/<id>.json    one visualization, compact
+  /visualizations/<id>.json    one visualization, every setting
   /overview.md                 generated, read-only: one line per item, pending edits included
   ```
 
@@ -129,8 +133,8 @@ cloud ones refused), applied like any edit — a draft (`WorkspaceDoc.datasetEdi
   and `apply_workspace` refuses if the user changed the draft since the files were built.
 - **Apply** assembles the files (every file-level problem listed with its path: missing files,
   invalid JSON, unknown fields, SQL in JSON), then checks the whole workspace as before; nothing
-  applies unless all is valid. Items whose files weren't touched are **kept exactly** (style details
-  the compact form doesn't show included). `dryRun` describes the change without applying it.
+  applies unless all is valid. Items whose files weren't touched are **kept exactly** (nothing is re-read
+  from text that didn't change). `dryRun` describes the change without applying it.
 - **Ids, always.** Every action on something that exists names its id (`run_transform`,
   `visualization_stats`, …; no names). The prompt says never to guess one: take it from the overview
   or from `added`, or call `get_workspace`.

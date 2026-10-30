@@ -5,22 +5,13 @@
 // (Importing is done by adding a dataset.)
 import { ref } from 'vue'
 import { request } from '../../client/api'
+import { saveFile } from '../../client/saveFile'
 import type { VisualizationSpec } from '../../lib/dataset/visualization'
 
 const props = defineProps<{ visualization: VisualizationSpec | null }>()
 const busy = ref(false)
 const error = ref('')
 
-function download(name: string, text: string, type: string) {
-  const blob = new Blob([text], { type })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
-}
 
 async function exportAs(format: 'geojson' | 'agol' | 'esri' | 'csv') {
   const v = props.visualization
@@ -30,7 +21,7 @@ async function exportAs(format: 'geojson' | 'agol' | 'esri' | 'csv') {
   const { id, name, datasetId, binding, column, aggregation } = v
   const r = await request('exportVisualization', { visualization: { id, name, datasetId, binding, column, aggregation }, format })
   busy.value = false
-  if (r.ok) download(r.data.fileName, r.data.text, r.data.mimeType)
+  if (r.ok) await saveFile(new Blob([r.data.text], { type: r.data.mimeType }), r.data.fileName)
   else error.value = r.error.message
 }
 </script>

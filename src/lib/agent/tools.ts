@@ -15,11 +15,11 @@ import { columnType, makeVisualization, retarget, ROWS, VALUE, type Visualizatio
 import { newId } from '../dataset/dataset'
 import { COLORMAPS, type ColormapName } from '../colormaps'
 import type { PaletteName } from '../palettes'
-import { MAGNITUDE_FIELD, type ColorEncoding } from '../style'
+import { MAGNITUDE_FIELD, PATTERNS, type ColorEncoding, type OpacityEncoding, type PatternEncoding, type PatternKind, type ScalarStyle, type VectorStyle } from '../style'
 import { addDataset, addTransform, addVisualization, newOutput, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
 import { outputCheck } from './checks'
 import { transformState } from '../workspace/dag'
-import { snapshot } from '../workspace/file'
+import { datasetFact, snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
 import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type DatasetFacts, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
@@ -127,7 +127,8 @@ export const TOOLS: ToolSpec[] = [
       "Make your edits to the workspace files the workspace (the user's unsaved draft: they Save or Discard it). Everything is checked together; nothing changes if anything is wrong, and every problem is listed with its file.",
       'How the files work: an item exists when its id is listed in /workspace.json (transforms; visualizations, whose order is draw order, first on top); its file is /transforms/<id>.json or /visualizations/<id>.json, and the file name is the id. To add an item, create its file under a short name you choose (e.g. by_state) and add that name to the list; it gets a real id when applied (the reply says which). To remove one, take its id out of the list. Datasets join the workspace through "datasetIds".',
       'Transforms: {"name", "inputs": [{"datasetId", "alias"}], "outputs": [{"key", "name", "outputId"?}]}; each output\'s SQL is the plain file /transforms/<id>.<key>.sql (never SQL inside JSON). Leave outputId out for a new output: it writes a new dataset on its first run. A new or changed transform does nothing until run_transform.',
-      `Visualizations: {"name", "datasetId", "geometry" (a point / polyline / region column), "label"? (a column naming each feature), "column" (or "${ROWS}"), "aggregation"? (${AGG_NAMES.join(', ')}), "visible"?, "color"?, "opacity"? (0–1)}; color: {"kind": "colormap", "colormap", "reverse"?, "scale"? ("linear" / "log"), "domain"? ([min, max])} | {"kind": "categorical", "palette"?} | {"kind": "constant", "color": "#rrggbb"}. Items you didn't edit stay exactly as they are.`,
+      `Visualizations hold every setting: {"kind" ("scalar"; "vector" for a vector column: arrows), "name", "datasetId", "visible", "binding": {"kind": "geometry", "column" (a point / polyline / region column), "label"? (a column naming each feature)}, "column" (or "${ROWS}"), "aggregation" (${AGG_NAMES.join(', ')}), "style"}. For a new one, name, datasetId, binding and column are enough: the rest gets defaults (kind follows the column). In "style", change only the parts you mean to; leave the "field" values as they are (they always mean the drawn value).`,
+      `Scalar style: {"color", "opacity", "pattern", "outline"?, "size"?}. color: {"kind": "colormap", "colormap", "reverse"?, "scale"? ("linear" / "log"), "domain"? ([min, max]), "nullColor"?} | {"kind": "categorical", "palette"?, "colors"? ({value: "#rrggbb"})} | {"kind": "constant", "color": "#rrggbb"}. opacity: {"kind": "constant", "value" (0–1)} | {"kind": "field", "range" ([low, high] opacity), "domain"?}. pattern (regions only): {"kind": "none"} | {"kind": "constant", "pattern" (${PATTERNS.join(', ')}), "color"?, "opacity"?} | {"kind": "field", "patterns" ({value: pattern})}. outline: {"color", "width" (px), "opacity"?}; size: point radius / line width in px. Vector style: {"components" (follows the column), "color" (by arrow length; not categorical), "opacity", "size": {"min", "max" (1 = 24px), "domain"?}}. Items you didn't edit stay exactly as they are.`,
       'dryRun: check and describe the change without applying it. Refused if the user changed the workspace since get_workspace.',
     ].join('\n\n'),
     inputSchema: {
@@ -233,7 +234,9 @@ const renames = new WeakMap<AgentHost, Map<string, { path: string; kind: string;
 /** What datasets.json says about the workspace's datasets. */
 const facts = (host: AgentHost) => (id: string): DatasetFacts | undefined => {
   const d = host.record(id)
-  return d && { name: d.name, description: d.description, store: storeOf(d), rowCount: d.rowCount, origin: d.origin }
+  if (!d) return undefined
+  const { id: _id, ...fact } = datasetFact(id, d, host.doc().transforms)
+  return fact
 }
 
 /** The host's files, rebuilt from the draft when nothing is pending and the draft changed. */
@@ -335,18 +338,101 @@ function readColor(v: unknown, kind: VisualizationSpec['kind'], where: string): 
       ...(v.reverse === true ? { reverse: true } : {}),
       ...(v.scale === 'log' ? { scale: 'log' as const } : {}),
       ...(d ? { domain: [(d as number[])[0], (d as number[])[1]] as [number, number] } : {}),
+      ...(v.nullColor !== undefined ? { nullColor: hex(v.nullColor, `${where}.color.nullColor`) } : {}),
     }
   }
   if (v.kind === 'categorical') {
     need(kind === 'scalar', `${where}: arrows can't be colored by category`)
     need(v.palette === undefined || PALETTES.includes(v.palette as PaletteName), `${where}.color.palette must be one of ${PALETTES.join(', ')}`)
-    return { kind: 'categorical', field, ...(v.palette ? { palette: v.palette as PaletteName } : {}) }
+    need(v.colors === undefined || isObj(v.colors), `${where}.color.colors must map values to hex colors`)
+    const colors = v.colors ? Object.fromEntries(Object.entries(v.colors as Obj).map(([k, c]) => [k, hex(c, `${where}.color.colors["${k}"]`)])) : undefined
+    return { kind: 'categorical', field, ...(v.palette ? { palette: v.palette as PaletteName } : {}), ...(colors && Object.keys(colors).length ? { colors } : {}) }
   }
   if (v.kind === 'constant') {
     need(str(v.color) && /^#[0-9a-f]{6}$/i.test(v.color), `${where}.color.color must be a hex color like #3b82f6`)
     return { kind: 'constant', color: v.color }
   }
   throw new Invalid(`${where}.color.kind must be colormap, categorical or constant`)
+}
+
+const hex = (c: unknown, where: string): string => {
+  need(str(c) && /^#[0-9a-f]{6}$/i.test(c), `${where} must be a hex color like #3b82f6`)
+  return c
+}
+const unit = (x: unknown, where: string): number => {
+  need(typeof x === 'number' && x >= 0 && x <= 1, `${where} must be between 0 and 1`)
+  return x
+}
+const range = (d: unknown, where: string): [number, number] => {
+  need(Array.isArray(d) && d.length === 2 && d.every((x) => typeof x === 'number' && Number.isFinite(x)) && d[0] < d[1], `${where} must be [min, max] with min < max`)
+  return [d[0], d[1]]
+}
+function allowed(o: Obj, keys: string[], where: string) {
+  for (const k of Object.keys(o)) need(keys.includes(k), `${where}: unknown field "${k}" (fields: ${keys.join(', ')})`)
+}
+
+function readOpacity(v: unknown, field: string, where: string): OpacityEncoding {
+  need(isObj(v), `${where}.opacity must be {"kind": "constant", "value"} or {"kind": "field", "range", "domain"?}`)
+  if (v.kind === 'constant') return { kind: 'constant', value: unit(v.value, `${where}.opacity.value`) }
+  need(v.kind === 'field', `${where}.opacity.kind must be constant or field`)
+  const r = range(v.range, `${where}.opacity.range`)
+  unit(r[0], `${where}.opacity.range`), unit(r[1], `${where}.opacity.range`)
+  return { kind: 'field', field, range: r, ...(v.domain !== undefined ? { domain: range(v.domain, `${where}.opacity.domain`) } : {}) }
+}
+
+function readPattern(v: unknown, where: string): PatternEncoding {
+  need(isObj(v), `${where}.pattern must be {"kind": "none"}, {"kind": "constant", "pattern"} or {"kind": "field", "patterns"}`)
+  const kind = (p: unknown, w: string): PatternKind => {
+    need(PATTERNS.includes(p as PatternKind), `${w} must be one of ${PATTERNS.join(', ')}`)
+    return p as PatternKind
+  }
+  const extras = { ...(v.color !== undefined ? { color: hex(v.color, `${where}.pattern.color`) } : {}), ...(v.opacity !== undefined ? { opacity: unit(v.opacity, `${where}.pattern.opacity`) } : {}) }
+  if (v.kind === 'none') return { kind: 'none' }
+  if (v.kind === 'constant') return { kind: 'constant', pattern: kind(v.pattern, `${where}.pattern.pattern`), ...extras }
+  need(v.kind === 'field' && isObj(v.patterns), `${where}.pattern.kind must be none, constant or field (with "patterns": value → pattern)`)
+  return { kind: 'field', field: VALUE, patterns: Object.fromEntries(Object.entries(v.patterns as Obj).map(([k, p]) => [k, kind(p, `${where}.pattern.patterns["${k}"]`)])), ...extras }
+}
+
+/**
+ * A visualization's style from its file, over `base` (the current or default style): each part
+ * given is checked and replaces base's. The fields encodings read are always the drawn value
+ * (or the arrows' length), whatever the file says; arrows' components follow the column.
+ */
+function readStyle(raw: unknown, v: VisualizationSpec, where: string): VisualizationSpec['style'] {
+  need(isObj(raw), `${where}.style must be an object`)
+  const w = `${where}.style`
+  if (v.kind === 'vector') {
+    allowed(raw, ['components', 'color', 'opacity', 'size'], w)
+    const base: VectorStyle = v.style
+    let size = base.size
+    if (raw.size !== undefined) {
+      const s = raw.size
+      need(isObj(s) && typeof s.min === 'number' && typeof s.max === 'number' && s.min > 0 && s.max >= s.min, `${w}.size must be {"min", "max"} with 0 < min ≤ max (1 = 24px)`)
+      size = { min: s.min, max: s.max, ...(s.domain !== undefined ? { domain: range(s.domain, `${w}.size.domain`) } : {}) }
+    }
+    return {
+      components: base.components,
+      color: readColor(raw.color, 'vector', w) ?? base.color,
+      opacity: raw.opacity !== undefined ? readOpacity(raw.opacity, MAGNITUDE_FIELD, w) : base.opacity,
+      size,
+    }
+  }
+  allowed(raw, ['color', 'opacity', 'pattern', 'outline', 'size'], w)
+  const base: ScalarStyle = v.style
+  let outline = base.outline
+  if (raw.outline !== undefined) {
+    const o = raw.outline
+    need(isObj(o) && typeof o.width === 'number' && o.width >= 0 && o.width <= 20, `${w}.outline must be {"color", "width" (0–20), "opacity"?}`)
+    outline = { color: hex(o.color, `${w}.outline.color`), width: o.width, ...(o.opacity !== undefined ? { opacity: unit(o.opacity, `${w}.outline.opacity`) } : {}) }
+  }
+  need(raw.size === undefined || (typeof raw.size === 'number' && raw.size > 0 && raw.size <= 50), `${w}.size must be a number of pixels (point radius / line width), up to 50`)
+  return {
+    color: readColor(raw.color, 'scalar', w) ?? base.color,
+    opacity: raw.opacity !== undefined ? readOpacity(raw.opacity, VALUE, w) : base.opacity,
+    pattern: raw.pattern !== undefined ? readPattern(raw.pattern, w) : base.pattern,
+    ...(outline ? { outline } : {}),
+    ...(raw.size !== undefined ? { size: raw.size as number } : base.size !== undefined ? { size: base.size } : {}),
+  }
 }
 
 /**
@@ -425,17 +511,19 @@ async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): P
         else errors.push(`${where} "${v.name}": ${r.error.message}`)
         continue
       }
-      need(isObj(raw) && str(raw.name) && str(raw.datasetId) && str(raw.geometry) && str(raw.column), `${where} needs name, datasetId, geometry and column`)
-      need(optStr(raw.id) && optStr(raw.label), `${where}: id and label must be text`)
+      need(isObj(raw) && str(raw.name) && str(raw.datasetId) && str(raw.column), `${where} needs name, datasetId, binding and column`)
+      const b = raw.binding
+      need(isObj(b) && str(b.column) && (b.kind === undefined || b.kind === 'geometry') && optStr(b.label), `${where}.binding must be {"kind": "geometry", "column": <a geometry column>, "label"?: <a column naming each feature>}`)
+      need(optStr(raw.id), `${where}: id must be text`)
+      need(raw.kind === undefined || raw.kind === 'scalar' || raw.kind === 'vector', `${where}.kind must be scalar or vector`)
       need(raw.aggregation === undefined || AGG_NAMES.includes(raw.aggregation as string), `${where}.aggregation must be one of ${AGG_NAMES.join(', ')}`)
       need(raw.visible === undefined || typeof raw.visible === 'boolean', `${where}.visible must be true or false`)
-      need(raw.opacity === undefined || (typeof raw.opacity === 'number' && raw.opacity >= 0 && raw.opacity <= 1), `${where}.opacity must be between 0 and 1`)
       need(records.has(raw.datasetId), `${where}: dataset "${raw.datasetId}" isn't in datasetIds`)
-      const binding: GeometryBinding = { kind: 'geometry', column: raw.geometry, ...(raw.label ? { label: raw.label as string } : {}) }
+      const binding: GeometryBinding = { kind: 'geometry', column: b.column, ...(b.label ? { label: b.label as string } : {}) }
       const info = await host.shape(raw.datasetId, binding)
       need(typeof info !== 'string', `${where}: ${info as string}`)
       const column = raw.column
-      need(column === ROWS || info.columns.some((c) => c.name === column), `${where}: "${column}" isn't a value column of this dataset under geometry "${raw.geometry}" (columns: ${info.columns.map((c) => c.name).join(', ') || 'none'}; or "${ROWS}")`)
+      need(column === ROWS || info.columns.some((c) => c.name === column), `${where}: "${column}" isn't a value column of this dataset under geometry "${binding.column}" (columns: ${info.columns.map((c) => c.name).join(', ') || 'none'}; or "${ROWS}")`)
       const type = columnType(info.columns, column)
       const agg = raw.aggregation as Aggregation | undefined
       need(!agg || column === ROWS || aggregationsFor(type).includes(agg), `${where}: ${agg} doesn't apply to a ${type} column (use ${aggregationsFor(type).join(', ')})`)
@@ -443,9 +531,8 @@ async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): P
       const aggregation = agg ?? (existing && existing.column === column ? existing.aggregation : column === ROWS ? 'count' : defaultAggregation(type, info.maxRowsPerFeature))
       let v: VisualizationSpec = existing ? retarget(info, existing, column, aggregation, binding) : { ...makeVisualization(info, raw.datasetId, binding, column, aggregation), ...(raw.id ? { id: raw.id as string } : {}) }
       v = { ...v, name: raw.name, ...(raw.visible !== undefined ? { visible: raw.visible as boolean } : {}) }
-      const color = readColor(raw.color, v.kind, where)
-      if (color) v = { ...v, style: { ...v.style, color } } as VisualizationSpec
-      if (raw.opacity !== undefined) v = { ...v, style: { ...v.style, opacity: { kind: 'constant', value: raw.opacity as number } } } as VisualizationSpec
+      need(raw.kind === undefined || raw.kind === v.kind, `${where}.kind: "${column}" draws as ${v.kind === 'vector' ? 'arrows ("vector")' : 'colors ("scalar")'}, so kind is ${v.kind}`)
+      if (raw.style !== undefined) v = { ...v, style: readStyle(raw.style, v, where) } as VisualizationSpec
       const r = addVisualization(doc, v, doc.visualizations.length, ctx)
       if (r.ok) doc = r.doc
       else errors.push(`${where} "${raw.name}": ${r.error.message}`)

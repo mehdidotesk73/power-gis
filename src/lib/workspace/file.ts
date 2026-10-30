@@ -103,9 +103,8 @@ export function toWorkspaceFile(doc: WorkspaceDoc, record: (id: string) => Datas
   }
 }
 
-export const fileName = (doc: WorkspaceDoc) => `${doc.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'workspace'}.powergis.json`
 
-type Parsed = { ok: true; file: WorkspaceFile } | { ok: false; error: string }
+export type Parsed = { ok: true; file: WorkspaceFile } | { ok: false; error: string }
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isStr = (v: unknown): v is string => typeof v === 'string'

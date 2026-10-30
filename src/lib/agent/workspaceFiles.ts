@@ -5,11 +5,11 @@
 // the draft changes (tools.ts).
 //
 //   workspace.json                    index: name, datasetIds, transform ids, visualization ids (draw order)
-//   datasets.json                     the workspace's datasets by id: name and description (editable),
-//                                     store, rows, origin (read-only)
+//   datasets.json                     the workspace's datasets by id, as the document knows them: name and
+//                                     description (editable); store, cloudId, rows, origin, sameAs (read-only)
 //   transforms/<id>.json              one transform: name, inputs, outputs (key, name, outputId)
 //   transforms/<id>.<key>.sql         that output's SQL, plain (found by name: no reference to get wrong)
-//   visualizations/<id>.json          one visualization, compact
+//   visualizations/<id>.json          one visualization, every setting (as in a downloaded zip)
 //   overview.md                       generated, read-only: one line per item
 //
 // An item's id is its file name. A new item gets a name the agent picks;
@@ -18,6 +18,7 @@
 import type { VisualizationSpec } from '../dataset/visualization'
 import type { ColorEncoding } from '../style'
 import type { TransformSpec, WorkspaceDoc } from '../workspace/workspace'
+import type { DatasetFact } from '../workspace/file'
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -42,18 +43,8 @@ export const agentTransform = (t: TransformSpec): Obj => ({
   outputs: t.outputs.map((o) => ({ key: o.key, name: o.name, sql: o.sql, ...(o.outputId ? { outputId: o.outputId } : {}) })),
 })
 
-export const agentVisualization = (v: VisualizationSpec): Obj => ({
-  id: v.id,
-  name: v.name,
-  datasetId: v.datasetId,
-  geometry: v.binding.column,
-  ...(v.binding.label ? { label: v.binding.label } : {}),
-  column: v.column,
-  aggregation: v.aggregation,
-  visible: v.visible,
-  color: agentColor(v.style.color),
-  ...(v.kind === 'scalar' && v.style.opacity.kind === 'constant' ? { opacity: v.style.opacity.value } : {}),
-})
+/** A visualization with every setting: what its file holds (plus the id, which is the file's name). */
+export const agentVisualization = (v: VisualizationSpec): Obj => JSON.parse(JSON.stringify(v)) as Obj
 
 /** JSON with keys in a fixed order, to tell whether an item changed. */
 export function canonical(v: unknown): string {
@@ -64,12 +55,11 @@ export function canonical(v: unknown): string {
 
 // ── the files ──────────────────────────────────────────────────────────────
 
-/** Path → contents, paths without a leading slash. */
-export type Files = Map<string, string>
+// The layout is the workspace document's file form (lib/workspace/files.ts: Download / Load zips it):
+// the same paths, so people and the agent see one workspace the same way.
+import { DATASETS, INDEX, OVERVIEW, sqlPath, transformPath, vizPath, type Files } from '../workspace/files'
+export { DATASETS, INDEX, OVERVIEW, sqlPath, transformPath, vizPath, type Files }
 
-export const INDEX = 'workspace.json'
-export const DATASETS = 'datasets.json'
-export const OVERVIEW = 'overview.md'
 const NAME = '[A-Za-z0-9_-]+'
 const TRANSFORM_FILE = new RegExp(`^transforms/(${NAME})\\.json$`)
 const SQL_FILE = new RegExp(`^transforms/(${NAME})\\.(${NAME})\\.sql$`)
@@ -77,31 +67,16 @@ const VIZ_FILE = new RegExp(`^visualizations/(${NAME})\\.json$`)
 const DIRS = ['transforms', 'visualizations']
 const TRANSFORM_KEYS = ['name', 'inputs', 'outputs']
 const OUTPUT_KEYS = ['key', 'name', 'outputId']
-const VIZ_KEYS = ['name', 'datasetId', 'geometry', 'label', 'column', 'aggregation', 'visible', 'color', 'opacity']
+const VIZ_KEYS = ['kind', 'name', 'datasetId', 'visible', 'binding', 'column', 'aggregation', 'style']
 
-const DATASET_KEYS = ['name', 'description', 'store', 'rows', 'origin']
-const READ_ONLY = ['store', 'rows', 'origin'] as const
+const DATASET_KEYS = ['name', 'description', 'store', 'cloudId', 'rows', 'origin', 'sameAs']
+const READ_ONLY = ['store', 'cloudId', 'rows', 'origin', 'sameAs'] as const
 
-/** What datasets.json says about a dataset (the record as the page shows it: drafted names included). */
-export interface DatasetFacts {
-  name: string
-  description?: string
-  store?: 'local' | 'remote'
-  rowCount?: number
-  origin?: string
-}
-const datasetEntry = (d: DatasetFacts) => ({
-  name: d.name,
-  description: d.description ?? '',
-  store: d.store === 'remote' ? 'cloud' : 'local',
-  ...(d.rowCount !== undefined ? { rows: d.rowCount } : {}),
-  ...(d.origin ? { origin: d.origin } : {}),
-})
+/** What datasets.json says about a dataset: the document's fact for it (lib/workspace/file.ts `datasetFact`), drafted names included. */
+export type DatasetFacts = Omit<DatasetFact, 'id'>
+const datasetEntry = (d: DatasetFacts): Obj => ({ ...d, description: d.description ?? '' })
 
 const pretty = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
-export const transformPath = (id: string) => `transforms/${id}.json`
-export const sqlPath = (id: string, key: string) => `transforms/${id}.${key}.sql`
-export const vizPath = (id: string) => `visualizations/${id}.json`
 
 /** The draft as files (`dataset` looks up what datasets.json says about each of its datasets). */
 export function workspaceFiles(doc: WorkspaceDoc, dataset: (id: string) => DatasetFacts | undefined = () => undefined): Files {
@@ -403,10 +378,10 @@ export interface OverviewInfo {
 const GUIDE = [
   '## How these files work',
   '- /workspace.json lists what exists: "datasetIds", "transforms" and "visualizations" (ids; visualizations in draw order, first on top).',
-  '- /datasets.json holds each workspace dataset by id: "name" and "description" you can change (give datasets you make a clear name and a one-line description); "store", "rows" and "origin" are read-only.',
+  '- /datasets.json holds each workspace dataset by id: "name" and "description" you can change (give datasets you make a clear name and a one-line description); "store" (local / remote: linked to the cloud), "cloudId", "rows", "origin" ({"kind": "builtin", "table"} | {"kind": "output", "transform", "output"} | {"kind": "upload", "source"} | {"kind": "unknown"}) and "sameAs" are read-only.',
   '- /transforms/<id>.json is one transform: {"name", "inputs": [{"datasetId", "alias"}], "outputs": [{"key", "name", "outputId"?}]}.',
   '- /transforms/<id>.<output key>.sql is one output\'s SQL, plain text. SQL never goes inside JSON.',
-  '- /visualizations/<id>.json is one visualization. A file\'s name is its id.',
+  '- /visualizations/<id>.json is one visualization, with every setting (apply_workspace describes them). A file\'s name is its id.',
   '- Example (placeholder names): to add a transform, create /transforms/by_state.json with outputs [{"key": "o1", "name": "State values"}], create /transforms/by_state.o1.sql, add "by_state" to "transforms" in /workspace.json, then apply_workspace; its reply gives the real id.',
   '- To remove an item, take its id out of /workspace.json. Nothing changes until apply_workspace.',
 ]
@@ -468,9 +443,11 @@ export function overviewText(files: Files, doc: WorkspaceDoc, info: OverviewInfo
       lines.push(`- ${id}  ⚠ /${vizPath(id)} is missing or not valid JSON`)
       continue
     }
-    const color = isObj(v.color) ? [v.color.kind, v.color.colormap ?? v.color.palette ?? v.color.color, v.color.scale === 'log' ? 'log' : ''].filter(Boolean).join(' ') : 'default color'
+    const c = isObj(v.style) && isObj(v.style.color) ? v.style.color : null
+    const color = c ? [c.kind, c.colormap ?? c.palette ?? c.color, c.scale === 'log' ? 'log' : ''].filter(Boolean).join(' ') : 'default color'
+    const geometry = isObj(v.binding) ? v.binding.column : '?'
     const isNew = !doc.visualizations.some((x) => x.id === id)
-    lines.push(`- ${id}  "${v.name}"  ${ds(v.datasetId)} · geometry ${v.geometry} · ${v.column}${v.aggregation ? ` (${v.aggregation})` : ''} · ${color}${v.visible === false ? ' · hidden' : ''}${isNew ? ' · new (not applied)' : ''}`)
+    lines.push(`- ${id}  "${v.name}"  ${ds(v.datasetId)} · geometry ${geometry} · ${v.column}${v.aggregation ? ` (${v.aggregation})` : ''} · ${color}${v.visible === false ? ' · hidden' : ''}${isNew ? ' · new (not applied)' : ''}`)
   }
   lines.push('', `Files: ${[...files.keys()].sort().map((p) => `/${p}`).join(' · ')}`)
   return lines.join('\n')

@@ -185,7 +185,7 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
 
       <div class="file">
         <span class="eyebrow">File</span>
-        <button class="item" @click="emit('download')">⤓ Download workspace file</button>
+        <button class="item" data-testid="workspace.download" @click="emit('download')">⤓ Download workspace (.zip)</button>
         <button class="item" @click="fileInput?.click()">⤒ Load workspace file…</button>
         <button class="item" @click="emit('copy')">⧉ Copy workspace</button>
         <button class="item" :aria-expanded="pasting" @click="pasting ? (pasting = false) : startPaste()">⎘ Paste workspace…</button>
@@ -207,10 +207,10 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
           </div>
         </div>
         <button class="item danger" @click="emit('reset')">↺ Reset to the default map</button>
-        <p class="note">A workspace file (or a copied workspace) holds which datasets it uses, its transforms and its visualizations — not the data itself.</p>
+        <p class="note">A workspace file holds which datasets it uses, its transforms and its visualizations — not the data itself. Download makes a zip of small files (each transform's SQL is its own file, readable and editable); Load takes that zip or a copied workspace's JSON.</p>
       </div>
       <p v-if="message" class="msg">{{ message }}</p>
-      <input ref="fileInput" data-testid="workspace.file-input" class="hidden" type="file" accept=".json,application/json" @change="onFile" />
+      <input ref="fileInput" data-testid="workspace.file-input" class="hidden" type="file" accept=".zip,application/zip,.json,application/json" @change="onFile" />
     </div>
   </div>
 </template>

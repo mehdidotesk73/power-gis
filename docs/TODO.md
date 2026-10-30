@@ -315,7 +315,7 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    the user's OK), `ask_user` (Approve / Reject + notes), `query_sql`, the text editor + `apply_workspace` (was `update_workspace`),
    `run_transform`, `update_dataset`, `delete_dataset`, the server-side gate for `caller: 'agent'`.
 4. **Next, in this order (agreed 2026-10-29):** (a) ~~the agent's additional instructions (with
-   Copy graph as image)~~ (done); (b) the workspace zip format (item (b) under Supabase below); (c) **scouting and
+   Copy graph as image)~~ (done); (b) ~~the workspace zip format~~ (done); (c) **scouting and
    scraping**: web search / fetch for the agent, `create_dataset(rows)` (local, size-capped) for data
    it collects itself, scout source reports, run records. Options for **D1** (fetch + create_dataset, no
    agent code) and **D2** (agent-written scripts: Managed Agents container vs. Pyodide) are written up
@@ -339,9 +339,9 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
       Later: see who changed what (version history), invite someone without an account yet, a
       "shared" mark on cards.
    - **Agreed next (before PR 3):** (a) ~~dataset name / description as draft until Save, agent's
-     `datasets.json`~~ (done, see Done). (b) the agent's
-     files become the file form of the v2 document (+ `datasets.json`, full visualization settings),
-     and Download / Load use a zip of them; round trips JSON ↔ files ↔ zip tested. (c) ~~Unavailable items~~ (done, see Done).
+     `datasets.json`~~ (done, see Done). (b) ~~Download / Load
+     use a zip of the document's file form (the agent's layout)~~ (done 2026-10-29; round trips tested).
+     The agent's files are the same: every visualization setting, the structured origin (done). (c) ~~Unavailable items~~ (done, see Done).
    - PR 3 also: Delete account removes the owned datasets' files from storage first; PR 2 updates
      the sign-in note (drop "Coming in the next updates.") once storing in the cloud works.
    - Follow-up: a custom SMTP sender (e.g. Resend) before anyone but us signs up — Supabase's

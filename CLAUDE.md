@@ -166,8 +166,8 @@ whatever they're actually asking about.
   `AgentHost` the page supplies (`agentHost` in `MapPage.vue`): the same functions as the UI. The
   agent starts from the workspace (`get_workspace`: its datasets' names, descriptions, stores),
   edits it as **files** with Anthropic's text editor tool (`str_replace_based_edit_tool`, run by us on
-  a staged copy: `workspace.json` index, `datasets.json` (name / description editable; store, rows,
-  origin read-only), `transforms/<id>.json` + `<id>.<key>.sql`,
+  a staged copy: `workspace.json` index, `datasets.json` (the document's facts: name / description editable; store,
+  cloudId, rows, structured origin, sameAs read-only), `transforms/<id>.json` + `<id>.<key>.sql`,
   `visualizations/<id>.json`, generated `overview.md`; SQL never inside JSON) and commits with
   `apply_workspace` (checks everything, returns new ids; `lib/agent/workspaceFiles.ts`). Everything
   existing is targeted by id. Our tools are `strict`. It confirms plans with `ask_user` (an Approve / Reject card with notes in the chat), and looks beyond
@@ -233,9 +233,15 @@ whatever they're actually asking about.
   Save writes them with `updateDataset` before saving the workspace) (localStorage `powergis.draft`, restored on reload, "Unsaved changes" + Discard in
   `WorkspaceBar` — the **Workspace** button in the header, teleported there from `MapPage` into
   `#header-workspace`; amber with a ● while unsaved; it drops down the name, counts, Save / Discard and
-  the file actions) until Save sends `saveWorkspace`. **Workspace files** (`lib/workspace/file.ts`):
-  download / load a `.powergis.json` of pointers + settings, never rows (or Copy / Paste the same JSON
-  via the clipboard; Paste opens a box filled from the clipboard); loading replaces the
+  the file actions) until Save sends `saveWorkspace`. **Workspace files**: Download makes a
+  `.powergis.zip` of the document's **file form** (`lib/workspace/files.ts`, `documentFiles` /
+  `filesDocument`, zipped with `fflate`): `workspace.json`, `datasets.json` (every fact), `transforms/<id>.json`
+  + `<id>.<key>.sql`, `visualizations/<id>.json` (every setting), generated `overview.md` — the agent's
+  layout and paths; Load takes the zip (one top folder and Mac extras looked through) or a document's JSON
+  (older downloads; Copy / Paste stay JSON via the clipboard; Paste opens a box filled from the
+  clipboard). **Every file the app saves goes through `client/saveFile.ts`**: the share sheet on phones
+  (iOS Safari's blob download left the page ignoring taps for the clipboard and file picker), a plain
+  download elsewhere. Pointers + settings, never rows; loading replaces the
   working copy (fresh visualization ids, datasets missing from the database dropped and reported).
   Details: `docs/system-design.md` §4.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
@@ -297,7 +303,8 @@ whatever they're actually asking about.
   columns, List | Graph over a **mini map** on the left, that section on the right. Phones: List | Graph,
   then that section, scrolling together (the page scrolls, head sticky) above a mini map anchored at the
   bottom (sticky; `scroll-padding` keeps revealed items clear of both). The mini map's height is dragged
-  from the bar above it on both (`useSplitter` with `side: 'bottom'`, `--minimap-h`, `powergis.minimapHeight`). **New-item flows scroll each step
+  from the bar above it on both (`useSplitter` with `side: 'bottom'`, `--minimap-h`, `powergis.minimapHeight`).
+  It **starts minimized** to a **▴ Map** bar (`mapMin`; tap opens it, ▾ at the drag bar's end minimizes it again). **New-item flows scroll each step
   into view** with `v-reveal` (`components/reveal.ts`): use it on any form or step a flow opens.
 - **Explore** (`dataset/ExploreModal.vue`, a dataset's menu): a window with a SQL box (starts
   `SELECT * FROM <dataset>`) over a docked results table, **200 rows a page** (Prev / Next) with the
@@ -337,8 +344,8 @@ whatever they're actually asking about.
   be replaced (its transform would overwrite it). Signed in, the Workspace panel lists uploads
   **only on this device** (`onlyOnThisDevice`: not built-ins, outputs or cloud ones) in a short
   scrolling box, and Save notes them. Every transform output
-  records the SQL that wrote it (`extensions.sql`). Agreed next: the same content as the agent's files
-  (+ full visualization settings) and a zip for Download / Load (`docs/TODO.md`).
+  records the SQL that wrote it (`extensions.sql`). The agent's files are the same as the zip's: every
+  visualization setting (`readStyle` checks each part) and the structured origin in `datasets.json`.
 - **Default workspace** (the active folder's `workspace.powergis.json`, served at `data/`): a v2 document with readable ids
   (`default-county-income`, …, outputs like `default-county-metrics-and-scores`, transforms `default-t-…`).
   Its spatial step makes a first visit also download DuckDB's spatial extension (~23 MB). `seedDefault` (`MapPage.vue`)
@@ -425,7 +432,7 @@ src/
     geometry.ts            anchor points (centroids), bbox
     data/connectors.ts     connectors: how sources are read
     data/boundaryTables.ts us-atlas → us_counties / us_states rows (built-in boundary datasets)
-    workspace/             the client's working copy + operations (workspace.ts), files + drafts (file.ts), graph (dag.ts)
+    workspace/             the client's working copy + operations (workspace.ts), documents + drafts (file.ts), the zip's file form (files.ts), graph (dag.ts)
     dataset/               columns, aggregate, binding (+ wkt), query (server-side grouping), profile, visualization
     search.ts              ranked type-ahead search (optional typo-tolerant `fuzzy`)
     data/csv.ts            CSV → records
