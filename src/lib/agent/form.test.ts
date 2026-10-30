@@ -21,11 +21,10 @@ describe('ask_user forms', () => {
     expect(form({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', other: true }] }).fields[0]).toMatchObject({ options: [], other: true })
   })
 
-  it('refuses an empty multiline box with no hint (a draft left out of value)', () => {
-    expect(readForm({ question: 'Approve?', fields: [{ id: 'd', kind: 'text', label: 'Definition', multiline: true }] })).toMatch(/put your draft in "value"/)
-    expect(readForm({ question: 'Approve?', fields: [{ id: 'd', kind: 'text', label: 'Definition', multiline: true, value: ' ' }] })).toMatch(/value/)
-    expect(form({ question: 'Notes?', fields: [{ id: 'n', kind: 'text', label: 'Notes', multiline: true, placeholder: 'Anything else' }] }).fields).toHaveLength(1)
-    expect(form({ question: 'Name?', fields: [{ id: 'n', kind: 'text', label: 'Name' }] }).fields).toHaveLength(1)
+  it('gives an empty multiline box a hint, so it never reads as a missing draft', () => {
+    expect(form({ question: 'Approve?', fields: [{ id: 'n', kind: 'text', label: 'Notes', multiline: true }] }).fields[0]).toMatchObject({ placeholder: 'Write here…' })
+    expect(form({ question: 'Notes?', fields: [{ id: 'n', kind: 'text', label: 'Notes', multiline: true, placeholder: 'Anything else' }] }).fields[0]).toMatchObject({ placeholder: 'Anything else' })
+    expect(form({ question: 'Plan?', fields: [{ id: 'p', kind: 'text', label: 'Plan', multiline: true, value: 'Clean, then map.' }] }).fields[0]).not.toHaveProperty('placeholder')
   })
 
   it('answers with the chosen options in order and the own answer last; a single choice prefers an option', () => {

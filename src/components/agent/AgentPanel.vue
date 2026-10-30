@@ -399,6 +399,8 @@ async function send() {
         onToolEnd: (call, out: ToolOutcome) => {
           const it = items.value.find((x) => x.kind === 'tool' && x.call.id === call.id) as Extract<Item, { kind: 'tool' }> | undefined
           if (it) Object.assign(it, { state: out.isError ? 'error' : 'ok', summary: out.summary, result: out.content })
+          // A question card or a run refused before it showed: show the step, so its reason isn't lost.
+          else if (out.isError && live()) items.value.push({ kind: 'tool', call, state: 'error', summary: out.summary, result: out.content, open: false })
         },
       },
       ctl.signal,

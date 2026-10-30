@@ -80,15 +80,17 @@ export function readForm(input: Record<string, unknown>): Form | string {
       if (f.value !== undefined && typeof f.value !== 'string') return `${at}: "value" must be text`
       if (typeof f.value === 'string' && f.value.length > LIMITS.text) return `${at}: "value" is too long`
       if (f.placeholder !== undefined && typeof f.placeholder !== 'string') return `${at}: "placeholder" must be text`
-      // A big empty box with no hint reads as a mistake (a draft meant for review but left out of value).
-      if (f.multiline === true && !(typeof f.value === 'string' && nonEmpty(f.value)) && !(typeof f.placeholder === 'string' && nonEmpty(f.placeholder)))
-        return `${at}: a multiline text field with nothing in it — put your draft in "value" for the user to review (the box shows only "value"; text in details or your message doesn't go in it), or a "placeholder" if the user writes it from scratch`
       out.push({
         id: f.id,
         kind: 'text',
         label: f.label.trim(),
         ...(typeof f.value === 'string' ? { value: f.value } : {}),
-        ...(typeof f.placeholder === 'string' && f.placeholder ? { placeholder: f.placeholder } : {}),
+        ...(typeof f.placeholder === 'string' && f.placeholder.trim()
+          ? { placeholder: f.placeholder }
+          : // A big empty box needs a hint, or it reads as a draft that never arrived.
+            f.multiline === true && !(typeof f.value === 'string' && nonEmpty(f.value))
+            ? { placeholder: 'Write here…' }
+            : {}),
         ...(f.multiline === true ? { multiline: true } : {}),
         ...(required ? { required } : {}),
       })
