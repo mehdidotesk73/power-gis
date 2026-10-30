@@ -942,6 +942,13 @@ watch(
 // The agent's tools act through the same functions as the UI (lib/agent/tools.ts).
 
 const agentHost: Omit<AgentHost, 'ask'> = {
+  async importCsv(file, description) {
+    const r = await request('uploadDataset', { source: { kind: 'csv', file }, name: file.name.replace(/\.csv$/i, '') })
+    if (!r.ok) return { ok: false, message: r.error.message }
+    if (description) await request('updateDataset', { id: r.data.datasetId, description })
+    await onAddDataset([r.data.datasetId])
+    return { ok: true, id: r.data.datasetId }
+  },
   doc: () => doc.value,
   setDoc(next) {
     doc.value = next

@@ -265,6 +265,68 @@ usage policies live **there**, not as dataset properties.
   started (a transform run) may still finish unseen. **New chat** works while busy (stops first).
 - **(built) Limits:** 40 model turns per user message, then it stops and says "continue" carries on.
 
+## Scout and scraper (agreed 2026-10-30; proof of concept in progress)
+
+Three roles. The **orchestrator** is the in-app assistant: it works out the strategy from the user's
+request, sends the scout or the scraper with a brief, reads what comes back, confirms with the user, and
+owns the workspace (imports the scraper's CSVs as datasets, then transforms and visualizations). The
+**scout** explores broad and shallow: searches, follows links to where data actually lives, looks at
+each source lightly (format, shape, coverage, terms) and reports; it never extracts whole datasets. The
+**scraper** follows a precise brief (which sources, what to extract, the result's columns), writes and
+runs Python, and returns CSVs plus its script and sources. **They never talk to each other**: anything
+the scraper uses from the scout's findings comes through the orchestrator's brief.
+
+Both run as **Anthropic Managed Agents sessions** (the agent loop on Anthropic's side, tools in a
+container there): real Python, runs on while the phone sleeps, a
+hard **spending cap per session** (budget at list prices: tokens, web searches at $10 / 1,000,
+container time at $0.08 / hour). Both have **unrestricted** web access for now (a state site's data
+often lives on another platform). **Fallback ladder** for reading a page: web_fetch → the same URL from
+a Python script in the container → a headless browser from Python → report it blocked; polite request
+rates, the site's terms respected.
+
+**The relay.** The Managed Agents endpoints refuse calls from a web page (their CORS preflight answers
+400 / 405; only `/v1/messages`, the chat, allows browsers), so the page calls them through
+`supabase/functions/managed-relay`, a Supabase Edge Function. It forwards only `/v1/environments`,
+`/v1/agents`, `/v1/sessions` and `/v1/files` with the Anthropic headers, passes the user's key through
+on every call (sent as `x-relay-key` too: Supabase's hosted gateway drops `x-api-key`) and stores nothing; Verify JWT is off (the Anthropic key authorizes). Edge functions
+have time limits, so the page **polls** the session's events every 3 s (`events.list` from the last
+`processed_at`, deduplicated by id) instead of holding a stream; a dropped call is just asked again.
+Only scouting and scraping go through it: imported CSVs are ordinary local datasets, and transforms,
+visualizations and the chat stay in the app.
+
+**The assistant decides** (user, 2026-10-30): nobody picks a role. On a data request it first looks at
+the workspace (and, with the user's OK, their other datasets), says how directly useful what's there
+is and what more would help, and asks before going to the web. Then: the scraper straight away when
+the source is known, the scout first when it isn't (one scout run for several sources, then a scraper
+per source), stopping early when there's nothing usable or the existing data is enough. Each run is
+approved on a card showing the brief and the cap.
+
+**Proof of concept** (`client/agent/managed.ts`, `components/agent/LabPanel.vue`: the assistant's ⚙ →
+*Test: scout & scraper*): two editable briefs (scout: the WSDOT mileage page and Home Depot's annual
+reports, peeking at the files; scraper: a WSDOT Excel file, the earnings table in Home Depot's annual
+report PDF, and a JavaScript-built page, each needing a different way in), a cap per run, live progress,
+then elapsed time, cost, report and output files (CSVs import as datasets). The environment and the
+two agents are created once and remembered on the device (`powergis.managed`). What it answers:
+whether runs work through the relay, startup time and cost, and files coming back. (First answer: not
+directly from the browser — CORS — hence the relay.) **First runs (2026-10-30, Haiku):** scout 39 s,
+$0.03, a sound report but layouts guessed from file names — so the scout now **peeks** (downloads a
+file under ~20 MB and reads only sheets, headers and the first rows; PDFs: pages and where tables are).
+Scraper (Zillow + Census) 86 s, $0.02: when the Census API turned out to need a key it found the
+bulk Summary File itself, said so, and flagged the -666666666 sentinel and Connecticut's mismatched
+counties; the CSVs imported fine. Second scraper run (Excel + PDF + a JavaScript page) 203 s, $0.02:
+Excel and the PDF earnings table worked (it caught its own wrong page match); the headless browser ran,
+but Chromium rejects the container's re-signed TLS certificates, and the agent's attempt to turn
+certificate checks off was refused (rightly). The prompts now have it import the CA bundle Python
+trusts into Chromium's NSS database first, checks kept on. Scout test brief now a live question (new nursing and
+data scientist postings per state over the past week, no remote jobs): no file to fetch, so access,
+keys and terms decide the route — the case for user-supplied API keys (Managed Agents vaults) later. Jobs
+scout: 109 s, $0.16 (mostly web searches): set LinkedIn / Indeed / Glassdoor aside on their terms, peeked
+at Indeed Hiring Lab's file, probed keyed APIs, recommended Adzuna with a free key (and daily snapshots
+for true "new" counts). Third scraper run: all three tables (Excel, PDF, JavaScript page via the
+container's CA in Chromium), $0.03; certutil hung ~5 min on a prompt until given a timeout and no stdin
+(now in the prompt). Its units changed between runs (VMT in thousands, then × 1,000), so the scraper now
+keeps source units unless the brief says otherwise and states them.
+
 ## Next: scouting and scraping
 
 Data isn't always a file to download: prices on product pages, shipping quotes from one place

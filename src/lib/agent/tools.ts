@@ -44,6 +44,8 @@ export interface AgentHost {
   updateDataset(id: string, patch: { name?: string; description?: string }): { ok: true } | { ok: false; message: string }
   /** Shows the user a question (and optional details) with Approve / Reject and a notes box; resolves with their answer. */
   ask(question: string, details?: string): Promise<UserAnswer>
+  /** Adds a CSV file (a scraper's output) as a new dataset in the workspace, with a description. */
+  importCsv?(file: File, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
 }
 
 export interface UserAnswer {

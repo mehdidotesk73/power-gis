@@ -8,6 +8,7 @@
 // Screenshots can be pasted into the message box or attached (📎); they're
 // shrunk before sending (images.ts).
 import UiButton from '../ui/UiButton.vue'
+import LabPanel from './LabPanel.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { claudeProvider, CLAUDE_MODEL, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
@@ -321,6 +322,10 @@ const usageText = computed(() => {
         <span>This chat uses {{ labelOf(chatModel) }}; {{ labelOf(model) }} applies to the next one.</span>
         <UiButton size="compact" :disabled="busy" @click="newChat()">Start a new chat</UiButton>
       </div>
+      <details v-if="apiKey" class="lab-wrap">
+        <summary>Test: scout &amp; scraper (proof of concept)</summary>
+        <LabPanel :api-key="apiKey" :model="model" :host="props.host" />
+      </details>
     </section>
 
     <div ref="scroller" class="chat">
@@ -455,6 +460,8 @@ header {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.35rem;
+  max-height: 75vh;
+  overflow: auto;
   padding: 0.6rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elev-2);
@@ -466,6 +473,11 @@ header {
   box-sizing: border-box;
   font-size: 16px; /* below 16px iOS zooms on focus */
   padding: 0.35rem 0.45rem;
+}
+.lab-wrap summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 .switch {
   display: flex;

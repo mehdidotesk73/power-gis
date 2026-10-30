@@ -15,3 +15,7 @@ npx supabase stop --no-backup     # throw the stack away
 CI runs the same in the `build` job. `supabase/config.toml` configures this local stack only; the
 real project is untouched. Behind a registry that blocks AWS's (this sandbox), set
 `SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io` first.
+
+`relay.test.ts` checks the scout / scraper relay (`supabase/functions/managed-relay`) as a web page
+meets it, through the stack's gateway and edge runtime. Its last test reaches Anthropic with a bogus
+key; set `RELAY_OFFLINE=1` where the stack can't (this sandbox's TLS proxy).

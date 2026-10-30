@@ -4,6 +4,20 @@ Record what you learn as you build: patterns that work, ideas that didn't pan ou
 
 ## What Didn't Work (Gotchas & Dead Ends)
 
+### Managed Agents can't be called from a web page (2026-10-30)
+
+The scout / scraper proof of concept called Anthropic's Managed Agents API straight from the browser,
+like the chat does with `/v1/messages`. Every run failed with only "Connection error": the browser's
+CORS preflight to `/v1/environments` and `/v1/files` gets a 400, `/v1/agents` and `/v1/sessions` a 405,
+none with `Access-Control-Allow-Origin`, so the request is never sent. Only `/v1/messages` allows
+browsers. Fix: a small relay (Supabase Edge Function `managed-relay`) that forwards those paths, and
+polling a session's events instead of a stream (edge functions have time limits). **Then:** on the hosted
+project the key never reached Anthropic ("x-api-key header is required") though the local stack passed
+it, so the hosted gateway drops `x-api-key`: the app also sends the key as `x-relay-key`, which the relay
+copies, and a keyless request answers with the header names that did arrive. Check a new
+endpoint's preflight with `curl -X OPTIONS -H 'Origin: …' -H 'Access-Control-Request-Method: POST'`
+before building on it from the page.
+
 ### Mobile-First Design Constraints
 
 Touch targets need to be at least 44×44px. Avoid hover-only interactions — users on mobile have no hover. Rethink interactions like "expand on hover" as "toggle on tap" or always-expanded. Test regularly on actual mobile devices, not just the browser's responsive mode.
@@ -345,6 +359,29 @@ Two additions from reviewing it here, beyond what the originating project report
   canvas from the layout (browsers have no DOM screenshot; html-to-canvas tricks are unreliable on
   iOS Safari). **Gotcha:** iOS refuses a clipboard write that starts after an await, so the
   ClipboardItem is made at once with the PNG as a promise.
+
+### Scout & scraper proof of concept — 2026-10-30
+
+- **Added:** the assistant's ⚙ → *Test: scout & scraper*: runs a scout or scraper brief as an Anthropic
+  Managed Agents session with the user's key and a spending cap; shows progress, cost, the report and
+  output files (CSVs import as datasets). Decided: orchestrator / scout / scraper roles, all Python in
+  Anthropic's container (no Pyodide), unrestricted web for both for now.
+- **Relay:** the browser can't call Managed Agents (CORS, see Gotchas), so the calls go through
+  `supabase/functions/managed-relay` (a Supabase Edge Function: forwards only Managed Agents paths, the
+  user's key passes through, nothing stored), and the page polls session events instead of streaming.
+  Tested through the local stack's gateway and edge runtime (`tests/cloud/relay.test.ts`).
+- **First runs:** scout 39 s / $0.03, scraper 86 s / $0.02 (Haiku) — cheap. The scout guessed file
+  layouts from names, so it now peeks at one file of each kind; the scraper test brief now needs Excel,
+  a PDF table and a JavaScript-built page. The Census API needs a key now; the bulk Summary File
+  (www2.census.gov) doesn't.
+- **Checked:** the Home Depot earnings table read out of the PDF matched page 48 exactly (user).
+- **CI:** the UI tests moved into the required `build` job after 14 green runs in a row as their own
+  non-blocking job; they share the cloud tests' stack.
+- **Plan (user):** next the assistant's own scout / scraper tools; then API keys asked for in the chat
+  when a route needs one (an input card plus skip options, each with its alternative); run records;
+  component cleanup; the reviewer pass later. Scheduled runs are a far-off nice to have.
+- **Decided:** the assistant picks scout and / or scraper itself after weighing what the workspace
+  already holds, and asks before searching; the test panel's role picker is only for the test.
 
 ### ＋ waits for the default map; sample values locked — 2026-10-29
 
