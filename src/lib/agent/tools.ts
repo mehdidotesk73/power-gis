@@ -23,6 +23,7 @@ import { datasetFact, snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
 import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type DatasetFacts, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
+import { answerSummary, LIMITS, readForm, type Form, type FormAnswer } from './form'
 
 /** What the tools act through: the page's workspace copy and the server. */
 export interface AgentHost {
@@ -42,16 +43,35 @@ export interface AgentHost {
   deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
   /** Drafts a dataset's new name / description (written to it when the user saves). */
   updateDataset(id: string, patch: { name?: string; description?: string }): { ok: true } | { ok: false; message: string }
-  /** Shows the user a question (and optional details) with Approve / Reject and a notes box; resolves with their answer. */
-  ask(question: string, details?: string): Promise<UserAnswer>
-  /** Adds a CSV file (a scraper's output) as a new dataset in the workspace, with a description. */
+  /** Shows the user a question card (details, fields, buttons); resolves with their answer. */
+  ask(form: Form): Promise<FormAnswer>
+  /** Adds a file (a scraper's CSV or GeoJSON) as a new dataset in the workspace, with a description. */
   importCsv?(file: File, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
+  /** Sends the scout or the scraper with a brief and a spending cap, and follows it to the end (the chat shows its progress); a message when it can't. */
+  web?(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string>
+  /** Imports one of a web run's output files (a CSV or GeoJSON) as a new dataset; its id, or a message. */
+  importWebFile?(fileId: string, name: string, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
+  /** The tables that ship with the app (state and county boundaries…), whether or not they're stored on this device yet. */
+  builtins?(): { table: string; label: string; description: string }[]
+  /** Adds a built-in table to the workspace (stored on this device first if it isn't yet); its dataset id. */
+  addBuiltin?(table: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
 }
 
-export interface UserAnswer {
-  answer: 'approve' | 'reject'
-  notes?: string
+export type WebRole = 'scout' | 'scraper'
+export interface WebRun {
+  sessionId: string
+  report: string
+  files: { id: string; name: string; bytes: number }[]
+  /** Files the run said it saved that never came back. */
+  missing?: string[]
+  cost?: number
+  elapsedSeconds: number
+  /** Why it stopped: end_turn when it finished; stopped, budget_reached, terminated… otherwise. */
+  stop: string
 }
+
+/** The spending caps the approval card offers, in dollars. */
+export const WEB_CAPS = [0.5, 1, 2, 5]
 
 const PALETTES: PaletteName[] = ['auto', 'p12', 'p24', 'p60', 'many']
 const AGG_NAMES = ['first', 'count', 'distinct', 'sum', 'mean', 'min', 'max', 'mode', 'any']
@@ -69,20 +89,80 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'list_datasets',
     description:
-      "Every dataset the user can use, including those outside the workspace, local and cloud: id, name, description, store, origin, row count, inWorkspace. Use it only when the workspace doesn't hold what the request needs, and after asking the user (ask_user) whether to look beyond the workspace.",
+      "Every dataset the user can use, including those outside the workspace, local and cloud: id, name, description, store, origin, row count, inWorkspace; and the built-in geographic tables that ship with the app (US state and county boundaries), under builtins: add one with add_builtin, no web needed. Use it only when the workspace doesn't hold what the request needs, and after asking the user (ask_user) whether to look beyond the workspace.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'ask_user',
-    description:
-      "Ask the user to approve or reject something, and wait for the answer. Shows your question (and optional details, such as the datasets you found relevant and your plan) with Approve / Reject buttons and a notes box. Returns {answer: 'approve' | 'reject', notes}. Use it to confirm a plan before building, and before looking outside the workspace. For an open question, ask in plain text and end your turn instead.",
+    description: [
+      'Ask the user something that needs a well-defined answer, and wait for it. Shows a card in the chat: your question, optional details, any fields, and buttons. Returns {button, values} (values by field id; a choice gives a list of the chosen options, with the user\'s own answer last).',
+      'Without fields, the buttons default to Approve / Reject: use that to confirm a plan, with the plan in details. Fields: "text" (one line, or multiline; "value" fills it in for the user to review and edit — a plan, a name, a brief) and "choice" (options; "multiple" for any number of them; "other" to let the user add their own answer). Buttons: the first is the main answer (only it needs the required fields); add others for the alternatives, e.g. ["Use this source", "Skip this data", "Find another source"].',
+      'Use it to confirm a plan before building, to ask before looking outside the workspace or on the web, and whenever the answer is a pick from options or an edit of something you drafted. Keep labels to a few words. For an open question, ask in plain text and end your turn instead.',
+    ].join(' '),
     inputSchema: {
       type: 'object',
       properties: {
-        question: { type: 'string', description: 'One short question, answerable with approve / reject.' },
+        question: { type: 'string', description: 'One short question.' },
         details: { type: 'string', description: 'Optional: what you found and what you propose, in a few short lines.' },
+        fields: {
+          type: 'array',
+          description: `Optional, at most ${LIMITS.fields}.`,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Key of this field in the answer.' },
+              kind: { type: 'string', enum: ['text', 'choice'] },
+              label: { type: 'string', description: 'A few words.' },
+              value: { type: 'string', description: 'text: filled in for the user to review and edit.' },
+              placeholder: { type: 'string', description: 'text: a hint shown while empty.' },
+              multiline: { type: 'boolean', description: 'text: several lines.' },
+              options: { type: 'array', items: { type: 'string' }, description: `choice: at most ${LIMITS.options}.` },
+              multiple: { type: 'boolean', description: 'choice: any number of options rather than one.' },
+              other: { type: 'boolean', description: 'choice: the user may add their own answer.' },
+              selected: { type: 'array', items: { type: 'string' }, description: 'choice: options chosen to start with.' },
+              required: { type: 'boolean' },
+            },
+            required: ['id', 'kind', 'label'],
+          },
+        },
+        buttons: { type: 'array', items: { type: 'string' }, description: `The answers, main one first; at most ${LIMITS.buttons}. Default: Approve, Reject without fields; Submit with them.` },
       },
       required: ['question'],
+    },
+  },
+  {
+    name: 'add_builtin',
+    description:
+      'Add one of the built-in geographic tables (list_datasets → builtins: US state or county boundaries) to the workspace: instant and free. Returns its dataset id.',
+    inputSchema: { type: 'object', properties: { table: { type: 'string', description: 'The built-in table name, e.g. us_states.' } }, required: ['table'] },
+  },
+  {
+    name: 'send_scout',
+    description:
+      "Send the scout to find out what data exists on the web for a question: it searches, follows links to where data actually lives, peeks at files' layouts, reads terms of use, and reports back (it extracts nothing). It runs in a container on Anthropic's servers, takes a minute or a few and costs cents. The user approves (and may edit) the brief and the spending cap first. Returns its report. Use it when the source isn't known; then propose a scraper brief from the report.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brief: { type: 'string', description: 'What to look for: the question, what the data must cover (what, where, when, level of detail), candidate sources if any, and what to report.' },
+        cap_dollars: { type: 'number', description: `Spending cap to propose: one of ${WEB_CAPS.join(', ')} (default 1).` },
+      },
+      required: ['brief'],
+    },
+  },
+  {
+    name: 'send_scraper',
+    description:
+      "Send the scraper to fetch data from the web into CSV tables: it writes and runs Python in a container on Anthropic's servers (downloads, Excel, PDF tables, pages built by JavaScript), checks its result, and returns CSVs that are added to the workspace as new datasets, plus its script. Takes a few minutes and costs cents. The user approves (and may edit) the brief and the spending cap first. Returns its summary and each file's dataset id.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        brief: {
+          type: 'string',
+          description: "Precise: which sources (URLs), what to extract, and for each output CSV its file name and columns (with units and key formats, e.g. fips as 5-digit text), one row per what. Everything it needs: it can't ask you.",
+        },
+        cap_dollars: { type: 'number', description: `Spending cap to propose: one of ${WEB_CAPS.join(', ')} (default 2).` },
+      },
+      required: ['brief'],
     },
   },
   {
@@ -135,7 +215,14 @@ export const TOOLS: ToolSpec[] = [
     ].join('\n\n'),
     inputSchema: {
       type: 'object',
-      properties: { dryRun: { type: 'boolean', description: 'Check and describe the change without applying it.' } },
+      properties: {
+        dryRun: { type: 'boolean', description: 'Check and describe the change without applying it.' },
+        userAsked: {
+          type: 'array',
+          items: { type: 'string' },
+          description: "Ids of items you didn't make in this chat that the user asked, by name, to be removed. Anything else you didn't make can't be removed.",
+        },
+      },
     },
   },
   {
@@ -153,8 +240,8 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'delete_dataset',
     description:
-      'Delete a dataset\'s copy on this device and its rows for good (and its visualizations); a linked dataset\'s cloud copy stays. Refused while a workspace transform reads it. Use it to clean up datasets you made that are no longer needed.',
-    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      'Delete a dataset\'s copy on this device and its rows for good (and its visualizations); a linked dataset\'s cloud copy stays. Refused while a workspace transform reads it. Use it to clean up datasets you made in this chat that are no longer needed; one you didn\'t make only when the user asked for it by name (userAsked).',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, userAsked: { type: 'boolean', description: 'The user asked, by name, for this dataset to be deleted.' } }, required: ['id'] },
   },
 ]
 
@@ -214,7 +301,9 @@ async function listDatasets(host: AgentHost): Promise<ToolOutcome> {
     rows: d.rowCount,
     inWorkspace: inWorkspace.has(d.id),
   }))
-  return ok(data, `${plural(data.length, 'dataset')} (${data.filter((d) => d.store === 'local').length} local)`)
+  const builtins = host.builtins?.() ?? []
+  const shown = builtins.length ? { datasets: data, builtins: builtins.map((b) => ({ table: b.table, name: b.label, description: b.description })) } : data
+  return ok(shown, `${plural(data.length, 'dataset')} (${data.filter((d) => d.store === 'local').length} local)${builtins.length ? ` · ${plural(builtins.length, 'built-in table')}` : ''}`)
 }
 
 // ── the workspace files ────────────────────────────────────────────────────
@@ -231,6 +320,16 @@ interface Staging {
 }
 const staging = new WeakMap<AgentHost, Staging>()
 /** Files an apply renamed (a new item's placeholder name → its id), per host: old path → what it became. */
+/** What the agent made in this chat (transforms, visualizations, datasets, datasets it brought in): only these it may remove unasked. */
+const madeHere = new WeakMap<AgentHost, Set<string>>()
+const made = (host: AgentHost) => madeHere.get(host) ?? (madeHere.set(host, new Set()), madeHere.get(host)!)
+/** A new chat starts afresh: no staged files, nothing made yet. */
+export function forgetChat(host: AgentHost) {
+  staging.delete(host)
+  renames.delete(host)
+  madeHere.delete(host)
+}
+
 const renames = new WeakMap<AgentHost, Map<string, { path: string; kind: string; id: string }>>()
 
 /** What datasets.json says about the workspace's datasets. */
@@ -603,6 +702,22 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
   }
   if (built.errors.length) return refused(built.errors)
   const { doc } = built
+  // Only what this chat made may go unasked: the user's own items stay unless they asked.
+  need(input.userAsked === undefined || (Array.isArray(input.userAsked) && input.userAsked.every(str)), '`userAsked` must be a list of ids')
+  const asked = new Set((input.userAsked as string[] | undefined) ?? [])
+  const mine = made(host)
+  const gone = [
+    ...cur.datasetIds.filter((id) => !doc.datasetIds.includes(id)).map((id) => ({ id, what: `dataset "${host.record(id)?.name ?? id}"` })),
+    ...cur.transforms.filter((t) => !doc.transforms.some((x) => x.id === t.id)).map((t) => ({ id: t.id, what: `transform "${t.name}"` })),
+    ...cur.visualizations.filter((v) => !doc.visualizations.some((x) => x.id === v.id)).map((v) => ({ id: v.id, what: `visualization "${v.name}"` })),
+  ].filter((g) => !mine.has(g.id) && !asked.has(g.id))
+  if (gone.length)
+    return refused(
+      gone.map(
+        (g) =>
+          `This would remove ${g.what} (${g.id}), which you didn't make in this chat. Put it back in /workspace.json (view it and the overview again: it may have been added since you last looked); remove it only if the user asked for it by name, listing its id in userAsked.`,
+      ),
+    )
   const changes = [
     ...describeChanges(cur, doc),
     ...Object.entries(datasetEdits).map(([id, e]) => {
@@ -622,6 +737,8 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
   const summary = changes.length ? `${changes[0]}${changes.length > 1 ? ` (+${changes.length - 1} more)` : ''}` : 'no change'
   if (input.dryRun) return ok({ dryRun: true, ...result }, `dry run · ${summary}`)
   host.setDoc(doc)
+  for (const c of created) mine.add(c.id)
+  for (const id of doc.datasetIds) if (!cur.datasetIds.includes(id)) mine.add(id)
   for (const [id, e] of Object.entries(datasetEdits)) {
     const r = host.updateDataset(id, e)
     if (!r.ok) return err(`The workspace changed, but dataset "${id}" wasn't renamed / described: ${r.message}`)
@@ -718,6 +835,7 @@ async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   if (pending) return pending
   const r = await host.runTransform(t.id)
   if (!r.ok) return err(r.message, 'SQL error')
+  for (const o of r.outputs) if (o.created) made(host).add(o.datasetId)
   // The facts for checking each stage, from each output's profile: rows against the inputs', keys, nulls, ranges, flags.
   const inputs = await Promise.all(t.inputs.map(async (i) => ({ alias: i.alias, record: await host.dataset(i.datasetId) })))
   const outputs = await Promise.all(
@@ -738,6 +856,8 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
   if (pending) return pending
   const reader = host.doc().transforms.find((t) => t.inputs.some((i) => i.datasetId === d.id))
   if (reader) return err(`Transform "${reader.name}" reads "${d.name}"; change or remove that transform first.`, 'refused: still used')
+  if (!made(host).has(d.id) && input.userAsked !== true)
+    return err(`"${d.name}" isn't a dataset you made in this chat: delete it only if the user asked for it by name (then set userAsked).`, 'refused: not yours')
   const r = await host.deleteDataset(d.id)
   if (!r.ok) return err(r.message)
   return ok({ deleted: d.id }, `deleted ${d.name}`)
@@ -746,10 +866,77 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
 // ── ask_user ───────────────────────────────────────────────────────────────
 
 async function askUser(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  need(str(input.question) && input.question.trim(), '`question` is required')
-  need(optStr(input.details), '`details` must be text')
-  const a = await host.ask(input.question.trim(), (input.details as string | undefined)?.trim() || undefined)
-  return ok(a, `${a.answer === 'approve' ? 'approved' : 'rejected'}${a.notes ? ` · “${a.notes.length > 60 ? `${a.notes.slice(0, 60)}…` : a.notes}”` : ''}`)
+  const form = readForm(input)
+  need(typeof form !== 'string', form as string)
+  const a = await host.ask(form)
+  return ok(a, answerSummary(form, a))
+}
+
+// ── add_builtin ────────────────────────────────────────────────────────────
+
+async function addBuiltin(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.table) && input.table.trim(), '`table` is required')
+  const known = host.builtins?.() ?? []
+  const b = known.find((x) => x.table === input.table)
+  if (!b || !host.addBuiltin) return err(`No built-in table "${input.table}"${known.length ? ` (there are: ${known.map((x) => x.table).join(', ')})` : ''}`)
+  const r = await host.addBuiltin(b.table)
+  if (!r.ok) return err(r.message)
+  made(host).add(r.id)
+  return ok({ datasetId: r.id, name: b.label }, `added ${b.label}`)
+}
+
+// ── send_scout / send_scraper ──────────────────────────────────────────────
+
+/** Output files that become datasets: tables, and shapes. */
+export const IMPORTABLE = /\.(csv|geojson)$/i
+
+const money = (n: number) => (n < 1 ? `$${n.toFixed(2)}` : `$${n}`)
+const nearestCap = (n: unknown, fallback: number) => (typeof n === 'number' && Number.isFinite(n) ? WEB_CAPS.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a)) : fallback)
+
+async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<ToolOutcome> {
+  need(str(input.brief) && input.brief.trim(), '`brief` is required')
+  if (!host.web) return err('Sending the scout or scraper isn\'t available here.')
+  const cap = nearestCap(input.cap_dollars, role === 'scout' ? 1 : 2)
+  const Role = role === 'scout' ? 'scout' : 'scraper'
+  const form: Form = {
+    question: `Send the ${Role}?`,
+    details:
+      role === 'scout'
+        ? 'It looks on the web and reports what data exists and how to get it; it fetches nothing. Edit the brief if you like.'
+        : 'It fetches the data and makes the CSVs below; they become new datasets in your workspace. Edit the brief if you like.',
+    fields: [
+      { id: 'brief', kind: 'text', label: 'Brief', value: input.brief.trim(), multiline: true, required: true },
+      { id: 'cap', kind: 'choice', label: 'Spending cap', options: WEB_CAPS.map(money), selected: [money(cap)], required: true },
+      { id: 'notes', kind: 'text', label: 'Notes for the assistant', placeholder: 'Optional' },
+    ],
+    buttons: [`Send the ${Role}`, 'Not now'],
+  }
+  const a = await host.ask(form)
+  const notes = typeof a.values.notes === 'string' && a.values.notes ? { notes: a.values.notes } : {}
+  if (a.button !== form.buttons[0]) return ok({ sent: false, button: a.button, ...notes }, 'not sent')
+  const brief = String(a.values.brief ?? '').trim() || input.brief.trim()
+  const chosen = Array.isArray(a.values.cap) ? a.values.cap[0] : undefined
+  const capDollars = WEB_CAPS.find((c) => money(c) === chosen) ?? cap
+  const run = await host.web(role, brief, capDollars)
+  if (typeof run === 'string') return err(run, `${Role} not sent`)
+  const edited = brief !== input.brief.trim() ? { briefEditedByUser: brief } : {}
+  const facts = { stop: run.stop, cost: run.cost, elapsedSeconds: run.elapsedSeconds, ...(run.missing?.length ? { filesThatNeverCameBack: run.missing } : {}), ...edited, ...notes }
+  const head = `${run.stop === 'end_turn' ? 'finished' : run.stop} · ${Math.round(run.elapsedSeconds)} s${run.cost !== undefined ? ` · $${run.cost.toFixed(2)}` : ''}`
+  if (role === 'scout') return ok({ report: run.report, ...facts }, head)
+  // The scraper's CSVs become datasets; the rest (its script) stays with the run.
+  const day = new Date().toISOString().slice(0, 10)
+  const files = []
+  for (const f of run.files) {
+    if (!IMPORTABLE.test(f.name) || !host.importWebFile) {
+      files.push({ name: f.name, bytes: f.bytes })
+      continue
+    }
+    const r = await host.importWebFile(f.id, f.name, `From the web, ${day} (scraper run ${run.sessionId}).`)
+    if (r.ok) made(host).add(r.id)
+    files.push(r.ok ? { name: f.name, datasetId: r.id } : { name: f.name, importError: r.message })
+  }
+  const imported = files.filter((f) => 'datasetId' in f).length
+  return ok({ summary: run.report, files, ...facts }, `${head} · ${plural(imported, 'dataset')} added`)
 }
 
 // ── dispatch ───────────────────────────────────────────────────────────────
@@ -765,6 +952,12 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await getWorkspace(host)
       case 'ask_user':
         return await askUser(host, input)
+      case 'add_builtin':
+        return await addBuiltin(host, input)
+      case 'send_scout':
+        return await sendWeb(host, 'scout', input)
+      case 'send_scraper':
+        return await sendWeb(host, 'scraper', input)
       case 'query_sql':
         return await querySql(host, input)
       case EDITOR_TOOL:

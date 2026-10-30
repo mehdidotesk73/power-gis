@@ -11,6 +11,9 @@ storage), at phone or laptop size, so one test can be two people on three device
 - `workspace.spec.ts`: Download makes a `.powergis.zip`; Load on a fresh device opens the same workspace. And the
   user's phone check: download, change, download, Discard; Copy, Load the second zip, Paste the first back.
 - `graph.spec.ts`: Copy graph as image puts a PNG of the graph's window on the clipboard.
+- `assistant.spec.ts`: the assistant's question card (choices, an own answer, a drafted plan, buttons; the
+  answer reaches the model) and a scraper run (refused signed out; approved, followed, its CSV a dataset). The
+  model and Anthropic's Managed Agents are faked at the network: no key, no cost.
 - `cloud.spec.ts`: two people, several devices, the state-income workspace: a second device; a
   read-only share used as input to the reader's own transform; two writers and a conflict; access
   lowered and leaving; signed out.

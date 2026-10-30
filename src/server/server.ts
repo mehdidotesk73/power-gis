@@ -5,7 +5,7 @@
 // never as throws.
 
 import type { ApiError, ApiResult, Caller, Payload, RequestType, Response, UploadSource } from '../shared/api'
-import { builtinTable, BUILTIN_TABLES, type BuiltinTable } from '../shared/builtins'
+import { builtinTable, KNOWN_TABLES, type BuiltinTable } from '../shared/builtins'
 import type { Database } from '../shared/database'
 import { dataTableName, type DatasetRecord, type SyncState, type TransformInputRef, type TransformRecord, type VisualizationRecord, type WorkspaceRecord } from '../shared/records'
 import { featureTable, type DataRecord } from '../lib/data/connectors'
@@ -53,7 +53,7 @@ type Handlers = { [K in RequestType]: (p: Payload<K>, caller: Caller) => Promise
 /** Requests that change existing datasets; an agent may make them only on local ones. */
 
 export function createServer(db: Database, env: ServerEnv) {
-  const builtins = env.builtins ?? BUILTIN_TABLES
+  const builtins = env.builtins ?? KNOWN_TABLES
   let baseUrl = '/'
   // The device's one local user: found or made once, on first need (init or a save),
   // so a restarted worker that missed init still knows who saves.

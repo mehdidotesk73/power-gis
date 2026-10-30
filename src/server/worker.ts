@@ -7,7 +7,7 @@ import { supabaseCloud } from './cloud'
 import { IndexedDbDatabase } from '../shared/idb'
 import { StaticFileConnector } from '../lib/data/connectors'
 import { countyRows, stateRows } from '../lib/data/boundaryTables'
-import { BUILTIN_TABLES } from '../shared/builtins'
+import { SAMPLE_TABLES } from '../shared/builtins'
 import type { RequestMessage, ResponseMessage } from '../shared/api'
 
 async function topo(url: string) {
@@ -28,7 +28,7 @@ const server = createServer(new IndexedDbDatabase(), {
   async readBuiltin(table, baseUrl) {
     if (table === 'us_counties') return countyRows(await topo(countiesUrl))
     if (table === 'us_states') return stateRows(await topo(statesUrl))
-    const csvs = BUILTIN_TABLES.filter((t) => t.source === 'csv').map((t) => t.table)
+    const csvs = SAMPLE_TABLES.map((t) => t.table)
     return new StaticFileConnector(csvs, baseUrl).readTable(table)
   },
 })

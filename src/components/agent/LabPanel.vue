@@ -154,14 +154,13 @@ textarea {
   width: 100%;
   box-sizing: border-box;
   font: inherit;
-  font-size: 16px; /* below 16px iOS zooms the page on focus */
 }
 .log {
   max-height: 14rem;
   overflow: auto;
   margin: 0;
   padding-left: 1.2rem;
-  font-size: 0.74rem;
+  font-size: var(--chat-fs-xs);
 }
 .log .tool {
   color: var(--text-muted);
@@ -177,7 +176,7 @@ textarea {
   max-height: 18rem;
   overflow: auto;
   white-space: pre-wrap;
-  font-size: 0.76rem;
+  font-size: var(--chat-fs-xs);
   margin: 0;
   padding: 0.4rem;
   border: 1px solid var(--border);
@@ -186,12 +185,12 @@ textarea {
 .files {
   margin: 0;
   padding-left: 1.2rem;
-  font-size: 0.8rem;
+  font-size: var(--chat-fs-sm);
 }
 .muted {
   color: var(--text-muted);
 }
 .small {
-  font-size: 0.74rem;
+  font-size: var(--chat-fs-xs);
 }
 </style>
