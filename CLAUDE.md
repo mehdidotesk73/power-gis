@@ -39,8 +39,8 @@ UI structure — one page, the **Map**:
     transparency encodings.
   - **Hover tooltip**, **click → feature panel** (the visualizations' values plus the rows behind
     the feature), **legend**.
-- **Sample workspace** (was the default map; a first visit now starts **empty**, with an "Open the sample workspace"
-  note on the map and in the panel, and Workspace → **Open the sample workspace** loads it as a draft until Save): a county socioeconomic score (income, education, health insurance, housing
+- **Sample workspace** (was the default map; a first visit now starts **empty**; the **Workspace** button pulses gently (`beckon`) while empty and its panel offers "Open the sample workspace"
+  — Workspace → **Open the sample workspace** loads it as a draft until Save): a county socioeconomic score (income, education, health insurance, housing
   affordability) with area-weighted state averages, built like any user's map: six ACS county **sample**
   tables + the **built-in** US counties / states polygons, ten SQL transforms in stages (clean → join →
   metrics → state averages → state map; 1e uses the spatial extension for county land area) and twelve

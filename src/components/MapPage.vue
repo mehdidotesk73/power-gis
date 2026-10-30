@@ -1568,19 +1568,13 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           @copy="copyWorkspace"
           @paste="(text: string) => loadWorkspaceText(text, 'paste')"
           :sync="wsSync"
+          :empty="isEmpty"
           @resolve="resolveSync"
           @sample="openSample"
         />
         <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
       <div class="panels" aria-label="Workspace">
-      <div v-if="isEmpty" class="box empty-start" data-testid="workspace.empty">
-        <strong>Your workspace is empty.</strong>
-        <span>Add a dataset (＋ Dataset), ask the ✦ Assistant for data, or start from the sample workspace: a county socioeconomic map built from sample data.</span>
-        <span class="row-actions">
-          <UiButton size="compact" tone="primary" data-testid="workspace.open-sample" @click="openSample">▤ Open the sample workspace</UiButton>
-        </span>
-      </div>
       <div v-if="afterReplace" v-reveal class="box after-replace">
         <span>Replaced {{ afterReplace.name }}. {{ afterReplace.order.length }} transform{{ afterReplace.order.length === 1 ? '' : 's' }} read{{ afterReplace.order.length === 1 ? 's' : '' }} it and can run now.</span>
         <span v-if="afterReplace.message" class="problem-note">{{ afterReplace.message }}</span>
@@ -1858,10 +1852,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             {{ status === 'loading' ? loadingMsg : `Couldn't load data: ${errorMsg}` }}
           </div>
           <MapLegend :entries="legend" />
-          <div v-if="isEmpty" class="map-empty" data-testid="map.empty">
-            <span>Nothing on the map yet: add a dataset, ask the ✦ Assistant, or</span>
-            <UiButton size="compact" tone="primary" @click="openSample">▤ Open the sample workspace</UiButton>
-          </div>
           <div class="map-copy">
             <UiButton data-testid="map.copy-image" size="compact" icon="⧉" aria-label="Copy the map as an image" title="Copy the map as an image (with its legend)" @click="copyMap" />
             <span v-if="mapCopied" class="map-copied" role="status">{{ mapCopied }}</span>
@@ -1926,11 +1916,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   margin: 0;
   color: var(--danger);
   font-size: 0.8rem;
-}
-.empty-start {
-  display: grid;
-  gap: 0.35rem;
-  margin-bottom: 0.5rem;
 }
 .after-replace {
   display: flex;
@@ -2163,23 +2148,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 }
 .view-row .view-switch {
   flex: 1;
-}
-.map-empty {
-  position: absolute;
-  z-index: 4;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  display: grid;
-  justify-items: center;
-  gap: 0.5rem;
-  max-width: min(22rem, 85%);
-  padding: 0.7rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
-  text-align: center;
-  font-size: 0.85rem;
 }
 .map-copy {
   position: absolute;

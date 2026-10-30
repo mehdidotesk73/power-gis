@@ -234,7 +234,7 @@ export async function openSample(page: Page, save = true) {
   await openWorkspacePanel(page)
   await page.getByTestId('workspace.sample').click()
   await ready(page)
-  await expect(page.getByTestId('map.empty')).toHaveCount(0)
+  await expect(page.locator('[data-empty="yes"]')).toHaveCount(0)
   if (save) {
     await openWorkspacePanel(page)
     await page.getByTestId('workspace.save').click()

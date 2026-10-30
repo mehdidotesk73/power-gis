@@ -48,7 +48,7 @@ test.afterEach(closeDevices)
 
 test('the sample workspace is the socioeconomic pipeline: every output made, the numbers hold', async ({ browser }) => {
   const page = await device(browser) // a fresh device starts empty
-  await expect(page.getByTestId('map.empty')).toBeVisible()
+  await expect(page.locator('[data-empty="yes"]')).toBeVisible() // the Workspace button beckons
   await openSample(page, false)
   for (const table of ['County income (ACS)', 'County education (ACS B15003)', 'US counties', 'US states']) {
     await listPanel(page, 'Datasets')

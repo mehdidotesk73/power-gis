@@ -328,7 +328,7 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Workspace fingerprints and the sample workspace — 2026-10-30
 
-- A first visit starts **empty** (a note on the map and in the panel); **Workspace → Open the sample workspace**
+- A first visit starts **empty** (the Workspace button pulses gently; its panel says so and offers the sample); **Workspace → Open the sample workspace**
   loads the socioeconomic map as a draft until Save. It replaces "Reset to the default map".
 - Signed in, the workspace has a **fingerprint** (SHA-256 of its setup) on the device and in the account; the
   Workspace panel shows ↑ / ↓ / ↑↓ like datasets, and asks which to keep when both changed. Save checks the account
