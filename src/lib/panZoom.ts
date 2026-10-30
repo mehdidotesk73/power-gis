@@ -8,7 +8,8 @@ export interface View {
   k: number
 }
 
-export const MIN_ZOOM = 0.25
+// Low enough that Fit shows a large graph whole (nodes become small, but the shape reads).
+export const MIN_ZOOM = 0.05
 export const MAX_ZOOM = 2.5
 
 export const clampZoom = (k: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k))

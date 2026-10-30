@@ -59,8 +59,9 @@ test('the list view picks several items of any kind, deletes them, and undo brin
   await page.keyboard.press('ControlOrMeta+z')
   await expect(page.locator(`[data-testid="viz-card"][data-name="${VIZ}"]`)).toHaveCount(1)
 
-  // On a phone: the tools' Select, then taps; Delete, then ↷ / ↶ in the same menu.
-  await page.getByTestId('tools.open').click()
+  // On a phone: the tools' Select, then taps; Delete, then ↷ / ↶ in the same menu (the bar is still open, its note
+  // saying what the last Delete did).
+  await expect(page.getByTestId('tools.select')).toBeVisible()
   await page.getByTestId('tools.select').click()
   await listPanel(page, 'Transforms')
   await card(page, 'transform', MAP_STEP).click()

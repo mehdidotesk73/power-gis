@@ -485,7 +485,7 @@ src/
     dag/DagView.vue        the workspace graph: datasets → transforms → outputs → visualizations
     FindPanel.vue          Find: search a visualization's features by name or any text value
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
-    dataset/            AddDatasetPanel (+ Cloud source), DatasetList, BatchPanel (sync review), SharePanel, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
+    dataset/            AddDatasetPanel (Built-in · Samples · Upload [CSV / GeoJSON-Esri / ArcGIS URL] · Saved · Cloud), DatasetList, BatchPanel (sync review), SharePanel, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal

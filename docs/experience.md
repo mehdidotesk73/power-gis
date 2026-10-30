@@ -336,6 +336,10 @@ Two additions from reviewing it here, beyond what the originating project report
 - **✎ tools**: Select, Delete, ↶, ↷ moved into one floating menu in the graph's corner (and at the top of the list
   view); the list view picks too (Ctrl/⌘- or Shift-click, or Select then taps; any mix of datasets, transforms and
   visualizations) and Delete removes them all, with undo.
+- Phone layout: the graph fills the screen's free height and Fit zooms out to show it whole (min zoom 0.05); the list
+  view's tools are one thin full-width bar (open: thin buttons with the note inline); the mini map's ▾ is a thin bar
+  under the drag tab. ＋ Dataset: CSV, GeoJSON / Esri and ArcGIS URL are one **Upload** source with a choice inside.
+  First UI tests for GeoJSON files and ArcGIS URLs (a faked FeatureServer).
 - UI tests: two devices change the workspace (the second is asked, then opens the account's; a lone change goes
   up and the other device opens it); the sample workspace pipeline opens from the panel.
 

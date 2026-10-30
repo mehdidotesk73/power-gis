@@ -113,7 +113,8 @@ export async function replaceMissing(page: Page, name: string, file = `${DATA}${
   await listPanel(page, 'Datasets')
   const missing = page.locator(`[data-testid="missing-dataset"][data-name="${name}"]`)
   await missing.getByTestId('dataset.replace').click()
-  await missing.getByTestId('add.source.csv').click()
+  await missing.getByTestId('add.source.upload').click()
+  await missing.getByTestId('add.source.csv').check()
   await missing.getByTestId('add.csv-input').setInputFiles(file)
   await expect(missing).toHaveCount(0)
 }

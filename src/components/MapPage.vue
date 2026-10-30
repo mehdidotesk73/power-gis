@@ -681,7 +681,7 @@ const assist = useSplitter({ key: 'powergis.assistantWidth', initial: 400, min: 
 const minimap = useSplitter({ key: 'powergis.minimapHeight', initial: 220, min: 96, maxShare: 0.7, side: 'bottom' })
 /** Setup's mini map starts minimized to a bar; tapping the bar opens it, ▾ minimizes it again. */
 const mapMin = ref(true)
-const minimapHeight = computed(() => (mode.value === 'setup' && mapMin.value ? '2.4rem' : `${minimap.size.value}px`))
+const minimapHeight = computed(() => (mode.value === 'setup' && mapMin.value ? '1.9rem' : `${minimap.size.value}px`))
 
 // Two modes. Explore puts the map first: on desktop the List | Graph panel on
 // the left, search above the map and export below it; on phones the map fills
@@ -1607,7 +1607,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
               :can-undo="canUndo"
               :can-redo="canRedo"
               @select="setSelecting"
-              @clear="marked = []"
+              @clear="(marked = []), (deleteNote = '')"
               @delete="deleteFromGraph([...marked])"
               @undo="undo"
               @redo="redo"
@@ -1688,18 +1688,18 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       <template v-else>
         <div class="list-tools">
           <EditTools
-              :selecting="selecting"
-              :count="marked.length"
-              :can-undo="canUndo"
-              :can-redo="canRedo"
-              @select="setSelecting"
-              @clear="marked = []"
-              @delete="deleteFromGraph([...marked])"
-              @undo="undo"
-              @redo="redo"
-            />
-          <p v-if="deleteNote" class="stale-msg" role="status">{{ deleteNote }}</p>
-          <p v-else-if="selecting" class="muted small">Tap the cards to pick them (any kind), then Delete.</p>
+            bar
+            :note="deleteNote || (selecting ? 'Tap cards to pick them, then Delete.' : '')"
+            :selecting="selecting"
+            :count="marked.length"
+            :can-undo="canUndo"
+            :can-redo="canRedo"
+            @select="setSelecting"
+            @clear="(marked = []), (deleteNote = '')"
+            @delete="deleteFromGraph([...marked])"
+            @undo="undo"
+            @redo="redo"
+          />
         </div>
         <details class="box">
           <summary>Visualizations</summary>
@@ -1794,16 +1794,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
     <button v-if="mode === 'setup' && mapMin" data-testid="minimap.show" class="minimap-bar" aria-label="Show the map" @click="mapMin = false">
       <span aria-hidden="true">▴</span> Map
     </button>
-    <UiButton
-      v-if="mode === 'setup' && !mapMin"
-      data-testid="minimap.hide"
-      class="minimap-hide"
-      size="compact"
-      icon="▾"
-      aria-label="Minimize the map"
-      title="Minimize the map"
-      @click="mapMin = true"
-    />
     <div
       v-show="mode === 'setup' && !mapMin"
       class="splitter map-splitter"
@@ -1817,6 +1807,9 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       @keydown="minimap.key"
       @dblclick="minimap.reset"
     />
+    <button v-if="mode === 'setup' && !mapMin" data-testid="minimap.hide" class="minimap-bar thin" aria-label="Minimize the map" @click="mapMin = true">
+      <span aria-hidden="true">▾</span> Map
+    </button>
     <div v-show="mode === 'explore'" class="top-row">
       <!-- Phones, explore: setup waits in a vertical bar left of the search. -->
       <button class="setup-dock" :title="`Set up · ${count(doc.datasetIds.length, 'dataset')} · ${count(doc.transforms.length, 'transform')} · ${count(doc.visualizations.length, 'visualization')}`" aria-label="Set up the workspace" @click="setMode('setup')">
@@ -2089,7 +2082,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  min-height: 2.4rem;
+  min-height: 1.7rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elev);
@@ -2097,15 +2090,12 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   font: inherit;
   font-size: 0.85rem;
 }
-.minimap-hide {
-  position: absolute;
-  top: 0;
-  right: 0.4rem;
-  z-index: 3;
-}
-/* Open, the drag bar is tall enough for ▾ at its end, clear of the map's own controls. */
-.page.setup .map-splitter {
-  height: 1.9rem;
+/* Open: a thin ▾ Map bar across, just under the drag bar. */
+.minimap-bar.thin {
+  flex: none;
+  min-height: 1.4rem;
+  font-size: 0.78rem;
+  margin-bottom: 0.25rem;
 }
 .page.setup .map-col {
   position: relative;
@@ -2279,10 +2269,8 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   position: sticky;
   top: 0;
   z-index: 3;
-  display: grid;
-  justify-items: end;
-  gap: 0.25rem;
   margin-bottom: 0.4rem;
+  background: var(--bg);
 }
 .stale-row {
   display: flex;

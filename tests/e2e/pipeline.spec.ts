@@ -85,7 +85,8 @@ test('the same pipeline from a file with uploads: missing on a fresh device, rep
   for (const name of UPLOADS) {
     const missing = page.locator(`[data-testid="missing-dataset"][data-name="${name}"]`)
     await missing.getByTestId('dataset.replace').click()
-    await missing.getByTestId('add.source.csv').click()
+    await missing.getByTestId('add.source.upload').click()
+    await missing.getByTestId('add.source.csv').check()
     await missing.getByTestId('add.csv-input').setInputFiles(`${DATA}${name}.csv`)
     await expect(missing).toHaveCount(0)
   }

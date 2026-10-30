@@ -61,15 +61,20 @@ const layout = computed(() => layoutDag(props.dag, direction.value))
 // enlarged), and refits when its size or direction changes.
 const viewport = ref<HTMLElement>()
 const { view, panning, fit, zoomBy } = usePanZoom(viewport, () => ({ w: layout.value.width, h: layout.value.height }))
-/** Viewport height: the graph's height at the zoom that fits its width (the CSS max-height caps it). */
+/**
+ * Viewport height: the space left below it on screen (less room for the hint under it and, in setup on a
+ * phone, the mini map's bar), so the graph uses what's there; at least 240 px.
+ */
 const viewportH = ref(240)
+const RESERVE = 130
 function refit() {
   const el = viewport.value
   if (!el) return
-  const kw = Math.min(1, (el.clientWidth - 16) / (layout.value.width || 1))
-  viewportH.value = Math.max(160, Math.round(layout.value.height * kw + 16))
+  const top = el.getBoundingClientRect().top
+  viewportH.value = Math.max(240, Math.round(window.innerHeight - Math.max(top, 0) - RESERVE))
   nextTick(fit)
 }
+const onWindowResize = () => refit()
 onMounted(() => {
   refit()
   // The box changes width without the graph changing (splitter, pop-out window): refit to use it.
@@ -80,9 +85,13 @@ onMounted(() => {
     lastW = w
   })
   if (viewport.value) resizer.observe(viewport.value)
+  window.addEventListener('resize', onWindowResize)
 })
 let resizer: ResizeObserver | null = null
-onBeforeUnmount(() => resizer?.disconnect())
+onBeforeUnmount(() => {
+  resizer?.disconnect()
+  window.removeEventListener('resize', onWindowResize)
+})
 watch(() => [layout.value.width, layout.value.height, direction.value, props.dag.nodes.length > 0], () => nextTick(refit))
 const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
@@ -329,7 +338,6 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 .scroll {
   position: relative;
   overflow: hidden;
-  max-height: 70vh;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   background: var(--bg);
