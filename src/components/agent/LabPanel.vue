@@ -12,10 +12,10 @@ import type { AgentHost } from '../../lib/agent/tools'
 const props = defineProps<{ apiKey: string; model: string; host: Pick<AgentHost, 'importCsv'> }>()
 
 const BRIEFS: Record<Role, string> = {
-  scout: `Find out what these two pages publish and how; peek at the files' actual layout:
-1. https://wsdot.wa.gov/about/transportation-data/travel-data/annual-mileage-and-travel-information (Washington State DOT mileage and travel data)
-2. https://ir.homedepot.com/financial-reports/annual-reports/recent (Home Depot annual reports)
-For each: the datasets or tables offered, their format (HTML table, CSV, Excel, PDF), their layout (sheets, header rows, columns, rough row count), years covered, how to get them, and terms of use.`,
+  // A live question: no file to download, the sources' terms and access decide what's possible.
+  scout: `The question: how many new job postings went up in each US state over the past 7 days for (a) registered nurses and (b) data scientists, excluding remote jobs. Find where data that can answer this lives.
+Consider job boards (LinkedIn, Indeed, Glassdoor, ZipRecruiter, …), job-search APIs and aggregators (Adzuna, USAJobs, Google for Jobs resellers, …) and official statistics (BLS, state labor agencies).
+For each candidate: whether it can filter or report by posting date, state, occupation or title, and remote vs on-site; how to access it (API, bulk file, pages), whether it needs a login, an API key or payment; what its terms say about automated access; how fresh it is. Where a public endpoint needs no key, try one small sample query and say what came back. End with the route you'd recommend and what the user would need to provide (a key, an account).`,
   // Each part needs a different way in: an Excel file, a table inside a PDF, a page JavaScript builds.
   scraper: `Make these three tables and save each as a CSV in /mnt/session/outputs/:
 1. From https://wsdot.wa.gov/about/transportation-data/travel-data/annual-mileage-and-travel-information, the HPMS Excel file with public road mileage and daily VMT by county, most recent year → wsdot_county_vmt.csv with columns county, year, centerline_miles, lane_miles, daily_vmt (one row per county; no total rows).

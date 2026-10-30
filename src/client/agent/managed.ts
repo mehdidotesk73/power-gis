@@ -109,6 +109,26 @@ export interface RunResult {
   stop: string
 }
 
+const clip = (t: string, n = 200) => (t.length > n ? `${t.slice(0, n)}…` : t)
+
+/**
+ * One tool call as a log line: the URL or query on its own (so a phone links
+ * the URL alone, not the JSON's quote and brace after it), else the command's
+ * first line, else the input as JSON.
+ */
+export function describeTool(name: string, input: unknown): string {
+  const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+  const str = (k: string) => (typeof i[k] === 'string' ? (i[k] as string) : undefined)
+  if (str('url')) return `${name} ${str('url')}`
+  if (str('query')) return `${name} “${clip(str('query')!)}”`
+  if (str('command')) {
+    const lines = str('command')!.trim().split('\n')
+    return `${name}: ${clip(lines[0])}${lines.length > 1 ? ` (+${lines.length - 1} lines)` : ''}`
+  }
+  if (str('file_path')) return `${name} ${str('file_path')}`
+  return `${name} ${clip(JSON.stringify(i))}`
+}
+
 const textOf = (content: unknown): string =>
   Array.isArray(content) ? content.map((b) => (b && typeof b === 'object' && 'text' in b && typeof b.text === 'string' ? b.text : '')).join('') : ''
 
@@ -174,7 +194,7 @@ export async function runBrief(
         }
         case 'agent.tool_use': {
           const input = JSON.stringify(ev.input ?? {})
-          opts.onEvent({ kind: 'tool', text: `${ev.name} ${input.length > 200 ? `${input.slice(0, 200)}…` : input}` })
+          opts.onEvent({ kind: 'tool', text: describeTool(ev.name, ev.input) })
           if (ev.evaluated_permission === 'ask') opts.onEvent({ kind: 'ask', text: `Allow ${ev.name}? ${input.slice(0, 400)}`, id: ev.id, session: session.id })
           break
         }

@@ -317,7 +317,9 @@ counties; the CSVs imported fine. Second scraper run (Excel + PDF + a JavaScript
 Excel and the PDF earnings table worked (it caught its own wrong page match); the headless browser ran,
 but Chromium rejects the container's re-signed TLS certificates, and the agent's attempt to turn
 certificate checks off was refused (rightly). The prompts now have it import the CA bundle Python
-trusts into Chromium's NSS database first, checks kept on.
+trusts into Chromium's NSS database first, checks kept on. Scout test brief now a live question (new nursing and
+data scientist postings per state over the past week, no remote jobs): no file to fetch, so access,
+keys and terms decide the route — the case for user-supplied API keys (Managed Agents vaults) later.
 
 ## Next: scouting and scraping
 
