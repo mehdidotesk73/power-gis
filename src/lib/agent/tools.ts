@@ -107,22 +107,24 @@ export const TOOLS: ToolSpec[] = [
         fields: {
           type: 'array',
           description: `Optional, at most ${LIMITS.fields}.`,
+          // Every property required (empty when unused): under strict tool use, optional text and lists
+          // inside the items came through missing (a framing box and its options arrived empty).
           items: {
             type: 'object',
             properties: {
               id: { type: 'string', description: 'Key of this field in the answer.' },
               kind: { type: 'string', enum: ['text', 'choice'] },
               label: { type: 'string', description: 'A few words.' },
-              value: { type: 'string', description: 'text: filled in for the user to review and edit. The box shows only this: a draft you mention in details or your message must be put here in full.' },
-              placeholder: { type: 'string', description: 'text: a hint shown while empty.' },
+              value: { type: 'string', description: 'text: filled in for the user to review and edit — a draft you mention must be here in full (the box shows only this); "" for a blank box or a choice.' },
+              placeholder: { type: 'string', description: 'text: a hint shown while empty; "" for none.' },
               multiline: { type: 'boolean', description: 'text: several lines.' },
-              options: { type: 'array', items: { type: 'string' }, description: `choice: at most ${LIMITS.options}.` },
+              options: { type: 'array', items: { type: 'string' }, description: `choice: every option, at most ${LIMITS.options}; [] for text.` },
               multiple: { type: 'boolean', description: 'choice: any number of options rather than one.' },
               other: { type: 'boolean', description: 'choice: the user may add their own answer.' },
-              selected: { type: 'array', items: { type: 'string' }, description: 'choice: options chosen to start with.' },
+              selected: { type: 'array', items: { type: 'string' }, description: 'choice: options chosen to start with; [] for none.' },
               required: { type: 'boolean' },
             },
-            required: ['id', 'kind', 'label'],
+            required: ['id', 'kind', 'label', 'value', 'placeholder', 'multiline', 'options', 'multiple', 'other', 'selected', 'required'],
           },
         },
         buttons: { type: 'array', items: { type: 'string' }, description: `The answers, main one first; at most ${LIMITS.buttons}. Default: Approve, Reject without fields; Submit with them.` },

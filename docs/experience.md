@@ -337,7 +337,10 @@ Two additions from reviewing it here, beyond what the originating project report
 - The assistant thinks like an analyst first (prompt: *Thinking like an analyst*): how open the request is, its
   components (measures, facets or a chain), weights, and how to adjust to the data (proxy, finer breakdown, Fermi
   ranges). Its framing card lists the components to consider, key ones ticked. An empty draft box gets a "Write here…" hint
-  (refusing it, tried first, made Sonnet give up on the card), and a refused card now shows as a red step with its reason. The precache limit is 3 MB (the main script passed 2 MB).
+  (refusing it, tried first, made Sonnet give up on the card), and a refused card now shows as a red step with its reason.
+  The real cause of the empty boxes: under strict tool use, a card's optional text and lists (a box's `value`, a
+  choice's `options`) arrived missing, three times across Haiku and Sonnet, while the model believed it had sent them.
+  Every field property is now required (empty when unused), and each card's input is written to View logs. The precache limit is 3 MB (the main script passed 2 MB).
 
 ### Graph multi-select, undo / redo, copy the map — 2026-10-30
 

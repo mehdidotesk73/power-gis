@@ -22,6 +22,7 @@ import { forgetChat, IMPORTABLE, runTool, TOOLS, type AgentHost, type WebRole, t
 import { STOPPED, type Form, type FormAnswer } from '../../lib/agent/form'
 import { activeRun, downloadFile, followRun, forgetRun, SignInNeeded, startRun, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
 import { saveFile } from '../../client/saveFile'
+import { logDebug } from '../../debug'
 import { auth } from '../../client/auth'
 import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
 import { MAX_IMAGES, pastedImages, prepareImage, type Attached } from './images'
@@ -393,6 +394,8 @@ async function send() {
         onToolStart: (call) => {
           current = null
           // ask_user: its card is the step; the scout and scraper: their approval card, then their run.
+          // What a question card was sent, in the log (View logs): a card that arrives emptier than the assistant meant is found here.
+          if (call.name === 'ask_user') logDebug(`ask_user input: ${JSON.stringify(call.input).slice(0, 4000)}`)
           if (!live() || call.name === 'ask_user' || call.name === 'send_scout' || call.name === 'send_scraper') return
           items.value.push({ kind: 'tool', call, state: 'running', summary: '', open: false })
         },
