@@ -301,6 +301,12 @@ and the relay at the network (`tests/e2e/assistant.spec.ts`).
 - **Composites:** only measures covering ~90% of rows; others their own layers; common scale, stated
   weights; measures pulling opposite ways (need = demand but worse outcomes) are asked about, not averaged.
 - **Cost:** the usage line shows ≈ $ at list prices (`CLAUDE_MODELS[].price`, `chatCost`), runs included.
+- **Analyst persona** (user, 2026-10-30; grows over time): the prompt's *Thinking like an analyst* — judge how
+  open the request is; break it into basic components by the cleanest path (key measures for the user to pick,
+  facets answered from different sources and pieced together, a chain of quantities, or a mix); map the path to the
+  insight; soft weights; adjust to available data (a proxy, a finer breakdown, a Fermi-style low / likely / high range
+  with a confidence, carried through as columns, or leave it out and say what that costs); revisit when the data
+  disagrees. Step 4 shows the framing and the components to consider (key ones ticked, optional ones not) on one card.
 - **Concept first** (user): a score, index, ranking or comparison is defined before data is sought — what it
   measures, from whose point of view, parts with their ideal measures and directions, opposite readings
   offered as a choice — and approved on an ask_user card; then each measure is matched to data, proxies named.
