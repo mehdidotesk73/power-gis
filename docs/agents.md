@@ -319,7 +319,13 @@ but Chromium rejects the container's re-signed TLS certificates, and the agent's
 certificate checks off was refused (rightly). The prompts now have it import the CA bundle Python
 trusts into Chromium's NSS database first, checks kept on. Scout test brief now a live question (new nursing and
 data scientist postings per state over the past week, no remote jobs): no file to fetch, so access,
-keys and terms decide the route — the case for user-supplied API keys (Managed Agents vaults) later.
+keys and terms decide the route — the case for user-supplied API keys (Managed Agents vaults) later. Jobs
+scout: 109 s, $0.16 (mostly web searches): set LinkedIn / Indeed / Glassdoor aside on their terms, peeked
+at Indeed Hiring Lab's file, probed keyed APIs, recommended Adzuna with a free key (and daily snapshots
+for true "new" counts). Third scraper run: all three tables (Excel, PDF, JavaScript page via the
+container's CA in Chromium), $0.03; certutil hung ~5 min on a prompt until given a timeout and no stdin
+(now in the prompt). Its units changed between runs (VMT in thousands, then × 1,000), so the scraper now
+keeps source units unless the brief says otherwise and states them.
 
 ## Next: scouting and scraping
 
