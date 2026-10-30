@@ -215,3 +215,28 @@ test('signed out: everything local works; the cloud asks to sign in', async ({ b
   await panel.getByRole('button', { name: 'Dataset', exact: true }).click()
   await expect(panel.getByTestId('add.source.cloud')).toHaveCount(0)
 })
+
+test('a new device signed in while its first map loads opens the account workspace, and never replaces it', async ({ browser }) => {
+  const ben = await account('ben')
+  const laptop = await device(browser, LAPTOP)
+  await signIn(laptop, ben)
+  await startSmall(laptop)
+  await saveWorkspace(laptop)
+
+  // A fresh device (a private window): sign in at once, before the default map has finished loading.
+  const context = await browser.newContext(PHONE)
+  await context.route('https://extensions.duckdb.org/**', (route) => route.abort())
+  const phone = await context.newPage()
+  phone.on('dialog', (d) => void d.accept())
+  await phone.goto('/')
+  await signIn(phone, ben)
+  await ready(phone)
+  await expect(phone.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await expect(node(phone, 'dataset', 'County income (ACS)')).toHaveCount(0)
+  await context.close()
+
+  // The account still holds the laptop's workspace: a reload there opens nothing new over it.
+  await reload(laptop)
+  await expect(laptop.getByText(/Opened your workspace from your account/)).toHaveCount(0)
+  await expect(node(laptop, 'dataset', 'County income (ACS)')).toHaveCount(0)
+})

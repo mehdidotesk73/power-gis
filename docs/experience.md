@@ -328,6 +328,12 @@ Two additions from reviewing it here, beyond what the originating project report
 
 ### Assistant profiles — 2026-10-30
 
+- **Fixed: a new device could replace the account's workspace with the default map.** Its first visit saved
+  the freshly made default map with the user's Save; signed in by then (the map takes a while to load), that
+  save was marked newer than the account's copy and sent up. Now that first save stays on the device, and a
+  device records the account's copy as seen only once it has opened it (a failed open says so and is retried).
+  UI test: a fresh device signed in while loading opens the account's workspace; the account keeps it.
+
 - ⚙ picks a **profile** instead of a model: each job (chat, scout, scraper, reviewer) gets its model —
   Quick, Smart scout, Balanced, Deep research, Planner, All Sonnet (`lib/agent/profiles.ts`). A chat keeps
   its profile; the header shows it.
