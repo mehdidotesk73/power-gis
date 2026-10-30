@@ -247,10 +247,16 @@ usage policies live **there**, not as dataset properties.
   calls the Messages API **directly from the browser**: no relay function, no function timeouts.
   A relay with the owner's key can be added later for users without one; only the "send" step
   changes.
-- **Model:** the user picks it in the assistant's settings (⚙; `CLAUDE_MODELS` in
-  `client/agent/claude.ts`, remembered per device in `powergis.agentModel`; default
-  `claude-haiku-5-5`: fast, cheap, and good at this work in the user's tests). **A chat keeps the
-  model it started with** (decided: simple, one model per chat). The API would accept a switch
+- **Profile (models):** the user picks a **profile** in the assistant's settings (⚙; `PROFILES` in
+  `lib/agent/profiles.ts`, remembered per device in `powergis.agentProfile`; default **Quick**), and
+  the profile gives each job its model: the chat, the scout, the scraper and the reviewer (not built
+  yet). Quick (all Haiku), Smart scout (Haiku; scout + reviewer Sonnet), Balanced (Sonnet; scraper
+  Haiku), Deep research (Sonnet; scout + reviewer Opus; scraper Haiku), Planner (Opus; scout Sonnet;
+  scraper Haiku; reviewer Opus), All Sonnet. Custom later. Managed agents are kept per role and model
+  (`powergis.managed`), so switching profiles reuses them. Each finished turn updates the chat's line
+  in a per-device log (`powergis.profileChats`, last 200 chats: profile, cost, tokens, runs), and ⚙
+  shows each profile's chats and average ≈ $ a chat; the cloud table of runs comes with run records.
+  **A chat keeps the profile it started with** (decided: simple, one profile per chat). The API would accept a switch
   mid-chat (same history, new `model`; earlier thinking a model can't read is skipped), but a new
   choice applies to the next chat ("Start a new chat"). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
   with `dangerouslyAllowBrowser`, `fallbacks: "default"` on the models that have it (Opus 5.5,
@@ -295,6 +301,12 @@ and the relay at the network (`tests/e2e/assistant.spec.ts`).
 - **Composites:** only measures covering ~90% of rows; others their own layers; common scale, stated
   weights; measures pulling opposite ways (need = demand but worse outcomes) are asked about, not averaged.
 - **Cost:** the usage line shows ≈ $ at list prices (`CLAUDE_MODELS[].price`, `chatCost`), runs included.
+- **Analyst persona** (user, 2026-10-30; grows over time): the prompt's *Thinking like an analyst* — judge how
+  open the request is; break it into basic components by the cleanest path (key measures for the user to pick,
+  facets answered from different sources and pieced together, a chain of quantities, or a mix); map the path to the
+  insight; soft weights; adjust to available data (a proxy, a finer breakdown, a Fermi-style low / likely / high range
+  with a confidence, carried through as columns, or leave it out and say what that costs); revisit when the data
+  disagrees. Step 4 shows the framing and the components to consider (key ones ticked, optional ones not) on one card.
 - **Concept first** (user): a score, index, ranking or comparison is defined before data is sought — what it
   measures, from whose point of view, parts with their ideal measures and directions, opposite readings
   offered as a choice — and approved on an ask_user card; then each measure is matched to data, proxies named.

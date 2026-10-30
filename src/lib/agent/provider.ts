@@ -51,6 +51,8 @@ export interface TurnResult {
 export interface TurnEvents {
   /** Streamed text, as it arrives. */
   onText?(delta: string): void
+  /** The model's reasoning (a summary of it), as it arrives. */
+  onThinking?(delta: string): void
 }
 
 /** An image the user attached (base64, already resized for the model). */

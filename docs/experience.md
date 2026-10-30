@@ -326,6 +326,30 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Assistant profiles — 2026-10-30
+
+- **Fixed: a new device could replace the account's workspace with the default map.** Its first visit saved
+  the freshly made default map with the user's Save; signed in by then (the map takes a while to load), that
+  save was marked newer than the account's copy and sent up. Now that first save stays on the device, and a
+  device records the account's copy as seen only once it has opened it (a failed open says so and is retried).
+  UI test: a fresh device signed in while loading opens the account's workspace; the account keeps it.
+
+- ⚙ picks a **profile** instead of a model: each job (chat, scout, scraper, reviewer) gets its model —
+  Quick, Smart scout, Balanced, Deep research, Planner, All Sonnet (`lib/agent/profiles.ts`). A chat keeps
+  its profile; the header shows it.
+- The scout and the scraper now run on the profile's model for their job (was: the chat's model).
+  Managed agents are kept per role and model, so switching profiles reuses them.
+- A per-device log of chats (cost, tokens, runs) gives each profile's average ≈ $ a chat, shown in ⚙.
+- The assistant thinks like an analyst first (prompt: *Thinking like an analyst*): how open the request is, its
+  components (measures, facets or a chain), weights, and how to adjust to the data (proxy, finer breakdown, Fermi
+  ranges). Its framing card lists the components to consider, key ones ticked. An empty draft box gets a "Write here…" hint
+  (refusing it, tried first, made Sonnet give up on the card), and a refused card now shows as a red step with its reason.
+  The real cause of the empty boxes: under strict tool use, a card's optional text and lists (a box's `value`, a
+  choice's `options`) arrived missing, three times across Haiku and Sonnet, while the model believed it had sent them.
+  Every field property is now required (empty when unused), and each card's input is written to View logs.
+- The chat shows the assistant's **Reasoning** (a summary of its thinking, folded like a step) and a step for each
+  question card with exactly what it sent. The precache limit is 3 MB (the main script passed 2 MB).
+
 ### Graph multi-select, undo / redo, copy the map — 2026-10-30
 
 - **Added:** pick several graph nodes (Ctrl/⌘- or Shift-click; Select on phones) and Delete them from the

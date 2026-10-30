@@ -381,14 +381,21 @@ async function catchUpWithCloud() {
     return
   }
   if (store.get(CLOUD_SEEN) === `${user}:${w.updatedAt}`) return
-  store.set(CLOUD_SEEN, `${user}:${w.updatedAt}`)
   if (dirty.value && !confirm(`Your account has a workspace saved ${when(w.updatedAt)}. Open it here? Your unsaved changes on this device will be replaced.`)) {
+    store.set(CLOUD_SEEN, `${user}:${w.updatedAt}`)
     barMessage.value = 'Kept your changes here. Save stores them in your account, replacing the one there.'
     return
   }
   const report = await openHere(w.file, 'Opening your workspace from your account…')
-  if (report === null) return
+  // Not opened: say so, and try again next time (seen only once it's open, so a later Save here can't
+  // quietly replace the account's copy with this device's).
+  if (report === null) {
+    cloudUser.value = null
+    barMessage.value = "Couldn't open your workspace from your account (see View logs). Don't Save here until it opens: Save would replace it. Reload to try again."
+    return
+  }
   await saveHere()
+  store.set(CLOUD_SEEN, `${user}:${w.updatedAt}`)
   barMessage.value = `Opened your workspace from your account (saved ${when(w.updatedAt)}).` + (report ? `\n${report}` : '')
 }
 
@@ -1214,8 +1221,11 @@ onMounted(async () => {
       }
     } else {
       await seedDefault()
+      // The first workspace exists as soon as it's made, on this device only. Never Save here: a
+      // signed-in Save marks this device's copy as newer than the account's and sends it up, and the
+      // default map once replaced an account's workspace that way (signed in while the map was loading).
+      await saveHere()
       loaded.value = true
-      await save() // the first workspace exists as soon as it's made
     }
     loaded.value = true
     status.value = 'ready'

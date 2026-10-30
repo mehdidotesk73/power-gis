@@ -85,7 +85,12 @@ export function readForm(input: Record<string, unknown>): Form | string {
         kind: 'text',
         label: f.label.trim(),
         ...(typeof f.value === 'string' ? { value: f.value } : {}),
-        ...(typeof f.placeholder === 'string' && f.placeholder ? { placeholder: f.placeholder } : {}),
+        ...(typeof f.placeholder === 'string' && f.placeholder.trim()
+          ? { placeholder: f.placeholder }
+          : // A big empty box needs a hint, or it reads as a draft that never arrived.
+            f.multiline === true && !(typeof f.value === 'string' && nonEmpty(f.value))
+            ? { placeholder: 'Write here…' }
+            : {}),
         ...(f.multiline === true ? { multiline: true } : {}),
         ...(required ? { required } : {}),
       })

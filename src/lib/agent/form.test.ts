@@ -21,6 +21,12 @@ describe('ask_user forms', () => {
     expect(form({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', other: true }] }).fields[0]).toMatchObject({ options: [], other: true })
   })
 
+  it('gives an empty multiline box a hint, so it never reads as a missing draft', () => {
+    expect(form({ question: 'Approve?', fields: [{ id: 'n', kind: 'text', label: 'Notes', multiline: true }] }).fields[0]).toMatchObject({ placeholder: 'Write here…' })
+    expect(form({ question: 'Notes?', fields: [{ id: 'n', kind: 'text', label: 'Notes', multiline: true, placeholder: 'Anything else' }] }).fields[0]).toMatchObject({ placeholder: 'Anything else' })
+    expect(form({ question: 'Plan?', fields: [{ id: 'p', kind: 'text', label: 'Plan', multiline: true, value: 'Clean, then map.' }] }).fields[0]).not.toHaveProperty('placeholder')
+  })
+
   it('answers with the chosen options in order and the own answer last; a single choice prefers an option', () => {
     const multi = form({ question: 'Q', fields: [{ id: 'y', kind: 'choice', label: 'Years', options: ['2022', '2023', '2024'], multiple: true, other: true }] }).fields[0]
     expect(fieldValue(multi, ['2024', '2022', 'nope'], ' 2019 ')).toEqual(['2022', '2024', '2019'])

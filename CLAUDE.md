@@ -158,8 +158,9 @@ whatever they're actually asking about.
 - **Assistant (agents)** (`docs/agents.md`): **✦ Assistant** in the header opens a chat with the
   dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
   stays on the device (localStorage `powergis.anthropicKey`); calls go straight to Anthropic
-  (`client/agent/claude.ts`, streaming; the model is picked in ⚙ from `CLAUDE_MODELS`, default
-  `claude-haiku-5-5`, fixed for each chat). Provider-neutral loop and tools in
+  (`client/agent/claude.ts`, streaming; a **profile** is picked in ⚙ — `lib/agent/profiles.ts`: the model for the chat,
+  scout, scraper and reviewer; default Quick, all Haiku; fixed for each chat; average ≈ $ a chat per profile from a
+  per-device log, `powergis.profileChats`). Provider-neutral loop and tools in
   `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`). On desktop the assistant is
   a column **docked on the right** of the page, resizable (`useSplitter`, `powergis.assistantWidth`;
   the left panel uses the same composable); on phones a sheet. Screenshots paste or attach (📎),
@@ -180,7 +181,8 @@ whatever they're actually asking about.
   user's Supabase session — signed in only), approved on a card (brief, cap), followed in the chat as a step, picked up
   again after a reload (`powergis.webRun`); the scraper lists its files (`FILES:` line) and the app waits for them;
   CSV / GeoJSON outputs become datasets. The agent removes only what it made in this chat (else `userAsked`);
-  built-ins via `add_builtin`; the usage line shows ≈ $ (`chatCost`). Chat text uses three sizes only
+  built-ins via `add_builtin`; the usage line shows ≈ $ (`chatCost`). **Reasoning** steps show the model's thinking (`thinking: adaptive, display: summarized`; folded to its first line), and a
+  question card's step shows what it sent (also in View logs as `ask_user input:`). Chat text uses three sizes only
   (`--chat-fs`, `-sm`, `-xs` on the panel). Agents
   change this device's copies only (a linked one turns ↑) and never sync: the server refuses
   `caller: 'agent'` on every link / push / pull request (`request(type, payload, 'agent')`).
@@ -459,7 +461,7 @@ src/
   server/                  the server (Web Worker today): server.ts handlers, worker.ts entry, sql.ts + duckdb.ts (transforms)
   client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter),
                            supabase.ts + auth.ts (the Supabase client; the signed-in account)
-  lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt
+  lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt, profiles (models per job)
   components/
     map/                   reusable map widgets
       MapView.vue          the map; provides it to child layer widgets
