@@ -124,7 +124,7 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
         data: [
           { id: 'e1', type: 'session.status_running', processed_at: at },
           { id: 'e2', type: 'agent.tool_use', name: 'web_fetch', input: { url: 'https://example.gov/rents' }, evaluated_permission: 'allow', processed_at: at },
-          { id: 'e3', type: 'agent.message', content: [{ type: 'text', text: 'Wrote rents.csv: 2 rows, rent in dollars.' }], processed_at: at },
+          { id: 'e3', type: 'agent.message', content: [{ type: 'text', text: 'Wrote rents.csv: 2 rows, rent in dollars.\nFILES: rents.csv, script.py' }], processed_at: at },
           { id: 'e4', type: 'session.status_idle', stop_reason: { type: 'end_turn' }, processed_at: at },
         ],
         next_page: null,
@@ -169,4 +169,6 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   await page.screenshot({ path: test.info().outputPath('scraper-run-phone.png') })
 
   await expect(run).toContainText('rents.csv → dataset “rents”')
+  // The chat's cost: its tokens at list prices plus the run's $0.03.
+  await expect(page.getByText(/≈ \$0\.03/)).toBeVisible()
 })

@@ -353,7 +353,8 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    managed-relay`, deployed by the user); fetching, peeking, Excel, PDF tables (Home Depot figures
    checked exact by the user), JavaScript pages, terms respected, CSV import; $0.02–0.16 a run.
 2. ~~**The orchestrator's tools**~~ (done 2026-10-30, with ask_user's composed cards and the relay's
-   sign-in; the user redeploys the relay): the assistant judges what the workspace already has, offers
+   sign-in; the user redeploys the relay; then the first real session's fixes: expected files, removal
+   guard, sources carried forward, accuracy per measure, built-ins, GeoJSON, composites, $ shown): the assistant judges what the workspace already has, offers
    to search, and picks scout and / or scraper itself; send the scout / send the scraper (an approval
    card with the brief and the cap), progress in the chat, the scraper's CSVs imported as datasets
    (source in the description), its script saved to re-run. Update the assistant's empty-state example
@@ -370,6 +371,11 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    description.
 5. Component cleanup: the mini map's ▾ minimize button (looks rough; unify with the button components).
 6. The agent reviewer pass (below) — waits: the agents do well on their own for now.
+
+**Next PR (agreed 2026-10-30):** graph multi-select (Ctrl/⌘ or Shift-click; a Select toggle on phones) and
+Delete (removes from the workspace, never erases data; a Delete button for phones); undo / redo of every
+workspace draft edit (Ctrl/⌘+Z, Shift+Ctrl/⌘+Z, buttons on phones; not while typing; agent edits too;
+the session only); and copy the map as an image to the clipboard, like the graph.
 
 **Future, nice to have (not soon):** scheduled scraper runs (daily, appending to a dataset), e.g. for
 true "new postings this week" counts from daily snapshots.

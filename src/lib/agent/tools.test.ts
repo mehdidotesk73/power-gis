@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { documentFiles } from '../workspace/files'
 import { toWorkspaceFile } from '../workspace/file'
 import type { Form } from './form'
-import { runTool, workspaceVersion, type AgentHost } from './tools'
+import { forgetChat, runTool, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
@@ -381,7 +381,9 @@ describe('agent tools', () => {
     // A linked (cloud) output is this device's copy too: the run changes it here (it turns ↑ until the user syncs).
     expect((await runTool(host, 'run_transform', { id: 't2' })).isError).toBe(false)
     expect(await runTool(host, 'delete_dataset', { id: 'prices' })).toMatchObject({ isError: true, summary: 'refused: still used' })
-    expect((await runTool(host, 'delete_dataset', { id: 'joined' })).isError).toBe(false)
+    // Not made in this chat: only when the user asked for it by name.
+    expect(await runTool(host, 'delete_dataset', { id: 'joined' })).toMatchObject({ isError: true, summary: 'refused: not yours' })
+    expect((await runTool(host, 'delete_dataset', { id: 'joined', userAsked: true })).isError).toBe(false)
     expect(calls).toEqual(['run t1', 'run t2', 'delete joined'])
     expect(await runTool(host, 'drop_everything', {})).toMatchObject({ isError: true })
   })
@@ -434,5 +436,39 @@ describe('agent loop', () => {
     expect(r.end).toBe('stopped')
     const forever: ChatSession = { send: async () => ({ text: '', stop: 'tools', toolCalls: [{ id: 'a', name: 'x', input: {} }], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }) }
     expect((await runAgent(forever, async () => ({ content: '', isError: false, summary: '' }), 'hi')).end).toBe('step-limit')
+  })
+
+  it("removes only what it made in this chat, unless the user asked", async () => {
+    const { host } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['joined', 'counties'] })
+    // The user's own visualization, then one the agent makes.
+    const user = await writeAndApply(host, { datasetIds: ['joined', 'counties'], transforms: [], visualizations: ['users'] }, { 'visualizations/users.json': { name: 'Users', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price' } })
+    const userId = json(user.content).added[0].id as string
+    forgetChat(host) // a new chat: that visualization is now the user's
+    const mine = await writeAndApply(host, { datasetIds: ['joined', 'counties'], transforms: [], visualizations: [userId, 'mine'] }, { 'visualizations/mine.json': { name: 'Mine', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price' } })
+    const mineId = json(mine.content).added[0].id as string
+    // Dropping the user's visualization: refused, nothing changes.
+    const refused = await writeAndApply(host, { datasetIds: ['joined', 'counties'], transforms: [], visualizations: [mineId] }, {})
+    expect(refused.summary).toBe('refused: 1 problem')
+    expect(refused.content).toContain(`visualization "Users" (${userId}), which you didn't make in this chat`)
+    expect(host.doc().visualizations.map((v) => v.name)).toEqual(['Users', 'Mine'])
+    // Its own: fine. The user's, when they asked for it by name: fine.
+    expect((await writeAndApply(host, { datasetIds: ['joined', 'counties'], transforms: [], visualizations: [userId] }, {})).isError).toBe(false)
+    await runTool(host, 'get_workspace', {})
+    await edit(host, { command: 'create', path: '/workspace.json', file_text: JSON.stringify({ name: 'Test', datasetIds: ['joined', 'counties'], transforms: [], visualizations: [] }) })
+    expect((await runTool(host, 'apply_workspace', { userAsked: [userId] })).isError).toBe(false)
+    expect(host.doc().visualizations).toEqual([])
+  })
+
+  it('lists the built-in tables and adds one without the web', async () => {
+    const { host } = fakeHost()
+    host.builtins = () => [{ table: 'us_states', label: 'US states', description: 'State boundaries' }]
+    host.addBuiltin = async (table) => ({ ok: true, id: `ds-${table}` })
+    const listed = json((await runTool(host, 'list_datasets', {})).content)
+    expect(listed.builtins).toEqual([{ table: 'us_states', name: 'US states', description: 'State boundaries' }])
+    expect(listed.datasets).toHaveLength(4)
+    expect(json((await runTool(host, 'add_builtin', { table: 'us_states' })).content)).toEqual({ datasetId: 'ds-us_states', name: 'US states' })
+    expect(await runTool(host, 'add_builtin', { table: 'mars' })).toMatchObject({ isError: true, content: expect.stringContaining('us_states') })
+    // Made in this chat: it may delete it again.
+    expect((await runTool(host, 'delete_dataset', { id: 'ds-us_states' })).summary).not.toBe('refused: not yours')
   })
 })

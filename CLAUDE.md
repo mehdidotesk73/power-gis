@@ -175,7 +175,9 @@ whatever they're actually asking about.
   later); the prompt names no datasets. **Scout and scraper** (`send_scout` / `send_scraper`; `client/agent/managed.ts`):
   Managed Agents runs through the relay (`supabase/functions/managed-relay`: browsers are refused there; it checks the
   user's Supabase session — signed in only), approved on a card (brief, cap), followed in the chat as a step, picked up
-  again after a reload (`powergis.webRun`); the scraper's CSVs become datasets. Chat text uses three sizes only
+  again after a reload (`powergis.webRun`); the scraper lists its files (`FILES:` line) and the app waits for them;
+  CSV / GeoJSON outputs become datasets. The agent removes only what it made in this chat (else `userAsked`);
+  built-ins via `add_builtin`; the usage line shows ≈ $ (`chatCost`). Chat text uses three sizes only
   (`--chat-fs`, `-sm`, `-xs` on the panel). Agents
   change this device's copies only (a linked one turns ↑) and never sync: the server refuses
   `caller: 'agent'` on every link / push / pull request (`request(type, payload, 'agent')`).

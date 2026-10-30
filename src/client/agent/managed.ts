@@ -28,7 +28,8 @@ ${FALLBACK_LADDER}
 Finish with a short report, as your last message, in plain text: one entry per source with the URL, what it holds, format and the layout you saw, coverage, how to get it, terms, and how confident you are; then what you could not find or reach.`,
   scraper: `You are a data scraper. You get a precise brief: which sources to read, what to extract, and the columns of the result. Write Python in the container (pandas is a pip install away; use pdfplumber for PDFs, pandas.read_html for HTML tables) and run it to fetch, parse and combine the data into the requested table(s). Keep the source's units and scales (thousands, millions, percent) unless the brief asks for others, and state each value column's unit in your final message. Check your result: row counts, one row per key where the brief expects it, totals against the source's own totals where it has them, no columns empty by mistake.
 ${FALLBACK_LADDER}
-Save each result as a UTF-8 CSV with a header row in /mnt/session/outputs/ (keep codes such as FIPS as text with their leading zeros), and save the final script there as well (script.py). Finish with a short message: each file, its rows and columns, its sources (URLs), and anything that didn't match the brief.`,
+Accuracy: keys and identifiers (codes, FIPS, ids, names you join on) must be exact: never substitute or guess them. For values, follow the brief's tolerance for each measure (which substitutes it accepts: a nearby year, another source, an estimate; how much error). Where the brief says nothing, a close substitute with an obviously small error is fine (an adjacent year for a slow-moving figure such as population) and better than an empty cell; anything more is left empty. Mark every substituted value on its row (a source_year or note column) and list the substitutions in your report; never substitute silently.
+Save each result as a UTF-8 CSV with a header row in /mnt/session/outputs/ (keep codes such as FIPS as text with their leading zeros); shapes go in a geometry column as GeoJSON text (lon/lat), or as a .geojson FeatureCollection. Save the final script there as well (script.py). Finish with a short message: each file, its rows and columns, its sources (URLs), any substitutions, and anything that didn't match the brief. Its last line lists every file you saved, exactly like this: FILES: name1.csv, name2.csv, script.py`,
 }
 
 /** The container: one cloud environment with unrestricted egress (agreed for both roles for now). */
@@ -152,6 +153,8 @@ export interface RunResult {
   /** The agent's last message (the report / the summary). */
   report: string
   files: OutputFile[]
+  /** Files the report names that never came back. */
+  missing?: string[]
   /** Cost at list prices, in dollars, and seconds the session was active. */
   cost?: number
   activeSeconds?: number
@@ -279,11 +282,17 @@ export async function followRun(
 
   const after = await c.beta.sessions.retrieve(run.sessionId)
   const usage = after.usage as { list_cost?: { amount: string }; active_seconds?: number } | undefined
-  const files = await outputFiles(c, run.sessionId)
+  const expected = expectedFiles(report)
+  let told = false
+  const { files, missing } = await outputFiles(c, run.sessionId, expected, (m) => {
+    if (!told) opts.onEvent({ kind: 'status', text: `Waiting for ${m.length === 1 ? m[0] : `${m.length} files`} to come back…` })
+    told = true
+  })
   return {
     sessionId: run.sessionId,
-    report,
+    report: withoutFilesLine(report),
     files,
+    ...(missing.length ? { missing } : {}),
     ...(usage?.list_cost ? { cost: Number(usage.list_cost.amount) / 100 } : {}),
     ...(usage?.active_seconds !== undefined ? { activeSeconds: usage.active_seconds } : {}),
     elapsedSeconds: Math.round((Date.now() - run.startedAt) / 1000),
@@ -308,14 +317,35 @@ export async function runBrief(
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** The files the session wrote to /mnt/session/outputs/ (they appear a moment after it stops). */
-async function outputFiles(c: Anthropic, sessionId: string): Promise<OutputFile[]> {
-  for (let i = 0; i < 4; i++) {
-    const page = await c.beta.files.list({ scope_id: sessionId, betas: ['managed-agents-2026-04-01'] })
+/** The files a run says it saved: its report's last "FILES: a.csv, b.csv" line (none when it has no such line). */
+export function expectedFiles(report: string): string[] {
+  const line = [...report.matchAll(/^\s*\**FILES:\**\s*(.*)$/gim)].pop()?.[1] ?? ''
+  return line
+    .split(',')
+    .map((f) => f.trim().replace(/^`|`$/g, '').split('/').pop()!.trim())
+    .filter((f) => f && !/^none$/i.test(f))
+}
+/** The report without its FILES line (it's for the app). */
+export const withoutFilesLine = (report: string) => report.replace(/\n?^\s*\**FILES:\**.*$/gim, '').trimEnd()
+
+/**
+ * The files the session wrote to /mnt/session/outputs/. They appear one by one
+ * after it stops: wait until every file its report names is there (up to a
+ * couple of minutes; then say which never came), else until the list holds still.
+ */
+async function outputFiles(c: Anthropic, sessionId: string, expected: string[], onWait?: (missing: string[]) => void): Promise<{ files: OutputFile[]; missing: string[] }> {
+  const deadline = Date.now() + (expected.length ? 120_000 : 6_000)
+  let last = -1
+  for (;;) {
+    const page = await c.beta.files.list({ scope_id: sessionId, limit: 100, betas: ['managed-agents-2026-04-01'] })
     const files = page.data.map((f) => ({ id: f.id, name: f.filename, bytes: f.size_bytes }))
-    if (files.length) return files
-    await pause(1500)
+    const missing = expected.filter((n) => !files.some((f) => f.name === n))
+    if (expected.length ? !missing.length : files.length && files.length === last) return { files, missing }
+    if (Date.now() > deadline) return { files, missing }
+    if (missing.length) onWait?.(missing)
+    last = files.length
+    await pause(3000)
   }
-  return []
 }
 
 /** Answers a paused tool call (an `ask` event). */

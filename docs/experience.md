@@ -339,6 +339,11 @@ Two additions from reviewing it here, beyond what the originating project report
   items their own class names (`ev-…`).
 - **Tests:** UI tests fake the model's streamed turns and the relay with Playwright routes, so the whole
   flow runs with no key and no cost.
+- **First real session** (psychotherapist score, from an empty workspace): 2 scouts, 2 scrapers, 6
+  sources, clean → join → scores → 3 layers. Fixed after it: a CSV missed because files return one by one
+  (the scraper now lists its files and the app waits for them); a user visualization dropped by a stale
+  workspace file (removal guard); findings lost between briefs; built-ins scraped from the web; a composite
+  averaging measures that cover 17 of 51 states; tokens without dollars.
 
 ### Workspace files as a zip — 2026-10-29
 

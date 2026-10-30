@@ -943,9 +943,18 @@ watch(
 
 const agentHost: Omit<AgentHost, 'ask' | 'web' | 'importWebFile'> = {
   async importCsv(file, description) {
-    const r = await request('uploadDataset', { source: { kind: 'csv', file }, name: file.name.replace(/\.csv$/i, '') })
+    // A table (CSV) or shapes (GeoJSON), named after the file.
+    const json = /\.(geo)?json$/i.test(file.name)
+    const r = await request('uploadDataset', { source: json ? { kind: 'json', file } : { kind: 'csv', file }, name: file.name.replace(/\.(csv|geojson|json)$/i, '') })
     if (!r.ok) return { ok: false, message: r.error.message }
     if (description) await request('updateDataset', { id: r.data.datasetId, description })
+    await onAddDataset([r.data.datasetId])
+    return { ok: true, id: r.data.datasetId }
+  },
+  builtins: () => BUILTIN_TABLES.map(({ table, label, description }) => ({ table, label, description })),
+  async addBuiltin(table) {
+    const r = await request('uploadDataset', { source: { kind: 'builtin', table } })
+    if (!r.ok) return { ok: false, message: r.error.message }
     await onAddDataset([r.data.datasetId])
     return { ok: true, id: r.data.datasetId }
   },

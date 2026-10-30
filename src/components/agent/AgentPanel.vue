@@ -14,10 +14,10 @@ import UiButton from '../ui/UiButton.vue'
 import LabPanel from './LabPanel.vue'
 import AskCard from './AskCard.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { claudeProvider, CLAUDE_MODEL, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
+import { chatCost, claudeProvider, CLAUDE_MODEL, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
-import { runTool, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
+import { forgetChat, IMPORTABLE, runTool, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
 import { STOPPED, type Form, type FormAnswer } from '../../lib/agent/form'
 import { activeRun, downloadFile, followRun, forgetRun, SignInNeeded, startRun, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
 import { saveFile } from '../../client/saveFile'
@@ -191,7 +191,7 @@ async function web(role: WebRole, brief: string, capDollars: number): Promise<We
     const run = await startRun(apiKey.value, { role, model: chatModel.value ?? model.value, brief, capDollars })
     it.sessionId = run.sessionId
     const r = await follow(it, run, controller?.signal)
-    return { sessionId: r.sessionId, report: r.report, files: r.files, ...(r.cost !== undefined ? { cost: r.cost } : {}), elapsedSeconds: r.elapsedSeconds, stop: r.stop }
+    return { sessionId: r.sessionId, report: r.report, files: r.files, ...(r.missing ? { missing: r.missing } : {}), ...(r.cost !== undefined ? { cost: r.cost } : {}), elapsedSeconds: r.elapsedSeconds, stop: r.stop }
   } catch (e) {
     it.state = 'error'
     it.error = describeRunError(e)
@@ -209,7 +209,7 @@ async function importWebFile(fileId: string, name: string, description: string):
   else {
     try {
       const blob = await downloadFile(apiKey.value, fileId)
-      r = await props.host.importCsv(new File([blob], name, { type: 'text/csv' }), description)
+      r = await props.host.importCsv(new File([blob], name, { type: /\.(geo)?json$/i.test(name) ? 'application/geo+json' : 'text/csv' }), description)
     } catch (e) {
       r = { ok: false, message: describeRunError(e) }
     }
@@ -227,7 +227,7 @@ onMounted(async () => {
     const r = await follow(it, run)
     if (run.role === 'scraper') {
       const day = new Date(run.startedAt).toISOString().slice(0, 10)
-      for (const f of r.files) if (/\.csv$/i.test(f.name)) await importWebFile(f.id, f.name, `From the web, ${day} (scraper run ${r.sessionId}).`)
+      for (const f of r.files) if (IMPORTABLE.test(f.name)) await importWebFile(f.id, f.name, `From the web, ${day} (scraper run ${r.sessionId}).`)
     }
   } catch (e) {
     it.state = 'error'
@@ -262,6 +262,7 @@ function runSummary(it: RunItem): string {
     `${r.elapsedSeconds} s`,
     r.cost !== undefined ? `$${r.cost.toFixed(2)}` : '',
     it.role === 'scraper' ? `${datasets} dataset${datasets === 1 ? '' : 's'}` : '',
+    r.missing?.length ? `${r.missing.length} file${r.missing.length === 1 ? '' : 's'} missing` : '',
   ]
     .filter(Boolean)
     .join(' · ')
@@ -411,6 +412,7 @@ function newChat(confirmFirst = false) {
   if (confirmFirst && items.value.length && !confirm(busy.value ? 'Stop the assistant and start a new chat? This conversation will be cleared (your workspace stays as it is).' : 'Start a new chat? This conversation will be cleared (your workspace stays as it is).')) return
   if (busy.value) stop()
   chatGen++
+  forgetChat(host)
   items.value = []
   usage.value = emptyUsage()
   session = null
@@ -430,10 +432,18 @@ function format(text: string): string {
 }
 const toolInput = (call: ToolCall) => JSON.stringify(call.input, null, 2)
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
+/** The chat's cost so far: its tokens at list prices plus its scout and scraper runs. */
+const dollars = computed(() => {
+  const tokens = chatCost(usage.value, chatModel.value ?? model.value)
+  const runs = items.value.reduce((sum, x) => sum + (x.kind === 'run' && !x.resumed ? (x.result?.cost ?? 0) : 0), 0)
+  return tokens === undefined ? undefined : tokens + runs
+})
 const usageText = computed(() => {
   const u = usage.value
   const inTotal = u.input + u.cacheRead + u.cacheWrite
-  return inTotal || u.output ? `${k(inTotal)} in${u.cacheRead ? ` (${k(u.cacheRead)} cached)` : ''} · ${k(u.output)} out` : ''
+  if (!inTotal && !u.output) return ''
+  const cost = dollars.value === undefined ? '' : ` · ≈ $${dollars.value < 0.995 ? dollars.value.toFixed(2) : dollars.value.toFixed(dollars.value < 10 ? 2 : 1)}`
+  return `${k(inTotal)} in${u.cacheRead ? ` (${k(u.cacheRead)} cached)` : ''} · ${k(u.output)} out${cost}`
 })
 </script>
 
@@ -527,6 +537,7 @@ const usageText = computed(() => {
               <p class="sub">{{ it.role === 'scout' ? 'Report' : 'Summary' }}</p>
               <pre class="prose">{{ it.result.report }}</pre>
             </template>
+            <p v-if="it.result?.missing?.length" class="warn-text small">Never came back: {{ it.result.missing.join(', ') }}</p>
             <template v-if="it.result?.files.length">
               <p class="sub">Files</p>
               <ul class="files">
@@ -576,7 +587,7 @@ const usageText = computed(() => {
       <div class="row">
         <UiButton size="compact" icon="📎" title="Attach a screenshot or photo" aria-label="Attach an image" :disabled="!apiKey || waiting" @click="picker?.click()" />
         <input ref="picker" class="hidden" type="file" accept="image/*" multiple @change="onPick" />
-        <span class="muted small usage">{{ usageText }}</span>
+        <span class="muted small usage" title="Tokens this chat used; ≈ $ at list prices, scout and scraper runs included">{{ usageText }}</span>
         <UiButton v-if="busy" size="compact" @click="stop">Stop</UiButton>
         <UiButton v-else size="compact" tone="primary" :disabled="!canSend || waiting" @click="send">Send</UiButton>
       </div>
