@@ -21,6 +21,13 @@ describe('ask_user forms', () => {
     expect(form({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', other: true }] }).fields[0]).toMatchObject({ options: [], other: true })
   })
 
+  it('refuses an empty multiline box with no hint (a draft left out of value)', () => {
+    expect(readForm({ question: 'Approve?', fields: [{ id: 'd', kind: 'text', label: 'Definition', multiline: true }] })).toMatch(/put your draft in "value"/)
+    expect(readForm({ question: 'Approve?', fields: [{ id: 'd', kind: 'text', label: 'Definition', multiline: true, value: ' ' }] })).toMatch(/value/)
+    expect(form({ question: 'Notes?', fields: [{ id: 'n', kind: 'text', label: 'Notes', multiline: true, placeholder: 'Anything else' }] }).fields).toHaveLength(1)
+    expect(form({ question: 'Name?', fields: [{ id: 'n', kind: 'text', label: 'Name' }] }).fields).toHaveLength(1)
+  })
+
   it('answers with the chosen options in order and the own answer last; a single choice prefers an option', () => {
     const multi = form({ question: 'Q', fields: [{ id: 'y', kind: 'choice', label: 'Years', options: ['2022', '2023', '2024'], multiple: true, other: true }] }).fields[0]
     expect(fieldValue(multi, ['2024', '2022', 'nope'], ' 2019 ')).toEqual(['2022', '2024', '2019'])

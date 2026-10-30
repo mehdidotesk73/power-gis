@@ -102,6 +102,9 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         // DuckDB (~34 MB wasm + its worker) and its extensions load on demand, not into the offline cache.
         globIgnores: ['**/duckdb-*', '**/duckdb-ext/**'],
+        // The app's own script is ~2 MB (MapLibre, the Anthropic SDK, Supabase); it must stay in the
+        // offline cache, so the limit sits above it (workbox's default, 2 MiB, failed the build).
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
     }),
   ],

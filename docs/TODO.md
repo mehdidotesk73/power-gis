@@ -369,7 +369,7 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
    container), reused next time.
 4. Run records (request, briefs, sources, terms, cost); until then a dataset's source is a line in its
    description.
-5. Component cleanup: the mini map's ▾ minimize button (looks rough; unify with the button components).
+5. Component cleanup: the mini map's ▾ minimize button (looks rough; unify with the button components). Also split the ~2 MB main script (load the assistant's SDKs on first use); the offline-cache limit was raised to 3 MB meanwhile.
 6. The agent reviewer pass (below) — waits: the agents do well on their own for now.
 
 **Order (user, 2026-10-30):** (1) #42 + built-ins / samples split + concept-first planning; (2) graph

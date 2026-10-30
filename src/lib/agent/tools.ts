@@ -113,7 +113,7 @@ export const TOOLS: ToolSpec[] = [
               id: { type: 'string', description: 'Key of this field in the answer.' },
               kind: { type: 'string', enum: ['text', 'choice'] },
               label: { type: 'string', description: 'A few words.' },
-              value: { type: 'string', description: 'text: filled in for the user to review and edit.' },
+              value: { type: 'string', description: 'text: filled in for the user to review and edit. The box shows only this: a draft you mention in details or your message must be put here in full.' },
               placeholder: { type: 'string', description: 'text: a hint shown while empty.' },
               multiline: { type: 'boolean', description: 'text: several lines.' },
               options: { type: 'array', items: { type: 'string' }, description: `choice: at most ${LIMITS.options}.` },
