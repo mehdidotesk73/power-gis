@@ -118,6 +118,7 @@ type Item =
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean }
   | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string }
+  | { kind: 'thinking'; text: string; open: boolean }
   | { kind: 'ask'; form: Form; answer?: FormAnswer }
   | RunItem
 
@@ -295,6 +296,7 @@ const host: AgentHost = { ...props.host, ask, web, importWebFile }
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
   get_workspace: 'Read the workspace',
+  ask_user: 'Ask you',
   send_scout: 'Send the scout',
   send_scraper: 'Send the scraper',
   query_sql: 'Query',
@@ -372,6 +374,7 @@ async function send() {
   const gen = chatGen
   const live = () => gen === chatGen
   let current: Extract<Item, { kind: 'assistant' }> | null = null
+  let thinking: Extract<Item, { kind: 'thinking' }> | null = null
   try {
     const { end } = await runAgent(
       session,
@@ -380,9 +383,19 @@ async function send() {
       {
         onTurnStart: () => {
           current = null
+          thinking = null
+        },
+        onThinking: (delta) => {
+          if (!live()) return
+          if (!thinking) {
+            items.value.push({ kind: 'thinking', text: '', open: false })
+            thinking = items.value[items.value.length - 1] as Extract<Item, { kind: 'thinking' }>
+          }
+          thinking.text += delta
         },
         onText: (delta) => {
           if (!live()) return
+          thinking = null
           if (!current) {
             items.value.push({ kind: 'assistant', text: '' })
             current = items.value[items.value.length - 1] as Extract<Item, { kind: 'assistant' }>
@@ -393,10 +406,12 @@ async function send() {
         onUsage: (turn) => (usage.value = addUsage(usage.value, turn)),
         onToolStart: (call) => {
           current = null
-          // ask_user: its card is the step; the scout and scraper: their approval card, then their run.
+          thinking = null
+          // The scout and scraper: their approval card, then their run card, are the step. ask_user gets a step
+          // too (what it sent, in full), above its card.
           // What a question card was sent, in the log (View logs): a card that arrives emptier than the assistant meant is found here.
           if (call.name === 'ask_user') logDebug(`ask_user input: ${JSON.stringify(call.input).slice(0, 4000)}`)
-          if (!live() || call.name === 'ask_user' || call.name === 'send_scout' || call.name === 'send_scraper') return
+          if (!live() || call.name === 'send_scout' || call.name === 'send_scraper') return
           items.value.push({ kind: 'tool', call, state: 'running', summary: '', open: false })
         },
         onToolEnd: (call, out: ToolOutcome) => {
@@ -474,6 +489,11 @@ function onKey(e: KeyboardEvent) {
 function format(text: string): string {
   const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return esc.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/`([^`\n]+)`/g, '<code>$1</code>')
+}
+/** A reasoning step's one-line summary: its first line, cut short. */
+const firstLine = (text: string) => {
+  const line = text.trim().split('\n')[0].replace(/\*\*/g, '')
+  return line.length > 80 ? `${line.slice(0, 80)}…` : line
 }
 const toolInput = (call: ToolCall) => JSON.stringify(call.input, null, 2)
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
@@ -568,6 +588,16 @@ const usageText = computed(() => {
           <div v-if="it.open" class="detail">
             <pre>{{ toolInput(it.call) }}</pre>
             <pre v-if="it.result">{{ it.result.length > 4000 ? `${it.result.slice(0, 4000)}…` : it.result }}</pre>
+          </div>
+        </div>
+        <div v-else-if="it.kind === 'thinking'" class="tool thinking" data-testid="agent.reasoning">
+          <button class="tool-line" :aria-expanded="it.open" @click="it.open = !it.open">
+            <span class="dot" aria-hidden="true">💭</span>
+            <span class="name">Reasoning</span>
+            <span class="sum">{{ firstLine(it.text) }}</span>
+          </button>
+          <div v-if="it.open" class="detail">
+            <p class="reasoning">{{ it.text }}</p>
           </div>
         </div>
         <AskCard v-else-if="it.kind === 'ask'" :form="it.form" :answer="it.answer" @answer="(a) => answerPending?.(a)" />
@@ -1010,6 +1040,12 @@ footer textarea {
   align-items: center;
   justify-content: flex-end;
   gap: 0.4rem;
+}
+.reasoning {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
 }
 .usage {
   margin-right: auto;

@@ -103,11 +103,14 @@ class ClaudeSession implements ChatSession {
           tools: this.tools,
           messages: this.history,
           cache_control: { type: 'ephemeral' },
+          // Thinking is on by default on these models but its text is omitted; a summary is shown in the chat (Reasoning).
+          thinking: { type: 'adaptive', display: 'summarized' },
           ...(SERVER_FALLBACK.has(this.model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
         },
         { signal },
       )
       let turnText = ''
+      stream.on('thinking', (delta) => events.onThinking?.(delta))
       stream.on('text', (delta) => {
         turnText += delta
         events.onText?.(delta)

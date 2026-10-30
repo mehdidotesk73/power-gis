@@ -9,10 +9,16 @@ import { account, closeDevices, device, PHONE, reload, signIn } from './helpers'
 test.afterEach(closeDevices)
 
 /** A model turn as the Messages API streams it: optional text, then optional tool calls. */
-function turn(o: { text?: string; tools?: { name: string; input: object }[] }): string {
+function turn(o: { thinking?: string; text?: string; tools?: { name: string; input: object }[] }): string {
   const ev = (type: string, data: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
   let out = ev('message_start', { message: { id: 'msg', type: 'message', role: 'assistant', model: 'fake', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } })
   let i = 0
+  if (o.thinking) {
+    out += ev('content_block_start', { index: i, content_block: { type: 'thinking', thinking: '', signature: '' } })
+    out += ev('content_block_delta', { index: i, delta: { type: 'thinking_delta', thinking: o.thinking } })
+    out += ev('content_block_delta', { index: i, delta: { type: 'signature_delta', signature: 'sig' } })
+    out += ev('content_block_stop', { index: i++ })
+  }
   if (o.text) {
     out += ev('content_block_start', { index: i, content_block: { type: 'text', text: '' } })
     out += ev('content_block_delta', { index: i, delta: { type: 'text_delta', text: o.text } })
@@ -61,6 +67,7 @@ test('the assistant asks with a form: choices, its own answer, a drafted plan, a
     page,
     [
       {
+        thinking: 'The user wants a map of income.\nCheck which years the workspace has first.',
         text: 'Your workspace has county income for 2022 only.',
         tools: [
           {
@@ -95,6 +102,14 @@ test('the assistant asks with a form: choices, its own answer, a drafted plan, a
   await askCard.getByTestId('ask.button-0').click()
 
   await expect(page.getByText('Building it now.')).toBeVisible()
+  // Its reasoning, folded to its first line; and the question it sent, as a step showing its input.
+  const reasoning = page.getByTestId('agent.reasoning')
+  await expect(reasoning).toContainText('The user wants a map of income.')
+  await reasoning.getByRole('button').click()
+  await expect(reasoning).toContainText('Check which years the workspace has first.')
+  const step = page.locator('.tool', { hasText: 'Ask you' })
+  await step.getByRole('button').click()
+  await expect(step).toContainText('"question": "Which years should the map cover?"')
   expect(lastToolResult(seen)).toEqual({ button: 'Build it', values: { years: ['2022', '2023', '2019'], level: ['State'], plan: 'Clean the income table, then map it by state.' } })
   await expect(askCard.getByText('✓ Build it')).toBeVisible()
 })

@@ -14,6 +14,7 @@ export interface ToolOutcome {
 
 export interface LoopEvents {
   onText?(delta: string): void
+  onThinking?(delta: string): void
   /** A new assistant message starts (after tool results, the model writes again). */
   onTurnStart?(): void
   onToolStart?(call: ToolCall): void
@@ -72,7 +73,7 @@ export async function runAgent(
   for (let step = 0; step < MAX_STEPS; step++) {
     if (signal?.aborted) return { end: 'stopped', usage }
     events.onTurnStart?.()
-    const turn = await untilStopped(session.send(input, { onText: events.onText }, signal), signal)
+    const turn = await untilStopped(session.send(input, { onText: events.onText, onThinking: events.onThinking }, signal), signal)
     usage = addUsage(usage, turn.usage)
     events.onUsage?.(turn.usage)
     if (turn.stop !== 'tools') return { end: turn.stop, usage }
