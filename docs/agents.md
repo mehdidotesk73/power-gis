@@ -313,7 +313,11 @@ $0.03, a sound report but layouts guessed from file names — so the scout now *
 file under ~20 MB and reads only sheets, headers and the first rows; PDFs: pages and where tables are).
 Scraper (Zillow + Census) 86 s, $0.02: when the Census API turned out to need a key it found the
 bulk Summary File itself, said so, and flagged the -666666666 sentinel and Connecticut's mismatched
-counties; the CSVs imported fine. Not yet exercised: Excel, PDF tables, the headless-browser rung.
+counties; the CSVs imported fine. Second scraper run (Excel + PDF + a JavaScript page) 203 s, $0.02:
+Excel and the PDF earnings table worked (it caught its own wrong page match); the headless browser ran,
+but Chromium rejects the container's re-signed TLS certificates, and the agent's attempt to turn
+certificate checks off was refused (rightly). The prompts now have it import the CA bundle Python
+trusts into Chromium's NSS database first, checks kept on.
 
 ## Next: scouting and scraping
 
