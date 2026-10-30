@@ -333,6 +333,9 @@ Two additions from reviewing it here, beyond what the originating project report
 - Signed in, the workspace has a **fingerprint** (SHA-256 of its setup) on the device and in the account; the
   Workspace panel shows ↑ / ↓ / ↑↓ like datasets, and asks which to keep when both changed. Save checks the account
   first and never replaces another device's newer save. Replaces the "seen" / "pending" flags.
+- **✎ tools**: Select, Delete, ↶, ↷ moved into one floating menu in the graph's corner (and at the top of the list
+  view); the list view picks too (Ctrl/⌘- or Shift-click, or Select then taps; any mix of datasets, transforms and
+  visualizations) and Delete removes them all, with undo.
 - UI tests: two devices change the workspace (the second is asked, then opens the account's; a lone change goes
   up and the other device opens it); the sample workspace pipeline opens from the panel.
 

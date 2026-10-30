@@ -410,11 +410,13 @@ whatever they're actually asking about.
   draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
   same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in
   the lists (only new transforms / visualizations open straight into their editors).
-  **Several at once**: Ctrl/⌘- or Shift-click picks nodes (phones: **Select**, then taps; dashed red outline),
+  **Several at once** (graph **and lists**, one selection: `components/selection.ts`, keys `ds:` / `tr:` / `viz:`; list cards via
+  `ObjectList`'s `markKey`): Ctrl/⌘- or Shift-click picks nodes or cards (phones: the **✎ tools** menu's **Select**, then taps; dashed red outline),
   **Delete** (key or button) takes them out of the workspace — `removeItems` (`lib/workspace/workspace.ts`):
   visualizations, transforms, then datasets; a dataset a remaining transform reads or writes is kept, with why;
   data is never erased. **Undo / redo** (`lib/workspace/history.ts`, `History`): every change to the working copy
-  is a step (quick ones merged, 100 kept); Ctrl/⌘+Z, Shift+Ctrl/⌘+Z or Ctrl+Y, and **↶ ↷** beside List | Graph;
+  is a step (quick ones merged, 100 kept); Ctrl/⌘+Z, Shift+Ctrl/⌘+Z or Ctrl+Y, and **↶ ↷** in the **✎ tools** (`components/EditTools.vue`: one ✎ button floating in the graph's top-left corner and
+  sticky at the top of the list view, opening to Select · Delete · ↶ · ↷ · ✕; open while something is picked);
   not while typing in a field; loading another workspace starts afresh, saving doesn't, Discard is a step;
   the app's bookkeeping (`quietly`) isn't a step. The draft only: runs and deleted data aren't undone.
   **＋ Dataset**: the add-dataset form under the graph (the new dataset's node then opens);

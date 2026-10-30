@@ -8,6 +8,8 @@
 // visualization list draws on top. The starting workspace comes from a
 // default folder's workspace file (defaults/<folder>/workspace.powergis.json): built-in datasets,
 // transforms and visualizations — nothing here knows what they hold.
+import EditTools from './EditTools.vue'
+import { provideSelection } from './selection'
 import UiButton from './ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { copyPng } from './dag/graphImage'
@@ -199,8 +201,8 @@ function onUndoKeys(e: KeyboardEvent) {
   if (el?.closest('input, textarea, select, [contenteditable="true"], .cm-editor')) return
   const k = e.key.toLowerCase()
   if ((e.key === 'Delete' || e.key === 'Backspace') === false && (!(e.ctrlKey || e.metaKey) || e.altKey)) return
-  if ((e.key === 'Delete' || e.key === 'Backspace') && !e.ctrlKey && !e.metaKey && view.value === 'graph') {
-    const keys = marked.value.length ? marked.value : dagKey.value ? [dagKey.value] : []
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !e.ctrlKey && !e.metaKey) {
+    const keys = marked.value.length ? marked.value : view.value === 'graph' && dagKey.value ? [dagKey.value] : []
     if (keys.length) {
       e.preventDefault()
       deleteFromGraph(keys)
@@ -749,9 +751,24 @@ const dag = computed(() => {
 const dagKey = ref<string | null>(null)
 /** Graph items picked to delete together (Ctrl/⌘- or Shift-click; Select on phones). */
 const marked = ref<string[]>([])
+/** Phones: taps pick instead of opening (the tools menu's Select). */
+const selecting = ref(false)
+/** Select on or off (Done drops the picks). */
+function setSelecting(on: boolean) {
+  selecting.value = on
+  if (!on) marked.value = []
+}
+provideSelection({
+  selecting,
+  marked,
+  toggle: (key) => {
+    marked.value = marked.value.includes(key) ? marked.value.filter((k) => k !== key) : [...marked.value, key]
+    deleteNote.value = ''
+  },
+})
 /** What the last graph Delete did, shown under its bar. */
 const deleteNote = ref('')
-/** Takes the picked graph items out of the workspace (never deletes data); Ctrl/⌘+Z brings them back. */
+/** Takes the picked items (graph or lists) out of the workspace (never deletes data); Ctrl/⌘+Z brings them back. */
 function deleteFromGraph(keys: string[]) {
   const r = removeItems(doc.value, keys, (id) => records.value.get(id)?.name ?? id)
   if (r.removed.length) doc.value = r.doc
@@ -1515,10 +1532,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
         <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
       </div>
-      <span class="history" role="group" aria-label="Undo and redo">
-        <UiButton size="compact" icon="↶" data-testid="undo" :disabled="!canUndo" aria-label="Undo" title="Undo (Ctrl/⌘+Z)" @click="undo" />
-        <UiButton size="compact" icon="↷" data-testid="redo" :disabled="!canRedo" aria-label="Redo" title="Redo (Shift+Ctrl/⌘+Z)" @click="redo" />
-      </span>
       <UiButton
         class="pop-btn"
         :icon="mode === 'setup' ? '✕' : '⤢'"
@@ -1583,19 +1596,30 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           <DagView
             :dag="dag"
             :selected="dagKey"
-            :marked="marked"
             :note="deleteNote"
             :stale-count="staleOrder.length"
             :stale-progress="staleProgress"
             :adding="canAdd"
             @select="openNode"
-            @mark="(keys: string[]) => ((marked = keys), (deleteNote = ''))"
-            @delete="deleteFromGraph"
             @new-transform="newTransformFrom"
             @new-viz="newVizFor"
             @new-dataset="newDataset"
             @run-stale="runAllStale"
-          />
+          >
+            <template #tools>
+            <EditTools
+              :selecting="selecting"
+              :count="marked.length"
+              :can-undo="canUndo"
+              :can-redo="canRedo"
+              @select="setSelecting"
+              @clear="marked = []"
+              @delete="deleteFromGraph([...marked])"
+              @undo="undo"
+              @redo="redo"
+            />
+            </template>
+          </DagView>
         </section>
         <Teleport defer :to="`#${DETAIL_ID}`">
         <section v-if="dagNode || dagNewViz || dagNewDataset" v-reveal.late="dagKey ?? (dagNewViz ? `new-viz:${dagNewViz}` : 'new-dataset')" class="box dag-detail">
@@ -1668,6 +1692,21 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       </template>
 
       <template v-else>
+        <div class="list-tools">
+          <EditTools
+              :selecting="selecting"
+              :count="marked.length"
+              :can-undo="canUndo"
+              :can-redo="canRedo"
+              @select="setSelecting"
+              @clear="marked = []"
+              @delete="deleteFromGraph([...marked])"
+              @undo="undo"
+              @redo="redo"
+            />
+          <p v-if="deleteNote" class="stale-msg" role="status">{{ deleteNote }}</p>
+          <p v-else-if="selecting" class="muted small">Tap the cards to pick them (any kind), then Delete.</p>
+        </div>
         <details class="box">
           <summary>Visualizations</summary>
           <VisualizationList
@@ -2161,16 +2200,6 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   font-size: 0.74rem;
   white-space: nowrap;
 }
-.view-row .history {
-  display: flex;
-  gap: 0.2rem;
-}
-.view-row .history :deep(button) {
-  height: auto;
-  min-height: 0;
-  width: 2rem;
-  aspect-ratio: auto;
-}
 .pop-btn {
   /* as tall as the List | Graph switch beside it; a fixed width (a stretched height can't drive aspect-ratio) */
   height: auto;
@@ -2277,6 +2306,15 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 }
 .box[open] summary {
   margin-bottom: 0.45rem;
+}
+.list-tools {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  justify-items: end;
+  gap: 0.25rem;
+  margin-bottom: 0.4rem;
 }
 .stale-row {
   display: flex;

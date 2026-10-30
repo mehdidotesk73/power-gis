@@ -1,7 +1,7 @@
 // Graph multi-select, Delete (out of the workspace, never the data) and undo / redo; copying the map
 // as a picture.
 import { expect, test, type Page } from '@playwright/test'
-import { closeDevices, device, setUpStateIncome } from './helpers'
+import { card, closeDevices, device, listPanel, setUpStateIncome } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -17,7 +17,8 @@ test('picks several graph nodes, deletes them, and brings them back with undo', 
   // Ctrl/⌘-click picks; Delete takes them out of the workspace.
   await node(page, 'viz', VIZ).click({ modifiers: ['ControlOrMeta'] })
   await node(page, 'transform', MAP_STEP).click({ modifiers: ['ControlOrMeta'] })
-  await expect(page.getByTestId('graph.picks')).toContainText('2 selected')
+  // The tools open in the graph's corner while something is picked.
+  await expect(page.getByTestId('tools.delete')).toHaveText('Delete 2')
   await page.keyboard.press('Delete')
   await expect(node(page, 'viz', VIZ)).toHaveCount(0)
   await expect(node(page, 'transform', MAP_STEP)).toHaveCount(0)
@@ -29,15 +30,47 @@ test('picks several graph nodes, deletes them, and brings them back with undo', 
   await expect(node(page, 'transform', MAP_STEP)).toHaveCount(1)
   await page.keyboard.press('ControlOrMeta+Shift+z')
   await expect(node(page, 'viz', VIZ)).toHaveCount(0)
+  await page.getByTestId('tools.open').click()
   await page.getByTestId('undo').click()
   await expect(node(page, 'viz', VIZ)).toHaveCount(1)
 
   // Select (for phones), then Delete: a dataset a remaining transform still reads stays, with why.
-  await page.getByTestId('graph.select').click()
+  await page.getByTestId('tools.select').click()
   await node(page, 'dataset', 'county_income').first().click()
-  await page.getByTestId('graph.delete').click()
+  await page.getByTestId('tools.delete').click()
   await expect(page.getByText(/Kept “county_income”: transform "1 Clean county income" reads it/)).toBeVisible()
   await expect(node(page, 'dataset', 'county_income')).toHaveCount(1)
+})
+
+test('the list view picks several items of any kind, deletes them, and undo brings them back', async ({ browser }) => {
+  const page = await device(browser)
+  await setUpStateIncome(page)
+  await page.getByRole('button', { name: 'List', exact: true }).click()
+
+  // Ctrl/⌘-click a visualization and a transform; Delete takes both out.
+  await listPanel(page, 'Visualizations')
+  await card(page, 'viz', VIZ).click({ modifiers: ['ControlOrMeta'] })
+  await listPanel(page, 'Transforms')
+  await card(page, 'transform', MAP_STEP).click({ modifiers: ['ControlOrMeta'] })
+  await expect(page.getByTestId('tools.delete')).toHaveText('Delete 2')
+  await page.keyboard.press('Delete')
+  await expect(page.getByText(/Removed 2 from the workspace/)).toBeVisible()
+  await expect(page.locator(`[data-testid="viz-card"][data-name="${VIZ}"]`)).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+z')
+  await expect(page.locator(`[data-testid="viz-card"][data-name="${VIZ}"]`)).toHaveCount(1)
+
+  // On a phone: the tools' Select, then taps; Delete, then ↷ / ↶ in the same menu.
+  await page.getByTestId('tools.open').click()
+  await page.getByTestId('tools.select').click()
+  await listPanel(page, 'Transforms')
+  await card(page, 'transform', MAP_STEP).click()
+  await expect(card(page, 'transform', MAP_STEP)).toHaveAttribute('aria-selected', 'true')
+  await page.getByTestId('tools.delete').click()
+  await expect(page.locator(`[data-testid="transform-card"][data-name="${MAP_STEP}"]`)).toHaveCount(0)
+  await page.getByTestId('undo').click()
+  await expect(page.locator(`[data-testid="transform-card"][data-name="${MAP_STEP}"]`)).toHaveCount(1)
+  await page.getByTestId('tools.close').click()
+  await expect(page.getByTestId('tools.open')).toBeVisible()
 })
 
 test('copies the map, with its legend, as a picture', async ({ browser, baseURL }) => {

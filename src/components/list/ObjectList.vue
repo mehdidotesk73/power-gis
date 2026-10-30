@@ -9,6 +9,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useDragReorder } from './useDragReorder'
 import { useLongPress } from './useLongPress'
 import { useDoubleTap } from './useDoubleTap'
+import { picks, useSelection } from '../selection'
 
 export interface ObjectAction {
   id: string
@@ -35,6 +36,8 @@ const props = withDefaults(
     hint?: string
     /** Stable test keys: cards are `<testKind>-card` with `data-name` = their label; menu items `menu.<action id>`. */
     testKind?: string
+    /** The item's key in the page's selection (`ds:` / `tr:` / `viz:` + id): its cards can be picked to delete together. */
+    markKey?: (item: T) => string
   }>(),
   { reorderable: false, reorderHint: 'Drag ≡ to reorder', itemLabel: () => 'Item', hint: 'Tap and hold for options.' },
 )
@@ -126,8 +129,15 @@ onBeforeUnmount(() => listen(false))
 // Clicks on controls and inside editors (marked data-no-open) don't count.
 const NOT_OPEN = 'input, textarea, select, button, a, .handle, [data-no-open]'
 const isDouble = useDoubleTap()
+const selection = useSelection()
+const isMarked = (item: T) => !!props.markKey && !!selection?.marked.value.includes(props.markKey(item))
 function onCardClick(e: MouseEvent, item: T) {
   if (reordering.value || menuFor.value || (e.target as HTMLElement).closest(NOT_OPEN)) return
+  // Select mode, or Ctrl/⌘- or Shift-click: the card is picked (or unpicked), nothing opens.
+  if (props.markKey && picks(selection, e)) {
+    e.preventDefault()
+    return selection!.toggle(props.markKey(item))
+  }
   if (isDouble(props.itemKey(item))) emit('open', item)
 }
 
@@ -149,7 +159,8 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
         :data-testid="testKind ? `${testKind}-card` : undefined"
         :data-name="itemLabel(item)"
         class="card"
-        :class="{ dragging: dragging === itemKey(item), held: menuFor === itemKey(item) }"
+        :class="{ dragging: dragging === itemKey(item), held: menuFor === itemKey(item), marked: isMarked(item) }"
+        :aria-selected="markKey ? isMarked(item) : undefined"
         v-on="holdHandlers(itemKey(item))"
         @click="onCardClick($event, item)"
       >
@@ -212,6 +223,10 @@ defineExpose({ reorder: () => canReorder.value && (reordering.value = true) })
   -webkit-user-select: none;
   user-select: none;
   touch-action: pan-y;
+}
+.card.marked {
+  outline: 2px dashed var(--danger, #e5484d);
+  outline-offset: 2px;
 }
 .card.held {
   border-color: var(--accent-blue);
