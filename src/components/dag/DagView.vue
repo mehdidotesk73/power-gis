@@ -46,14 +46,26 @@ function readDirection(): DagDirection {
   }
 }
 const direction = ref<DagDirection>(readDirection())
-function flip() {
-  direction.value = direction.value === 'vertical' ? 'horizontal' : 'vertical'
+function setDirection(d: DagDirection) {
+  direction.value = d
+  layoutOpen.value = false
   try {
-    localStorage.setItem(DIRECTION, direction.value)
+    localStorage.setItem(DIRECTION, d)
   } catch {
     /* per-device convenience only */
   }
 }
+/** The layout menu (under ✎ in the graph's corner): open, it lists the layouts; any tap elsewhere closes it. */
+const layoutOpen = ref(false)
+const LAYOUTS: { id: DagDirection; icon: string; label: string }[] = [
+  { id: 'vertical', icon: '↓', label: 'Top to bottom' },
+  { id: 'horizontal', icon: '→', label: 'Left to right' },
+]
+const closeLayout = (e: PointerEvent) => {
+  if (!(e.target as HTMLElement | null)?.closest('.layout-menu')) layoutOpen.value = false
+}
+watch(layoutOpen, (on) => (on ? document.addEventListener('pointerdown', closeLayout, true) : document.removeEventListener('pointerdown', closeLayout, true)))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeLayout, true))
 
 const layout = computed(() => layoutDag(props.dag, direction.value))
 
@@ -197,14 +209,6 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
       >
         Run all stale ({{ staleCount }})
       </UiButton>
-      <button
-        class="flip"
-        :title="direction === 'vertical' ? 'Flowing down — switch to left to right' : 'Flowing right — switch to top to bottom'"
-        :aria-label="direction === 'vertical' ? 'Lay out left to right' : 'Lay out top to bottom'"
-        @click="flip"
-      >
-        {{ direction === 'vertical' ? '↓' : '→' }}
-      </button>
     </div>
     <p v-if="!mode && note" class="stale-msg" role="status">{{ note }}</p>
     <p v-if="!mode && staleProgress" class="stale-msg" role="status">{{ staleProgress.text }}</p>
@@ -258,7 +262,35 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
           <span class="detail">{{ n.detail }}</span>
         </button>
       </div>
-      <div v-if="!mode" class="corner-tools"><slot name="tools" /></div>
+      <div v-if="!mode" class="corner-tools">
+        <slot name="tools" />
+        <div class="layout-menu" @pointerdown.stop @touchstart.stop>
+          <UiButton
+            data-testid="graph.layout"
+            size="compact"
+            :icon="LAYOUTS.find((l) => l.id === direction)!.icon"
+            :active="layoutOpen"
+            :aria-expanded="layoutOpen"
+            aria-haspopup="menu"
+            aria-label="Layout"
+            title="Layout"
+            @click="layoutOpen = !layoutOpen"
+          />
+          <div v-if="layoutOpen" class="layouts" role="menu" aria-label="Layouts">
+            <button
+              v-for="l in LAYOUTS"
+              :key="l.id"
+              role="menuitemradio"
+              :aria-checked="direction === l.id"
+              :data-testid="`graph.layout.${l.id}`"
+              :class="{ on: direction === l.id }"
+              @click="setDirection(l.id)"
+            >
+              <span class="li" aria-hidden="true">{{ l.icon }}</span>{{ l.label }}
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="zoom" @pointerdown.stop @touchstart.stop>
         <UiButton size="compact" icon="＋" aria-label="Zoom in" title="Zoom in" @click="zoomBy(1.25)" />
         <UiButton size="compact" icon="−" aria-label="Zoom out" title="Zoom out" @click="zoomBy(0.8)" />
@@ -293,17 +325,6 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   margin: 0;
   font-size: 0.74rem;
   color: var(--text-muted);
-}
-.flip {
-  margin-left: auto;
-  width: 1.6rem;
-  height: 1.6rem;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  background: var(--bg-elev-2);
-  color: var(--text);
-  font-size: 0.8rem;
-  line-height: 1;
 }
 .banner {
   justify-content: space-between;
@@ -366,6 +387,44 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
   left: 6px;
   top: 6px;
   max-width: calc(100% - 12px);
+  display: grid;
+  justify-items: start;
+  gap: 0.3rem;
+}
+.layout-menu {
+  display: grid;
+  justify-items: start;
+  gap: 0.25rem;
+  cursor: default;
+}
+.layouts {
+  display: grid;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-elev) 96%, transparent);
+  box-shadow: var(--shadow);
+}
+.layouts button {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.layouts button.on {
+  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
+}
+.layouts .li {
+  width: 1rem;
+  text-align: center;
 }
 .zoom {
   position: absolute;

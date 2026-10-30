@@ -1,7 +1,7 @@
 // The graph: Copy as image puts a PNG of what the graph's window shows (as panned and zoomed) on the
 // clipboard.
 import { expect, test } from '@playwright/test'
-import { closeDevices, closeWorkspacePanel, device, startSmall } from './helpers'
+import { closeDevices, closeWorkspacePanel, device, setUpStateIncome, startSmall } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -23,4 +23,27 @@ test('copies what the graph shows as a picture', async ({ browser, baseURL }) =>
   expect(size.w).toBeGreaterThanOrEqual(box.w * 2 - 1)
   expect(size.h).toBeGreaterThanOrEqual(box.h * 2 - 1)
   expect(size.w / size.h).toBeCloseTo(box.w / box.h, 1)
+})
+
+test('the layout menu: pick a layout and the graph turns; a tap elsewhere closes the menu', async ({ browser }) => {
+  const page = await device(browser)
+  await setUpStateIncome(page)
+  await page.getByRole('button', { name: 'Graph', exact: true }).click()
+  const node = (name: string) => page.locator(`[data-testid="node.dataset"][data-name="${name}"]`)
+  const pos = async (name: string) => (await node(name).boundingBox())!
+  // Top to bottom: a transform's output sits below its input.
+  expect((await pos('State income')).y).toBeGreaterThan((await pos('Clean county income')).y + 20)
+
+  await page.getByTestId('graph.layout').click()
+  await expect(page.getByTestId('graph.layout.horizontal')).toBeVisible()
+  await page.getByTestId('graph.layout.horizontal').click()
+  await expect(page.getByTestId('graph.layout.horizontal')).toHaveCount(0) // closed again
+  await expect.poll(async () => (await pos('State income')).x - (await pos('Clean county income')).x).toBeGreaterThan(20)
+
+  // Open, then a tap elsewhere: closed, nothing changed.
+  await page.getByTestId('graph.layout').click()
+  await expect(page.getByTestId('graph.layout.vertical')).toBeVisible()
+  await page.locator('.dag .hint').click()
+  await expect(page.getByTestId('graph.layout.vertical')).toHaveCount(0)
+  expect((await pos('State income')).x).toBeGreaterThan((await pos('Clean county income')).x + 20)
 })

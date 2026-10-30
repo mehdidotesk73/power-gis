@@ -398,8 +398,10 @@ whatever they're actually asking about.
   nodes (`ds:` / `tr:` / `viz:` keys) and edges; rows by depth (a transform one row below its deepest
   input, its output below it, every visualization in the bottom row); `orderLayers` minimizes arrow
   crossings (virtual points for row-skipping edges, `edge.via`; barycenter sweeps + swaps);
-  `layoutDag(dag, 'vertical' | 'horizontal')` places them and `edgePath` draws edges (automatic;
-  only the ↓ / → direction is remembered per device, `powergis.dagDirection`). The graph **pans and
+  `layoutDag(dag, 'vertical' | 'horizontal')` places them — each node lined up with the weighted median of its
+  neighbours (passing arrows weigh most), sweeps down and up, so arrows run mostly straight along the flow — and
+  `edgePath` draws edges. The **layout menu** (a button under ✎ in the graph's corner, dropping down Top to bottom /
+  Left to right; any tap elsewhere closes it) picks the direction, remembered per device (`powergis.dagDirection`). The graph **pans and
   zooms** (`dag/usePanZoom.ts` + `lib/panZoom.ts`): drag; Shift + wheel or pinch; on phones
   touch-and-hold then drag, two-finger pinch (one finger still scrolls the page). Opens fitted. **⧉ Copy as image** (in the zoom buttons): `dag/graphImage.ts` draws what the window shows (pan + zoom) on a canvas from the layout and page tokens (no DOM screenshot), at 2× or more; the clipboard write starts inside the tap with the PNG still being drawn (iOS), else it downloads `graph.png`. Dataset nodes carry a **store dot** before DATASET (violet = cloud, gray = this device; a yellow
   ring = an output out of date or not made yet: `DagNode.store` / `pending`). Transforms show **not run yet** (no

@@ -91,7 +91,28 @@ describe('workspace DAG', () => {
     expect(() => buildDag(loop, (id) => records[id])).not.toThrow()
   })
 
-  it('lays rows out centered, widest row setting the width', () => {
+  it('keeps arrows straight along the flow: a chain lines up, and nodes in a row never overlap', () => {
+    const d: WorkspaceDoc = {
+      name: 'x',
+      datasetIds: ['a', 'b', 'c', 'd', 'o'],
+      visualizations: [viz('vo', 'o')],
+      transforms: [{ id: 't', name: 't', inputs: [{ datasetId: 'd', alias: 'd' }], outputs: [{ key: 'k', name: 'o', sql: '', outputId: 'o' }] }],
+    }
+    const recs = (id: string): DagDataset => ({ name: id, rowCount: 1, updatedAt: '2026-01-01T00:00:00Z' })
+    const dag = buildDag(d, recs)
+    for (const dir of ['vertical', 'horizontal'] as const) {
+      const l = layoutDag(dag, dir)
+      const across = (k: string) => (dir === 'vertical' ? l.at.get(k)!.x : l.at.get(k)!.y)
+      // d → t → o → vo: one straight line, though d is the last of four datasets.
+      expect(new Set(['ds:d', 'tr:t', 'ds:o', 'viz:vo'].map(across)).size).toBe(1)
+      for (const layer of dag.layers) {
+        const xs = layer.filter((k) => l.at.has(k)).map(across).sort((p, q) => p - q)
+        for (let i = 1; i < xs.length; i++) expect(xs[i] - xs[i - 1]).toBeGreaterThanOrEqual((dir === 'vertical' ? NODE_W : NODE_H) + 12)
+      }
+    }
+  })
+
+  it('lays rows out with the widest row setting the width', () => {
     const dag = buildDag(doc, (id) => records[id])
     const l = layoutDag(dag)
     expect(l.width).toBeGreaterThanOrEqual(4 * NODE_W) // four datasets in row 0

@@ -341,6 +341,10 @@ Two additions from reviewing it here, beyond what the originating project report
   under the drag tab. ＋ Dataset: CSV, GeoJSON / Esri and ArcGIS URL are one **Upload** source with a choice inside, and Saved and Cloud one
   **Library** (on this device / in your account).
   First UI tests for GeoJSON files and ArcGIS URLs (a faked FeatureServer).
+- **Graph layout**: rows were each centered, so arrows fanned into a narrow middle and out again. Now each node lines
+  up with the median of its neighbours (sweeps down and up; passing arrows weigh most): on the sample workspace 73 of
+  95 arrow segments run straight (was 44), at the cost of a wider graph (Fit shows it whole). Averaging instead of the
+  median brought arrows closer but straightened fewer (23). ↓ / → became a **layout menu** under ✎.
 - UI tests: two devices change the workspace (the second is asked, then opens the account's; a lone change goes
   up and the other device opens it); the sample workspace pipeline opens from the panel.
 
