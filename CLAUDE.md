@@ -40,13 +40,15 @@ UI structure — one page, the **Map**:
   - **Hover tooltip**, **click → feature panel** (the visualizations' values plus the rows behind
     the feature), **legend**.
 - **Default map**: a county socioeconomic score (income, education, health insurance, housing
-  affordability) with area-weighted state averages, built like any user's map: built-in datasets (six
-  ACS county tables + US counties / states polygons), ten SQL transforms in stages (clean → join →
+  affordability) with area-weighted state averages, built like any user's map: six ACS county **sample**
+  tables + the **built-in** US counties / states polygons, ten SQL transforms in stages (clean → join →
   metrics → state averages → state map; 1e uses the spatial extension for county land area) and twelve
   visualizations (the county score shows first), from the **default folder** `defaults/socioeconomic/`.
-  **Default folders** (`defaults/<folder>/`: `folder.json` listing its tables, their CSVs,
+  **Built-ins** are geographic only (`builtins/builtins.json`: US states, US counties); **samples** live in
+  **default folders** (`defaults/<folder>/`: `folder.json` listing its samples, their CSVs,
   `workspace.powergis.json`; `defaults/README.md`): the build ships only the one `defaults/active.json`
-  points at — its tables are the built-ins, its workspace the default map. (The EIA utilities map it
+  points at — its samples (＋ Dataset → Samples) and its workspace, the default map. The assistant sees built-ins,
+  never samples the user hasn't added. (The EIA utilities map it
   replaced was removed with its data; it may come back as a folder built in the app.)
 
 The entire app is wrapped inside a header and footer. The header provides the app title, a **☰ menu** (outlined green while signed in, and its account item's ◉ green; **Sign in** / your name, which opens the account window — signing in closes it; Help, which opens the conceptual-docs modal, and on touch devices **Desktop view / Phone view**), and an "Update available" affordance that surfaces when a newer PWA build is live. The footer (one row, small type) provides the current build id/timestamp, version-check status against the live origin, a "Reload latest" button to force-refresh a stale cache, and a collapsible debug log with copy-to-clipboard support. See `docs/system-design.md` §2 for the full wrapper template and implementation details.
@@ -113,7 +115,7 @@ whatever they're actually asking about.
 
 ## Data
 
-- **ACS county tables** (the default map's data): built-in `county_income`, `county_education`
+- **ACS county tables** (the default map's data): samples `county_income`, `county_education`
   (B15003), `county_health_insurance` (B27010), `county_home_value` (B25077, B25075), `county_rent`
   (B25064, B25063) and `county_columns` (what each column means), CSVs in `defaults/socioeconomic/` (3,222 counties
   incl. Puerto Rico; `GEOID` = county FIPS). The ACS uses Connecticut's nine planning regions, so its
@@ -123,11 +125,12 @@ whatever they're actually asking about.
   npm package (Census 2017, 1:10m) by `lib/data/boundaryTables.ts` in the worker. Region codes in any
   dataset are joined onto them in a transform — there is no region-code binding. EIA-861 still
   reports Connecticut's eight legacy counties, which match us-atlas.
-- **Built-ins** (`shared/builtins.ts`: the active default folder's `folder.json` tables; `DEFAULT_FOLDERS`
-  has every folder's, and `createServer`'s `builtins` env takes another folder's in tests; `vite.config.ts`'s
-  `default-folder` plugin serves / emits that folder's CSVs and workspace at `data/`): uploading one stores a
-  copy marked `extensions.builtin = <table>` and `extensions.version`; **bump `version` (in `folder.json`)
-  when a built-in's columns or contents change**,
+- **Built-ins and samples** (`shared/builtins.ts`: `BUILTIN_TABLES` from `builtins/builtins.json`, geographic;
+  `SAMPLE_TABLES` from the active default folder's `folder.json` `samples`; `KNOWN_TABLES` both, what the server
+  and documents make by name; `DEFAULT_FOLDERS` has every folder's, and `createServer`'s `builtins` env takes
+  others in tests; `vite.config.ts`'s `default-folder` plugin serves / emits that folder's CSVs and workspace at
+  `data/`): uploading one stores a copy marked `extensions.builtin = <table>` and `extensions.version` (documents call
+  both origin `builtin`); **bump `version` (in `builtins.json` / `folder.json`) when a table's columns or contents change**,
   or devices keep reusing their old copy for the default map. **Data-agnostic code**: nothing outside the data files and the default workspace file
   knows what a utility or a county is.
 - **Client / server boundary** (everything runs in the browser today, but split as if it didn't):
@@ -468,6 +471,7 @@ src/
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
     agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)
     account/AccountModal.vue  sign in / create account / reset password / your profile
+builtins/                  builtins.json: the geographic built-ins (US states, US counties; made from us-atlas), README.md
 defaults/                  default folders: active.json (the one this build ships), README.md;
   socioeconomic/           folder.json, county_*.csv (ACS), workspace.powergis.json (the default map)
 supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor;

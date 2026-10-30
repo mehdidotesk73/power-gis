@@ -344,6 +344,10 @@ Two additions from reviewing it here, beyond what the originating project report
   (the scraper now lists its files and the app waits for them); a user visualization dropped by a stale
   workspace file (removal guard); findings lost between briefs; built-ins scraped from the web; a composite
   averaging measures that cover 17 of 51 states; tokens without dollars.
+- **Changed (user):** built-ins are geographic only (`builtins/builtins.json`); the ACS tables are
+  **samples** in the default folder (＋ Dataset → Samples), which the assistant doesn't see until added.
+  Concept-first planning: for a score / index / ranking, the assistant defines what it measures (parts,
+  ideal measures, directions, opposite readings) and has the user approve it before looking for data.
 
 ### Workspace files as a zip — 2026-10-29
 

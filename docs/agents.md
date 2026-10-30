@@ -295,6 +295,11 @@ and the relay at the network (`tests/e2e/assistant.spec.ts`).
 - **Composites:** only measures covering ~90% of rows; others their own layers; common scale, stated
   weights; measures pulling opposite ways (need = demand but worse outcomes) are asked about, not averaged.
 - **Cost:** the usage line shows ≈ $ at list prices (`CLAUDE_MODELS[].price`, `chatCost`), runs included.
+- **Concept first** (user): a score, index, ranking or comparison is defined before data is sought — what it
+  measures, from whose point of view, parts with their ideal measures and directions, opposite readings
+  offered as a choice — and approved on an ask_user card; then each measure is matched to data, proxies named.
+- **Built-ins vs samples** (user): `add_builtin` covers the geographic built-ins only; samples (the ACS
+  county tables) are for the user to add — the assistant sees them only once they're in the database.
 
 Three roles. The **orchestrator** is the in-app assistant: it works out the strategy from the user's
 request, sends the scout or the scraper with a brief, reads what comes back, confirms with the user, and

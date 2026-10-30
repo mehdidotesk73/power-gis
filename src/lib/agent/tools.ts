@@ -89,7 +89,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'list_datasets',
     description:
-      "Every dataset the user can use, including those outside the workspace, local and cloud: id, name, description, store, origin, row count, inWorkspace; and the built-in tables that ship with the app (US state and county boundaries…), under builtins: add one with add_builtin, no web needed. Use it only when the workspace doesn't hold what the request needs, and after asking the user (ask_user) whether to look beyond the workspace.",
+      "Every dataset the user can use, including those outside the workspace, local and cloud: id, name, description, store, origin, row count, inWorkspace; and the built-in geographic tables that ship with the app (US state and county boundaries), under builtins: add one with add_builtin, no web needed. Use it only when the workspace doesn't hold what the request needs, and after asking the user (ask_user) whether to look beyond the workspace.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -133,7 +133,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'add_builtin',
     description:
-      'Add one of the built-in tables (list_datasets → builtins) to the workspace: instant and free, e.g. US state or county boundaries for a map. Returns its dataset id.',
+      'Add one of the built-in geographic tables (list_datasets → builtins: US state or county boundaries) to the workspace: instant and free. Returns its dataset id.',
     inputSchema: { type: 'object', properties: { table: { type: 'string', description: 'The built-in table name, e.g. us_states.' } }, required: ['table'] },
   },
   {

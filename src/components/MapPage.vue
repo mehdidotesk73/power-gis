@@ -38,7 +38,7 @@ import { request } from '../client/api'
 import { auth, syncCloudAuth } from '../client/auth'
 import { readDb } from '../client/db'
 import { listDatasets } from '../client/datasets'
-import { BUILTIN_TABLES } from '../shared/builtins'
+import { BUILTIN_TABLES, SAMPLE_TABLES } from '../shared/builtins'
 import { localSyncState, storeOf, type DatasetRecord, type SyncState, type WorkspaceRecord } from '../shared/records'
 import type { DataRecord } from '../lib/data/connectors'
 import { guessBinding, isSupportedBinding, type GeometryBinding } from '../lib/dataset/binding'
@@ -1279,7 +1279,7 @@ const legend = computed<LegendEntry[]>(() => {
 
 // ── export ─────────────────────────────────────────────────────────────────
 
-const csvTables = BUILTIN_TABLES.filter((t) => t.source === 'csv').map((t) => t.table)
+const csvTables = SAMPLE_TABLES.map((t) => t.table)
 const exportTarget = ref<string | null>(null)
 const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '') ?? rendered.value[0])?.layer ?? null)
 </script>

@@ -10,7 +10,7 @@ import { parseWorkspaceFile, replaceDatasetIds, toWorkspaceFile, type WorkspaceF
 import type { ApiResult } from '../shared/api'
 import type { Access, CloudDataset, CloudStore, CloudWorkspace } from '../shared/cloud'
 import { defaultScalarStyle, settingsOf, makeVisualization, ROWS } from '../lib/dataset/visualization'
-import { DEFAULT_FOLDERS, type BuiltinTable } from '../shared/builtins'
+import { BUILTIN_TABLES, DEFAULT_FOLDERS, type BuiltinTable } from '../shared/builtins'
 
 /** A small join workspace (utilities by county, the default map until 2026-10-29) over tiny made-up tables:
  * it exercises seeding, joins, grouping and exports. Its built-ins are these test tables, not the app's. */
@@ -369,7 +369,7 @@ describe('the default map (the socioeconomic pipeline)', () => {
     const readBuiltin = async (table: string) =>
       table === 'us_counties' ? countyRows(topo('counties-10m.json')) : table === 'us_states' ? stateRows(topo('states-10m.json')) : parseCsv(readFileSync(`${SOCIO}/${table}.csv`, 'utf8'))
     const db = new MemoryDatabase()
-    const server = createServer(db, { builtins: DEFAULT_FOLDERS.socioeconomic.tables, readBuiltin, sql: nodeDuckDb, readDefaultWorkspace: async () => readFileSync(`${SOCIO}/workspace.powergis.json`, 'utf8') })
+    const server = createServer(db, { builtins: [...BUILTIN_TABLES, ...DEFAULT_FOLDERS.socioeconomic.samples], readBuiltin, sql: nodeDuckDb, readDefaultWorkspace: async () => readFileSync(`${SOCIO}/workspace.powergis.json`, 'utf8') })
     data(await server.handle('init', { baseUrl: '/' }))
     const { file, missing, failed } = data(await server.handle('seedDefaultWorkspace', {}))
     // 1e for want of the extension; the five steps after it for want of its output.

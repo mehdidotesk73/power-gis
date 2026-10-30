@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, pointers, replaceDatasetIds, snapshot, toWorkspaceFile } from './file'
 import type { DatasetRecord } from '../../shared/records'
-import { ACTIVE_FOLDER, builtinTable, DEFAULT_FOLDERS } from '../../shared/builtins'
+import { ACTIVE_FOLDER, BUILTIN_TABLES, builtinTable, DEFAULT_FOLDERS } from '../../shared/builtins'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import { workspaceRequires, type WorkspaceDoc } from './workspace'
@@ -156,16 +156,16 @@ describe('the default folders (defaults/<folder>/)', () => {
     expect(ACTIVE_FOLDER.id).toBe('socioeconomic')
   })
 
-  it.each(dirs)('%s: its workspace opens on its own tables, each with its file', (dir) => {
+  it.each(dirs)('%s: its workspace opens on its own samples and the built-ins, each sample with its file', (dir) => {
     const folder = DEFAULT_FOLDERS[dir]
-    const tables = folder.tables.map((t) => t.table)
-    expect(new Set(tables).size, 'table names are unique').toBe(tables.length)
-    for (const t of folder.tables) if (t.source === 'csv') expect(existsSync(`defaults/${dir}/${t.table}.csv`), t.table).toBe(true)
+    const tables = folder.samples.map((t) => t.table)
+    expect(new Set(tables).size, 'sample names are unique').toBe(tables.length)
+    for (const t of folder.samples) expect(existsSync(`defaults/${dir}/${t.table}.csv`), t.table).toBe(true)
     const csvs = readdirSync(`defaults/${dir}`).filter((f) => f.endsWith('.csv')).map((f) => f.slice(0, -4))
     expect(csvs.filter((c) => !tables.includes(c)), 'CSVs no table names').toEqual([])
     const parsed = parseWorkspaceFile(readFileSync(`defaults/${dir}/workspace.powergis.json`, 'utf8'))
     if (!parsed.ok) throw new Error(parsed.error)
-    for (const d of parsed.file.datasets) if (d.origin.kind === 'builtin') expect(builtinTable(d.origin.table, folder.tables), d.origin.table).toBeTruthy()
+    for (const d of parsed.file.datasets) if (d.origin.kind === 'builtin') expect(builtinTable(d.origin.table, [...BUILTIN_TABLES, ...folder.samples]), d.origin.table).toBeTruthy()
     // Every transform input is a dataset of the file; every output is written by exactly one transform.
     const ids = new Set(parsed.file.datasets.map((d) => d.id))
     for (const t of parsed.file.transforms) for (const i of t.inputs) expect(ids.has(i.datasetId), `${t.name} ← ${i.datasetId}`).toBe(true)

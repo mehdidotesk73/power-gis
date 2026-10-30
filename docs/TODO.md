@@ -372,6 +372,14 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 5. Component cleanup: the mini map's ▾ minimize button (looks rough; unify with the button components).
 6. The agent reviewer pass (below) — waits: the agents do well on their own for now.
 
+**Order (user, 2026-10-30):** (1) #42 + built-ins / samples split + concept-first planning; (2) graph
+multi-select, Delete, undo / redo + the map-image function (clipboard now; reviewer and assistant later);
+(3) **profiles** — Quick (all Haiku), Smart scout (Haiku; scout + reviewer Sonnet), Balanced (Sonnet;
+scraper Haiku), Deep research (Sonnet; scout + reviewer Opus; scraper Haiku), Planner (Opus; scout Sonnet;
+scraper Haiku; reviewer Opus), All Sonnet; Custom later; a table of each profile's runs (cost, tokens,
+outcome) updated at each checkpoint summary, to estimate average cost per profile; (4) run records;
+(5) reviewer pass (its profile's model; looks at each visualization as an image); (6) component cleanup.
+
 **Next PR (agreed 2026-10-30):** graph multi-select (Ctrl/⌘ or Shift-click; a Select toggle on phones) and
 Delete (removes from the workspace, never erases data; a Delete button for phones); undo / redo of every
 workspace draft edit (Ctrl/⌘+Z, Shift+Ctrl/⌘+Z, buttons on phones; not while typing; agent edits too;
