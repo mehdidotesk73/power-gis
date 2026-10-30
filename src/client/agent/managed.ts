@@ -1,8 +1,11 @@
 // Scout and scraper sessions on Anthropic Managed Agents (proof of concept).
 // The agent loop runs on Anthropic's side and its tools (bash, Python, web
 // search / fetch) in a container there, so a run doesn't depend on this page
-// staying awake, and nothing goes through a proxy of ours. Called straight from
-// the browser with the user's own key, like the chat (client/agent/claude.ts).
+// staying awake. Those endpoints refuse calls straight from a web page (CORS),
+// so the calls go through our relay, a Supabase Edge Function
+// (supabase/functions/managed-relay) that forwards them with the user's own
+// key and stores nothing. The page polls the session's events (short calls a
+// relay can carry) instead of holding a stream open.
 //
 // Roles (docs/agents.md): the in-app assistant orchestrates; the scout looks
 // around broad and shallow and reports; the scraper follows a precise brief,
@@ -11,6 +14,7 @@
 // points to it). Every run has a hard spending cap (a session budget).
 
 import Anthropic from '@anthropic-ai/sdk'
+import { SUPABASE_KEY, SUPABASE_URL } from '../../shared/supabaseConfig'
 
 export type Role = 'scout' | 'scraper'
 
@@ -48,7 +52,11 @@ const writeStored = (s: Stored) => {
   }
 }
 
-export const client = (apiKey: string) => new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 })
+/** The relay (supabase/functions/managed-relay): the SDK's requests, sent to it instead of api.anthropic.com. */
+export const RELAY_URL = `${SUPABASE_URL}/functions/v1/managed-relay`
+
+export const client = (apiKey: string) =>
+  new Anthropic({ apiKey, baseURL: RELAY_URL, defaultHeaders: { apikey: SUPABASE_KEY }, dangerouslyAllowBrowser: true, maxRetries: 2 })
 
 /**
  * The environment and the role's agent, created once and remembered on this
@@ -124,15 +132,35 @@ export async function runBrief(
 
   let report = ''
   let stop = 'unknown'
-  const stream = await c.beta.sessions.events.stream(session.id)
   await c.beta.sessions.events.send(session.id, { events: [{ type: 'user.message', content: [{ type: 'text', text: opts.brief }] }] })
-  try {
-    loop: for await (const ev of stream) {
-      if (opts.signal?.stopped) {
-        await c.beta.sessions.events.send(session.id, { events: [{ type: 'user.interrupt' }] })
-        stop = 'stopped'
-        break
-      }
+  // New events every few seconds: those at or after the last one seen, minus the ones already handled.
+  const seen = new Set<string>()
+  let since: string | undefined
+  let quiet = 0
+  // An idle status counts only once the agent has started on the brief (a new session may report idle first).
+  let begun = false
+  poll: for (;;) {
+    if (opts.signal?.stopped) {
+      await c.beta.sessions.events.send(session.id, { events: [{ type: 'user.interrupt' }] })
+      stop = 'stopped'
+      break
+    }
+    let page
+    try {
+      page = await c.beta.sessions.events.list(session.id, { order: 'asc', limit: 100, ...(since ? { 'created_at[gte]': since } : {}) })
+    } catch (e) {
+      // A network blip (the phone slept, the network changed): the session carries on; ask again.
+      if (++quiet > 20) throw e
+      opts.onEvent({ kind: 'status', text: `Lost touch (${(e as Error).message}); trying again…` })
+      await pause(5000)
+      continue
+    }
+    quiet = 0
+    for (const ev of page.data) {
+      if (seen.has(ev.id)) continue
+      seen.add(ev.id)
+      since = ev.processed_at ?? since
+      if (ev.type === 'session.status_running' || ev.type.startsWith('agent.')) begun = true
       switch (ev.type) {
         case 'agent.message': {
           const t = textOf(ev.content)
@@ -153,19 +181,17 @@ export async function runBrief(
           break
         case 'session.status_idle': {
           const reason = ev.stop_reason?.type ?? 'end_turn'
-          if (reason === 'requires_action') break // waiting on a confirmation: keep streaming
+          if (!begun || reason === 'requires_action') break // not started yet, or waiting on a confirmation: keep polling
           stop = reason
-          break loop
+          break poll
         }
         case 'session.status_terminated':
           stop = 'terminated'
-          break loop
+          break poll
       }
     }
-  } catch (e) {
-    // The stream can drop (the phone slept, the network changed): the session carries on; read where it got to.
-    opts.onEvent({ kind: 'status', text: `Stream ended (${(e as Error).message}); checking the session…` })
-    stop = await waitIdle(c, session.id)
+    // A full page means more are waiting: read on at once.
+    if (page.data.length < 100) await pause(3000)
   }
 
   const after = await c.beta.sessions.retrieve(session.id)
@@ -182,15 +208,7 @@ export async function runBrief(
   }
 }
 
-/** Polls until the session stops working (after the stream dropped). */
-async function waitIdle(c: Anthropic, id: string): Promise<string> {
-  for (let i = 0; i < 400; i++) {
-    const s = await c.beta.sessions.retrieve(id)
-    if (s.status === 'idle' || s.status === 'terminated') return s.status
-    await new Promise((r) => setTimeout(r, 3000))
-  }
-  return 'timed out waiting'
-}
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** The files the session wrote to /mnt/session/outputs/ (they appear a moment after it stops). */
 async function outputFiles(c: Anthropic, sessionId: string): Promise<OutputFile[]> {
@@ -198,7 +216,7 @@ async function outputFiles(c: Anthropic, sessionId: string): Promise<OutputFile[
     const page = await c.beta.files.list({ scope_id: sessionId, betas: ['managed-agents-2026-04-01'] })
     const files = page.data.map((f) => ({ id: f.id, name: f.filename, bytes: f.size_bytes }))
     if (files.length) return files
-    await new Promise((r) => setTimeout(r, 1500))
+    await pause(1500)
   }
   return []
 }

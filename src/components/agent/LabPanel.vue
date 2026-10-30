@@ -41,12 +41,21 @@ async function run() {
   try {
     result.value = await runBrief(props.apiKey, { role: role.value, model: props.model, brief: briefs.value[role.value], capDollars: cap.value, signal, onEvent: (e) => log.value.push(e) })
   } catch (e) {
-    // A failure here before any session (e.g. the browser can't reach these endpoints) is what the test is for: show it whole.
-    error.value = `${(e as Error).name}: ${(e as Error).message}`
+    // A failure here before any session is what the test is for: show it whole, with what to do when it's the relay's setup.
+    const m = (e as Error).message
+    error.value = `${(e as Error).name}: ${m}${relayHint(m)}`
   } finally {
     running.value = false
   }
 }
+
+/** The relay (supabase/functions/managed-relay) not deployed yet, or deployed with Verify JWT on. */
+const relayHint = (m: string) =>
+  /function (was )?not found/i.test(m)
+    ? ' — the relay isn’t deployed on Supabase yet (Edge Functions → managed-relay).'
+    : /authorization header|invalid jwt/i.test(m)
+      ? ' — the relay asks for a Supabase token: turn Verify JWT off for managed-relay.'
+      : ''
 
 const sessionOf = () => log.value.find((e) => e.kind === 'status' && e.text.startsWith('Session '))?.text.split(' ')[1]
 
@@ -77,7 +86,7 @@ const kb = (n: number) => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.ceil
   <section class="lab" data-testid="lab">
     <p class="muted small">
       Test: a <b>scout</b> (looks around, reports) or a <b>scraper</b> (fetches, writes CSVs) runs as a session on Anthropic's servers with
-      your key, web access and a spending cap. Model: {{ model }}.
+      your key, web access and a spending cap, reached through our relay on Supabase. Model: {{ model }}.
     </p>
     <div class="row">
       <label><input v-model="role" type="radio" value="scout" :disabled="running" /> Scout</label>

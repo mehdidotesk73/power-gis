@@ -4,6 +4,17 @@ Record what you learn as you build: patterns that work, ideas that didn't pan ou
 
 ## What Didn't Work (Gotchas & Dead Ends)
 
+### Managed Agents can't be called from a web page (2026-10-30)
+
+The scout / scraper proof of concept called Anthropic's Managed Agents API straight from the browser,
+like the chat does with `/v1/messages`. Every run failed with only "Connection error": the browser's
+CORS preflight to `/v1/environments` and `/v1/files` gets a 400, `/v1/agents` and `/v1/sessions` a 405,
+none with `Access-Control-Allow-Origin`, so the request is never sent. Only `/v1/messages` allows
+browsers. Fix: a small relay (Supabase Edge Function `managed-relay`) that forwards those paths, and
+polling a session's events instead of a stream (edge functions have time limits). Check a new
+endpoint's preflight with `curl -X OPTIONS -H 'Origin: …' -H 'Access-Control-Request-Method: POST'`
+before building on it from the page.
+
 ### Mobile-First Design Constraints
 
 Touch targets need to be at least 44×44px. Avoid hover-only interactions — users on mobile have no hover. Rethink interactions like "expand on hover" as "toggle on tap" or always-expanded. Test regularly on actual mobile devices, not just the browser's responsive mode.
@@ -351,7 +362,13 @@ Two additions from reviewing it here, beyond what the originating project report
 - **Added:** the assistant's ⚙ → *Test: scout & scraper*: runs a scout or scraper brief as an Anthropic
   Managed Agents session with the user's key and a spending cap; shows progress, cost, the report and
   output files (CSVs import as datasets). Decided: orchestrator / scout / scraper roles, all Python in
-  Anthropic's container (no Pyodide, no proxy), unrestricted web for both for now.
+  Anthropic's container (no Pyodide), unrestricted web for both for now.
+- **Relay:** the browser can't call Managed Agents (CORS, see Gotchas), so the calls go through
+  `supabase/functions/managed-relay` (a Supabase Edge Function: forwards only Managed Agents paths, the
+  user's key passes through, nothing stored), and the page polls session events instead of streaming.
+  Tested through the local stack's gateway and edge runtime (`tests/cloud/relay.test.ts`).
+- **Decided:** the assistant picks scout and / or scraper itself after weighing what the workspace
+  already holds, and asks before searching; the test panel's role picker is only for the test.
 
 ### ＋ waits for the default map; sample values locked — 2026-10-29
 

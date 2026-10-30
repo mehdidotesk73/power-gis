@@ -277,19 +277,37 @@ runs Python, and returns CSVs plus its script and sources. **They never talk to 
 the scraper uses from the scout's findings comes through the orchestrator's brief.
 
 Both run as **Anthropic Managed Agents sessions** (the agent loop on Anthropic's side, tools in a
-container there): real Python, no browser CORS, no proxy of ours, runs on while the phone sleeps, a
+container there): real Python, runs on while the phone sleeps, a
 hard **spending cap per session** (budget at list prices: tokens, web searches at $10 / 1,000,
 container time at $0.08 / hour). Both have **unrestricted** web access for now (a state site's data
 often lives on another platform). **Fallback ladder** for reading a page: web_fetch → the same URL from
 a Python script in the container → a headless browser from Python → report it blocked; polite request
 rates, the site's terms respected.
 
+**The relay.** The Managed Agents endpoints refuse calls from a web page (their CORS preflight answers
+400 / 405; only `/v1/messages`, the chat, allows browsers), so the page calls them through
+`supabase/functions/managed-relay`, a Supabase Edge Function. It forwards only `/v1/environments`,
+`/v1/agents`, `/v1/sessions` and `/v1/files` with the Anthropic headers, passes the user's key through
+on every call and stores nothing; Verify JWT is off (the Anthropic key authorizes). Edge functions
+have time limits, so the page **polls** the session's events every 3 s (`events.list` from the last
+`processed_at`, deduplicated by id) instead of holding a stream; a dropped call is just asked again.
+Only scouting and scraping go through it: imported CSVs are ordinary local datasets, and transforms,
+visualizations and the chat stay in the app.
+
+**The assistant decides** (user, 2026-10-30): nobody picks a role. On a data request it first looks at
+the workspace (and, with the user's OK, their other datasets), says how directly useful what's there
+is and what more would help, and asks before going to the web. Then: the scraper straight away when
+the source is known, the scout first when it isn't (one scout run for several sources, then a scraper
+per source), stopping early when there's nothing usable or the existing data is enough. Each run is
+approved on a card showing the brief and the cap.
+
 **Proof of concept** (`client/agent/managed.ts`, `components/agent/LabPanel.vue`: the assistant's ⚙ →
 *Test: scout & scraper*): two editable briefs (scout: the WSDOT mileage page and Home Depot's annual
 reports; scraper: Zillow's county condo CSV and a Census API table), a cap per run, live progress,
 then elapsed time, cost, report and output files (CSVs import as datasets). The environment and the
 two agents are created once and remembered on the device (`powergis.managed`). What it answers:
-whether the browser can call these endpoints directly, startup time and cost, and files coming back.
+whether runs work through the relay, startup time and cost, and files coming back. (First answer: not
+directly from the browser — CORS — hence the relay.)
 
 ## Next: scouting and scraping
 

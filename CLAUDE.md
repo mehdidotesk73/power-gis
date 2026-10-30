@@ -466,7 +466,8 @@ src/
 defaults/                  default folders: active.json (the one this build ships), README.md;
   socioeconomic/           folder.json, county_*.csv (ACS), workspace.powergis.json (the default map)
 supabase/                  schema.sql (the Supabase schema + RLS) and later NNN_*.sql changes, each run once in the SQL editor;
-                           config.toml (the local test stack only)
+                           config.toml (the local test stack only); functions/managed-relay (Edge Function: the
+                           scout / scraper's relay to Anthropic Managed Agents, which refuse browser calls)
 tests/cloud/               cloud integration tests (real Supabase stack); tests/e2e/ UI tests (Playwright);
                            tests/fixtures/ workspace files (socioeconomic with uploads, state-income, counties-only, utilities-join)
 scripts/                   fetch-duckdb-extensions.mjs (prebuild, Netlify only); test-stack.sh (local Supabase for tests)

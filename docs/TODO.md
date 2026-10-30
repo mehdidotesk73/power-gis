@@ -349,9 +349,12 @@ The tool design, gates and workflow are in **`docs/agents.md`**. Build order:
 
 ### Scout and scraper (agreed 2026-10-30; `docs/agents.md`)
 
-1. Proof of concept on Managed Agents (in progress): browser access, cost and time, files back.
-2. The orchestrator's tools: send the scout / send the scraper (an approval card with the brief and the
-   cap), progress in the chat, the scraper's CSVs imported as datasets, its script saved to re-run.
+1. Proof of concept on Managed Agents (in progress): cost and time, files back. Direct browser calls
+   are refused (CORS), so they go through the relay. **To do (user, once):** deploy
+   `supabase/functions/managed-relay` on the Supabase project, Verify JWT off.
+2. The orchestrator's tools: the assistant judges what the workspace already has, offers to search,
+   and picks scout and / or scraper itself; send the scout / send the scraper (an approval card with the
+   brief and the cap), progress in the chat, the scraper's CSVs imported as datasets, its script saved to re-run.
 3. Run records (request, briefs, sources, terms, cost); until then a dataset's source is a line in its
    description.
 4. Component cleanup: the mini map's ▾ minimize button (looks rough; unify with the button components).
