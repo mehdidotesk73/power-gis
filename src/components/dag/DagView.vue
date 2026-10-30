@@ -6,6 +6,9 @@
 // ＋ Visualization: tap the dataset to draw. ↓ / → flips the flow (top to
 // bottom, left to right), remembered per device. The graph pans and zooms
 // (usePanZoom): drag / Shift + wheel / pinch; on phones hold, then drag.
+// Several nodes can be picked to delete together: Ctrl/⌘- or Shift-click, or
+// Select (phones) then taps; Delete takes them out of the workspace (the page
+// does it, undoable; data is never erased).
 import UiButton from '../ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { vReveal } from '../reveal'
@@ -22,6 +25,10 @@ const props = defineProps<{
   staleProgress?: { running: boolean; text: string } | null
   /** False while the page is still preparing the workspace: the ＋ buttons wait (an item added then would be lost). */
   adding?: boolean
+  /** Nodes picked to delete together, by key. */
+  marked?: string[]
+  /** What the last Delete did. */
+  note?: string
 }>()
 const emit = defineEmits<{
   (e: 'select', node: DagNode | null): void
@@ -29,6 +36,8 @@ const emit = defineEmits<{
   (e: 'new-viz', datasetId: string): void
   (e: 'new-dataset'): void
   (e: 'run-stale'): void
+  (e: 'mark', keys: string[]): void
+  (e: 'delete', keys: string[]): void
 }>()
 
 const DIRECTION = 'powergis.dagDirection'
@@ -127,8 +136,29 @@ function next() {
 }
 const pickNo = (n: DagNode) => picked.value.indexOf(n.id) + 1
 
-function tap(n: DagNode) {
-  if (!mode.value) return emit('select', props.selected === n.key ? null : n)
+// ── picking several (to delete) ──────────────────────────────────────────────
+
+/** Phones: taps pick nodes instead of opening them. */
+const selecting = ref(false)
+const marked = computed(() => props.marked ?? [])
+const isMarked = (n: DagNode) => marked.value.includes(n.key)
+function toggleMark(n: DagNode) {
+  // An open node joins the selection when a second one is added.
+  const base = marked.value.length ? marked.value : props.selected && props.selected !== n.key ? [props.selected] : []
+  emit('mark', base.includes(n.key) ? base.filter((k) => k !== n.key) : [...base, n.key])
+  emit('select', null)
+}
+function stopSelecting() {
+  selecting.value = false
+  emit('mark', [])
+}
+
+function tap(n: DagNode, e?: MouseEvent) {
+  if (!mode.value && (selecting.value || e?.ctrlKey || e?.metaKey || e?.shiftKey)) return toggleMark(n)
+  if (!mode.value) {
+    if (marked.value.length) emit('mark', [])
+    return emit('select', props.selected === n.key ? null : n)
+  }
   if (n.kind !== 'dataset') return
   if (mode.value === 'viz') {
     emit('new-viz', n.id)
@@ -164,6 +194,16 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
       >
         Run all stale ({{ staleCount }})
       </UiButton>
+      <UiButton
+        data-testid="graph.select"
+        size="tag"
+        :active="selecting"
+        :aria-pressed="selecting"
+        title="Pick several nodes (or Ctrl/⌘- or Shift-click them), then Delete"
+        @click="selecting ? stopSelecting() : (selecting = true)"
+      >
+        {{ selecting ? 'Done' : 'Select' }}
+      </UiButton>
       <button
         class="flip"
         :title="direction === 'vertical' ? 'Flowing down — switch to left to right' : 'Flowing right — switch to top to bottom'"
@@ -173,6 +213,14 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
         {{ direction === 'vertical' ? '↓' : '→' }}
       </button>
     </div>
+    <div v-if="!mode && (marked.length || selecting)" class="banner picks" data-testid="graph.picks">
+      <span>{{ marked.length ? `${marked.length} selected` : 'Tap the nodes to remove from the workspace.' }}</span>
+      <span class="actions">
+        <button v-if="marked.length" class="btn" @click="emit('mark', [])">Clear</button>
+        <UiButton data-testid="graph.delete" size="compact" tone="danger" :disabled="!marked.length" @click="emit('delete', [...marked])">Delete</UiButton>
+      </span>
+    </div>
+    <p v-if="!mode && note" class="stale-msg" role="status">{{ note }}</p>
     <p v-if="!mode && staleProgress" class="stale-msg" role="status">{{ staleProgress.text }}</p>
     <div v-else-if="mode" class="banner">
       <span v-if="mode === 'transform'">Tap the datasets this transform reads{{ picked.length ? ` · ${picked.length} picked` : '' }}.</span>
@@ -203,11 +251,11 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
           :data-name="n.label"
           :data-problem="n.problem || undefined"
           class="node"
-          :class="[n.kind, n.state, n.problem, { selected: selected === n.key, picked: pickNo(n) > 0, dimmed: dimmed(n), muted: n.muted }]"
+          :class="[n.kind, n.state, n.problem, { selected: selected === n.key, picked: pickNo(n) > 0, marked: isMarked(n), dimmed: dimmed(n), muted: n.muted }]"
           :style="{ left: `${layout.at.get(n.key)!.x}px`, top: `${layout.at.get(n.key)!.y}px`, width: `${NODE_W}px`, height: `${NODE_H}px` }"
-          :aria-pressed="selected === n.key || pickNo(n) > 0"
+          :aria-pressed="selected === n.key || pickNo(n) > 0 || isMarked(n)"
           :title="`${kindLabel(n)}: ${n.label} — ${n.detail}`"
-          @click="tap(n)"
+          @click="tap(n, $event)"
         >
           <span v-if="n.problem === 'missing'" class="badge problem-badge" aria-label="Missing on this device">⚠</span>
           <span v-else-if="n.kind === 'transform' && n.state === 'stale' && !n.problem" class="badge" aria-label="Needs re-run">↻</span>
@@ -416,6 +464,10 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
 .badge.problem-badge {
   background: var(--danger);
   color: var(--on-accent);
+}
+.node.marked {
+  outline: 2px dashed var(--danger);
+  outline-offset: 2px;
 }
 .node.selected {
   outline: 2px solid var(--text);

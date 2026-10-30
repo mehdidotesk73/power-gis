@@ -325,6 +325,10 @@ whatever they're actually asking about.
   20k distinct values are left out); `findFeatures` returns the matching features' keys, which the
   page highlights (on every visualization drawing the same features) and zooms to.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
+- **⧉ Copy the map** (under the zoom buttons): `map/mapImage.ts` `mapPng` reads the map canvas right after a
+  render and draws the legend (title on two lines, ramp or swatches, compact numbers) and the basemap's
+  attribution on it; clipboard via `copyPng` (iOS-safe), else `map.png`. Meant to be reused by the reviewer and
+  the assistant to look at a visualization.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
   basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
   the trailing run of symbol layers; labels repainted light with a dark halo).
@@ -399,6 +403,13 @@ whatever they're actually asking about.
   draws it (nodes are buttons, edges one SVG); **tap** a node to show its card under the graph — the
   same list components filtered to that item (`compact`) — and **hold** the card for its menu, as in
   the lists (only new transforms / visualizations open straight into their editors).
+  **Several at once**: Ctrl/⌘- or Shift-click picks nodes (phones: **Select**, then taps; dashed red outline),
+  **Delete** (key or button) takes them out of the workspace — `removeItems` (`lib/workspace/workspace.ts`):
+  visualizations, transforms, then datasets; a dataset a remaining transform reads or writes is kept, with why;
+  data is never erased. **Undo / redo** (`lib/workspace/history.ts`, `History`): every change to the working copy
+  is a step (quick ones merged, 100 kept); Ctrl/⌘+Z, Shift+Ctrl/⌘+Z or Ctrl+Y, and **↶ ↷** beside List | Graph;
+  not while typing in a field; loading another workspace starts afresh, saving doesn't, Discard is a step;
+  the app's bookkeeping (`quietly`) isn't a step. The draft only: runs and deleted data aren't undone.
   **＋ Dataset**: the add-dataset form under the graph (the new dataset's node then opens);
   **＋ Transform**: tap input datasets, Next → a new transform with those inputs; **＋ Visualization**:
   tap a dataset → the add form. The graph is an interface to the same workspace operations, not a

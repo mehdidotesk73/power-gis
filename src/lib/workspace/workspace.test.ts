@@ -18,6 +18,7 @@ import {
   type WorkspaceDoc,
   editDataset,
   withEdits,
+  removeItems,
 } from './workspace'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 
@@ -152,5 +153,30 @@ describe('dataset details as a draft', () => {
     const r2 = removeDataset(r1.doc, 'a')
     if (!r2.ok) throw new Error()
     expect(r2.doc.datasetEdits).toBeUndefined()
+  })
+})
+
+describe('removeItems', () => {
+  it('removes visualizations, then transforms, then datasets, keeping a dataset a remaining transform reads or writes', () => {
+    const doc: WorkspaceDoc = {
+      ...emptyWorkspace('W'),
+      datasetIds: ['raw', 'clean', 'other'],
+      transforms: [
+        { id: 't1', name: 'Clean', inputs: [{ datasetId: 'raw', alias: 'r' }], outputs: [{ key: 'o', name: 'Clean', sql: 'SELECT 1', outputId: 'clean' }] },
+        { id: 't2', name: 'Other', inputs: [{ datasetId: 'other', alias: 'o' }], outputs: [{ key: 'o', name: 'X', sql: 'SELECT 1' }] },
+      ],
+      visualizations: [
+        { ...viz('v1', 'clean'), name: 'Map' },
+      ],
+      unavailable: { raw: { name: 'Raw upload', why: 'not on this device' } as never },
+    }
+    const r = removeItems(doc, ['ds:raw', 'tr:t1', 'viz:v1', 'ds:other', 'ds:clean'], (id) => id.toUpperCase())
+    expect(r.removed.map((x) => x.key)).toEqual(['viz:v1', 'tr:t1', 'ds:raw', 'ds:clean'])
+    expect(r.kept).toEqual([{ key: 'ds:other', name: 'OTHER', why: 'transform "Other" reads it' }])
+    expect(r.doc.datasetIds).toEqual(['other'])
+    expect(r.doc.transforms.map((t) => t.id)).toEqual(['t2'])
+    expect(r.doc.unavailable).toBeUndefined()
+    // A dataset whose transform stays is kept: it would be written again.
+    expect(removeItems(doc, ['ds:clean']).kept[0].why).toBe('transform "Clean" writes it')
   })
 })

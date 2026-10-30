@@ -291,3 +291,57 @@ export function aliasFor(name: string): string {
   const a = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
   return /^[a-z_]/.test(a) ? a.slice(0, 40) : `t_${a}`.slice(0, 40)
 }
+
+/** What `removeItems` took out, and what it kept (with why). */
+export interface Removal {
+  doc: WorkspaceDoc
+  removed: { key: string; name: string }[]
+  kept: { key: string; name: string; why: string }[]
+}
+
+/**
+ * Takes several graph items (`ds:` / `tr:` / `viz:` keys) out of the workspace at once, in a safe
+ * order: visualizations, then transforms, then datasets. Nothing is deleted from the database. A
+ * dataset is kept while a transform that stays still reads it or writes it, with why.
+ */
+export function removeItems(doc: WorkspaceDoc, keys: string[], nameOf: (datasetId: string) => string = (id) => id): Removal {
+  const ids = (prefix: string) => keys.filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length))
+  const removed: Removal['removed'] = []
+  const kept: Removal['kept'] = []
+  let d = doc
+  for (const id of ids('viz:')) {
+    const v = d.visualizations.find((x) => x.id === id)
+    if (!v) continue
+    d = { ...d, visualizations: d.visualizations.filter((x) => x.id !== id) }
+    removed.push({ key: `viz:${id}`, name: v.name })
+  }
+  for (const id of ids('tr:')) {
+    const t = d.transforms.find((x) => x.id === id)
+    if (!t) continue
+    d = { ...d, transforms: d.transforms.filter((x) => x.id !== id) }
+    removed.push({ key: `tr:${id}`, name: t.name })
+  }
+  for (const id of ids('ds:')) {
+    const name = d.unavailable?.[id]?.name ?? nameOf(id)
+    const reader = d.transforms.find((t) => t.inputs.some((i) => i.datasetId === id))
+    const writer = d.transforms.find((t) => t.outputs.some((o) => o.outputId === id))
+    if (reader || writer) {
+      kept.push({ key: `ds:${id}`, name, why: reader ? `transform "${reader.name}" reads it` : `transform "${writer!.name}" writes it` })
+      continue
+    }
+    if (!d.datasetIds.includes(id)) continue
+    const { [id]: _gone, ...unavailable } = d.unavailable ?? {}
+    d = {
+      ...withoutEdit(d, id),
+      datasetIds: d.datasetIds.filter((x) => x !== id),
+      visualizations: d.visualizations.filter((v) => v.datasetId !== id),
+      unavailable: Object.keys(unavailable).length ? unavailable : undefined,
+    }
+    removed.push({ key: `ds:${id}`, name })
+  }
+  if (!d.unavailable) {
+    const { unavailable: _u, ...rest } = d
+    d = rest
+  }
+  return { doc: d, removed, kept }
+}

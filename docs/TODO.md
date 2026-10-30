@@ -380,7 +380,7 @@ scraper Haiku; reviewer Opus), All Sonnet; Custom later; a table of each profile
 outcome) updated at each checkpoint summary, to estimate average cost per profile; (4) run records;
 (5) reviewer pass (its profile's model; looks at each visualization as an image); (6) component cleanup.
 
-**Next PR (agreed 2026-10-30):** graph multi-select (Ctrl/⌘ or Shift-click; a Select toggle on phones) and
+~~**Next PR (agreed 2026-10-30):**~~ (done, #43) graph multi-select (Ctrl/⌘ or Shift-click; a Select toggle on phones) and
 Delete (removes from the workspace, never erases data; a Delete button for phones); undo / redo of every
 workspace draft edit (Ctrl/⌘+Z, Shift+Ctrl/⌘+Z, buttons on phones; not while typing; agent edits too;
 the session only); and copy the map as an image to the clipboard, like the graph.
