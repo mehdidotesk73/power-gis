@@ -326,6 +326,15 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Graph multi-select, undo / redo, copy the map — 2026-10-30
+
+- **Added:** pick several graph nodes (Ctrl/⌘- or Shift-click; Select on phones) and Delete them from the
+  workspace (`removeItems`: safe order, keeps what a remaining transform uses, data never erased).
+- **Added:** undo / redo of the working copy (`History`: copies before each edit, quick ones merged);
+  keys and ↶ ↷; Discard is undoable; loads start afresh; bookkeeping changes go through `quietly`.
+- **Added:** ⧉ copies the map with its legend and attribution (`mapPng`: read the canvas inside a `render`
+  event — MapLibre doesn't keep its drawing buffer).
+
 ### Workspace files as a zip — 2026-10-29
 
 - **Changed:** Download makes `<name>.powergis.zip`: the workspace document as small files in the

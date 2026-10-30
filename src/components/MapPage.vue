@@ -10,6 +10,8 @@
 // transforms and visualizations — nothing here knows what they hold.
 import UiButton from './ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { copyPng } from './dag/graphImage'
+import { mapPng } from './map/mapImage'
 import MapView from './map/MapView.vue'
 import ScalarLayer from './map/ScalarLayer'
 import VectorLayer from './map/VectorLayer'
@@ -65,12 +67,14 @@ import {
   workspaceRequires,
   editDataset,
   withEdits,
+  removeItems,
   type TransformSpec,
   type OpContext,
   type OpResult,
   type UnavailableDataset,
   type WorkspaceDoc,
 } from '../lib/workspace/workspace'
+import { History } from '../lib/workspace/history'
 import { downstreamOrder, onlyOnThisDevice, removeUnavailable as removeUnavailable_, replaceDataset as replaceDataset_, unavailability, unavailableInfo } from '../lib/workspace/unavailable'
 import { fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspaceFile, snapshot, toWorkspaceFile, type Draft, type Parsed, type WorkspaceFile } from '../lib/workspace/file'
 import { unzipDocument, zipDocument, zipName } from '../lib/workspace/files'
@@ -86,6 +90,22 @@ import type { Caller } from '../shared/api'
 
 const base = import.meta.env.BASE_URL
 const mapView = ref<InstanceType<typeof MapView>>()
+
+/** Copies the map as it shows now, with its legend, as a PNG (components/map/mapImage.ts); downloads it where the clipboard can't take images. */
+const mapCopied = ref('')
+let mapCopiedTimer: ReturnType<typeof setTimeout> | undefined
+async function copyMap() {
+  const m = mapView.value?.getMap()
+  if (!m) return
+  try {
+    const how = await copyPng(() => mapPng(m, legend.value), 'map.png')
+    mapCopied.value = how === 'copied' ? 'Copied ✓' : 'Saved as map.png'
+  } catch (e) {
+    mapCopied.value = `Couldn’t copy: ${(e as Error).message}`
+  }
+  clearTimeout(mapCopiedTimer)
+  mapCopiedTimer = setTimeout(() => (mapCopied.value = ''), 2500)
+}
 const vizList = ref<{ edit: (id: string) => void }>()
 const status = ref<'loading' | 'ready' | 'error'>('loading')
 const errorMsg = ref('')
@@ -116,6 +136,83 @@ function apply(r: OpResult): boolean {
   doc.value = r.doc
   return true
 }
+
+// ── undo / redo (the draft only: lib/workspace/history.ts) ──────────────────
+// Every change to the working copy is a step, quick successive ones merged;
+// loading, saving and the app's own bookkeeping change it quietly.
+
+const history = new History<WorkspaceDoc>()
+const canUndo = ref(false)
+const canRedo = ref(false)
+const syncHistory = () => ((canUndo.value = history.canUndo), (canRedo.value = history.canRedo))
+let quiet = 0
+watch(
+  doc,
+  (_next, prev) => {
+    if (quiet || !prev) return
+    history.record(prev)
+    syncHistory()
+  },
+  { flush: 'sync' },
+)
+/** Changes the working copy without making it an undo step (loading, saving, bookkeeping). */
+function quietly(next: WorkspaceDoc) {
+  quiet++
+  try {
+    doc.value = next
+  } finally {
+    quiet--
+  }
+}
+/** A new history: another workspace was opened. */
+function freshHistory() {
+  history.clear()
+  syncHistory()
+}
+function undo() {
+  const d = history.undo(doc.value)
+  if (d) jumpTo(d)
+}
+function redo() {
+  const d = history.redo(doc.value)
+  if (d) jumpTo(d)
+}
+function jumpTo(d: WorkspaceDoc) {
+  quietly(d)
+  syncHistory()
+  marked.value = marked.value.filter((k) => inDoc(d, k))
+  if (dagKey.value && !inDoc(d, dagKey.value)) closeNode()
+  if (selected.value && !d.visualizations.some((v) => v.id === selected.value?.vizId)) selected.value = null
+  for (const id of d.datasetIds) if (!records.value.has(id)) void loadRecord(id)
+}
+/** Whether a graph key (ds: / tr: / viz:) is in a workspace. */
+function inDoc(d: WorkspaceDoc, key: string): boolean {
+  const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+  if (kind === 'viz') return d.visualizations.some((v) => v.id === id)
+  if (kind === 'tr') return d.transforms.some((t) => t.id === id)
+  return d.datasetIds.includes(id) || d.transforms.some((t) => t.outputs.some((o) => o.outputId === id))
+}
+/** Ctrl/⌘+Z undoes, Shift+Ctrl/⌘+Z or Ctrl+Y redoes — not while typing (fields keep their own undo). */
+function onUndoKeys(e: KeyboardEvent) {
+  const el = e.target as HTMLElement | null
+  if (el?.closest('input, textarea, select, [contenteditable="true"], .cm-editor')) return
+  const k = e.key.toLowerCase()
+  if ((e.key === 'Delete' || e.key === 'Backspace') === false && (!(e.ctrlKey || e.metaKey) || e.altKey)) return
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !e.ctrlKey && !e.metaKey && view.value === 'graph') {
+    const keys = marked.value.length ? marked.value : dagKey.value ? [dagKey.value] : []
+    if (keys.length) {
+      e.preventDefault()
+      deleteFromGraph(keys)
+    }
+    return
+  }
+  if (k === 'z' && !e.shiftKey) undo()
+  else if ((k === 'z' && e.shiftKey) || k === 'y') redo()
+  else return
+  e.preventDefault()
+}
+onMounted(() => window.addEventListener('keydown', onUndoKeys))
+onBeforeUnmount(() => window.removeEventListener('keydown', onUndoKeys))
 
 /** Runs a server request; logs and returns null on failure. */
 async function call<T>(what: string, p: Promise<{ ok: true; data: T } | { ok: false; error: { message: string } }>): Promise<T | null> {
@@ -215,7 +312,7 @@ async function saveHere(): Promise<boolean> {
   )
   if (!r) return false
   savedSnap.value = snapshot(d)
-  if (!doc.value.id) doc.value = { ...doc.value, id: r.workspaceId }
+  if (!doc.value.id) quietly({ ...doc.value, id: r.workspaceId })
   store.set(LAST_WORKSPACE, r.workspaceId)
   return true
 }
@@ -312,7 +409,8 @@ async function openHere(file: unknown, loading: string): Promise<string | null> 
   for (const id of o.file.datasetIds) await loadRecord(id)
   const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id), o.missing)
   resetSelection()
-  doc.value = next.doc
+  quietly(next.doc)
+  freshHistory()
   const u = unavailability(next.doc, (id) => records.value.has(id))
   const waiting = {
     visualizations: next.doc.visualizations.filter((v) => u.visualizations.has(v.id)).map((v) => v.name),
@@ -332,7 +430,11 @@ async function revert() {
   const w = doc.value.id ? await readDb.get('workspaces', doc.value.id) : undefined
   if (!w) return
   resetSelection()
+  const before = doc.value
   await open(w)
+  // Discard is a step too: undo brings the discarded changes back.
+  history.record(before)
+  syncHistory()
   savedSnap.value = snapshot(doc.value)
   barMessage.value = ''
 }
@@ -454,13 +556,13 @@ async function saveDatasetEdits(): Promise<boolean> {
   const left = { ...edits }
   for (const [id, patch] of Object.entries(edits)) {
     if (stored.value.has(id) && doc.value.datasetIds.includes(id) && !(await call('rename / describe dataset', request('updateDataset', { id, ...patch })))) {
-      doc.value = { ...doc.value, datasetEdits: left }
+      quietly({ ...doc.value, datasetEdits: left })
       return false
     }
     delete left[id]
     await loadRecord(id)
   }
-  doc.value = { ...doc.value, datasetEdits: undefined }
+  quietly({ ...doc.value, datasetEdits: undefined })
   return true
 }
 /** New visualization of a dataset column, on top of the list, open for editing. */
@@ -557,6 +659,20 @@ const dag = computed(() => {
 })
 /** The node open under the graph (by key, so it follows edits and disappears when deleted). */
 const dagKey = ref<string | null>(null)
+/** Graph items picked to delete together (Ctrl/⌘- or Shift-click; Select on phones). */
+const marked = ref<string[]>([])
+/** What the last graph Delete did, shown under its bar. */
+const deleteNote = ref('')
+/** Takes the picked graph items out of the workspace (never deletes data); Ctrl/⌘+Z brings them back. */
+function deleteFromGraph(keys: string[]) {
+  const r = removeItems(doc.value, keys, (id) => records.value.get(id)?.name ?? id)
+  if (r.removed.length) doc.value = r.doc
+  marked.value = []
+  if (dagKey.value && !inDoc(doc.value, dagKey.value)) closeNode()
+  const parts = [r.removed.length ? `Removed ${r.removed.length} from the workspace (data stays; ${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl'}+Z or ↶ undoes).` : '']
+  for (const k of r.kept) parts.push(`Kept “${k.name}”: ${k.why}.`)
+  deleteNote.value = parts.filter(Boolean).join(' ')
+}
 const dagNode = computed(() => dag.value.nodes.find((n) => n.key === dagKey.value) ?? null)
 // Red marks in the lists: what can't work here and what it waits for.
 const vizProblems = computed(() => new Map([...unav.value.visualizations].map(([id, roots]) => [id, `waits for ${waitsFor(roots)}`])))
@@ -678,7 +794,7 @@ async function recoverFromCloud() {
   const left = { ...doc.value.unavailable }
   const names = found.map((id) => `"${left[id]?.name ?? records.value.get(id)?.name ?? id}"`)
   for (const id of found) delete left[id]
-  doc.value = { ...doc.value, unavailable: Object.keys(left).length ? left : undefined }
+  quietly({ ...doc.value, unavailable: Object.keys(left).length ? left : undefined })
   barMessage.value = `Pulled from the cloud: ${names.join(', ')}.${unav.value.roots.length ? '' : ' Everything loads now.'}`
 }
 watch([() => auth.user?.id, loaded, () => unav.value.datasets.size], () => void recoverFromCloud())
@@ -1056,7 +1172,7 @@ async function open(w: WorkspaceRecord) {
   for (const t of transforms) for (const id of [...t.inputs.map((i) => i.datasetId), ...t.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))]) {
     if (!records.value.has(id) && !unavailable[id] && w.config.unavailable?.[id]) unavailable[id] = w.config.unavailable[id]
   }
-  doc.value = { id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}) }
+  quietly({ id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}) })
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations, ${transforms.length} transforms`)
 }
 
@@ -1077,13 +1193,14 @@ onMounted(async () => {
     const w = all.find((x) => x.id === last) ?? all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
     if (w) {
       await open(w)
+      freshHistory()
       savedSnap.value = snapshot(doc.value)
       const draft = parseDraft(store.get(DRAFT))
       if (draft && draft.doc.id === w.id) {
         // Unsaved edits from last time; drop pointers to datasets that have since gone.
         for (const id of draft.doc.datasetIds) await loadRecord(id)
         const ids = draft.doc.datasetIds.filter((id) => records.value.has(id))
-        doc.value = { ...draft.doc, datasetIds: ids, visualizations: draft.doc.visualizations.filter((v) => ids.includes(v.datasetId) && isSupportedBinding(v.binding)) }
+        quietly({ ...draft.doc, datasetIds: ids, visualizations: draft.doc.visualizations.filter((v) => ids.includes(v.datasetId) && isSupportedBinding(v.binding)) })
         logDebug('restored unsaved changes from last time')
       }
     } else {
@@ -1283,6 +1400,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
         <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
         <button :class="{ on: view === 'graph' }" :aria-pressed="view === 'graph'" @click="view = 'graph'">Graph</button>
       </div>
+      <span class="history" role="group" aria-label="Undo and redo">
+        <UiButton size="compact" icon="↶" data-testid="undo" :disabled="!canUndo" aria-label="Undo" title="Undo (Ctrl/⌘+Z)" @click="undo" />
+        <UiButton size="compact" icon="↷" data-testid="redo" :disabled="!canRedo" aria-label="Redo" title="Redo (Shift+Ctrl/⌘+Z)" @click="redo" />
+      </span>
       <UiButton
         class="pop-btn"
         :icon="mode === 'setup' ? '✕' : '⤢'"
@@ -1338,10 +1459,14 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           <DagView
             :dag="dag"
             :selected="dagKey"
+            :marked="marked"
+            :note="deleteNote"
             :stale-count="staleOrder.length"
             :stale-progress="staleProgress"
             :adding="canAdd"
             @select="openNode"
+            @mark="(keys: string[]) => ((marked = keys), (deleteNote = ''))"
+            @delete="deleteFromGraph"
             @new-transform="newTransformFrom"
             @new-viz="newVizFor"
             @new-dataset="newDataset"
@@ -1570,6 +1695,10 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             {{ status === 'loading' ? loadingMsg : `Couldn't load data: ${errorMsg}` }}
           </div>
           <MapLegend :entries="legend" />
+          <div class="map-copy">
+            <UiButton data-testid="map.copy-image" size="compact" icon="⧉" aria-label="Copy the map as an image" title="Copy the map as an image (with its legend)" @click="copyMap" />
+            <span v-if="mapCopied" class="map-copied" role="status">{{ mapCopied }}</span>
+          </div>
           <FeatureTooltip v-if="hoverCard && !selectedFeature" v-bind="hoverCard" />
           <FeaturePanel v-if="selectedFeature" :layer="selectedFeature.layer" :feature="selectedFeature.feature" @close="selected = null">
             <dl class="values">
@@ -1862,6 +1991,35 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 }
 .view-row .view-switch {
   flex: 1;
+}
+.map-copy {
+  position: absolute;
+  z-index: 4;
+  /* Under the zoom buttons (top-right). */
+  top: 4.6rem;
+  right: 10px;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 0.35rem;
+}
+.map-copied {
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.3rem;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+.view-row .history {
+  display: flex;
+  gap: 0.2rem;
+}
+.view-row .history :deep(button) {
+  height: auto;
+  min-height: 0;
+  width: 2rem;
+  aspect-ratio: auto;
 }
 .pop-btn {
   /* as tall as the List | Graph switch beside it; a fixed width (a stretched height can't drive aspect-ratio) */
