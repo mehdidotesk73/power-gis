@@ -158,8 +158,9 @@ whatever they're actually asking about.
 - **Assistant (agents)** (`docs/agents.md`): **✦ Assistant** in the header opens a chat with the
   dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
   stays on the device (localStorage `powergis.anthropicKey`); calls go straight to Anthropic
-  (`client/agent/claude.ts`, streaming; the model is picked in ⚙ from `CLAUDE_MODELS`, default
-  `claude-haiku-5-5`, fixed for each chat). Provider-neutral loop and tools in
+  (`client/agent/claude.ts`, streaming; a **profile** is picked in ⚙ — `lib/agent/profiles.ts`: the model for the chat,
+  scout, scraper and reviewer; default Quick, all Haiku; fixed for each chat; average ≈ $ a chat per profile from a
+  per-device log, `powergis.profileChats`). Provider-neutral loop and tools in
   `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`). On desktop the assistant is
   a column **docked on the right** of the page, resizable (`useSplitter`, `powergis.assistantWidth`;
   the left panel uses the same composable); on phones a sheet. Screenshots paste or attach (📎),
@@ -459,7 +460,7 @@ src/
   server/                  the server (Web Worker today): server.ts handlers, worker.ts entry, sql.ts + duckdb.ts (transforms)
   client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter),
                            supabase.ts + auth.ts (the Supabase client; the signed-in account)
-  lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt
+  lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt, profiles (models per job)
   components/
     map/                   reusable map widgets
       MapView.vue          the map; provides it to child layer widgets

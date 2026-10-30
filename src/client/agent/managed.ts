@@ -38,7 +38,8 @@ const ENV_CONFIG = { type: 'cloud' as const, networking: { type: 'unrestricted' 
 const STORE = 'powergis.managed'
 interface Stored {
   environmentId?: string
-  agents?: Partial<Record<Role, { id: string; version: number; key: string }>>
+  /** By `role:model`. */
+  agents?: Record<string, { id: string; version: number; key: string }>
 }
 const readStored = (): Stored => {
   try {
@@ -123,7 +124,9 @@ async function setup(c: Anthropic, role: Role, model: string) {
     writeStored(stored)
   }
   const key = `${model}|${ROLE_PROMPTS[role].length}|${ROLE_PROMPTS[role].slice(0, 40)}`
-  const have = stored.agents?.[role]
+  // One agent per role and model, so switching profiles back and forth reuses them.
+  const slot = `${role}:${model}`
+  const have = stored.agents?.[slot]
   if (have && have.key === key) return { environmentId: stored.environmentId, agent: have }
   const agent = await c.beta.agents.create({
     name: `powergis-${role}`,
@@ -131,9 +134,9 @@ async function setup(c: Anthropic, role: Role, model: string) {
     system: ROLE_PROMPTS[role],
     tools: [{ type: 'agent_toolset_20260401', default_config: { enabled: true, permission_policy: { type: 'auto' } } }],
   })
-  stored.agents = { ...stored.agents, [role]: { id: agent.id, version: agent.version, key } }
+  stored.agents = { ...stored.agents, [slot]: { id: agent.id, version: agent.version, key } }
   writeStored(stored)
-  return { environmentId: stored.environmentId, agent: stored.agents[role]! }
+  return { environmentId: stored.environmentId, agent: stored.agents[slot]! }
 }
 
 export interface RunEvent {

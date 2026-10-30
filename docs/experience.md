@@ -326,6 +326,15 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Assistant profiles — 2026-10-30
+
+- ⚙ picks a **profile** instead of a model: each job (chat, scout, scraper, reviewer) gets its model —
+  Quick, Smart scout, Balanced, Deep research, Planner, All Sonnet (`lib/agent/profiles.ts`). A chat keeps
+  its profile; the header shows it.
+- The scout and the scraper now run on the profile's model for their job (was: the chat's model).
+  Managed agents are kept per role and model, so switching profiles reuses them.
+- A per-device log of chats (cost, tokens, runs) gives each profile's average ≈ $ a chat, shown in ⚙.
+
 ### Graph multi-select, undo / redo, copy the map — 2026-10-30
 
 - **Added:** pick several graph nodes (Ctrl/⌘- or Shift-click; Select on phones) and Delete them from the

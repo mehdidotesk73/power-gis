@@ -14,7 +14,8 @@ import UiButton from '../ui/UiButton.vue'
 import LabPanel from './LabPanel.vue'
 import AskCard from './AskCard.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { chatCost, claudeProvider, CLAUDE_MODEL, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
+import { chatCost, claudeProvider, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
+import { DEFAULT_PROFILE, PROFILES, profileById, profileStats, recordChat, statsLine, type AgentProfile, type ChatRecord } from '../../lib/agent/profiles'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
 import { forgetChat, IMPORTABLE, runTool, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
@@ -67,28 +68,47 @@ function forgetKey() {
 }
 const maskedKey = computed(() => (apiKey.value ? `${apiKey.value.slice(0, 10)}…${apiKey.value.slice(-4)}` : ''))
 
-// ── the model (this device; fixed for each chat) ───────────────────────────
+// ── the profile (this device; fixed for each chat) ─────────────────────────
 
-const MODEL = 'powergis.agentModel'
-const storedModel = (() => {
+const PROFILE = 'powergis.agentProfile'
+const CHATS = 'powergis.profileChats'
+const stored = (key: string) => {
   try {
-    return localStorage.getItem(MODEL)
+    return localStorage.getItem(key)
   } catch {
     return null
   }
-})()
-/** The model new chats use. */
-const model = ref(CLAUDE_MODELS.some((m) => m.id === storedModel) ? storedModel! : CLAUDE_MODEL)
-watch(model, (m) => {
+}
+const store = (key: string, value: string) => {
   try {
-    localStorage.setItem(MODEL, m)
+    localStorage.setItem(key, value)
   } catch {
     /* per-device convenience */
   }
-})
-/** The model the current chat runs on (set when it starts). */
-const chatModel = ref<string | null>(null)
-const labelOf = (id: string) => CLAUDE_MODELS.find((m) => m.id === id)?.label ?? id
+}
+/** The profile new chats use. */
+const profileId = ref(profileById(stored(PROFILE) ?? DEFAULT_PROFILE).id)
+watch(profileId, (p) => store(PROFILE, p))
+/** The profile the current chat runs on (set when it starts). */
+const chatProfile = ref<AgentProfile | null>(null)
+/** The current chat's line in the log (one per New chat). */
+let chatRecord: ChatRecord | null = null
+const labelOf = (id: string) => CLAUDE_MODELS.find((m) => m.id === id)?.label.replace(/^Claude /, '') ?? id
+/** "chat Haiku 5.5 · scout Sonnet 5.5 · …": the models a profile uses. */
+const modelsLine = (p: AgentProfile) => `chat ${labelOf(p.models.assistant)} · scout ${labelOf(p.models.scout)} · scraper ${labelOf(p.models.scraper)} · reviewer ${labelOf(p.models.reviewer)}`
+const chatLog = ref<ChatRecord[]>(
+  (() => {
+    try {
+      const v = JSON.parse(stored(CHATS) ?? '[]')
+      return Array.isArray(v) ? (v as ChatRecord[]) : []
+    } catch {
+      return []
+    }
+  })(),
+)
+const stats = computed(() => profileStats(chatLog.value))
+/** The profile the next chat starts with. */
+const nextProfile = computed(() => profileById(profileId.value))
 
 // ── the conversation ───────────────────────────────────────────────────────
 
@@ -188,7 +208,7 @@ async function web(role: WebRole, brief: string, capDollars: number): Promise<We
   if (running.value) return 'Another scout or scraper run is still going; wait for it (or stop it) first.'
   const it = pushRun({ role, brief, startedAt: Date.now() })
   try {
-    const run = await startRun(apiKey.value, { role, model: chatModel.value ?? model.value, brief, capDollars })
+    const run = await startRun(apiKey.value, { role, model: (chatProfile.value ?? nextProfile.value).models[role], brief, capDollars })
     it.sessionId = run.sessionId
     const r = await follow(it, run, controller?.signal)
     return { sessionId: r.sessionId, report: r.report, files: r.files, ...(r.missing ? { missing: r.missing } : {}), ...(r.cost !== undefined ? { cost: r.cost } : {}), elapsedSeconds: r.elapsedSeconds, stop: r.stop }
@@ -341,8 +361,10 @@ async function send() {
   attachError.value = ''
   items.value.push({ kind: 'user', text, ...(images.length ? { images: images.map((im) => im.url) } : {}) })
   if (!session) {
-    session = claudeProvider.start({ apiKey: apiKey.value, model: model.value, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
-    chatModel.value = model.value
+    const p = nextProfile.value
+    session = claudeProvider.start({ apiKey: apiKey.value, model: p.models.assistant, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
+    chatProfile.value = p
+    chatRecord = { chat: crypto.randomUUID(), profile: p.id, startedAt: Date.now(), turns: 0, tokensIn: 0, tokensOut: 0, runs: 0 }
   }
   busy.value = true
   const ctl = (controller = new AbortController())
@@ -397,7 +419,24 @@ async function send() {
     if (live()) for (const it of items.value) if (it.kind === 'tool' && it.state === 'running') Object.assign(it, { state: 'error', summary: 'stopped' })
     busy.value = false
     if (controller === ctl) controller = null
+    if (live()) logChat()
   }
+}
+/** Updates this chat's line in the per-profile log (after each finished turn). */
+function logChat() {
+  if (!chatRecord) return
+  const u = usage.value
+  const cost = dollars.value
+  chatRecord = {
+    ...chatRecord,
+    turns: chatRecord.turns + 1,
+    tokensIn: u.input + u.cacheRead + u.cacheWrite,
+    tokensOut: u.output,
+    runs: items.value.filter((x) => x.kind === 'run' && !x.resumed).length,
+    ...(cost === undefined ? {} : { cost }),
+  }
+  chatLog.value = recordChat(chatLog.value, chatRecord)
+  store(CHATS, JSON.stringify(chatLog.value))
 }
 /** Stops the run at once, whatever it's waiting on (runAgent races every step against the signal). */
 function stop() {
@@ -416,7 +455,8 @@ function newChat(confirmFirst = false) {
   items.value = []
   usage.value = emptyUsage()
   session = null
-  chatModel.value = null
+  chatProfile.value = null
+  chatRecord = null
 }
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.matchMedia('(pointer: fine)').matches) {
@@ -434,7 +474,7 @@ const toolInput = (call: ToolCall) => JSON.stringify(call.input, null, 2)
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
 /** The chat's cost so far: its tokens at list prices plus its scout and scraper runs. */
 const dollars = computed(() => {
-  const tokens = chatCost(usage.value, chatModel.value ?? model.value)
+  const tokens = chatCost(usage.value, (chatProfile.value ?? nextProfile.value).models.assistant)
   const runs = items.value.reduce((sum, x) => sum + (x.kind === 'run' && !x.resumed ? (x.result?.cost ?? 0) : 0), 0)
   return tokens === undefined ? undefined : tokens + runs
 })
@@ -453,10 +493,10 @@ const usageText = computed(() => {
       <div class="title">
         <span class="eyebrow">Assistant</span>
         <strong>Dataset processor</strong>
-        <span class="muted small">{{ labelOf(chatModel ?? model) }}</span>
+        <span class="muted small" data-testid="agent.profile">{{ (chatProfile ?? nextProfile).label }} · {{ labelOf((chatProfile ?? nextProfile).models.assistant) }}</span>
       </div>
       <UiButton size="compact" title="Clear this conversation and start over" :disabled="!items.length" @click="newChat(true)">New chat</UiButton>
-      <UiButton size="compact" icon="⚙" :active="settings" :aria-pressed="settings" title="API key and model" aria-label="Settings: API key and model" @click="settings = !settings" />
+      <UiButton size="compact" icon="⚙" :active="settings" :aria-pressed="settings" title="API key and profile" aria-label="Settings: API key and profile" @click="settings = !settings" />
       <UiButton size="compact" icon="✕" title="Close" aria-label="Close" @click="emit('close')" />
     </header>
 
@@ -471,18 +511,26 @@ const usageText = computed(() => {
       <p class="muted small">
         The key stays on this device and is sent only to Anthropic; usage is billed to your Anthropic account (create a key at console.anthropic.com, and set a spending limit there).
       </p>
-      <label for="agent-model">Model</label>
-      <select id="agent-model" v-model="model">
-        <option v-for="m in CLAUDE_MODELS" :key="m.id" :value="m.id">{{ m.label }} · {{ m.note }}</option>
-      </select>
-      <p class="muted small">Prices are dollars per million tokens, in / out. A chat keeps the model it started with.</p>
-      <div v-if="chatModel && chatModel !== model" class="switch">
-        <span>This chat uses {{ labelOf(chatModel) }}; {{ labelOf(model) }} applies to the next one.</span>
+      <fieldset class="profiles">
+        <legend>Profile</legend>
+        <p class="muted small">Which model does each job: the chat itself, the scout (finds data on the web), the scraper (fetches it) and the reviewer (checks the work; coming).</p>
+        <label v-for="p in PROFILES" :key="p.id" class="profile" :class="{ on: p.id === profileId }" :data-testid="`profile.${p.id}`">
+          <input v-model="profileId" type="radio" name="agent-profile" :value="p.id" />
+          <span class="p-text">
+            <b>{{ p.label }}</b> <span class="muted">· {{ p.note }}</span>
+            <span class="muted small p-models">{{ modelsLine(p) }}</span>
+            <span v-if="stats[p.id]" class="muted small">{{ statsLine(stats[p.id]) }} on this device</span>
+          </span>
+        </label>
+        <p class="muted small">Prices are list prices (Haiku $0.10 / $0.50, Sonnet $2 / $10, Opus $4 / $20 per million tokens in / out). A chat keeps the profile it started with.</p>
+      </fieldset>
+      <div v-if="chatProfile && chatProfile.id !== profileId" class="switch">
+        <span>This chat uses {{ chatProfile.label }}; {{ nextProfile.label }} applies to the next one.</span>
         <UiButton size="compact" :disabled="busy" @click="newChat()">Start a new chat</UiButton>
       </div>
       <details v-if="apiKey" class="lab-wrap">
         <summary>Test: scout &amp; scraper (proof of concept)</summary>
-        <LabPanel :api-key="apiKey" :model="model" :host="props.host" />
+        <LabPanel :api-key="apiKey" :models="nextProfile.models" :host="props.host" />
       </details>
     </section>
 
@@ -669,6 +717,37 @@ header {
   cursor: pointer;
   font-size: var(--chat-fs-sm);
   color: var(--text-muted);
+}
+.profiles {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.profiles legend {
+  padding: 0;
+  font-weight: 600;
+}
+.profile {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.profile.on {
+  border-color: var(--accent-blue);
+}
+.profile input {
+  margin-top: 0.2rem;
+}
+.p-text {
+  display: grid;
+  min-width: 0;
 }
 .switch {
   display: flex;

@@ -9,7 +9,7 @@ import UiButton from '../ui/UiButton.vue'
 import { confirm, downloadFile, runBrief, traceUrl, type Role, type RunEvent, type RunResult } from '../../client/agent/managed'
 import type { AgentHost } from '../../lib/agent/tools'
 
-const props = defineProps<{ apiKey: string; model: string; host: Pick<AgentHost, 'importCsv'> }>()
+const props = defineProps<{ apiKey: string; /** The chosen profile's models: the scout's and the scraper's. */ models: Record<Role, string>; host: Pick<AgentHost, 'importCsv'> }>()
 
 const BRIEFS: Record<Role, string> = {
   // A live question: no file to download, the sources' terms and access decide what's possible.
@@ -41,7 +41,7 @@ async function run() {
   imported.value = {}
   signal = { stopped: false }
   try {
-    result.value = await runBrief(props.apiKey, { role: role.value, model: props.model, brief: briefs.value[role.value], capDollars: cap.value, signal, onEvent: (e) => log.value.push(e) })
+    result.value = await runBrief(props.apiKey, { role: role.value, model: props.models[role.value], brief: briefs.value[role.value], capDollars: cap.value, signal, onEvent: (e) => log.value.push(e) })
   } catch (e) {
     // A failure here before any session is what the test is for: show it whole, with what to do when it's the relay's setup.
     const m = (e as Error).message
@@ -88,7 +88,7 @@ const kb = (n: number) => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.ceil
   <section class="lab" data-testid="lab">
     <p class="muted small">
       Test: a <b>scout</b> (looks around, reports) or a <b>scraper</b> (fetches, writes CSVs) runs as a session on Anthropic's servers with
-      your key, web access and a spending cap, reached through our relay on Supabase. Model: {{ model }}.
+      your key, web access and a spending cap, reached through our relay on Supabase. Model: {{ models[role] }} (the profile's).
     </p>
     <div class="row">
       <label><input v-model="role" type="radio" value="scout" :disabled="running" /> Scout</label>

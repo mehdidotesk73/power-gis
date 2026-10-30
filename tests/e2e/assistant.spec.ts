@@ -108,6 +108,7 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   // Anthropic's Managed Agents, as the relay would answer.
   const relay = new URL(`${process.env.SUPABASE_TEST_URL ?? 'http://127.0.0.1:54321'}/functions/v1/managed-relay/`).href
   const asked: string[] = []
+  const agentModels: string[] = []
   const at = new Date().toISOString()
   await page.context().route(`${relay}**`, async (route) => {
     const req = route.request()
@@ -116,7 +117,10 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
     const json = (body: object) => route.fulfill({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' }, body: JSON.stringify(body) })
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } })
     if (path === '/v1/environments') return json({ id: 'env_1' })
-    if (path === '/v1/agents') return json({ id: 'agent_1', version: 1 })
+    if (path === '/v1/agents') {
+      agentModels.push(JSON.stringify(req.postDataJSON()?.model))
+      return json({ id: 'agent_1', version: 1 })
+    }
     if (path === '/v1/sessions') return json({ id: 'sesn_1' })
     if (path === '/v1/sessions/sesn_1/events' && req.method() === 'POST') return json({ data: [] })
     if (path === '/v1/sessions/sesn_1/events')
@@ -146,6 +150,11 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   // Signed in, it runs.
   await signIn(page, await account('scraper'))
   await page.getByRole('button', { name: 'New chat' }).click()
+  // The Planner profile: the chat on Opus, its scraper on Haiku.
+  await page.getByRole('button', { name: /Settings/ }).click()
+  await page.getByTestId('profile.planner').click()
+  await page.getByRole('button', { name: /Settings/ }).click()
+  await expect(page.getByTestId('agent.profile')).toHaveText('Planner · Opus 5.5')
   seen.length = 0
   await fakeModel(page, [{ text: 'I can fetch rents.', tools: [{ name: 'send_scraper', input: { brief, cap_dollars: 2 } }] }, { text: 'Rents are in.' }], seen)
   await say(page, 'Add rents per county')
@@ -161,6 +170,8 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   await expect(page.getByText('Rents are in.')).toBeVisible()
   const result = lastToolResult(seen) as { files: { name: string; datasetId?: string }[]; cost: number }
   expect(result.cost).toBe(0.03)
+  expect((seen[0] as { model: string }).model).toBe('claude-opus-5-5')
+  expect(agentModels.join()).toContain('claude-haiku-5-5')
   expect(result.files.map((f) => f.name)).toEqual(['rents.csv', 'script.py'])
   expect(result.files[0].datasetId).toBeTruthy()
   expect(asked.every((a) => a.endsWith('signed'))).toBe(true)

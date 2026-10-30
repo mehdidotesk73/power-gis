@@ -247,10 +247,16 @@ usage policies live **there**, not as dataset properties.
   calls the Messages API **directly from the browser**: no relay function, no function timeouts.
   A relay with the owner's key can be added later for users without one; only the "send" step
   changes.
-- **Model:** the user picks it in the assistant's settings (⚙; `CLAUDE_MODELS` in
-  `client/agent/claude.ts`, remembered per device in `powergis.agentModel`; default
-  `claude-haiku-5-5`: fast, cheap, and good at this work in the user's tests). **A chat keeps the
-  model it started with** (decided: simple, one model per chat). The API would accept a switch
+- **Profile (models):** the user picks a **profile** in the assistant's settings (⚙; `PROFILES` in
+  `lib/agent/profiles.ts`, remembered per device in `powergis.agentProfile`; default **Quick**), and
+  the profile gives each job its model: the chat, the scout, the scraper and the reviewer (not built
+  yet). Quick (all Haiku), Smart scout (Haiku; scout + reviewer Sonnet), Balanced (Sonnet; scraper
+  Haiku), Deep research (Sonnet; scout + reviewer Opus; scraper Haiku), Planner (Opus; scout Sonnet;
+  scraper Haiku; reviewer Opus), All Sonnet. Custom later. Managed agents are kept per role and model
+  (`powergis.managed`), so switching profiles reuses them. Each finished turn updates the chat's line
+  in a per-device log (`powergis.profileChats`, last 200 chats: profile, cost, tokens, runs), and ⚙
+  shows each profile's chats and average ≈ $ a chat; the cloud table of runs comes with run records.
+  **A chat keeps the profile it started with** (decided: simple, one profile per chat). The API would accept a switch
   mid-chat (same history, new `model`; earlier thinking a model can't read is skipped), but a new
   choice applies to the next chat ("Start a new chat"). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
   with `dangerouslyAllowBrowser`, `fallbacks: "default"` on the models that have it (Opus 5.5,
