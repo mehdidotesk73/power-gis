@@ -56,7 +56,8 @@ const writeStored = (s: Stored) => {
 export const RELAY_URL = `${SUPABASE_URL}/functions/v1/managed-relay`
 
 export const client = (apiKey: string) =>
-  new Anthropic({ apiKey, baseURL: RELAY_URL, defaultHeaders: { apikey: SUPABASE_KEY }, dangerouslyAllowBrowser: true, maxRetries: 2 })
+  // The key also goes in x-relay-key: Supabase's hosted gateway doesn't pass the SDK's x-api-key on.
+  new Anthropic({ apiKey, baseURL: RELAY_URL, defaultHeaders: { apikey: SUPABASE_KEY, 'x-relay-key': apiKey }, dangerouslyAllowBrowser: true, maxRetries: 2 })
 
 /**
  * The environment and the role's agent, created once and remembered on this

@@ -39,9 +39,25 @@ describe('managed-relay', () => {
     expect(r.headers.get('set-cookie')).toBeNull()
   })
 
+  it('takes the key from x-relay-key when the gateway drops x-api-key', async () => {
+    const calls: Call[] = []
+    await relay(new Request(`${BASE}/v1/agents`, { headers: { 'x-relay-key': 'sk-relay' } }), fake(calls))
+    expect((calls[0].init.headers as Headers).get('x-api-key')).toBe('sk-relay')
+  })
+
+  it('says which headers arrived (names only) when no key did', async () => {
+    const calls: Call[] = []
+    const r = await relay(new Request(`${BASE}/v1/agents`, { headers: { 'anthropic-version': '2023-06-01', apikey: 'sb_publishable' } }), fake(calls))
+    expect(r.status).toBe(401)
+    const message = ((await r.json()) as { error: { message: string } }).error.message
+    expect(message).toContain('anthropic-version')
+    expect(message).not.toContain('2023-06-01')
+    expect(calls).toHaveLength(0)
+  })
+
   it('works without the gateway prefix and keeps nested paths', async () => {
     const calls: Call[] = []
-    await relay(new Request('http://localhost/managed-relay/v1/files/file_1/content?beta=true'), fake(calls))
+    await relay(new Request('http://localhost/managed-relay/v1/files/file_1/content?beta=true', { headers: { 'x-api-key': 'k' } }), fake(calls))
     expect(calls[0].url).toBe('https://api.anthropic.com/v1/files/file_1/content?beta=true')
     expect(calls[0].init.body).toBeUndefined()
   })
@@ -57,9 +73,9 @@ describe('managed-relay', () => {
   })
 
   it('passes Anthropic errors back as they are, and says when it can’t reach Anthropic', async () => {
-    const r = await relay(new Request(`${BASE}/v1/agents`), fake([], () => new Response('{"type":"error"}', { status: 401 })))
+    const r = await relay(new Request(`${BASE}/v1/agents`, { headers: { 'x-api-key': 'k' } }), fake([], () => new Response('{"type":"error"}', { status: 401 })))
     expect(r.status).toBe(401)
-    const down = await relay(new Request(`${BASE}/v1/agents`), (async () => { throw new Error('offline') }) as unknown as typeof fetch)
+    const down = await relay(new Request(`${BASE}/v1/agents`, { headers: { 'x-api-key': 'k' } }), (async () => { throw new Error('offline') }) as unknown as typeof fetch)
     expect(down.status).toBe(502)
     expect((await down.json()).error.message).toMatch(/offline/)
   })

@@ -26,7 +26,7 @@ describe('managed-relay on the local stack', () => {
 
   it.skipIf(!!process.env.RELAY_OFFLINE)('forwards to Anthropic and hands its answer back (a bogus key: 401)', async () => {
     const r = await fetch(`${url}/v1/agents?beta=true`, {
-      headers: { origin, 'x-api-key': 'sk-ant-bogus', 'anthropic-version': '2023-06-01', 'anthropic-beta': 'managed-agents-2026-04-01' },
+      headers: { origin, 'x-relay-key': 'sk-ant-bogus', 'anthropic-version': '2023-06-01', 'anthropic-beta': 'managed-agents-2026-04-01' },
     })
     expect(r.status).toBe(401)
     expect(r.headers.get('access-control-allow-origin')).toBe('*')

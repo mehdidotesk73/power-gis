@@ -288,7 +288,7 @@ rates, the site's terms respected.
 400 / 405; only `/v1/messages`, the chat, allows browsers), so the page calls them through
 `supabase/functions/managed-relay`, a Supabase Edge Function. It forwards only `/v1/environments`,
 `/v1/agents`, `/v1/sessions` and `/v1/files` with the Anthropic headers, passes the user's key through
-on every call and stores nothing; Verify JWT is off (the Anthropic key authorizes). Edge functions
+on every call (sent as `x-relay-key` too: Supabase's hosted gateway drops `x-api-key`) and stores nothing; Verify JWT is off (the Anthropic key authorizes). Edge functions
 have time limits, so the page **polls** the session's events every 3 s (`events.list` from the last
 `processed_at`, deduplicated by id) instead of holding a stream; a dropped call is just asked again.
 Only scouting and scraping go through it: imported CSVs are ordinary local datasets, and transforms,

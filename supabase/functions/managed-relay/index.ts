@@ -5,7 +5,9 @@
 //
 // It forwards only the Managed Agents paths (environments, agents, sessions,
 // files), and only the headers they need. The caller's own Anthropic key rides
-// along in `x-api-key` on every request; nothing is stored or logged. Each call
+// along on every request, in `x-relay-key` as well as the SDK's `x-api-key`
+// (Supabase's hosted gateway doesn't pass `x-api-key` on); nothing is stored
+// or logged. Each call
 // is short: the page polls a session's events rather than holding a stream.
 //
 // Deploy: Supabase dashboard → Edge Functions → Deploy a new function → via
@@ -15,13 +17,15 @@
 
 const UPSTREAM = 'https://api.anthropic.com'
 const ALLOWED = /^\/v1\/(environments|agents|sessions|files)(\/|$)/
-const FORWARD = ['x-api-key', 'anthropic-version', 'anthropic-beta', 'content-type', 'accept']
+const FORWARD = ['anthropic-version', 'anthropic-beta', 'content-type', 'accept']
+/** Where the caller's Anthropic key may arrive, in order. */
+const KEY_HEADERS = ['x-relay-key', 'x-api-key']
 const PASS_BACK = ['content-type', 'request-id', 'content-disposition', 'retry-after']
 
 const cors = (req: Request): Record<string, string> => ({
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
-  'access-control-allow-headers': req.headers.get('access-control-request-headers') ?? FORWARD.join(', '),
+  'access-control-allow-headers': req.headers.get('access-control-request-headers') ?? [...KEY_HEADERS, ...FORWARD].join(', '),
   'access-control-expose-headers': 'request-id, retry-after',
   'access-control-max-age': '600',
 })
@@ -37,7 +41,10 @@ export async function relay(req: Request, fetchFn: typeof fetch = fetch): Promis
   const path = url.pathname.replace(/^.*?\/managed-relay(?=\/|$)/, '')
   if (!ALLOWED.test(path)) return refuse(req, 404, `The relay only forwards Managed Agents requests, not ${path || '/'}`)
   if (!['GET', 'POST', 'DELETE'].includes(req.method)) return refuse(req, 405, `${req.method} isn't forwarded`)
-  const headers = new Headers()
+  const key = KEY_HEADERS.map((h) => req.headers.get(h)).find((v) => v)
+  // Names only, never values: says which headers made it through the gateway when the key didn't.
+  if (!key) return refuse(req, 401, `No Anthropic key reached the relay (headers received: ${[...req.headers.keys()].sort().join(', ')})`)
+  const headers = new Headers({ 'x-api-key': key })
   for (const h of FORWARD) {
     const v = req.headers.get(h)
     if (v !== null) headers.set(h, v)

@@ -11,7 +11,10 @@ like the chat does with `/v1/messages`. Every run failed with only "Connection e
 CORS preflight to `/v1/environments` and `/v1/files` gets a 400, `/v1/agents` and `/v1/sessions` a 405,
 none with `Access-Control-Allow-Origin`, so the request is never sent. Only `/v1/messages` allows
 browsers. Fix: a small relay (Supabase Edge Function `managed-relay`) that forwards those paths, and
-polling a session's events instead of a stream (edge functions have time limits). Check a new
+polling a session's events instead of a stream (edge functions have time limits). **Then:** on the hosted
+project the key never reached Anthropic ("x-api-key header is required") though the local stack passed
+it, so the hosted gateway drops `x-api-key`: the app also sends the key as `x-relay-key`, which the relay
+copies, and a keyless request answers with the header names that did arrive. Check a new
 endpoint's preflight with `curl -X OPTIONS -H 'Origin: …' -H 'Access-Control-Request-Method: POST'`
 before building on it from the page.
 
