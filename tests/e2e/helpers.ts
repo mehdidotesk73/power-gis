@@ -172,7 +172,8 @@ export async function addFromCloud(page: Page, name: string) {
   await listPanel(page, 'Datasets')
   const panel = page.locator('details', { has: page.locator('summary', { hasText: /^Datasets$/ }) })
   await panel.getByRole('button', { name: 'Dataset', exact: true }).click()
-  await panel.getByTestId('add.source.cloud').click()
+  await panel.getByTestId('add.source.library').click()
+  await panel.getByTestId('add.source.cloud').check()
   await panel.locator('.stored li', { hasText: name }).getByRole('button', { name: 'Add' }).click()
   await expect(card(page, 'dataset', name)).toContainText('Cloud')
 }

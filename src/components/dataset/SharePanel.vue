@@ -59,7 +59,7 @@ const LEVEL: Record<Access, string> = { owner: 'Owner', write: 'Can push', read:
         <UiButton icon="✕" aria-label="Close" :disabled="busy" @click="emit('close')" />
       </div>
       <p class="intro">
-        People you share it with add it from ＋ Dataset → Cloud, and get a copy of their own linked to it. <b>Can pull</b>: they take your
+        People you share it with add it from ＋ Dataset → Library → In your account, and get a copy of their own linked to it. <b>Can pull</b>: they take your
         changes. <b>Can push</b>: they also send theirs, and can share it too. Owners and pushers can change readers; only the owner changes or
         removes pushers.
       </p>

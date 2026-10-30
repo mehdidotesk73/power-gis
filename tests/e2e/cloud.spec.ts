@@ -192,7 +192,8 @@ test('access changes: lowered to read, the push is off; leaving keeps a local co
   await expect(card(b, 'dataset', 'State income (Ben)')).toContainText('Local')
   const panel = b.locator('details', { has: b.locator('summary', { hasText: /^Datasets$/ }) })
   await panel.getByRole('button', { name: 'Dataset', exact: true }).click()
-  await panel.getByTestId('add.source.cloud').click()
+  await panel.getByTestId('add.source.library').click()
+  await panel.getByTestId('add.source.cloud').check()
   await expect(panel.locator('.stored li', { hasText: 'State income' })).toHaveCount(0)
 })
 
@@ -213,7 +214,9 @@ test('signed out: everything local works; the cloud asks to sign in', async ({ b
   await expect(card(page, 'dataset', 'county_income')).toContainText(/Sign in/)
   const panel = page.locator('details', { has: page.locator('summary', { hasText: /^Datasets$/ }) })
   await panel.getByRole('button', { name: 'Dataset', exact: true }).click()
+  await panel.getByTestId('add.source.library').click()
   await expect(panel.getByTestId('add.source.cloud')).toHaveCount(0)
+  await expect(panel.getByText('Sign in to add datasets from your account.')).toBeVisible()
 })
 
 test('a new device signed in while its first map loads opens the account workspace, and never replaces it', async ({ browser }) => {

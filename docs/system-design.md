@@ -552,7 +552,7 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   this copy, which stays local). `canManage(mine, them)` / `canShare(mine)` (`shared/cloud.ts`) are the
   RLS rules written once in TS: the server checks them first to say why not (RLS skips a forbidden
   update or delete without an error, so `server/cloud.ts` treats "no row returned" as refused), and the
-  panel disables what they forbid. The recipient finds it in **＋ Dataset → Cloud** (signed in):
+  panel disables what they forbid. The recipient finds it in **＋ Dataset → Library → In your account** (signed in):
   `cloudDatasets` lists every cloud dataset RLS lets them see (theirs and shared), with this device's
   linked copy if any; `addFromCloud` answers that copy, or pulls a new one under the cloud id (a new id
   when an unlinked copy already holds it, so it's never overwritten). The agent's `list_datasets` stays

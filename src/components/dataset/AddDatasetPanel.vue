@@ -30,6 +30,8 @@ const sample = ref(SAMPLE_TABLES[0]?.table ?? '')
 const arcgisUrl = ref('')
 const name = ref('')
 /** Upload is one source with three kinds: CSV files, GeoJSON / Esri JSON files, an ArcGIS layer's URL. */
+/** Library: datasets you already have, on this device or in your account, that aren't in this workspace. */
+const inLibrary = computed(() => origin.value === 'db' || origin.value === 'cloud')
 const uploading = computed(() => origin.value === 'csv' || origin.value === 'json' || origin.value === 'arcgis')
 const busy = ref(false)
 const error = ref('')
@@ -121,8 +123,12 @@ if (origin.value === 'cloud') void refreshCloud()
       <button data-testid="add.source.builtin" :class="{ on: origin === 'builtin' }" @click="origin = 'builtin'">Built-in</button>
       <button v-if="SAMPLE_TABLES.length" data-testid="add.source.sample" :class="{ on: origin === 'sample' }" @click="origin = 'sample'">Samples</button>
       <button data-testid="add.source.upload" :class="{ on: uploading }" @click="uploading || (origin = 'csv')">Upload</button>
-      <button data-testid="add.source.db" :class="{ on: origin === 'db' }" @click="(origin = 'db'), refresh()">Saved</button>
-      <button v-if="auth.user" data-testid="add.source.cloud" :class="{ on: origin === 'cloud' }" @click="(origin = 'cloud'), refreshCloud()">Cloud</button>
+      <button data-testid="add.source.library" :class="{ on: inLibrary }" @click="inLibrary || ((origin = 'db'), refresh())">Library</button>
+    </div>
+    <div v-if="inLibrary" class="kinds" role="radiogroup" aria-label="Where your datasets are">
+      <label><input data-testid="add.source.db" type="radio" value="db" :checked="origin === 'db'" @change="(origin = 'db'), refresh()" /> On this device</label>
+      <label v-if="auth.user"><input data-testid="add.source.cloud" type="radio" value="cloud" :checked="origin === 'cloud'" @change="(origin = 'cloud'), refreshCloud()" /> In your account (cloud)</label>
+      <span v-else class="muted small">Sign in to add datasets from your account.</span>
     </div>
     <template v-if="origin === 'cloud'">
       <p v-if="!inCloud" class="muted small">Looking in the cloud…</p>
@@ -185,7 +191,7 @@ if (origin.value === 'cloud') void refreshCloud()
       </template>
     </template>
     <template v-else>
-      <p v-if="!available.length" class="muted small">No other datasets in the database.</p>
+      <p v-if="!available.length" class="muted small">Every dataset on this device is already in this workspace.</p>
       <ul class="stored">
         <li v-for="d in available" :key="d.id">
           <span class="grow" :title="`${d.name}\n${d.origin}`">

@@ -1299,7 +1299,7 @@ async function open(w: WorkspaceRecord) {
 
 /** Opens the sample workspace in place of this one's setup (a draft until Save). Datasets stay in the database. */
 async function openSample() {
-  if (!emptyHere() && !confirm("Open the sample workspace? It replaces this workspace's setup until you Save (Discard brings yours back); your datasets stay on this device (＋ Dataset → Saved).")) return
+  if (!emptyHere() && !confirm("Open the sample workspace? It replaces this workspace's setup until you Save (Discard brings yours back); your datasets stay on this device (＋ Dataset → Library).")) return
   resetSelection()
   status.value = 'loading'
   try {
