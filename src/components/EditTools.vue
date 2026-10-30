@@ -70,6 +70,10 @@ function close() {
   padding: 0.2rem;
   border-radius: var(--radius);
 }
+/* Closed, the ✎ alone sits flush with the corner (and the layout button under it). */
+.tools:not(.open) {
+  padding: 0;
+}
 .tools.bar {
   display: flex;
   flex-wrap: nowrap;

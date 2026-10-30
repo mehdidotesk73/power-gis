@@ -339,7 +339,19 @@ export function layoutDag(dag: Dag, direction: DagDirection = 'vertical'): DagLa
   const weight = (a: string, b: string) => (isVirtual(a) && isVirtual(b) ? 8 : isVirtual(a) || isVirtual(b) ? 2 : 1)
   /** Places a row: each node as near its wish as the order and gaps allow (wishes averaged where they clash). */
   function place(layer: string[], wish: (k: string) => number | undefined) {
-    const want = layer.map((k) => wish(k) ?? c.get(k)!)
+    // A node without links on that side (a dataset nothing uses, say) follows its neighbour in the row, so it
+    // never stays stranded far out where it started.
+    const wishes = layer.map((k) => wish(k))
+    const want: number[] = []
+    for (let i = 0; i < layer.length; i++) {
+      const w = wishes[i]
+      if (w !== undefined) want.push(w)
+      else if (i > 0) want.push(want[i - 1] + (cross(layer[i - 1]) + cross(layer[i])) / 2 + GAP_CROSS)
+      else want.push(Number.NaN) // the first ones: placed before the first that has a wish, below
+    }
+    const first = want.findIndex((w) => !Number.isNaN(w))
+    for (let i = first - 1; i >= 0; i--) want[i] = first < 0 ? c.get(layer[i])! : want[i + 1] - (cross(layer[i]) + cross(layer[i + 1])) / 2 - GAP_CROSS
+    if (first < 0) for (let i = 0; i < layer.length; i++) want[i] = c.get(layer[i])!
     // Blocks of nodes pushed together: their center sits at the mean of their wishes.
     const blocks: { start: number; end: number; pos: number }[] = []
     const span = (i: number, j: number) => layer.slice(i, j + 1).reduce((s, k) => s + cross(k), 0) + (j - i) * GAP_CROSS

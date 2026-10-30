@@ -112,6 +112,23 @@ describe('workspace DAG', () => {
     }
   })
 
+  it('keeps a dataset nothing uses next to the others in its row, not stranded at the far end', () => {
+    const d: WorkspaceDoc = {
+      name: 'x',
+      datasetIds: ['a', 'b', 'c', 'unused'],
+      visualizations: [viz('va', 'a'), viz('vb', 'b'), viz('vc', 'c')],
+      transforms: [],
+    }
+    const recs = (id: string): DagDataset => ({ name: id, rowCount: 1, updatedAt: '2026-01-01T00:00:00Z' })
+    const dag = buildDag(d, recs)
+    for (const dir of ['vertical', 'horizontal'] as const) {
+      const l = layoutDag(dag, dir)
+      const across = (k: string) => (dir === 'vertical' ? l.at.get(k)!.x : l.at.get(k)!.y)
+      const step = (dir === 'vertical' ? NODE_W : NODE_H) + 12
+      expect(across('ds:unused') - across('ds:c')).toBe(step)
+    }
+  })
+
   it('lays rows out with the widest row setting the width', () => {
     const dag = buildDag(doc, (id) => records[id])
     const l = layoutDag(dag)
