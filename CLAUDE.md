@@ -39,7 +39,8 @@ UI structure — one page, the **Map**:
     transparency encodings.
   - **Hover tooltip**, **click → feature panel** (the visualizations' values plus the rows behind
     the feature), **legend**.
-- **Default map**: a county socioeconomic score (income, education, health insurance, housing
+- **Sample workspace** (was the default map; a first visit now starts **empty**, with an "Open the sample workspace"
+  note on the map and in the panel, and Workspace → **Open the sample workspace** loads it as a draft until Save): a county socioeconomic score (income, education, health insurance, housing
   affordability) with area-weighted state averages, built like any user's map: six ACS county **sample**
   tables + the **built-in** US counties / states polygons, ten SQL transforms in stages (clean → join →
   metrics → state averages → state map; 1e uses the spatial extension for county land area) and twelve
@@ -199,9 +200,13 @@ whatever they're actually asking about.
   `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY` build of the app against it drives the UI as several users
   (Playwright, one browser context per device). **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
   token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
-  the workspace **document** (+ `overviewOf` text) and the page opens a newer one on load / sign-in
-  (`catchUpWithCloud` → `openDocument`) — unless this device's last save didn't reach the account
-  (`powergis.cloudPending`): then it sends that one up instead. Every request that may reach the cloud
+  the workspace **document** (+ `overviewOf` text) and the page compares this device with the account by **fingerprint**
+  (`lib/workspace/fingerprint.ts`: SHA-256 of the setup — name, pointers, transforms, visualizations, dataset names /
+  descriptions; each device keeps `powergis.workspaceSync` = the account's and its own fingerprint at the last sync):
+  `synced`, `ahead` ↑ (sent), `behind` ↓ (opened, `catchUpWithCloud` → `openDocument`), `both` ↑↓ (the Workspace panel asks:
+  Keep this one / Open your account's), `new` (an empty device opens the account's). Save checks the account first and
+  never replaces another device's newer save; a sync is recorded only after an open succeeds. The page re-checks every minute
+  (shows ↓, acts on nothing). Every request that may reach the cloud
   first re-sends the session's current token (`onBeforeCloud` in `client/api.ts` → `syncCloudAuth`): the
   worker's copy went stale or missing on iOS and read as signed out. **Cloud links** (manual sync): the app only ever works on **local copies**;
   a dataset is local only, or **linked** (`DatasetRecord.link` = `{cloudId, version, changed?}`: its cloud
@@ -362,7 +367,7 @@ whatever they're actually asking about.
   visualization setting (`readStyle` checks each part) and the structured origin in `datasets.json`.
 - **Default workspace** (the active folder's `workspace.powergis.json`, served at `data/`): a v2 document with readable ids
   (`default-county-income`, …, outputs like `default-county-metrics-and-scores`, transforms `default-t-…`).
-  Its spatial step makes a first visit also download DuckDB's spatial extension (~23 MB). `seedDefault` (`MapPage.vue`)
+  Its spatial step makes opening it also download DuckDB's spatial extension (~23 MB). `openSample` → `seedDefault` (`MapPage.vue`)
   asks the server (`seedDefaultWorkspace` → `openDocument`; the first run loads DuckDB) and opens the
   result like a loaded document. Changing the default map = editing that file, or pointing `defaults/active.json` at another folder. Every dataset's click panel shows its rows (`FeatureRows`).
 - **Object lists** (`components/list/ObjectList.vue`, generic over the item type): datasets,

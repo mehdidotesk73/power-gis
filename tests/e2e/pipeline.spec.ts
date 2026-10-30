@@ -5,7 +5,7 @@
 // Its spatial step (1e, land area) needs DuckDB's spatial extension, which the
 // CI build hosts with the app.
 import { expect, test, type Page } from '@playwright/test'
-import { closeDevices, card, DATA, device, explore, FIXTURES, listPanel, loadWorkspaceFile, node } from './helpers'
+import { closeDevices, card, DATA, device, explore, FIXTURES, listPanel, loadWorkspaceFile, node, openSample } from './helpers'
 
 /** Each transform's output and the rows it must have (as the app showed them on the user's phone). */
 const OUTPUTS: [string, string][] = [
@@ -46,8 +46,10 @@ const STATES = [
 
 test.afterEach(closeDevices)
 
-test('the default map is the socioeconomic pipeline: every output made, the numbers hold', async ({ browser }) => {
-  const page = await device(browser) // a fresh device opens the default map
+test('the sample workspace is the socioeconomic pipeline: every output made, the numbers hold', async ({ browser }) => {
+  const page = await device(browser) // a fresh device starts empty
+  await expect(page.getByTestId('map.empty')).toBeVisible()
+  await openSample(page, false)
   for (const table of ['County income (ACS)', 'County education (ACS B15003)', 'US counties', 'US states']) {
     await listPanel(page, 'Datasets')
     await expect(card(page, 'dataset', table), table).toContainText('Built-in')

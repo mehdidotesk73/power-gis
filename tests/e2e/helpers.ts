@@ -50,7 +50,7 @@ export async function device(browser: Browser, options: BrowserContextOptions = 
   return page
 }
 
-/** The page has settled: its workspace is loaded (the default map, an opened one) and nothing is loading. */
+/** The page has settled: its workspace is loaded (empty on a first visit, or an opened one) and nothing is loading. */
 export async function ready(page: Page) {
   await expect(page.locator('.page[data-ready="yes"]')).toBeVisible({ timeout: 180_000 })
 }
@@ -227,6 +227,20 @@ export async function explore(page: Page, dataset: string, sql: string): Promise
   const rows = await win.locator('table tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => (td.textContent ?? '').trim())))
   await win.getByRole('button', { name: 'Close' }).click()
   return rows
+}
+
+/** Workspace → Open the sample workspace (a fresh device starts empty), then Save it unless `save` is false. */
+export async function openSample(page: Page, save = true) {
+  await openWorkspacePanel(page)
+  await page.getByTestId('workspace.sample').click()
+  await ready(page)
+  await expect(page.getByTestId('map.empty')).toHaveCount(0)
+  if (save) {
+    await openWorkspacePanel(page)
+    await page.getByTestId('workspace.save').click()
+    await expect(page.getByText(/All changes saved/)).toBeVisible()
+  }
+  if (await page.getByRole('dialog', { name: 'Workspace' }).isVisible()) await page.getByRole('button', { name: /^Workspace/ }).click()
 }
 
 /** A small workspace (just the built-in US counties), so a test's graph stays small whatever the default map is. */

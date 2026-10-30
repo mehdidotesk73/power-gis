@@ -326,6 +326,16 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Workspace fingerprints and the sample workspace — 2026-10-30
+
+- A first visit starts **empty** (a note on the map and in the panel); **Workspace → Open the sample workspace**
+  loads the socioeconomic map as a draft until Save. It replaces "Reset to the default map".
+- Signed in, the workspace has a **fingerprint** (SHA-256 of its setup) on the device and in the account; the
+  Workspace panel shows ↑ / ↓ / ↑↓ like datasets, and asks which to keep when both changed. Save checks the account
+  first and never replaces another device's newer save. Replaces the "seen" / "pending" flags.
+- UI tests: two devices change the workspace (the second is asked, then opens the account's; a lone change goes
+  up and the other device opens it); the sample workspace pipeline opens from the panel.
+
 ### Assistant profiles — 2026-10-30
 
 - **Fixed: a new device could replace the account's workspace with the default map.** Its first visit saved

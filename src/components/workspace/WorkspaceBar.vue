@@ -27,6 +27,8 @@ const props = defineProps<{
   /** How many of the workspace's datasets are linked to the cloud. */
   linkedCount?: number
   counts: { datasets: number; transforms: number; visualizations: number }
+  /** Signed in: this device against the account's workspace (lib/workspace/fingerprint.ts). */
+  sync?: 'synced' | 'new' | 'ahead' | 'behind' | 'both' | null
 }>()
 const emit = defineEmits<{
   (e: 'save'): void
@@ -36,7 +38,9 @@ const emit = defineEmits<{
   (e: 'load', file: File): void
   (e: 'copy'): void
   (e: 'paste', text: string): void
-  (e: 'reset'): void
+  (e: 'sample'): void
+  /** Keep this device's workspace (send it to the account) or open the account's. */
+  (e: 'resolve', choice: 'keep' | 'open'): void
   (e: 'remove-unavailable'): void
   (e: 'show-unavailable'): void
   /** Review, then link these to the cloud / sync these with it (BatchPanel). */
@@ -152,6 +156,15 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
         <span v-if="dirty">● Unsaved changes — kept on this device until you save</span>
         <span v-else>✓ All changes saved {{ where ?? '' }}</span>
       </div>
+      <div v-if="sync === 'behind' || sync === 'both' || sync === 'ahead'" class="problems account" data-testid="workspace.sync">
+        <span v-if="sync === 'behind'">↓ Your account has a newer workspace, saved from another device.</span>
+        <span v-else-if="sync === 'ahead'">↑ Saved here, not in your account yet.</span>
+        <span v-else>↑↓ This device and your account both changed since they last matched. Which one do you keep?</span>
+        <span class="row">
+          <button v-if="sync !== 'behind'" class="btn" data-testid="workspace.keep-here" @click="emit('resolve', 'keep')">{{ sync === 'ahead' ? 'Send it' : 'Keep this one' }}</button>
+          <button v-if="sync !== 'ahead'" class="btn" data-testid="workspace.open-account" @click="emit('resolve', 'open')">Open your account's</button>
+        </span>
+      </div>
       <div v-if="problems" class="problems">
         <span>⚠ {{ problems }} item{{ problems === 1 ? '' : 's' }} didn't load on this device — kept, in red.</span>
         <span class="row">
@@ -206,8 +219,8 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
             <button class="btn primary" :disabled="!pasteText.trim()" @click="loadPasted">Load</button>
           </div>
         </div>
-        <button class="item danger" @click="emit('reset')">↺ Reset to the default map</button>
-        <p class="note">A workspace file holds which datasets it uses, its transforms and its visualizations — not the data itself. Download makes a zip of small files (each transform's SQL is its own file, readable and editable); Load takes that zip or a copied workspace's JSON.</p>
+        <button class="item" data-testid="workspace.sample" @click="emit('sample')">▤ Open the sample workspace</button>
+        <p class="note">A workspace file holds which datasets it uses, its transforms and its visualizations — not the data itself. Download makes a zip of small files (each transform's SQL is its own file, readable and editable); Load takes that zip or a copied workspace's JSON. The sample workspace is an example map built from sample data; it replaces this one's setup until you Save or Discard.</p>
       </div>
       <p v-if="message" class="msg">{{ message }}</p>
       <input ref="fileInput" data-testid="workspace.file-input" class="hidden" type="file" accept=".zip,application/zip,.json,application/json" @change="onFile" />

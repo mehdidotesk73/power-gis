@@ -1,7 +1,7 @@
 // Workspace files: Download makes a zip of the workspace's files; Load on another device opens the same
 // workspace from it.
 import { expect, test, type Page } from '@playwright/test'
-import { card, closeDevices, closeWorkspacePanel, device, listPanel, loadWorkspaceFile, openWorkspacePanel, ready, startSmall } from './helpers'
+import { card, closeDevices, closeWorkspacePanel, device, listPanel, loadWorkspaceFile, openSample, openWorkspacePanel, ready, startSmall } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -26,7 +26,7 @@ test('a downloaded zip opens the same workspace on another device', async ({ bro
   const path = info.outputPath(file.suggestedFilename())
   await file.saveAs(path)
 
-  const b = await device(browser) // a fresh device opens the default map first
+  const b = await device(browser) // a fresh device starts empty
   expect(await nodes(b)).not.toEqual(before)
   await loadWorkspaceFile(b, path)
   expect(await nodes(b)).toEqual(before)
@@ -34,7 +34,8 @@ test('a downloaded zip opens the same workspace on another device', async ({ bro
 
 // The user's own check on the phone (2026-10-29): after a download, Copy / Paste / Load still work.
 test('download, change, download again, discard; copy, load the second zip, paste the first state back', async ({ browser, baseURL }, info) => {
-  const page = await device(browser) // the default map, saved at once on a first visit
+  const page = await device(browser)
+  await openSample(page)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(baseURL!).origin })
   const SCORE = 'County socioeconomic score (0-100)'
   const pill = async () => {

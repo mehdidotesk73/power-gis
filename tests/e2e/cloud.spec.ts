@@ -2,7 +2,7 @@
 // UI: each device is its own browser context (its own storage), as a phone
 // and a laptop are. Data: the state-income workspace (tests/fixtures).
 import { expect, test } from '@playwright/test'
-import { closeDevices, account, addFromCloud, card, cardAction, device, explore, LAPTOP, linkToCloud, listPanel, newTransform, node, openSync, PHONE, ready, reload, saveWorkspace, setUpStateIncome, share, signIn, startSmall, syncOne } from './helpers'
+import { closeDevices, account, addFromCloud, card, cardAction, device, explore, LAPTOP, linkToCloud, listPanel, newTransform, node, openSync, openWorkspacePanel, PHONE, ready, reload, saveWorkspace, setUpStateIncome, share, signIn, startSmall, syncOne } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -239,4 +239,42 @@ test('a new device signed in while its first map loads opens the account workspa
   await reload(laptop)
   await expect(laptop.getByText(/Opened your workspace from your account/)).toHaveCount(0)
   await expect(node(laptop, 'dataset', 'County income (ACS)')).toHaveCount(0)
+})
+
+test('two devices change the workspace: the second Save asks which to keep, never replacing the other silently', async ({ browser }) => {
+  const cleo = await account('cleo')
+  const laptop = await device(browser, LAPTOP)
+  await signIn(laptop, cleo)
+  await startSmall(laptop)
+  await saveWorkspace(laptop)
+  const phone = await device(browser, PHONE)
+  await signIn(phone, cleo)
+  await expect(phone.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await ready(phone)
+
+  const rename = async (page: typeof phone, name: string) => {
+    await openWorkspacePanel(page)
+    const box = page.getByLabel('Workspace name')
+    await box.fill(name)
+    await box.press('Enter')
+    await saveWorkspace(page)
+  }
+  // The laptop saves first; the phone, which changed too, is told and asked.
+  await rename(laptop, 'Laptop version')
+  await rename(phone, 'Phone version')
+  await openWorkspacePanel(phone)
+  await expect(phone.getByTestId('workspace.sync')).toContainText('both changed')
+  // The account still holds the laptop's: the phone opens it.
+  await phone.getByTestId('workspace.open-account').click()
+  await expect(phone.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await openWorkspacePanel(phone)
+  await expect(phone.getByLabel('Workspace name')).toHaveValue('Laptop version')
+  await expect(phone.getByTestId('workspace.sync')).toHaveCount(0)
+
+  // Now the phone changes alone: its Save goes up, and the laptop sees ↓ and opens it.
+  await rename(phone, 'Phone again')
+  await reload(laptop)
+  await expect(laptop.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await openWorkspacePanel(laptop)
+  await expect(laptop.getByLabel('Workspace name')).toHaveValue('Phone again')
 })

@@ -184,7 +184,7 @@ backend (Supabase + functions) is a refactor, not a rewrite.
   by identity, else by its JSON; `groupDataset` parses repeated GeoJSON text once), named by the first
   non-empty `label` value. There are no lat/lon or region-code bindings: a visualization always draws
   real features, and the server sends their geometry. Older saved visualizations of either kind are
-  dropped on load with a log line and a "Reset gets the default map" note (`isSupportedBinding`).
+  dropped on load with a log line and an "Open the sample workspace" note (`isSupportedBinding`).
 - **Boundary datasets** — region codes become shapes by a join onto a boundary dataset: built-in
   `us_counties` / `us_states` (`lib/data/boundaryTables.ts`: us-atlas TopoJSON → rows with `fips`,
   names and a region `geometry`; read by the worker's `readBuiltin`).
@@ -359,7 +359,7 @@ visualization it follows the top visible one (they load one by one).
 
 ### Default workspace
 
-The first visit (and Workspace → Reset) opens the **default folder**'s workspace. Default folders live in
+Workspace → Open the sample workspace opens the **default folder**'s workspace (a first visit starts empty). Default folders live in
 `defaults/<folder>/` (`defaults/README.md`): `folder.json` (name, description, tables: `table`, `label`,
 `description`, `source` csv | boundary, `version`), a `<table>.csv` per csv table, and
 `workspace.powergis.json`, a v2 workspace document. `defaults/active.json` names the one this build ships:
@@ -520,9 +520,13 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
     lists them in a short scrolling box; Save adds a note that other devices and people you share
     with will see them as missing. Storing them in the cloud is the cloud-datasets PR.
   - **Page** (`MapPage.vue`): Save → `saveHere` (device) then `saveToCloud`. On load and on sign-in,
-    `catchUpWithCloud`: no cloud workspace yet → this device's is saved there; one saved since this
-    device last saw it (`powergis.cloudSeen` = `<user>:<updatedAt>`) → opened (`openDocument`, then
-    saved here), asking first over unsaved changes. The Workspace panel says where changes are saved.
+    `catchUpWithCloud` compares fingerprints (`lib/workspace/fingerprint.ts`; `powergis.workspaceSync` =
+    the account's and this device's at the last sync): no cloud workspace yet → this device's is saved there
+    (unless empty); only the account changed (or this device is empty) → opened (`openDocument`, then saved here),
+    asking first over unsaved changes; only this device changed → sent; both → the Workspace panel asks (Keep this
+    one / Open your account's). `saveToCloud` checks the account first and never replaces another device's newer
+    save. A sync is recorded only once an open succeeds. A first visit starts empty (no default map saved over an
+    account's workspace). The Workspace panel says where changes are saved.
 - **UI**: ☰ → **Sign in** / your name opens `components/account/AccountModal.vue` (sign in, create
   account, forgot password, choose a new password, your profile, delete account). Sign in and create
   account carry a plain note on what's kept without an account (this browser only; browsers may clear
