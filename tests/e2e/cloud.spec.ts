@@ -2,7 +2,7 @@
 // UI: each device is its own browser context (its own storage), as a phone
 // and a laptop are. Data: the state-income workspace (tests/fixtures).
 import { expect, test } from '@playwright/test'
-import { closeDevices, account, addFromCloud, card, cardAction, device, explore, LAPTOP, linkToCloud, listPanel, newTransform, node, openSync, openWorkspacePanel, PHONE, ready, reload, saveWorkspace, setUpStateIncome, share, signIn, startSmall, syncOne } from './helpers'
+import { closeDevices, closeWorkspacePanel, FIXTURES, loadWorkspaceFile, account, addFromCloud, card, cardAction, device, explore, LAPTOP, linkToCloud, listPanel, newTransform, node, openSync, openWorkspacePanel, PHONE, ready, reload, saveWorkspace, setUpStateIncome, share, signIn, startSmall, syncOne } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -19,7 +19,7 @@ test('one person, two devices: what is linked arrives, what is only on the first
   // The phone: signing in opens the account's workspace.
   const phone = await device(browser, PHONE)
   await signIn(phone, anna)
-  await expect(phone.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await expect(phone.getByText(/Opened “.*” from your account/)).toBeVisible({ timeout: 120_000 })
   await expect(phone.getByRole('dialog', { name: 'Workspace' })).toContainText('"county_education" (3,222 rows)')
   await ready(phone)
   await listPanel(phone, 'Datasets')
@@ -234,13 +234,13 @@ test('a new device signed in while its first map loads opens the account workspa
   await phone.goto('/')
   await signIn(phone, ben)
   await ready(phone)
-  await expect(phone.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await expect(phone.getByText(/Opened “.*” from your account/)).toBeVisible({ timeout: 120_000 })
   await expect(node(phone, 'dataset', 'County income (ACS)')).toHaveCount(0)
   await context.close()
 
   // The account still holds the laptop's workspace: a reload there opens nothing new over it.
   await reload(laptop)
-  await expect(laptop.getByText(/Opened your workspace from your account/)).toHaveCount(0)
+  await expect(laptop.getByText(/Opened “.*” from your account/)).toHaveCount(0)
   await expect(node(laptop, 'dataset', 'County income (ACS)')).toHaveCount(0)
 })
 
@@ -252,7 +252,7 @@ test('two devices change the workspace: the second Save asks which to keep, neve
   await saveWorkspace(laptop)
   const phone = await device(browser, PHONE)
   await signIn(phone, cleo)
-  await expect(phone.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await expect(phone.getByText(/Opened “.*” from your account/)).toBeVisible({ timeout: 120_000 })
   await ready(phone)
 
   const rename = async (page: typeof phone, name: string) => {
@@ -269,7 +269,7 @@ test('two devices change the workspace: the second Save asks which to keep, neve
   await expect(phone.getByTestId('workspace.sync')).toContainText('both changed')
   // The account still holds the laptop's: the phone opens it.
   await phone.getByTestId('workspace.open-account').click()
-  await expect(phone.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await expect(phone.getByText(/Opened “.*” from your account/)).toBeVisible({ timeout: 120_000 })
   await openWorkspacePanel(phone)
   await expect(phone.getByLabel('Workspace name')).toHaveValue('Laptop version')
   await expect(phone.getByTestId('workspace.sync')).toHaveCount(0)
@@ -277,7 +277,59 @@ test('two devices change the workspace: the second Save asks which to keep, neve
   // Now the phone changes alone: its Save goes up, and the laptop sees ↓ and opens it.
   await rename(phone, 'Phone again')
   await reload(laptop)
-  await expect(laptop.getByText(/Opened your workspace from your account/)).toBeVisible({ timeout: 120_000 })
+  await expect(laptop.getByText(/Opened “.*” from your account/)).toBeVisible({ timeout: 120_000 })
   await openWorkspacePanel(laptop)
   await expect(laptop.getByLabel('Workspace name')).toHaveValue('Phone again')
+})
+
+test('several workspaces: New starts an empty one, each is its own in the account, any opens on another device', async ({ browser }) => {
+  const dana = await account('dana')
+  const laptop = await device(browser, LAPTOP)
+  await signIn(laptop, dana)
+  const name = async (page: typeof laptop, n: string) => {
+    await openWorkspacePanel(page)
+    const box = page.getByLabel('Workspace name')
+    await box.fill(n)
+    await box.press('Enter')
+  }
+  const items = (page: typeof laptop) => page.getByRole('dialog', { name: 'Workspace' }).getByTestId('workspace.item')
+
+  // Project A, saved (to the account too).
+  await startSmall(laptop)
+  await name(laptop, 'Project A')
+  await saveWorkspace(laptop)
+  // New: an empty workspace; A stays in the list. It becomes Project B.
+  await openWorkspacePanel(laptop)
+  await laptop.getByTestId('workspace.new').click()
+  await expect(laptop.getByTestId('workspace.empty')).toBeVisible()
+  await expect(items(laptop)).toHaveCount(2)
+  await loadWorkspaceFile(laptop, `${FIXTURES}counties-only.powergis.json`)
+  await name(laptop, 'Project B')
+  await saveWorkspace(laptop)
+  await openWorkspacePanel(laptop)
+  await expect(items(laptop).filter({ hasText: 'this device · your account' })).toHaveCount(2)
+  // Back to A: its own setup.
+  await items(laptop).filter({ hasText: 'Project A' }).locator('button.pick').click()
+  await expect(laptop.getByLabel('Workspace name')).toHaveValue('Project A')
+
+  // The phone opens the most recent (B), lists both, and opens A from the account.
+  const phone = await device(browser, PHONE)
+  await signIn(phone, dana)
+  await expect(phone.getByText(/Opened “Project B” from your account/)).toBeVisible({ timeout: 120_000 })
+  await ready(phone)
+  await openWorkspacePanel(phone)
+  await expect(items(phone)).toHaveCount(2)
+  await items(phone).filter({ hasText: 'Project A' }).locator('button.pick').click()
+  await expect(phone.getByText(/Opened “Project A” from your account/)).toBeVisible({ timeout: 120_000 })
+  await openWorkspacePanel(phone)
+  await expect(phone.getByLabel('Workspace name')).toHaveValue('Project A')
+  await expect(items(phone)).toHaveCount(2) // A here and in the account, B here and in the account
+
+  // Deleting B on the phone takes it out of the account; the laptop keeps its own copy, now on that device only.
+  await items(phone).filter({ hasText: 'Project B' }).getByTestId('workspace.remove').click()
+  await expect(items(phone)).toHaveCount(1)
+  await closeWorkspacePanel(laptop)
+  await openWorkspacePanel(laptop)
+  await expect(items(laptop).filter({ hasText: 'Project B' })).toContainText('this device')
+  await expect(items(laptop).filter({ hasText: 'Project B' })).not.toContainText('your account')
 })

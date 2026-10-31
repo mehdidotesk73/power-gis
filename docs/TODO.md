@@ -175,6 +175,11 @@ Track feature development, improvements, and known issues here. Move completed w
   figures as code: sample / chart / map, snapshots, ⚠ when data changed); Lists → Stories; the storyteller (a mode of the
   assistant panel, its own model per profile). Later: read aloud, sharing a story, maps as live components.
 
+- **Several workspaces** (PR 49) — Workspace → Your workspaces: this device's and the account's, open any, ＋ New, ✕ delete
+  (datasets stay); each workspace its own row in the account (no schema change: the table always allowed several),
+  linked by `cloudId`, sync per workspace; the account's old default adopted. Later: Duplicate, a cleanup of datasets
+  no workspace uses.
+
 ## Next (Current Sprint)
 
 One-time setup — tick these off as they're done:

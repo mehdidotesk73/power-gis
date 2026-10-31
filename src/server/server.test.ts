@@ -399,6 +399,7 @@ describe('cloud workspace', () => {
     let saved: CloudWorkspace | null = null
     let overview = ''
     let n = 0
+    const workspaces = new Map<string, CloudWorkspace>()
     const datasets = new Map<string, Omit<CloudDataset, 'access'>>()
     const files = new Map<string, Uint8Array>()
     /** cloud id → user → access */
@@ -437,12 +438,19 @@ describe('cloud workspace', () => {
         },
         setAccess: async (id, u, level) => void access.get(id)!.set(u, level),
         removeAccess: async (id, u) => void access.get(id)!.delete(u),
-        defaultWorkspace: async () => saved,
-        saveDefaultWorkspace: async (w) => {
-          saved = { id: saved?.id ?? 'w1', name: w.name, file: JSON.parse(JSON.stringify(w.file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
+        listWorkspaces: async () => [...workspaces.values()].reverse().map(({ id, name, updatedAt }) => ({ id, name, updatedAt })),
+        workspace: async (id) => workspaces.get(id) ?? null,
+        // The first one made stands in for the workspace saved before there were several.
+        defaultWorkspace: async () => [...workspaces.values()][0] ?? null,
+        saveWorkspace: async (w) => {
+          if (w.id && !workspaces.has(w.id)) return null
+          saved = { id: w.id ?? `w${workspaces.size + 1}`, name: w.name, file: JSON.parse(JSON.stringify(w.file)), updatedAt: `2026-10-28T00:00:0${++n}Z` }
+          workspaces.delete(saved.id)
+          workspaces.set(saved.id, saved)
           overview = w.overview
           return { id: saved.id, updatedAt: saved.updatedAt }
         },
+        deleteWorkspace: async (id) => void workspaces.delete(id),
       }
     }
     return {
@@ -632,7 +640,7 @@ describe('cloud workspace', () => {
     expect((await b.db.list('datasets')).length).toBe(countB)
 
     // B saves (still pointing at A's upload); A opens B's document: A's own datasets are recognized (ids and copies), nothing new is made.
-    data(await b.server.handle('saveCloudWorkspace', { file: await docOf(b.db, opened.file), overview: '' }))
+    data(await b.server.handle('saveCloudWorkspace', { id: workspace!.id, file: await docOf(b.db, opened.file), overview: '' }))
     const countA = (await a.db.list('datasets')).length
     const back = data(await a.server.handle('openDocument', { file: account.saved() }))
     expect(back.file.datasetIds).toEqual([...seeded.datasetIds, own])

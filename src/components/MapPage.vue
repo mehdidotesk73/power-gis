@@ -25,7 +25,7 @@ import DatasetEditor from './dataset/DatasetEditor.vue'
 import DatasetList from './dataset/DatasetList.vue'
 import VisualizationList from './dataset/VisualizationList.vue'
 import FeatureRows from './dataset/FeatureRows.vue'
-import WorkspaceBar from './workspace/WorkspaceBar.vue'
+import WorkspaceBar, { type WorkspaceEntry } from './workspace/WorkspaceBar.vue'
 import BatchPanel, { type BatchItem } from './dataset/BatchPanel.vue'
 import SharePanel from './dataset/SharePanel.vue'
 import type { CloudAction } from './dataset/DatasetList.vue'
@@ -329,7 +329,7 @@ async function saveHere(): Promise<boolean> {
     request('saveWorkspace', {
       id: d.id,
       name: d.name,
-      config: { datasetIds: d.datasetIds, ...(d.unavailable ? { unavailable: d.unavailable } : {}), ...(d.stories?.length ? { stories: d.stories } : {}) },
+      config: { datasetIds: d.datasetIds, ...(d.unavailable ? { unavailable: d.unavailable } : {}), ...(d.stories?.length ? { stories: d.stories } : {}), ...(d.cloudId ? { cloudId: d.cloudId } : {}) },
       visualizations: d.visualizations.map((v) => ({ id: v.id, name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
       transforms: d.transforms,
     }),
@@ -342,16 +342,20 @@ async function saveHere(): Promise<boolean> {
   return true
 }
 
-// ── the signed-in user's workspace in the cloud ────────────────────────────
+// ── the signed-in user's workspaces in the cloud ───────────────────────────
 //
 // Signed in, Save also stores the workspace in the account (made portable:
-// built-ins and transform outputs are rebuilt on the device that opens it).
-// On load and on sign-in the page catches up with the account: a cloud
-// workspace saved since this device last saw it opens here (asking first
-// over unsaved changes); an account with none yet gets this device's.
+// built-ins and transform outputs are rebuilt on the device that opens it),
+// as its own row there: a workspace remembers that row's id (`cloudId`). On
+// load and on sign-in the page catches up with the account for the open
+// workspace: a version saved since on another device opens here (asking first
+// over unsaved changes); one never sent becomes a new workspace there. The
+// Workspace panel lists every workspace, this device's and the account's.
 
-/** Per account: the account's fingerprint and this device's at the last sync (lib/workspace/fingerprint.ts). */
-const SYNC_POINT = 'powergis.workspaceSync'
+/** Per account and workspace: the account's fingerprint and this device's at the last sync (lib/workspace/fingerprint.ts). */
+const SYNC_POINTS = 'powergis.workspaceSyncs'
+/** Before there were several workspaces: one sync point, for the account's one workspace. */
+const LEGACY_SYNC = 'powergis.workspaceSync'
 /** The fingerprint of the workspace as last saved on this device. */
 const localPrint = ref('')
 /** This device against the account (null: signed out, or not checked yet). */
@@ -359,15 +363,20 @@ const wsSync = ref<WorkspaceSync | null>(null)
 /** The user whose cloud workspace this page has caught up with (null: signed out, or not yet). */
 const cloudUser = ref<string | null>(null)
 const cloudError = ref('')
-const readSync = (): SyncPoint | null => {
+type Points = Record<string, { cloud: string; local: string }>
+const readPoints = (): Points => {
   try {
-    return JSON.parse(store.get(SYNC_POINT) ?? 'null') as SyncPoint | null
+    return (JSON.parse(store.get(SYNC_POINTS) ?? '{}') as Points) ?? {}
   } catch {
-    return null
+    return {}
   }
 }
-const writeSync = (user: string, cloud: string) => {
-  store.set(SYNC_POINT, JSON.stringify({ user, cloud, local: localPrint.value } satisfies SyncPoint))
+const readSync = (user: string, cloudId: string): SyncPoint | null => {
+  const p = readPoints()[`${user}/${cloudId}`]
+  return p ? { user, ...p } : null
+}
+const writeSync = (user: string, cloudId: string, cloud: string, local = localPrint.value) => {
+  store.set(SYNC_POINTS, JSON.stringify({ ...readPoints(), [`${user}/${cloudId}`]: { cloud, local } }))
   wsSync.value = 'synced'
 }
 const savedWhere = computed(() =>
@@ -381,7 +390,7 @@ const savedWhere = computed(() =>
             synced: 'on this device and in your account',
             new: 'on this device and in your account',
             ahead: 'on this device — not in your account yet (↑)',
-            behind: 'on this device — your account has a newer workspace (↓)',
+            behind: 'on this device — your account has a newer version (↓)',
             both: 'on this device — changed here and in your account since they last matched (↑↓)',
           }[wsSync.value],
 )
@@ -390,9 +399,10 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyl
 const isEmpty = computed(() => loaded.value && status.value === 'ready' && !doc.value.datasetIds.length && !doc.value.transforms.length && !doc.value.visualizations.length)
 const emptyHere = () => !dirty.value && !doc.value.datasetIds.length && !doc.value.transforms.length && !doc.value.visualizations.length
 
-/** The account's workspace and its fingerprint (workspace null: the account has none); null when it couldn't be read. */
-async function accountWorkspace(): Promise<{ w: { file: unknown; updatedAt: string } | null; cloud: string } | null> {
-  const r = await request('cloudWorkspace', {})
+type AccountCopy = { id: string; name: string; file: unknown; updatedAt: string }
+/** One of the account's workspaces (no id: the one from before there were several) and its fingerprint; w null: none; null: couldn't read. */
+async function accountWorkspace(id?: string): Promise<{ w: AccountCopy | null; cloud: string } | null> {
+  const r = await request('cloudWorkspace', id ? { id } : {})
   if (!r.ok) {
     cloudError.value = r.error.message
     logDebug(`your account's workspace: ${r.error.message}`, 'warn')
@@ -407,78 +417,147 @@ async function cloudPrint(file: unknown): Promise<string> {
   const parsed = parseWorkspaceFile(typeof file === 'string' ? file : JSON.stringify(file))
   return parsed.ok ? fingerprint(parsed.file) : ''
 }
+/** Records which account workspace this one is (saved on this device with it). */
+async function linkTo(cloudId: string | undefined) {
+  const { cloudId: _was, ...rest } = doc.value
+  quietly(cloudId ? { ...rest, cloudId } : rest)
+  await saveHere()
+}
 
 /**
- * Sends this device's saved workspace to the account. Unless `keep` (the user chose this copy), it first
- * checks the account: when another device saved there since this one last synced, nothing is sent, and the
- * Workspace panel asks which to keep (a send would replace that device's work).
+ * Sends this device's saved workspace to the account: to its own row there, or a new one. Unless `keep`
+ * (the user chose this copy), it first checks the account: when another device saved this workspace there
+ * since this one last synced, nothing is sent, and the Workspace panel asks which to keep.
  */
-async function saveToCloud(keep = false) {
+/** The send to the account in progress: switching workspaces waits for it, so it never sends the next one's setup. */
+let cloudSend: Promise<void> = Promise.resolve()
+function saveToCloud(keep = false): Promise<void> {
+  cloudSend = cloudSend.then(() => sendToCloud(keep)).catch((e) => logDebug(`save to your account: ${(e as Error).message}`, 'error'))
+  return cloudSend
+}
+async function sendToCloud(keep: boolean) {
   const user = auth.user?.id
   if (!user || cloudUser.value !== user || dirty.value) return
-  if (!keep) {
-    const a = await accountWorkspace()
+  const d = doc.value
+  const id = d.cloudId
+  if (id && !keep) {
+    const a = await accountWorkspace(id)
     if (!a) return void (wsSync.value = 'ahead')
     if (a.w) {
-      const s = workspaceSync({ cloud: a.cloud, local: localPrint.value }, readSync(), user)
+      const s = workspaceSync({ cloud: a.cloud, local: localPrint.value }, readSync(user, id), user)
       if (s === 'behind' || s === 'both' || s === 'new') {
         wsSync.value = s === 'behind' ? 'behind' : 'both'
-        barMessage.value = 'Saved on this device. Your account has a workspace saved from another device since this one last matched it: Workspace → choose which to keep.'
+        barMessage.value = 'Saved on this device. Your account has this workspace saved from another device since this one last matched it: Workspace → choose which to keep.'
         return
       }
       if (s === 'synced') return void (wsSync.value = 'synced')
     }
   }
+  // Another workspace opened, or edits began, meanwhile: the next Save sends it.
+  if (doc.value.id !== d.id || dirty.value) return void (wsSync.value = 'ahead')
   const file = documentOf(doc.value)
-  const r = await request('saveCloudWorkspace', { file, overview: overviewOf(file) })
-  if (!r.ok) {
-    cloudError.value = r.error.message
+  const send = (to?: string) => request('saveCloudWorkspace', { ...(to ? { id: to } : {}), file, overview: overviewOf(file) })
+  let r = await send(id)
+  if (r.ok && 'gone' in r.data) {
+    // Deleted from the account (on another device): saved there again, as a new workspace.
+    r = await send()
+    barMessage.value = 'This workspace had been deleted from your account; it is saved there again.'
+  }
+  if (!r.ok || 'gone' in r.data) {
+    const why = r.ok ? 'the account refused it' : r.error.message
+    cloudError.value = why
     wsSync.value = 'ahead'
-    logDebug(`save to your account: ${r.error.message}`, 'warn')
-    barMessage.value = `Saved on this device, but not in your account: ${r.error.message}. Save again to retry; it's also sent next time the app opens.`
+    logDebug(`save to your account: ${why}`, 'warn')
+    barMessage.value = `Saved on this device, but not in your account: ${why}. Save again to retry; it's also sent next time the app opens.`
     return
   }
   cloudError.value = ''
-  writeSync(user, await cloudPrint(file))
+  if (r.data.id !== doc.value.cloudId) await linkTo(r.data.id)
+  writeSync(user, r.data.id, await cloudPrint(file))
 }
 
-/** Opens the account's workspace here (asking first over unsaved changes); false when it didn't. */
-async function openFromCloud(w: { file: unknown; updatedAt: string }, cloud: string, user: string): Promise<boolean> {
-  if (dirty.value && !confirm(`Your account has a workspace saved ${when(w.updatedAt)}. Open it here? Your unsaved changes on this device will be replaced.`)) {
+/**
+ * Opens an account workspace here (asking first over unsaved changes); false when it didn't. It opens into
+ * this device's copy of it when there is one (`localId`), else into the working copy as it is.
+ */
+async function openFromCloud(w: AccountCopy, cloud: string, user: string): Promise<boolean> {
+  if (dirty.value && !confirm(`Your account has “${w.name}” saved ${when(w.updatedAt)}. Open it here? Your unsaved changes on this device will be replaced.`)) {
     barMessage.value = 'Kept your changes here. Workspace → choose which copy to keep.'
     return false
   }
-  const report = await openHere(w.file, 'Opening your workspace from your account…')
+  const report = await openHere(w.file, `Opening “${w.name}” from your account…`)
   if (report === null) {
     // Not opened: nothing recorded, so the next load tries again; Save meanwhile asks first (see saveToCloud).
-    barMessage.value = "Couldn't open your workspace from your account (see View logs). Reload to try again."
+    barMessage.value = "Couldn't open the workspace from your account (see View logs). Reload to try again."
     return false
   }
+  quietly({ ...doc.value, cloudId: w.id })
   await saveHere()
-  writeSync(user, cloud)
-  barMessage.value = `Opened your workspace from your account (saved ${when(w.updatedAt)}).` + (report ? `\n${report}` : '')
+  writeSync(user, w.id, cloud)
+  barMessage.value = `Opened “${w.name}” from your account (saved ${when(w.updatedAt)}).` + (report ? `\n${report}` : '')
   return true
 }
 
 /**
- * On load and sign-in: compares this device with the account (fingerprints, lib/workspace/fingerprint.ts)
- * and acts on what's safe — open the account's when only it changed (or this device has nothing yet), send
- * this device's when only it changed. When both changed, the Workspace panel asks.
+ * On load, sign-in and switching: compares the open workspace with its copy in the account (fingerprints,
+ * lib/workspace/fingerprint.ts) and acts on what's safe — open the account's when only it changed, send
+ * this device's when only it changed (or it was never sent: a new workspace there). When both changed, the
+ * Workspace panel asks. A device with nothing yet opens the account's most recent workspace.
  */
 async function catchUpWithCloud() {
   const user = auth.user?.id
   if (!user || !loaded.value || cloudUser.value === user) return
-  const a = await accountWorkspace()
+  let id = doc.value.cloudId
+  if (!id) {
+    // This device synced with the account's one workspace before there were several: it's that one.
+    const legacy = (() => {
+      try {
+        return JSON.parse(store.get(LEGACY_SYNC) ?? 'null') as SyncPoint | null
+      } catch {
+        return null
+      }
+    })()
+    if (legacy?.user === user) {
+      const d = await accountWorkspace()
+      if (auth.user?.id !== user || !d) return
+      if (d.w) {
+        writeSync(user, d.w.id, legacy.cloud, legacy.local)
+        await linkTo(d.w.id)
+        id = d.w.id
+      }
+      store.set(LEGACY_SYNC, null)
+    }
+  }
+  if (!id) {
+    cloudUser.value = user
+    if (!emptyHere()) return void (await saveToCloud(true)) // never sent: a new workspace in the account
+    // A device with no other workspace (a first visit, a new phone) opens the account's most recent one;
+    // an empty workspace made with New stays as it is.
+    if ((await readDb.list('workspaces')).some((w) => w.id !== doc.value.id)) return void (wsSync.value = 'synced')
+    const list = await request('cloudWorkspaces', {})
+    const newest = list.ok ? list.data.workspaces[0] : undefined
+    const a = newest && (await accountWorkspace(newest.id))
+    if (a?.w && auth.user?.id === user) await openFromCloud(a.w, a.cloud, user)
+    else wsSync.value = 'synced'
+    return
+  }
+  const a = await accountWorkspace(id)
   if (auth.user?.id !== user || !a) return
   cloudUser.value = user
-  if (!a.w) return void (emptyHere() ? (wsSync.value = 'synced') : await saveToCloud(true)) // a new account: this device's becomes its own
-  let s = workspaceSync({ cloud: a.cloud, local: localPrint.value }, readSync(), user)
+  if (!a.w) {
+    // Not in this account: deleted there, or another account's. Never synced with this one: send it as new.
+    if (!readSync(user, id)) return void (await linkTo(undefined), await saveToCloud(true))
+    wsSync.value = 'ahead'
+    barMessage.value = 'This workspace was deleted from your account (on another device?). Save puts it back there; or delete it here too (Workspace → ✕).'
+    return
+  }
+  let s = workspaceSync({ cloud: a.cloud, local: localPrint.value }, readSync(user, id), user)
   if (s === 'new') s = emptyHere() ? 'behind' : 'both'
   wsSync.value = s
-  if (s === 'synced') writeSync(user, a.cloud)
+  if (s === 'synced') writeSync(user, id, a.cloud)
   else if (s === 'ahead') await saveToCloud(true)
   else if (s === 'behind') await openFromCloud(a.w, a.cloud, user)
-  else barMessage.value = 'This device and your account both have changes since they last matched. Workspace → choose which to keep.'
+  else barMessage.value = 'This device and your account both have changes to this workspace since they last matched. Workspace → choose which to keep.'
 }
 
 /** The user's choice in the Workspace panel: keep this device's (send it) or open the account's. */
@@ -486,21 +565,119 @@ async function resolveSync(choice: 'keep' | 'open') {
   const user = auth.user?.id
   if (!user) return
   if (choice === 'keep') {
-    if (!confirm("Replace the workspace in your account with this device's? The other device's version will be gone (its datasets stay).")) return
+    if (!confirm("Replace this workspace in your account with this device's? The other device's version will be gone (its datasets stay).")) return
     return void (await saveToCloud(true))
   }
-  const a = await accountWorkspace()
+  const a = doc.value.cloudId ? await accountWorkspace(doc.value.cloudId) : null
   if (a?.w) await openFromCloud(a.w, a.cloud, user)
 }
 
 /** Checks the account now and then (with the cloud datasets) so ↓ shows when another device saves; acts on nothing. */
 async function checkWorkspaceSync() {
   const user = auth.user?.id
-  if (!user || cloudUser.value !== user || dirty.value) return
-  const a = await accountWorkspace()
+  const id = doc.value.cloudId
+  if (!user || !id || cloudUser.value !== user || dirty.value) return
+  const a = await accountWorkspace(id)
   if (!a?.w || auth.user?.id !== user) return
-  const s = workspaceSync({ cloud: a.cloud, local: localPrint.value }, readSync(), user)
+  const s = workspaceSync({ cloud: a.cloud, local: localPrint.value }, readSync(user, id), user)
   wsSync.value = s === 'new' ? 'both' : s
+}
+
+// ── several workspaces: the list, switching, new, delete ───────────────────
+
+const workspaceList = ref<WorkspaceEntry[]>([])
+/** Reads this device's workspaces and (signed in) the account's into one list, most recent first. */
+async function refreshWorkspaces() {
+  const local = await readDb.list('workspaces')
+  const account = auth.user ? await request('cloudWorkspaces', {}) : null
+  const inAccount = account?.ok ? account.data.workspaces : []
+  const entries: WorkspaceEntry[] = local.map((w) => {
+    const c = w.config.cloudId ? inAccount.find((x) => x.id === w.config.cloudId) : undefined
+    const current = w.id === doc.value.id
+    return { key: `local:${w.id}`, name: current ? doc.value.name : w.name, updatedAt: c && c.updatedAt > w.updatedAt ? c.updatedAt : w.updatedAt, where: c ? 'both' : 'device', current }
+  })
+  const linked = new Set(local.map((w) => w.config.cloudId).filter(Boolean))
+  for (const c of inAccount) if (!linked.has(c.id)) entries.push({ key: `cloud:${c.id}`, name: c.name, updatedAt: c.updatedAt, where: 'account', current: false })
+  if (!doc.value.id) entries.push({ key: 'unsaved', name: doc.value.name, updatedAt: new Date().toISOString(), where: 'device', current: true })
+  workspaceList.value = entries.sort((x, y) => Number(y.current) - Number(x.current) || y.updatedAt.localeCompare(x.updatedAt))
+}
+
+/** Before leaving this workspace: save or drop unsaved changes (false: the user stayed). */
+async function leaveCurrent(): Promise<boolean> {
+  await cloudSend
+  if (!dirty.value) return true
+  if (confirm(`“${doc.value.name}” has unsaved changes. Save them first?`)) return await save().then(() => !dirty.value)
+  if (!confirm('Discard the unsaved changes, then?')) return false
+  store.set(DRAFT, null)
+  return true
+}
+/** Starts afresh on another workspace: its own history, no picks, nothing open. */
+function startOver(d: WorkspaceDoc) {
+  quietly(d)
+  freshHistory()
+  marked.value = []
+  closeNode()
+  selected.value = null
+  savedSnap.value = snapshot(d)
+}
+
+async function switchWorkspace(key: string) {
+  if (!(await leaveCurrent())) return
+  const user = auth.user?.id
+  if (key.startsWith('local:')) {
+    const w = await readDb.get('workspaces', key.slice(6))
+    if (!w) return void (await refreshWorkspaces())
+    status.value = 'loading'
+    loadingMsg.value = `Opening “${w.name}”…`
+    await open(w)
+    startOver(doc.value)
+    localPrint.value = await fingerprint(documentOf(doc.value))
+    store.set(LAST_WORKSPACE, w.id)
+    status.value = 'ready'
+    cloudUser.value = null
+    wsSync.value = null
+    await catchUpWithCloud()
+  } else if (key.startsWith('cloud:') && user) {
+    const a = await accountWorkspace(key.slice(6))
+    if (!a?.w) return void (await refreshWorkspaces())
+    startOver(emptyWorkspace(a.w.name))
+    if (await openFromCloud(a.w, a.cloud, user)) freshHistory()
+  }
+  await refreshWorkspaces()
+}
+
+async function newWorkspace() {
+  if (!(await leaveCurrent())) return
+  startOver(emptyWorkspace(`Workspace ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`))
+  wsSync.value = null
+  await saveHere()
+  await refreshWorkspaces()
+  barMessage.value = 'A new, empty workspace. The others are in the list above; signed in, this one goes to your account when it has something in it and you Save.'
+}
+
+async function removeWorkspace(key: string) {
+  await cloudSend
+  const entry = workspaceList.value.find((w) => w.key === key)
+  if (!entry) return
+  const local = key.startsWith('local:') ? await readDb.get('workspaces', key.slice(6)) : undefined
+  const cloudId = key.startsWith('cloud:') ? key.slice(6) : local?.config.cloudId
+  const inAccount = entry.where !== 'device'
+  if (!confirm(`Delete the workspace “${entry.name}”${inAccount ? ' from this device and your account' : ''}? Its datasets stay (in Library and the cloud); its transforms, visualizations and stories go.`)) return
+  if (inAccount && cloudId) {
+    const r = await request('deleteCloudWorkspace', { id: cloudId })
+    if (!r.ok) return void (barMessage.value = `Couldn't delete it from your account: ${r.error.message}`)
+  }
+  if (local) await call('delete workspace', request('deleteWorkspace', { id: local.id }))
+  if (entry.current) {
+    store.set(DRAFT, null)
+    const rest = (await readDb.list('workspaces')).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt))
+    if (rest[0]) await switchWorkspace(`local:${rest[0].id}`)
+    else {
+      startOver(emptyWorkspace())
+      await saveHere()
+    }
+  }
+  await refreshWorkspaces()
 }
 
 /** The workspace as a document: its setup plus the facts of every dataset it points at (Copy, files, the cloud). */
@@ -518,7 +695,7 @@ async function openHere(file: unknown, loading: string): Promise<string | null> 
   status.value = 'ready'
   if (!o) return null
   for (const id of o.file.datasetIds) await loadRecord(id)
-  const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id), o.missing)
+  const next = fromWorkspaceFile(o.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}), ...(doc.value.cloudId ? { cloudId: doc.value.cloudId } : {}) }, (id) => records.value.has(id), o.missing)
   resetSelection()
   quietly(next.doc)
   freshHistory()
@@ -1299,7 +1476,7 @@ async function seedDefault() {
   if (!r) throw new Error('the sample workspace could not be prepared')
   for (const id of r.file.datasetIds) await loadRecord(id)
   // What couldn't be made here (a step whose SQL extension didn't download, say) stays, in red, and is reported.
-  const next = fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}) }, (id) => records.value.has(id), r.missing)
+  const next = fromWorkspaceFile(r.file, { ...emptyWorkspace(), ...(doc.value.id ? { id: doc.value.id } : {}), ...(doc.value.cloudId ? { cloudId: doc.value.cloudId } : {}) }, (id) => records.value.has(id), r.missing)
   apply({ ok: true, doc: next.doc })
   if (r.failed.length || r.missing.length) {
     const report = missingReport(r.missing, r.failed, { visualizations: [], transforms: [] })
@@ -1342,7 +1519,7 @@ async function open(w: WorkspaceRecord) {
     if (!records.value.has(id) && !unavailable[id] && w.config.unavailable?.[id]) unavailable[id] = w.config.unavailable[id]
   }
   const stories = readStories(w.config.stories)
-  quietly({ id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}), ...(stories.length ? { stories } : {}) })
+  quietly({ id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}), ...(stories.length ? { stories } : {}), ...(w.config.cloudId ? { cloudId: w.config.cloudId } : {}) })
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations, ${transforms.length} transforms`)
 }
 
@@ -1538,6 +1715,11 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           :empty="isEmpty"
           @resolve="resolveSync"
           @sample="openSample"
+          :workspaces="workspaceList"
+          @opened="refreshWorkspaces"
+          @switch="switchWorkspace"
+          @new="newWorkspace"
+          @remove="removeWorkspace"
         />
         <UiButton size="compact" icon="✦" :active="assistantOpen" :aria-pressed="assistantOpen" title="Assistant" aria-label="Assistant" @click="assistantOpen = !assistantOpen"><span class="ai-word">Assistant</span></UiButton>
       </Teleport>
