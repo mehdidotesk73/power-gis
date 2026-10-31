@@ -84,8 +84,6 @@ import { unzipDocument, zipDocument, zipName } from '../lib/workspace/files'
 import { fingerprint, workspaceSync, type SyncPoint, type WorkspaceSync } from '../lib/workspace/fingerprint'
 import { saveFile } from '../client/saveFile'
 import { readStories, type Scene, type Story } from '../lib/story/story'
-import { lineageOf, lineageText } from '../lib/story/lineage'
-import { storyRequest } from '../lib/story/storyTools'
 import StoryList from './story/StoryList.vue'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
@@ -1235,16 +1233,16 @@ const agentPanel = ref<InstanceType<typeof AgentPanel>>()
 
 // ── stories ────────────────────────────────────────────────────────────────
 
-/** Opens the assistant panel on a storyteller chat about these visualizations (rewriting `rewrite` when given). */
+/** Asks in the assistant's chat for a story about these visualizations (or `rewrite` written again); the assistant hands it to the storyteller. */
 async function tellStory(visualizationIds: string[], rewrite?: Story) {
   if (!visualizationIds.length) return
-  const l = lineageOf(doc.value, visualizationIds)
-  const names = l.visualizations.map((v) => v.name)
+  const names = visualizationIds.map((id) => `“${vizById.value.get(id)?.name ?? id}”`).join(', ')
+  const ask = rewrite
+    ? `Rewrite the story “${rewrite.name}” (story id ${rewrite.id}) about ${names} (visualization ids ${visualizationIds.join(', ')}).`
+    : `Tell the story of ${names} (visualization ids ${visualizationIds.join(', ')}).`
   assistantOpen.value = true
   await nextTick()
-  const ask = rewrite ? `Rewrite the story “${rewrite.name}”.` : `Tell the story of ${names.map((n) => `“${n}”`).join(', ')}.`
-  const started = agentPanel.value?.tellStory(ask, storyRequest(names, lineageText(l, (id) => records.value.get(id)), rewrite), { visualizationIds, ...(rewrite ? { storyId: rewrite.id } : {}) })
-  if (!started) showNote('Add your Anthropic API key in the assistant’s ⚙ first, then tell the story again.')
+  if (!agentPanel.value?.tellStory(ask)) showNote('Add your Anthropic API key in the assistant’s ⚙ first, then tell the story again.')
 }
 /** A scene's subject by name, while it's still in the workspace. */
 function aboutName(a: NonNullable<Scene['about']>): string | undefined {

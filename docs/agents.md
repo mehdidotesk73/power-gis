@@ -379,9 +379,12 @@ keeps source units unless the brief says otherwise and states them.
 
 Tells how the workspace gets from its starting data to some of its maps, as a **story**: scenes in order, each a
 title, a **narrative** (about 80 words: understood in under 30 seconds, and later read aloud) and at most two
-figures. Started from **Stories → ＋ Story** (pick visualizations) or a story's **Rewrite**; it runs in the
-assistant panel as a storyteller chat (`mode` in `AgentPanel.vue`: its own prompt, tools and model — the profile's
-`storyteller`), and the user can keep talking to it ("shorter", "skip the cleaning") — it rewrites the same story.
+figures. Asked for in the assistant's chat — the user's words, or **Stories → ＋ Story** / a story's **Rewrite**, which
+put "Tell the story of … (visualization ids …)" in the current chat — the assistant hands it to the storyteller with
+**`tell_story`** (visualization ids, the user's wishes, a storyId to rewrite). The storyteller runs inside that one step
+(`storyteller()` in `AgentPanel.vue`: its own session, prompt and tools, the profile's `storyteller` model; its tokens
+priced into the chat's cost), and the assistant hears back the story's id, title and scenes, so follow-ups ("shorter",
+"add a scene on the weights") go through the same chat.
 
 - **What it reads**: `lib/story/lineage.ts` walks from the visualizations back to the starting data (each dataset and
   transform once, inputs first) and writes it out — every dataset's facts and **description** (why descriptions must

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The workspace's stories as cards (open, rewrite, rename, delete), and ＋ Story:
 // pick the visualizations to tell (the ones picked in the graph or lists start
-// ticked), then the storyteller writes it in the assistant panel. An open story
+// ticked), then the request goes into the assistant's chat (tell_story). An open story
 // shows where editors open (the page's right column in setup on desktop).
 import { computed, ref } from 'vue'
 import ObjectList, { type ObjectAction } from '../list/ObjectList.vue'
@@ -84,7 +84,7 @@ defineExpose({ open: (id: string) => (openId.value = id) })
         <UiButton size="compact" tone="primary" data-testid="story.tell" :disabled="!chosen.length" @click="tell">Tell the story</UiButton>
         <UiButton size="compact" @click="adding = false">Cancel</UiButton>
       </div>
-      <p class="muted small">The storyteller writes it in the assistant panel (your Anthropic key; its model is set by the profile in ⚙). It reads your data but changes nothing else.</p>
+      <p class="muted small">It goes into your assistant chat, which hands it to the storyteller (your Anthropic key; its model is set by the profile in ⚙). It reads your data but changes nothing else.</p>
     </div>
     <p v-if="!stories.length && !compact && !adding" class="muted small">No stories yet. A story walks from the starting data, through each step, to the maps.</p>
     <ObjectList

@@ -345,9 +345,9 @@ whatever they're actually asking about.
   visualization's settings, drawn off screen by `visualizationsPng` with `hide` / `fit`) — so a story is a few KB saved in the
   workspace (`doc.stories`, ops `addStory` / `updateStory` / `removeStory`; `config.stories`; documents; zip `stories/<id>.json`;
   fingerprint; ids remapped on open and Replace…). Lists → **Stories** (`StoryList`, `StoryView`, `StoryFigure`): ＋ Story → pick
-  visualizations → the **storyteller** writes it in the assistant panel (`AgentPanel` `tellStory`, mode `storyteller`: its own
-  prompt `storyPrompt.ts`, tools `query_sql` + `write_story`, the profile's `storyteller` model), reading the lineage
-  (`lib/story/lineage.ts`). ⚠ marks a figure whose data changed since; Edit changes title and narratives.
+  visualizations → "Tell the story of …" goes into the **current assistant chat**, and the assistant calls **`tell_story`**: the
+  **storyteller** runs inside that step (`storyteller()` in `AgentPanel.vue`: its own prompt `storyPrompt.ts`, tools `query_sql` +
+  `write_story`, the profile's `storyteller` model), reading the lineage (`lib/story/lineage.ts`); follow-ups go through the same chat. ⚠ marks a figure whose data changed since; Edit changes title and narratives.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
   basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
   the trailing run of symbol layers; labels repainted light with a dark halo).

@@ -55,6 +55,8 @@ export interface AgentHost {
   builtins?(): { table: string; label: string; description: string }[]
   /** Adds a built-in table to the workspace (stored on this device first if it isn't yet); its dataset id. */
   addBuiltin?(table: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
+  /** Runs the storyteller on some visualizations (a new story, or `storyId` rewritten); what it wrote, or why it couldn't. */
+  tellStory?(req: { visualizationIds: string[]; wishes: string; storyId?: string }): Promise<{ storyId: string; name: string; scenes: string[] } | string>
 }
 
 export type WebRole = 'scout' | 'scraper'
@@ -244,6 +246,20 @@ export const TOOLS: ToolSpec[] = [
     description:
       'Delete a dataset\'s copy on this device and its rows for good (and its visualizations); a linked dataset\'s cloud copy stays. Refused while a workspace transform reads it. Use it to clean up datasets you made in this chat that are no longer needed; one you didn\'t make only when the user asked for it by name (userAsked).',
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, userAsked: { type: 'boolean', description: 'The user asked, by name, for this dataset to be deleted.' } }, required: ['id'] },
+  },
+  {
+    name: 'tell_story',
+    description:
+      'Have the storyteller write a story about some visualizations: scenes that walk from their starting data, through each transform, to the maps, each a short narrative with a figure or two (rows, a chart, a map). It reads the datasets\' descriptions and the SQL, so describe datasets well first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one). It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        visualizationIds: { type: 'array', items: { type: 'string' } },
+        wishes: { type: 'string', description: 'What the user asked of the story (focus, length, audience, changes to make), or "".' },
+        storyId: { type: 'string', description: 'The story to rewrite, or "" for a new one.' },
+      },
+      required: ['visualizationIds', 'wishes', 'storyId'],
+    },
   },
 ]
 
@@ -975,6 +991,19 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
 // ── dispatch ───────────────────────────────────────────────────────────────
 
 /** Runs a tool call: validated, gated, never throwing. */
+async function tellStory(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(host.tellStory, 'The storyteller isn\'t available here')
+  need(Array.isArray(input.visualizationIds) && input.visualizationIds.length && input.visualizationIds.every(str), '`visualizationIds` must list at least one visualization id')
+  const doc = host.doc()
+  const unknown = (input.visualizationIds as string[]).filter((id) => !doc.visualizations.some((v) => v.id === id))
+  need(!unknown.length, `No visualization ${unknown.map((u) => `"${u}"`).join(', ')} in the workspace (get_workspace lists them)`)
+  const storyId = str(input.storyId) && input.storyId ? input.storyId : undefined
+  need(!storyId || (doc.stories ?? []).some((x) => x.id === storyId), `No story "${storyId}" to rewrite`)
+  const r = await host.tellStory({ visualizationIds: input.visualizationIds as string[], wishes: str(input.wishes) ? input.wishes.trim() : '', ...(storyId ? { storyId } : {}) })
+  if (typeof r === 'string') return err(r, 'not written')
+  return ok({ ...r, note: 'The story is in the workspace draft (Stories, in the list view); the user saves it with the workspace.' }, `“${r.name}” · ${plural(r.scenes.length, 'scene')}`)
+}
+
 export async function runTool(host: AgentHost, name: string, input: unknown): Promise<ToolOutcome> {
   try {
     need(isObj(input), 'The tool input must be a JSON object')
@@ -1003,6 +1032,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await runTransform(host, input)
       case 'delete_dataset':
         return await deleteDataset(host, input)
+      case 'tell_story':
+        return await tellStory(host, input)
       default:
         return err(`Unknown tool "${name}"`)
     }

@@ -388,6 +388,21 @@ describe('agent tools', () => {
     expect(await runTool(host, 'drop_everything', {})).toMatchObject({ isError: true })
   })
 
+  it('hands stories to the storyteller (tell_story), for visualizations of the workspace', async () => {
+    const doc: WorkspaceDoc = { ...emptyWorkspace('Test'), datasetIds: ['joined'], visualizations: [{ kind: 'scalar', id: 'v1', name: 'Price', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price', aggregation: 'mean', visible: true, style: { color: { kind: 'constant', color: '#fff' }, opacity: { kind: 'constant', value: 1 }, pattern: { kind: 'none' } } } as never] }
+    const { host } = fakeHost(doc)
+    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', storyId: '' })).toMatchObject({ isError: true, content: "The storyteller isn't available here" })
+    const asked: object[] = []
+    host.tellStory = async (req) => (asked.push(req), { storyId: 's1', name: 'How prices are mapped', scenes: ['Prices', 'The map'] })
+    expect(await runTool(host, 'tell_story', { visualizationIds: ['nope'], wishes: '', storyId: '' })).toMatchObject({ isError: true, content: expect.stringContaining('No visualization "nope"') })
+    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', storyId: 'gone' })).toMatchObject({ isError: true, content: 'No story "gone" to rewrite' })
+    const out = await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: 'for a general audience', storyId: '' })
+    expect(out).toMatchObject({ isError: false, summary: '“How prices are mapped” · 2 scenes' })
+    expect(asked).toEqual([{ visualizationIds: ['v1'], wishes: 'for a general audience' }])
+    host.tellStory = async () => 'The storyteller stopped (truncated) without writing the story.'
+    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', storyId: '' })).toMatchObject({ isError: true, summary: 'not written' })
+  })
+
   it('asks for a description of every dataset it made, until there is one', async () => {
     const doc: WorkspaceDoc = {
       ...emptyWorkspace('Test'),
