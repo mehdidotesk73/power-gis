@@ -81,6 +81,7 @@ import { fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspac
 import { unzipDocument, zipDocument, zipName } from '../lib/workspace/files'
 import { fingerprint, workspaceSync, type SyncPoint, type WorkspaceSync } from '../lib/workspace/fingerprint'
 import { saveFile } from '../client/saveFile'
+import { readStories } from '../lib/story/story'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -325,7 +326,7 @@ async function saveHere(): Promise<boolean> {
     request('saveWorkspace', {
       id: d.id,
       name: d.name,
-      config: { datasetIds: d.datasetIds, ...(d.unavailable ? { unavailable: d.unavailable } : {}) },
+      config: { datasetIds: d.datasetIds, ...(d.unavailable ? { unavailable: d.unavailable } : {}), ...(d.stories?.length ? { stories: d.stories } : {}) },
       visualizations: d.visualizations.map((v) => ({ id: v.id, name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
       transforms: d.transforms,
     }),
@@ -1312,7 +1313,8 @@ async function open(w: WorkspaceRecord) {
   for (const t of transforms) for (const id of [...t.inputs.map((i) => i.datasetId), ...t.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))]) {
     if (!records.value.has(id) && !unavailable[id] && w.config.unavailable?.[id]) unavailable[id] = w.config.unavailable[id]
   }
-  quietly({ id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}) })
+  const stories = readStories(w.config.stories)
+  quietly({ id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}), ...(stories.length ? { stories } : {}) })
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations, ${transforms.length} transforms`)
 }
 

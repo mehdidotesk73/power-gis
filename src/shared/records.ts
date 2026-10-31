@@ -8,6 +8,7 @@ import type { UnavailableDataset } from '../lib/workspace/workspace'
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
+import type { Story } from '../lib/story/story'
 
 export interface BaseRecord {
   id: string
@@ -26,6 +27,8 @@ export interface WorkspaceConfig {
   transformIds?: string[]
   /** Datasets it points at that this device doesn't have, with what's known of them (kept until replaced or removed). */
   unavailable?: Record<string, UnavailableDataset>
+  /** Its stories (text and figure specs; small). */
+  stories?: Story[]
 }
 export interface WorkspaceRecord extends BaseRecord {
   ownerId: string

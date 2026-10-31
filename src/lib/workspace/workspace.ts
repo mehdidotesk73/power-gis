@@ -6,6 +6,7 @@
 // never live here — datasets are tables in the database.
 
 import type { VisualizationSpec } from '../dataset/visualization'
+import type { Story } from '../story/story'
 import { newId } from '../dataset/dataset'
 
 export interface WorkspaceDoc {
@@ -27,6 +28,8 @@ export interface WorkspaceDoc {
    * written to the datasets on Save, gone on Discard (`editDataset`).
    */
   datasetEdits?: Record<string, DatasetEdit>
+  /** Stories told about the workspace (lib/story/story.ts): text and figure specs, never images. */
+  stories?: Story[]
 }
 
 /** A drafted change to a dataset's details. */
@@ -284,6 +287,31 @@ export function updateTransform(doc: WorkspaceDoc, t: TransformSpec): OpResult {
 export function removeTransform(doc: WorkspaceDoc, id: string): OpResult {
   if (!doc.transforms.some((t) => t.id === id)) return fail('not_found', `No transform "${id}"`)
   return ok({ ...doc, transforms: doc.transforms.filter((t) => t.id !== id) })
+}
+
+// ── stories ────────────────────────────────────────────────────────────────
+
+const storiesOf = (doc: WorkspaceDoc) => doc.stories ?? []
+const withStories = (doc: WorkspaceDoc, stories: Story[]): WorkspaceDoc => {
+  const { stories: _s, ...rest } = doc
+  return stories.length ? { ...rest, stories } : rest
+}
+
+/** Adds a story (at the top of the list). */
+export function addStory(doc: WorkspaceDoc, s: Story): OpResult {
+  if (storiesOf(doc).some((x) => x.id === s.id)) return fail('duplicate', `Story id "${s.id}" already exists`)
+  return ok(withStories(doc, [s, ...storiesOf(doc)]))
+}
+
+/** Replaces a story (renamed, a narrative edited, rewritten). */
+export function updateStory(doc: WorkspaceDoc, s: Story): OpResult {
+  if (!storiesOf(doc).some((x) => x.id === s.id)) return fail('not_found', `No story "${s.id}"`)
+  return ok(withStories(doc, storiesOf(doc).map((x) => (x.id === s.id ? s : x))))
+}
+
+export function removeStory(doc: WorkspaceDoc, id: string): OpResult {
+  if (!storiesOf(doc).some((x) => x.id === id)) return fail('not_found', `No story "${id}"`)
+  return ok(withStories(doc, storiesOf(doc).filter((x) => x.id !== id)))
 }
 
 /** A table name for a dataset's name: lowercase words joined by _. */

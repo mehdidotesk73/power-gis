@@ -759,6 +759,7 @@ export function createServer(db: Database, env: ServerEnv) {
           visualizationIds: visualizations.map((v) => v.id),
           transformIds: transforms.map((x) => x.id),
           ...(config.unavailable && Object.keys(config.unavailable).length ? { unavailable: config.unavailable } : {}),
+          ...(config.stories?.length ? { stories: config.stories } : {}),
         },
         createdAt: existing?.createdAt ?? t,
         updatedAt: t,

@@ -262,7 +262,7 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 const str = (v: unknown): v is string => typeof v === 'string'
 const optStr = (v: unknown) => v === undefined || str(v)
 
-class Invalid extends Error {}
+export class Invalid extends Error {}
 function need(cond: unknown, message: string): asserts cond {
   if (!cond) throw new Invalid(message)
 }
@@ -557,6 +557,35 @@ function readStyle(raw: unknown, v: VisualizationSpec, where: string): Visualiza
  * The workspace a full description (the assembled workspace files) makes,
  * with every problem listed. Items given as just {id} are kept as they are.
  */
+/**
+ * A visualization from its file form ({name, datasetId, binding, column, aggregation?, kind?, visible?, style?}),
+ * checked against the dataset; `existing` (the same id) keeps its style where the kind of value is unchanged.
+ * Throws Invalid with what's wrong.
+ */
+export async function readVisualization(host: Pick<AgentHost, 'shape'>, raw: Obj, where: string, existing?: VisualizationSpec): Promise<VisualizationSpec> {
+  need(isObj(raw) && str(raw.name) && str(raw.datasetId) && str(raw.column), `${where} needs name, datasetId, binding and column`)
+  const b = raw.binding
+  need(isObj(b) && str(b.column) && (b.kind === undefined || b.kind === 'geometry') && optStr(b.label), `${where}.binding must be {"kind": "geometry", "column": <a geometry column>, "label"?: <a column naming each feature>}`)
+  need(optStr(raw.id), `${where}: id must be text`)
+  need(raw.kind === undefined || raw.kind === 'scalar' || raw.kind === 'vector', `${where}.kind must be scalar or vector`)
+  need(raw.aggregation === undefined || AGG_NAMES.includes(raw.aggregation as string), `${where}.aggregation must be one of ${AGG_NAMES.join(', ')}`)
+  need(raw.visible === undefined || typeof raw.visible === 'boolean', `${where}.visible must be true or false`)
+  const binding: GeometryBinding = { kind: 'geometry', column: b.column, ...(b.label ? { label: b.label as string } : {}) }
+  const info = await host.shape(raw.datasetId, binding)
+  need(typeof info !== 'string', `${where}: ${info as string}`)
+  const column = raw.column
+  need(column === ROWS || info.columns.some((c) => c.name === column), `${where}: "${column}" isn't a value column of this dataset under geometry "${binding.column}" (columns: ${info.columns.map((c) => c.name).join(', ') || 'none'}; or "${ROWS}")`)
+  const type = columnType(info.columns, column)
+  const agg = raw.aggregation as Aggregation | undefined
+  need(!agg || column === ROWS || aggregationsFor(type).includes(agg), `${where}: ${agg} doesn't apply to a ${type} column (use ${aggregationsFor(type).join(', ')})`)
+  const aggregation = agg ?? (existing && existing.column === column ? existing.aggregation : column === ROWS ? 'count' : defaultAggregation(type, info.maxRowsPerFeature))
+  let v: VisualizationSpec = existing ? retarget(info, existing, column, aggregation, binding) : { ...makeVisualization(info, raw.datasetId, binding, column, aggregation), ...(raw.id ? { id: raw.id as string } : {}) }
+  v = { ...v, name: raw.name, ...(raw.visible !== undefined ? { visible: raw.visible as boolean } : {}) }
+  need(raw.kind === undefined || raw.kind === v.kind, `${where}.kind: "${column}" draws as ${v.kind === 'vector' ? 'arrows ("vector")' : 'colors ("scalar")'}, so kind is ${v.kind}`)
+  if (raw.style !== undefined) v = { ...v, style: readStyle(raw.style, v, where) } as VisualizationSpec
+  return v
+}
+
 async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): Promise<{ doc: WorkspaceDoc; errors: string[] }> {
   need(optStr(input.name), '`name` must be text')
   need(Array.isArray(input.datasetIds) && input.datasetIds.every(str), '`datasetIds` must be a list of dataset ids')
@@ -629,28 +658,9 @@ async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): P
         else errors.push(`${where} "${v.name}": ${r.error.message}`)
         continue
       }
-      need(isObj(raw) && str(raw.name) && str(raw.datasetId) && str(raw.column), `${where} needs name, datasetId, binding and column`)
-      const b = raw.binding
-      need(isObj(b) && str(b.column) && (b.kind === undefined || b.kind === 'geometry') && optStr(b.label), `${where}.binding must be {"kind": "geometry", "column": <a geometry column>, "label"?: <a column naming each feature>}`)
-      need(optStr(raw.id), `${where}: id must be text`)
-      need(raw.kind === undefined || raw.kind === 'scalar' || raw.kind === 'vector', `${where}.kind must be scalar or vector`)
-      need(raw.aggregation === undefined || AGG_NAMES.includes(raw.aggregation as string), `${where}.aggregation must be one of ${AGG_NAMES.join(', ')}`)
-      need(raw.visible === undefined || typeof raw.visible === 'boolean', `${where}.visible must be true or false`)
+      need(isObj(raw) && str(raw.datasetId), `${where} needs name, datasetId, binding and column`)
       need(records.has(raw.datasetId), `${where}: dataset "${raw.datasetId}" isn't in datasetIds`)
-      const binding: GeometryBinding = { kind: 'geometry', column: b.column, ...(b.label ? { label: b.label as string } : {}) }
-      const info = await host.shape(raw.datasetId, binding)
-      need(typeof info !== 'string', `${where}: ${info as string}`)
-      const column = raw.column
-      need(column === ROWS || info.columns.some((c) => c.name === column), `${where}: "${column}" isn't a value column of this dataset under geometry "${binding.column}" (columns: ${info.columns.map((c) => c.name).join(', ') || 'none'}; or "${ROWS}")`)
-      const type = columnType(info.columns, column)
-      const agg = raw.aggregation as Aggregation | undefined
-      need(!agg || column === ROWS || aggregationsFor(type).includes(agg), `${where}: ${agg} doesn't apply to a ${type} column (use ${aggregationsFor(type).join(', ')})`)
-      const existing = cur.visualizations.find((v) => v.id === raw.id && v.datasetId === raw.datasetId)
-      const aggregation = agg ?? (existing && existing.column === column ? existing.aggregation : column === ROWS ? 'count' : defaultAggregation(type, info.maxRowsPerFeature))
-      let v: VisualizationSpec = existing ? retarget(info, existing, column, aggregation, binding) : { ...makeVisualization(info, raw.datasetId, binding, column, aggregation), ...(raw.id ? { id: raw.id as string } : {}) }
-      v = { ...v, name: raw.name, ...(raw.visible !== undefined ? { visible: raw.visible as boolean } : {}) }
-      need(raw.kind === undefined || raw.kind === v.kind, `${where}.kind: "${column}" draws as ${v.kind === 'vector' ? 'arrows ("vector")' : 'colors ("scalar")'}, so kind is ${v.kind}`)
-      if (raw.style !== undefined) v = { ...v, style: readStyle(raw.style, v, where) } as VisualizationSpec
+      const v = await readVisualization(host, raw, where, cur.visualizations.find((x) => x.id === raw.id && x.datasetId === raw.datasetId))
       const r = addVisualization(doc, v, doc.visualizations.length, ctx)
       if (r.ok) doc = r.doc
       else errors.push(`${where} "${raw.name}": ${r.error.message}`)

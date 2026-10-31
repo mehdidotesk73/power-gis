@@ -25,6 +25,7 @@ export const OVERVIEW = 'overview.md'
 export const transformPath = (id: string) => `transforms/${id}.json`
 export const sqlPath = (id: string, key: string) => `transforms/${id}.${key}.sql`
 export const vizPath = (id: string) => `visualizations/${id}.json`
+export const storyPath = (id: string) => `stories/${id}.json`
 
 const pretty = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
 /** Every SQL file ends in one newline more than its SQL, which reading takes off again. */
@@ -46,6 +47,7 @@ export function documentFiles(file: WorkspaceFile): Files {
       datasetIds: file.datasetIds,
       transforms: file.transforms.map((t) => t.id),
       visualizations: file.visualizations.map((v) => v.id),
+      ...(file.stories?.length ? { stories: file.stories.map((s) => s.id) } : {}),
     }),
   )
   files.set(DATASETS, pretty(Object.fromEntries(file.datasets.map(({ id, ...fact }) => [id, fact]))))
@@ -65,6 +67,7 @@ export function documentFiles(file: WorkspaceFile): Files {
     const { id: _id, ...settings } = v
     files.set(vizPath(v.id), pretty(settings))
   }
+  for (const s of file.stories ?? []) files.set(storyPath(s.id), pretty(s))
   files.set(OVERVIEW, overviewOf(file))
   return files
 }
@@ -106,12 +109,14 @@ export function filesDocument(files: Files): Parsed {
       }
     })
     const visualizations = (index.visualizations as string[]).map((id) => ({ ...json(vizPath(id)), id }))
-    const { transforms: _t, visualizations: _v, ...rest } = index
+    const stories = idList(index.stories) ? index.stories.map((id) => ({ ...json(storyPath(id)), id })) : []
+    const { transforms: _t, visualizations: _v, stories: _s, ...rest } = index
     return parseWorkspaceObject({
       ...rest,
       datasets: Object.entries(facts).map(([id, fact]) => ({ ...(isObj(fact) ? fact : {}), id })),
       transforms,
       visualizations,
+      ...(stories.length ? { stories } : {}),
     })
   } catch (e) {
     return { ok: false, error: `Not a PowerGIS workspace: ${(e as Error).message}` }
