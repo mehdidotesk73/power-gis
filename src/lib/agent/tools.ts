@@ -23,7 +23,7 @@ import { datasetFact, snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
 import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type DatasetFacts, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
-import { answerSummary, LIMITS, readForm, type Form, type FormAnswer } from './form'
+import { answerSummary, LIMITS, NOTES, readForm, REVISE, withNotes, type Form, type FormAnswer } from './form'
 
 /** What the tools act through: the page's workspace copy and the server. */
 export interface AgentHost {
@@ -909,10 +909,18 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
 // ── ask_user ───────────────────────────────────────────────────────────────
 
 async function askUser(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  const form = readForm(input)
-  need(typeof form !== 'string', form as string)
+  const read = readForm(input)
+  need(typeof read !== 'string', read as string)
+  const form = withNotes(read)
   const a = await host.ask(form)
-  return ok(a, answerSummary(form, a))
+  const notes = typeof a.values[NOTES] === 'string' && a.values[NOTES].trim()
+  const next =
+    a.button === REVISE
+      ? { revise: 'The user asks for your draft again, revised: apply their notes and any edits they made in the fields, then show the revised card with ask_user before going on.' }
+      : notes
+        ? { notes: 'Take the user\'s notes into account in what you do next.' }
+        : {}
+  return ok({ ...a, ...next }, answerSummary(form, a))
 }
 
 // ── add_builtin ────────────────────────────────────────────────────────────

@@ -204,7 +204,9 @@ function redo() {
   if (d) jumpTo(d)
 }
 function jumpTo(d: WorkspaceDoc) {
-  quietly(d)
+  // The account link is bookkeeping, not an edit: undo / redo never take it away (a Save would then make a second copy).
+  const { cloudId: _c, ...rest } = d
+  quietly(doc.value.cloudId && d.id === doc.value.id ? { ...rest, cloudId: doc.value.cloudId } : d)
   syncHistory()
   marked.value = marked.value.filter((k) => inDoc(d, k))
   if (dagKey.value && !inDoc(d, dagKey.value)) closeNode()
@@ -621,64 +623,91 @@ function startOver(d: WorkspaceDoc) {
   savedSnap.value = snapshot(d)
 }
 
-async function switchWorkspace(key: string) {
-  if (!(await leaveCurrent())) return
-  const user = auth.user?.id
-  if (key.startsWith('local:')) {
-    const w = await readDb.get('workspaces', key.slice(6))
-    if (!w) return void (await refreshWorkspaces())
-    status.value = 'loading'
-    loadingMsg.value = `Opening “${w.name}”…`
-    await open(w)
-    startOver(doc.value)
-    localPrint.value = await fingerprint(documentOf(doc.value))
-    store.set(LAST_WORKSPACE, w.id)
-    status.value = 'ready'
-    cloudUser.value = null
-    wsSync.value = null
-    await catchUpWithCloud()
-  } else if (key.startsWith('cloud:') && user) {
-    const a = await accountWorkspace(key.slice(6))
-    if (!a?.w) return void (await refreshWorkspaces())
+/** A switch, New or delete in progress: the list waits (taps meanwhile do nothing) so two never interleave. */
+const workspaceBusy = ref(false)
+async function oneAtATime(work: () => Promise<void>) {
+  if (workspaceBusy.value) return
+  workspaceBusy.value = true
+  try {
+    await work()
+  } finally {
+    workspaceBusy.value = false
+    await refreshWorkspaces()
+  }
+}
+
+/** Opens one of this device's workspaces (its records), then catches up with its copy in the account. */
+async function openLocal(id: string) {
+  const w = await readDb.get('workspaces', id)
+  if (!w) return
+  status.value = 'loading'
+  loadingMsg.value = `Opening “${w.name}”…`
+  await open(w)
+  startOver(doc.value)
+  localPrint.value = await fingerprint(documentOf(doc.value))
+  store.set(LAST_WORKSPACE, w.id)
+  status.value = 'ready'
+  cloudUser.value = null
+  wsSync.value = null
+  await catchUpWithCloud()
+}
+
+const switchWorkspace = (key: string) =>
+  oneAtATime(async () => {
+    if (!(await leaveCurrent())) return
+    const user = auth.user?.id
+    if (key.startsWith('local:')) return openLocal(key.slice(6))
+    if (!key.startsWith('cloud:') || !user) return
+    const cloudId = key.slice(6)
+    // This device's copy of it, if it has one: open that (never a second copy).
+    const here = (await readDb.list('workspaces')).find((w) => w.config.cloudId === cloudId)
+    if (here) return openLocal(here.id)
+    const a = await accountWorkspace(cloudId)
+    if (!a?.w) return
     startOver(emptyWorkspace(a.w.name))
     if (await openFromCloud(a.w, a.cloud, user)) freshHistory()
-  }
-  await refreshWorkspaces()
-}
+  })
 
-async function newWorkspace() {
-  if (!(await leaveCurrent())) return
-  startOver(emptyWorkspace(`Workspace ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`))
-  wsSync.value = null
-  await saveHere()
-  await refreshWorkspaces()
-  barMessage.value = 'A new, empty workspace. The others are in the list above; signed in, this one goes to your account when it has something in it and you Save.'
-}
+const newWorkspace = () =>
+  oneAtATime(async () => {
+    if (!(await leaveCurrent())) return
+    startOver(emptyWorkspace(`Workspace ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`))
+    wsSync.value = null
+    await saveHere()
+    barMessage.value = 'A new, empty workspace. The others are in the list above; signed in, this one goes to your account when it has something in it and you Save.'
+  })
 
-async function removeWorkspace(key: string) {
-  await cloudSend
-  const entry = workspaceList.value.find((w) => w.key === key)
-  if (!entry) return
-  const local = key.startsWith('local:') ? await readDb.get('workspaces', key.slice(6)) : undefined
-  const cloudId = key.startsWith('cloud:') ? key.slice(6) : local?.config.cloudId
-  const inAccount = entry.where !== 'device'
-  if (!confirm(`Delete the workspace “${entry.name}”${inAccount ? ' from this device and your account' : ''}? Its datasets stay (in Library and the cloud); its transforms, visualizations and stories go.`)) return
-  if (inAccount && cloudId) {
-    const r = await request('deleteCloudWorkspace', { id: cloudId })
-    if (!r.ok) return void (barMessage.value = `Couldn't delete it from your account: ${r.error.message}`)
-  }
-  if (local) await call('delete workspace', request('deleteWorkspace', { id: local.id }))
-  if (entry.current) {
-    store.set(DRAFT, null)
-    const rest = (await readDb.list('workspaces')).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt))
-    if (rest[0]) await switchWorkspace(`local:${rest[0].id}`)
-    else {
-      startOver(emptyWorkspace())
-      await saveHere()
+const removeWorkspace = (key: string) =>
+  oneAtATime(async () => {
+    await cloudSend
+    const entry = workspaceList.value.find((w) => w.key === key)
+    if (!entry) return
+    const locals = await readDb.list('workspaces')
+    const local = key.startsWith('local:') ? locals.find((w) => w.id === key.slice(6)) : undefined
+    const cloudId = key.startsWith('cloud:') ? key.slice(6) : local?.config.cloudId
+    // Another copy on this device points at the same account workspace: deleting this one keeps the account's.
+    const shared = !!cloudId && locals.some((w) => w.id !== local?.id && w.config.cloudId === cloudId)
+    let fromAccount = entry.where === 'account'
+    if (local) {
+      if (!confirm(`Delete “${entry.name}” from this device? Its datasets stay (in Library and the cloud); its transforms, visualizations and stories go from this device.`)) return
+      if (entry.where === 'both' && !shared)
+        fromAccount = confirm(`Also delete “${entry.name}” from your account? Other devices lose it too. (Cancel keeps it in your account; it stays in the list to open again.)`)
+    } else if (!confirm(`Delete “${entry.name}” from your account? Other devices lose it too. Its datasets stay.`)) return
+    if (fromAccount && cloudId) {
+      const r = await request('deleteCloudWorkspace', { id: cloudId })
+      if (!r.ok) return void (barMessage.value = `Couldn't delete it from your account: ${r.error.message}`)
     }
-  }
-  await refreshWorkspaces()
-}
+    if (local) await call('delete workspace', request('deleteWorkspace', { id: local.id }))
+    if (entry.current) {
+      store.set(DRAFT, null)
+      const rest = (await readDb.list('workspaces')).sort((x, y) => y.updatedAt.localeCompare(x.updatedAt))
+      if (rest[0]) await openLocal(rest[0].id)
+      else {
+        startOver(emptyWorkspace())
+        await saveHere()
+      }
+    }
+  })
 
 /** The workspace as a document: its setup plus the facts of every dataset it points at (Copy, files, the cloud). */
 const documentOf = (d: WorkspaceDoc): WorkspaceFile => toWorkspaceFile(d, (id) => records.value.get(id))
@@ -1555,7 +1584,7 @@ onMounted(async () => {
         // Unsaved edits from last time; drop pointers to datasets that have since gone.
         for (const id of draft.doc.datasetIds) await loadRecord(id)
         const ids = draft.doc.datasetIds.filter((id) => records.value.has(id))
-        quietly({ ...draft.doc, datasetIds: ids, visualizations: draft.doc.visualizations.filter((v) => ids.includes(v.datasetId) && isSupportedBinding(v.binding)) })
+        quietly({ ...draft.doc, ...(doc.value.cloudId ? { cloudId: doc.value.cloudId } : {}), datasetIds: ids, visualizations: draft.doc.visualizations.filter((v) => ids.includes(v.datasetId) && isSupportedBinding(v.binding)) })
         logDebug('restored unsaved changes from last time')
       }
     } else {
@@ -1716,6 +1745,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           @resolve="resolveSync"
           @sample="openSample"
           :workspaces="workspaceList"
+          :workspaces-busy="workspaceBusy"
           @opened="refreshWorkspaces"
           @switch="switchWorkspace"
           @new="newWorkspace"
