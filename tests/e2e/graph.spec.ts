@@ -46,4 +46,10 @@ test('the layout menu: pick a layout and the graph turns; a tap elsewhere closes
   await page.locator('.dag .hint').click()
   await expect(page.getByTestId('graph.layout.vertical')).toHaveCount(0)
   expect((await pos('State income')).x).toBeGreaterThan((await pos('Clean county income')).x + 20)
+
+  // The compact layouts are there too, and the button shows the one in use.
+  await page.getByTestId('graph.layout').click()
+  await page.getByTestId('graph.layout.vertical-compact').click()
+  await expect(page.getByTestId('graph.layout')).toContainText('⇊')
+  await expect.poll(async () => (await pos('State income')).y - (await pos('Clean county income')).y).toBeGreaterThan(20)
 })

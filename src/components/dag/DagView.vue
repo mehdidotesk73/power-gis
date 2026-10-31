@@ -15,7 +15,7 @@ import { vReveal } from '../reveal'
 import { picks, useSelection } from '../selection'
 import { usePanZoom } from './usePanZoom'
 import { copyPng, graphPng } from './graphImage'
-import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode } from '../../lib/workspace/dag'
+import { edgePath, layoutDag, NODE_H, NODE_W, type Dag, type DagDirection, type DagNode, type DagStyle } from '../../lib/workspace/dag'
 
 const props = defineProps<{
   dag: Dag
@@ -38,36 +38,42 @@ const emit = defineEmits<{
 }>()
 
 const DIRECTION = 'powergis.dagDirection'
-function readDirection(): DagDirection {
+const STYLE = 'powergis.dagStyle'
+const stored = (key: string) => {
   try {
-    return localStorage.getItem(DIRECTION) === 'horizontal' ? 'horizontal' : 'vertical'
+    return localStorage.getItem(key)
   } catch {
-    return 'vertical'
+    return null
   }
 }
-const direction = ref<DagDirection>(readDirection())
-function setDirection(d: DagDirection) {
+const direction = ref<DagDirection>(stored(DIRECTION) === 'horizontal' ? 'horizontal' : 'vertical')
+const style = ref<DagStyle>(stored(STYLE) === 'compact' ? 'compact' : 'regular')
+function setLayout(d: DagDirection, st: DagStyle) {
   direction.value = d
+  style.value = st
   layoutOpen.value = false
   try {
     localStorage.setItem(DIRECTION, d)
+    localStorage.setItem(STYLE, st)
   } catch {
     /* per-device convenience only */
   }
 }
 /** The layout menu (under ✎ in the graph's corner): open, it lists the layouts; any tap elsewhere closes it. */
 const layoutOpen = ref(false)
-const LAYOUTS: { id: DagDirection; icon: string; label: string }[] = [
-  { id: 'vertical', icon: '↓', label: 'Top to bottom' },
-  { id: 'horizontal', icon: '→', label: 'Left to right' },
+const LAYOUTS: { id: string; direction: DagDirection; style: DagStyle; icon: string; label: string }[] = [
+  { id: 'vertical', direction: 'vertical', style: 'regular', icon: '↓', label: 'Top to bottom' },
+  { id: 'horizontal', direction: 'horizontal', style: 'regular', icon: '→', label: 'Left to right' },
+  { id: 'vertical-compact', direction: 'vertical', style: 'compact', icon: '⇊', label: 'Top to bottom, compact' },
+  { id: 'horizontal-compact', direction: 'horizontal', style: 'compact', icon: '⇉', label: 'Left to right, compact' },
 ]
+const current = computed(() => LAYOUTS.find((l) => l.direction === direction.value && l.style === style.value)!)
 const closeLayout = (e: PointerEvent) => {
   if (!(e.target as HTMLElement | null)?.closest('.layout-menu')) layoutOpen.value = false
 }
 watch(layoutOpen, (on) => (on ? document.addEventListener('pointerdown', closeLayout, true) : document.removeEventListener('pointerdown', closeLayout, true)))
 onBeforeUnmount(() => document.removeEventListener('pointerdown', closeLayout, true))
-
-const layout = computed(() => layoutDag(props.dag, direction.value))
+const layout = computed(() => layoutDag(props.dag, direction.value, style.value))
 
 // The graph sits in a fixed viewport and pans / zooms; it opens fitted (never
 // enlarged), and refits when its size or direction changes.
@@ -104,7 +110,7 @@ onBeforeUnmount(() => {
   resizer?.disconnect()
   window.removeEventListener('resize', onWindowResize)
 })
-watch(() => [layout.value.width, layout.value.height, direction.value, props.dag.nodes.length > 0], () => nextTick(refit))
+watch(() => [layout.value.width, layout.value.height, direction.value, style.value, props.dag.nodes.length > 0], () => nextTick(refit))
 const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
 /** Copies what the graph's window shows (as panned and zoomed) as a PNG; downloads it where the clipboard can't take images. */
@@ -268,7 +274,7 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
           <UiButton
             data-testid="graph.layout"
             size="compact"
-            :icon="LAYOUTS.find((l) => l.id === direction)!.icon"
+            :icon="current.icon"
             :active="layoutOpen"
             :aria-expanded="layoutOpen"
             aria-haspopup="menu"
@@ -281,10 +287,10 @@ const dimmed = (n: DagNode) => mode.value !== null && n.kind !== 'dataset'
               v-for="l in LAYOUTS"
               :key="l.id"
               role="menuitemradio"
-              :aria-checked="direction === l.id"
+              :aria-checked="current.id === l.id"
               :data-testid="`graph.layout.${l.id}`"
-              :class="{ on: direction === l.id }"
-              @click="setDirection(l.id)"
+              :class="{ on: current.id === l.id }"
+              @click="setLayout(l.direction, l.style)"
             >
               <span class="li" aria-hidden="true">{{ l.icon }}</span>{{ l.label }}
             </button>

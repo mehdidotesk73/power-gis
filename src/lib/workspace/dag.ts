@@ -305,6 +305,33 @@ const GAP_CROSS = 12
 const GAP_ALONG = { vertical: 44, horizontal: 56 }
 const PAD = 8
 
+/** `regular`: arrows as straight as possible (wider). `compact`: each row centered (narrower; arrows fan in and out). */
+export type DagStyle = 'regular' | 'compact'
+
+/** The compact layout: each row (column, left to right) centered on the widest. */
+function compactLayout(dag: Dag, direction: DagDirection): DagLayout {
+  const v = direction === 'vertical'
+  const along = v ? NODE_H : NODE_W
+  const cross = (key: string) => (isVirtual(key) ? LANE : v ? NODE_W : NODE_H)
+  const span = (layer: string[]) => layer.reduce((s, k) => s + cross(k), 0) + Math.max(0, layer.length - 1) * GAP_CROSS
+  const widest = Math.max(0, ...dag.layers.map(span))
+  const at = new Map<string, { x: number; y: number }>()
+  const points = new Map<string, { x: number; y: number }>()
+  dag.layers.forEach((layer, r) => {
+    let c = PAD + (widest - span(layer)) / 2
+    const a = PAD + r * (along + GAP_ALONG[direction])
+    for (const key of layer) {
+      const size = cross(key)
+      if (isVirtual(key)) points.set(key, v ? { x: Math.round(c + size / 2), y: a + along / 2 } : { x: a + along / 2, y: Math.round(c + size / 2) })
+      else at.set(key, v ? { x: Math.round(c), y: a } : { x: a, y: Math.round(c) })
+      c += size + GAP_CROSS
+    }
+  })
+  const depth = dag.rows ? PAD * 2 + dag.rows * along + (dag.rows - 1) * GAP_ALONG[direction] : 0
+  const breadth = widest + PAD * 2
+  return { width: v ? breadth : depth, height: v ? depth : breadth, direction, at, points }
+}
+
 /**
  * Pixel positions. Rows (columns when horizontal) keep the order `orderLayers` chose; within a row each
  * node moves toward the nodes it's linked to in the rows above and below, so arrows run mostly straight
@@ -312,7 +339,8 @@ const PAD = 8
  * Passing arrows (virtual points) weigh more, so long arrows stay straight. A few sweeps down and up, each
  * row placed as close to its wishes as the gaps allow; then everything is shifted to start at the edge.
  */
-export function layoutDag(dag: Dag, direction: DagDirection = 'vertical'): DagLayout {
+export function layoutDag(dag: Dag, direction: DagDirection = 'vertical', style: DagStyle = 'regular'): DagLayout {
+  if (style === 'compact') return compactLayout(dag, direction)
   const v = direction === 'vertical'
   const along = v ? NODE_H : NODE_W // a row's depth
   const cross = (key: string) => (isVirtual(key) ? LANE : v ? NODE_W : NODE_H)
