@@ -9,6 +9,15 @@
 import UiButton from '../ui/UiButton.vue'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+/** One workspace in the list: on this device, in the account, or both. */
+export interface WorkspaceEntry {
+  key: string
+  name: string
+  updatedAt: string
+  where: 'device' | 'account' | 'both'
+  current: boolean
+}
+
 const props = defineProps<{
   name: string
   dirty: boolean
@@ -31,6 +40,8 @@ const props = defineProps<{
   sync?: 'synced' | 'new' | 'ahead' | 'behind' | 'both' | null
   /** Nothing in the workspace yet: the button pulses gently and the panel offers the sample. */
   empty?: boolean
+  /** Every workspace: this device's and (signed in) the account's, most recent first. */
+  workspaces?: WorkspaceEntry[]
 }>()
 const emit = defineEmits<{
   (e: 'save'): void
@@ -48,6 +59,11 @@ const emit = defineEmits<{
   /** Review, then link these to the cloud / sync these with it (BatchPanel). */
   (e: 'link-all'): void
   (e: 'sync-all'): void
+  /** The panel opened (the list of workspaces is read again). */
+  (e: 'opened'): void
+  (e: 'switch', key: string): void
+  (e: 'new'): void
+  (e: 'remove', key: string): void
 }>()
 
 const open = ref(false)
@@ -65,14 +81,29 @@ watch(
 function toggle() {
   open.value = !open.value
 }
+watch(open, (o) => o && emit('opened'))
+const WHERE = { device: 'this device', account: 'your account', both: 'this device · your account' } as const
+const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 function onFile(e: Event) {
   const f = (e.target as HTMLInputElement).files?.[0]
   ;(e.target as HTMLInputElement).value = ''
   if (f) emit('load', f)
 }
-function rename(e: Event) {
-  const v = (e.target as HTMLInputElement).value.trim()
+// The name box keeps its own text while it's being edited, so the panel re-drawing (the list of
+// workspaces arriving) never resets what's being typed.
+const nameDraft = ref(props.name)
+const editingName = ref(false)
+watch(
+  () => props.name,
+  (n) => {
+    if (!editingName.value) nameDraft.value = n
+  },
+)
+function rename() {
+  editingName.value = false
+  const v = nameDraft.value.trim()
   if (v && v !== props.name) emit('rename', v)
+  else nameDraft.value = props.name
 }
 // ── paste a workspace ──────────────────────────────────────────────────────
 
@@ -145,12 +176,29 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
         <input
           ref="nameEl"
           class="name"
-          :value="name"
+          v-model="nameDraft"
           aria-label="Workspace name"
+          @focus="editingName = true"
+          @blur="editingName = false"
           @change="rename"
           @keydown.enter="($event.target as HTMLInputElement).blur()"
         />
         <UiButton size="compact" icon="✎" aria-label="Rename" title="Rename" @click="editName" />
+      </div>
+      <div class="list" data-testid="workspace.list">
+        <div class="list-head">
+          <span class="eyebrow">Your workspaces</span>
+          <UiButton size="tag" tone="primary" icon="＋" data-testid="workspace.new" title="A new, empty workspace (this one stays in the list)" @click="emit('new')">New</UiButton>
+        </div>
+        <ul>
+          <li v-for="w in workspaces ?? []" :key="w.key" :class="{ current: w.current }" :data-testid="`workspace.item`" :data-name="w.name">
+            <button class="pick" :disabled="w.current" :aria-current="w.current ? 'true' : undefined" @click="emit('switch', w.key)">
+              <span class="w-name">{{ w.current ? '● ' : '' }}{{ w.name }}</span>
+              <span class="w-meta">{{ WHERE[w.where] }} · {{ day(w.updatedAt) }}</span>
+            </button>
+            <UiButton size="compact" icon="✕" tone="danger" :aria-label="`Delete ${w.name}`" data-testid="workspace.remove" @click="emit('remove', w.key)" />
+          </li>
+        </ul>
       </div>
       <div v-if="empty" class="empty" data-testid="workspace.empty">
         <span>This workspace is empty. Add a dataset (＋ Dataset under Set up), ask the ✦ Assistant for data, or start from the sample: a county socioeconomic map built from sample data.</span>
@@ -475,5 +523,55 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
 }
 .hidden {
   display: none;
+}
+.list {
+  display: grid;
+  gap: 0.3rem;
+}
+.list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+  max-height: 11rem;
+  overflow-y: auto;
+}
+.list li {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.pick {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  text-align: left;
+  font: inherit;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+}
+.current .pick {
+  border-color: var(--accent-blue);
+  cursor: default;
+}
+.w-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+.w-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 </style>

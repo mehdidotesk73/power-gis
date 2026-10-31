@@ -193,13 +193,13 @@ whatever they're actually asking about.
   and change password, display name, delete account via `rpc('delete_my_account')`; actions answer
   `null` or a message), `components/account/
   AccountModal.vue` (☰ → Sign in / your name). The whole schema is `supabase/schema.sql` (profiles,
-  datasets registry, `dataset_access` owner | write | read, `workspaces` one default per user, a
+  datasets registry, `dataset_access` owner | write | read, `workspaces` several per user (the one marked default is the one from before there were several), a
   private `datasets` bucket of `<id>/data.parquet`; RLS everywhere, explicit grants). Schema changes
   go in **new** SQL files for the user to run, never edits to the one already run. This sandbox can't
   reach supabase.co: test against the local stack (`scripts/test-stack.sh`: the real schema, Auth, REST,
   Storage; start `dockerd` first, and set `SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io`), and a
   `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY` build of the app against it drives the UI as several users
-  (Playwright, one browser context per device). **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
+  (Playwright, one browser context per device). **Several workspaces** (Workspace panel → Your workspaces: this device's records + the account's rows, merged by `cloudId`; switch, ＋ New, ✕ delete — datasets stay): each workspace is its own row in the account (`cloudWorkspaces`, `cloudWorkspace {id}`, `saveCloudWorkspace {id?}` → `{id}` or `{gone}`, `deleteCloudWorkspace`); a workspace remembers its row (`doc.cloudId`, the record's `config.cloudId`; kept when a file or the sample opens into it), sync points are per account and workspace (`powergis.workspaceSyncs`; the old single `powergis.workspaceSync` is adopted for the account's default row), a never-sent workspace becomes a new row on Save, a device with no other workspace opens the account's most recent, and switching waits for a send in progress (`cloudSend`). **Cloud workspace**: the worker talks to Supabase as the user (`setAuth`
   token → `server/cloud.ts`, a `CloudStore` from `shared/cloud.ts`; tests use a fake); Save also sends
   the workspace **document** (+ `overviewOf` text) and the page compares this device with the account by **fingerprint**
   (`lib/workspace/fingerprint.ts`: SHA-256 of the setup — name, pointers, transforms, visualizations, dataset names /

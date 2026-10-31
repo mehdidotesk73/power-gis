@@ -29,6 +29,8 @@ export interface WorkspaceConfig {
   unavailable?: Record<string, UnavailableDataset>
   /** Its stories (text and figure specs; small). */
   stories?: Story[]
+  /** The account's copy of this workspace (signed in): the id of its row there. */
+  cloudId?: string
 }
 export interface WorkspaceRecord extends BaseRecord {
   ownerId: string

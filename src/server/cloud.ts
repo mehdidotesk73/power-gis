@@ -120,13 +120,24 @@ export function supabaseCloud(accessToken: string, project = { url: SUPABASE_URL
       const row = check(await sb.from('workspaces').select('id, name, config, updated_at').eq('is_default', true).maybeSingle())
       return row ? { id: row.id, name: row.name, file: row.config as unknown, updatedAt: row.updated_at } : null
     },
-    async saveDefaultWorkspace({ name, file, overview }) {
-      const have = check(await sb.from('workspaces').select('id').eq('is_default', true).maybeSingle())
-      const row = have
-        ? check(await sb.from('workspaces').update({ name, config: file, overview }).eq('id', have.id).select('id, updated_at').single())
-        : check(await sb.from('workspaces').insert({ name, config: file, overview, is_default: true }).select('id, updated_at').single())
-      if (!row) throw new Error('The workspace was not saved')
-      return { id: row.id, updatedAt: row.updated_at }
+    async listWorkspaces() {
+      const rows = check(await sb.from('workspaces').select('id, name, updated_at').order('updated_at', { ascending: false })) as { id: string; name: string; updated_at: string }[]
+      return rows.map((r) => ({ id: r.id, name: r.name, updatedAt: r.updated_at }))
+    },
+    async workspace(id) {
+      const row = check(await sb.from('workspaces').select('id, name, config, updated_at').eq('id', id).maybeSingle())
+      return row ? { id: row.id, name: row.name, file: row.config as unknown, updatedAt: row.updated_at } : null
+    },
+    async saveWorkspace({ id, name, file, overview }) {
+      // Row-level security limits both to the user's own; an update that matches nothing means it was deleted.
+      const rows = id
+        ? (check(await sb.from('workspaces').update({ name, config: file, overview }).eq('id', id).select('id, updated_at')) as { id: string; updated_at: string }[])
+        : [check(await sb.from('workspaces').insert({ name, config: file, overview }).select('id, updated_at').single())]
+      const row = rows[0]
+      return row ? { id: row.id, updatedAt: row.updated_at } : null
+    },
+    async deleteWorkspace(id) {
+      check(await sb.from('workspaces').delete().eq('id', id))
     },
   }
 }

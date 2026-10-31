@@ -124,9 +124,14 @@ export interface Api {
   /** The signed-in user's session for the cloud (null: signed out). The client sends it again whenever it changes. */
   setAuth: [{ accessToken: string | null }, { signedIn: boolean }]
   /** The signed-in user's default workspace in the cloud (a document, possibly an older version: open it with openDocument), or null before their first cloud save. */
-  cloudWorkspace: [Record<string, never>, { workspace: { name: string; updatedAt: string; file: unknown } | null }]
+  /** The user's workspaces in their account, most recently saved first. */
+  cloudWorkspaces: [Record<string, never>, { workspaces: { id: string; name: string; updatedAt: string }[] }]
+  /** One of them by id (null: deleted), or with no id the one the app used before there were several (null: none). */
+  cloudWorkspace: [{ id?: string }, { workspace: { id: string; name: string; updatedAt: string; file: unknown } | null }]
   /** Stores a workspace document as the signed-in user's default cloud workspace, with its readable overview. */
-  saveCloudWorkspace: [{ file: WorkspaceFile; overview: string }, { updatedAt: string }]
+  /** Replaces workspace `id` in the account (gone: `{gone: true}`), or creates one (no id). */
+  saveCloudWorkspace: [{ id?: string; file: WorkspaceFile; overview: string }, { id: string; updatedAt: string } | { gone: true }]
+  deleteCloudWorkspace: [{ id: string }, Record<string, never>]
   /** A dataset's profile (computed and stored if the record has none yet). */
   profileDataset: [{ datasetId: string }, DatasetProfile]
   /** Every searchable value of a visualization's features: their names and the text in their rows. */
@@ -137,7 +142,7 @@ export interface Api {
   featureRows: [{ datasetId: string; binding: GeometryBinding; key: string }, DataRecord[]]
   /** Creates or updates a workspace with its visualizations and transforms; ones it no longer lists are deleted (output datasets stay). */
   saveWorkspace: [
-    { id?: string; name: string; config: Pick<WorkspaceConfig, 'datasetIds' | 'unavailable' | 'stories'>; visualizations: VisualizationInput[]; transforms?: TransformInput[] },
+    { id?: string; name: string; config: Pick<WorkspaceConfig, 'datasetIds' | 'unavailable' | 'stories' | 'cloudId'>; visualizations: VisualizationInput[]; transforms?: TransformInput[] },
     { workspaceId: string },
   ]
   deleteWorkspace: [{ id: string }, { workspaceId: string }]

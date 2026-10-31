@@ -30,6 +30,8 @@ export interface WorkspaceDoc {
   datasetEdits?: Record<string, DatasetEdit>
   /** Stories told about the workspace (lib/story/story.ts): text and figure specs, never images. */
   stories?: Story[]
+  /** Signed in: the id of this workspace in the account (its copy there). Bookkeeping: not part of the setup. */
+  cloudId?: string
 }
 
 /** A drafted change to a dataset's details. */
