@@ -170,8 +170,9 @@ describe('agent tools', () => {
   it('asks the user (Approve / Reject without fields) and hands the answer back', async () => {
     const { host, calls } = fakeHost()
     const out = await runTool(host, 'ask_user', { question: 'Build this?', details: 'Join prices onto counties' })
-    expect(json(out.content)).toEqual({ button: 'Reject', values: { notes: 'Use 2024 only' } })
-    expect(out.summary).toBe('Reject')
+    // Notes the user wrote come back with a reminder to use them.
+    expect(json(out.content)).toEqual({ button: 'Reject', values: { notes: 'Use 2024 only' }, notes: "Take the user's notes into account in what you do next." })
+    expect(out.summary).toBe('Reject · Notes: Use 2024 only')
     expect(calls).toEqual(['ask Build this? | Join prices onto counties'])
     expect(await runTool(host, 'ask_user', {})).toMatchObject({ isError: true })
     expect(await runTool(host, 'ask_user', { question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'Pick' }] })).toMatchObject({ isError: true, content: expect.stringContaining('needs options') })
@@ -189,9 +190,15 @@ describe('agent tools', () => {
       ],
       buttons: ['Use these', 'Skip the years'],
     })
-    expect(shown?.buttons).toEqual(['Use these', 'Skip the years'])
+    // The app adds a Notes box, and (a draft to review) Revise with my notes after the main answer.
+    expect(shown?.buttons).toEqual(['Use these', 'Revise with my notes', 'Skip the years'])
+    expect(shown?.fields.map((f) => f.id)).toEqual(['years', 'name', 'notes'])
     expect(shown?.fields[0]).toMatchObject({ kind: 'choice', multiple: true, other: true, selected: ['2024'] })
     expect(out.summary).toBe('Use these · Years: 2023, 2024, and 2019 · Dataset name: Prices')
+    // Revise: the assistant is told to redraft and ask again.
+    host.ask = async () => ({ button: 'Revise with my notes', values: { notes: 'Drop 2022; call it Home values' } })
+    const again = json((await runTool(host, 'ask_user', { question: 'Which years?', fields: [{ id: 'name', kind: 'text', label: 'Dataset name', value: 'Home prices' }] })).content)
+    expect(again).toMatchObject({ button: 'Revise with my notes', values: { notes: 'Drop 2022; call it Home values' }, revise: expect.stringContaining('show the revised card with ask_user') })
   })
 
   it('sends the scout after the user approves the brief, and returns its report', async () => {

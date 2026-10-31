@@ -110,7 +110,7 @@ test('the assistant asks with a form: choices, its own answer, a drafted plan, a
   const step = page.locator('.tool', { hasText: 'Ask you' })
   await step.getByRole('button').click()
   await expect(step).toContainText('"question": "Which years should the map cover?"')
-  expect(lastToolResult(seen)).toEqual({ button: 'Build it', values: { years: ['2022', '2023', '2019'], level: ['State'], plan: 'Clean the income table, then map it by state.' } })
+  expect(lastToolResult(seen)).toEqual({ button: 'Build it', values: { years: ['2022', '2023', '2019'], level: ['State'], plan: 'Clean the income table, then map it by state.', notes: '' } })
   await expect(askCard.getByText('✓ Build it')).toBeVisible()
 })
 

@@ -174,7 +174,8 @@ whatever they're actually asking about.
   `visualizations/<id>.json`, generated `overview.md`; SQL never inside JSON) and commits with
   `apply_workspace` (checks everything, returns new ids; `lib/agent/workspaceFiles.ts`). Everything
   existing is targeted by id. Our tools are `strict`. It asks with `ask_user`: a card it composes (`lib/agent/form.ts`, `agent/AskCard.vue`: text fields — prefilled to
-  review —, single / multiple choices with an own answer, and buttons; returns `{button, values}`), and looks beyond
+  review —, single / multiple choices with an own answer, and buttons; returns `{button, values}`; the app adds an optional **Notes** box to
+  every card and, on one with a draft to review, a **Revise with my notes** button — the assistant redrafts and asks again: `withNotes`), and looks beyond
   the workspace only with the user's OK, through `list_datasets`, which reads the app's one
   **dataset finder** (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry
   later); the prompt names no datasets. **Scout and scraper** (`send_scout` / `send_scraper`; `client/agent/managed.ts`):
