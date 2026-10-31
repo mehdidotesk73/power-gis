@@ -92,8 +92,13 @@ describe('focusBox', () => {
     expect(minX).toBeGreaterThanOrEqual(-100)
     expect(maxX).toBeLessThan(-70)
     expect(focusBox(pts.slice(0, 3))).toEqual([-100, 30, -98, 32]) // few features: exact bbox
-    // Two far ones (Guam and the Northern Marianas among 56 states and territories) are left out too.
+    // Two far ones (Guam and the Northern Marianas among 56 states and territories) are left out too…
     const states = [...pts.slice(0, 54), { type: 'Point' as const, coordinates: [144.8, 13.4] }, { type: 'Point' as const, coordinates: [145.7, 15.2] }]
     expect(focusBox(states)![2]).toBeLessThan(-70)
+    // …but nothing is cut from a group with no outliers: its edges are shown whole.
+    expect(focusBox(pts.slice(0, 200))).toEqual([-100, 30, -81, 39])
+    // Shapes are fitted by their outlines, not their centres.
+    const squares = pts.slice(0, 60).map((p) => ({ type: 'Polygon' as const, coordinates: [[[p.coordinates[0] - 0.5, p.coordinates[1] - 0.5], [p.coordinates[0] + 0.5, p.coordinates[1] - 0.5], [p.coordinates[0] + 0.5, p.coordinates[1] + 0.5], [p.coordinates[0] - 0.5, p.coordinates[1] - 0.5]]] }))
+    expect(focusBox(squares)![0]).toBe(-100.5)
   })
 })

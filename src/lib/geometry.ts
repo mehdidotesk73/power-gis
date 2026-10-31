@@ -82,19 +82,35 @@ export function bboxOf(geoms: (Geometry | null)[]): BBox | null {
   return minX === Infinity ? null : [minX, minY, maxX, maxY]
 }
 
+/** A gap this wide (degrees) between neighbouring features splits them into separate groups. */
+const GROUP_GAP = 8
+
 /**
- * Where to look for a set of features: the full bbox for a handful, else the
- * 1st–99th percentile of their anchor points (at least the two outermost left out). Keeps a few outliers — Aleutian
- * islands across the antimeridian, a stray 0,0 point — from zooming the map
- * out to the whole world.
+ * Where to look for a set of features: the full bbox for a handful; for many, the
+ * bbox of the main group — features are split wherever their anchor points leave
+ * a gap of more than GROUP_GAP degrees (longitude, then latitude), and the largest
+ * group is kept when it holds most of them (80%). Keeps far-flung outliers —
+ * Alaska, Hawaii and Pacific territories beside the lower 48, Aleutian islands
+ * across the antimeridian, a stray 0,0 point — from zooming the map out to the
+ * whole world, while every feature of the main group is shown whole.
  */
 export function focusBox(geoms: (Geometry | null)[]): BBox | null {
   if (geoms.length < 50) return bboxOf(geoms)
-  const pts = geoms.map(anchorPoint).filter((p): p is [number, number] => p !== null)
-  if (!pts.length) return null
-  // At least two left out at each end: island pairs (Guam and the Northern Marianas) come in twos.
-  const k = Math.min(Math.max(2, Math.round(pts.length * 0.01)), Math.floor((pts.length - 1) / 2))
-  const xs = pts.map((p) => p[0]).sort((a, b) => a - b)
-  const ys = pts.map((p) => p[1]).sort((a, b) => a - b)
-  return [xs[k], ys[k], xs[xs.length - 1 - k], ys[ys.length - 1 - k]]
+  const items = geoms.flatMap((g) => {
+    const p = anchorPoint(g)
+    return p ? [{ g, p }] : []
+  })
+  if (!items.length) return null
+  const mainGroup = (xs: typeof items, axis: 0 | 1) => {
+    const sorted = [...xs].sort((a, b) => a.p[axis] - b.p[axis])
+    let best = { from: 0, to: 0 }
+    let from = 0
+    for (let i = 1; i <= sorted.length; i++) {
+      if (i < sorted.length && sorted[i].p[axis] - sorted[i - 1].p[axis] <= GROUP_GAP) continue
+      if (i - from > best.to - best.from) best = { from, to: i }
+      from = i
+    }
+    return best.to - best.from >= 0.8 * xs.length ? sorted.slice(best.from, best.to) : xs
+  }
+  return bboxOf(mainGroup(mainGroup(items, 0), 1).map((x) => x.g))
 }
