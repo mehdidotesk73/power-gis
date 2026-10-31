@@ -42,6 +42,8 @@ const props = defineProps<{
   empty?: boolean
   /** Every workspace: this device's and (signed in) the account's, most recent first. */
   workspaces?: WorkspaceEntry[]
+  /** A switch, New or delete is in progress: the list waits. */
+  workspacesBusy?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'save'): void
@@ -188,15 +190,16 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
       <div class="list" data-testid="workspace.list">
         <div class="list-head">
           <span class="eyebrow">Your workspaces</span>
-          <UiButton size="tag" tone="primary" icon="＋" data-testid="workspace.new" title="A new, empty workspace (this one stays in the list)" @click="emit('new')">New</UiButton>
+          <span v-if="workspacesBusy" class="w-busy" role="status" data-testid="workspace.busy">Opening…</span>
+          <UiButton size="tag" tone="primary" icon="＋" data-testid="workspace.new" :disabled="workspacesBusy" title="A new, empty workspace (this one stays in the list)" @click="emit('new')">New</UiButton>
         </div>
         <ul>
           <li v-for="w in workspaces ?? []" :key="w.key" :class="{ current: w.current }" :data-testid="`workspace.item`" :data-name="w.name">
-            <button class="pick" :disabled="w.current" :aria-current="w.current ? 'true' : undefined" @click="emit('switch', w.key)">
+             <button class="pick" :disabled="w.current || workspacesBusy" :aria-current="w.current ? 'true' : undefined" @click="emit('switch', w.key)">
               <span class="w-name">{{ w.current ? '● ' : '' }}{{ w.name }}</span>
               <span class="w-meta">{{ WHERE[w.where] }} · {{ day(w.updatedAt) }}</span>
             </button>
-            <UiButton size="compact" icon="✕" tone="danger" :aria-label="`Delete ${w.name}`" data-testid="workspace.remove" @click="emit('remove', w.key)" />
+            <UiButton size="compact" icon="✕" tone="danger" :disabled="workspacesBusy" :aria-label="`Delete ${w.name}`" data-testid="workspace.remove" @click="emit('remove', w.key)" />
           </li>
         </ul>
       </div>
@@ -572,6 +575,12 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
 }
 .w-meta {
   font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.w-busy {
+  margin-left: auto;
+  margin-right: 0.4rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 </style>
