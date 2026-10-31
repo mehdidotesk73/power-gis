@@ -77,7 +77,7 @@ export async function openSetup(page: Page) {
 }
 
 export const node = (page: Page, kind: 'dataset' | 'transform' | 'viz', name: string) => page.locator(`[data-testid="node.${kind}"][data-name="${name}"]`)
-export const card = (page: Page, kind: 'dataset' | 'transform' | 'viz', name: string) => page.locator(`[data-testid="${kind}-card"][data-name="${name}"]`).first()
+export const card = (page: Page, kind: 'dataset' | 'transform' | 'viz' | 'story', name: string) => page.locator(`[data-testid="${kind}-card"][data-name="${name}"]`).first()
 
 /** A card's hold menu (right-click: the same menu as touch-and-hold), then one of its actions. */
 export async function cardAction(page: Page, target: Locator, action: string) {
@@ -99,7 +99,7 @@ export async function openWorkspacePanel(page: Page) {
 }
 
 /** The List view with one of its panels (Visualizations, Transforms, Datasets) open. */
-export async function listPanel(page: Page, panel: 'Visualizations' | 'Transforms' | 'Datasets') {
+export async function listPanel(page: Page, panel: 'Visualizations' | 'Transforms' | 'Datasets' | 'Stories') {
   await closeWorkspacePanel(page)
   await openSetup(page)
   await page.getByRole('button', { name: 'List', exact: true }).click()

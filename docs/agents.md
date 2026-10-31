@@ -375,6 +375,32 @@ container's CA in Chromium), $0.03; certutil hung ~5 min on a prompt until given
 (now in the prompt). Its units changed between runs (VMT in thousands, then × 1,000), so the scraper now
 keeps source units unless the brief says otherwise and states them.
 
+## Storyteller (agreed 2026-10-31)
+
+Tells how the workspace gets from its starting data to some of its maps, as a **story**: scenes in order, each a
+title, a **narrative** (about 80 words: understood in under 30 seconds, and later read aloud) and at most two
+figures. Asked for in the assistant's chat — the user's words, or **Stories → ＋ Story** / a story's **Rewrite**, which
+put "Tell the story of … (visualization ids …)" in the current chat — the assistant hands it to the storyteller with
+**`tell_story`** (visualization ids, the user's wishes, a storyId to rewrite). The storyteller runs inside that one step
+(`storyteller()` in `AgentPanel.vue`: its own session, prompt and tools, the profile's `storyteller` model; its tokens
+priced into the chat's cost), and the assistant hears back the story's id, title and scenes, so follow-ups ("shorter",
+"add a scene on the weights") go through the same chat.
+
+- **What it reads**: `lib/story/lineage.ts` walks from the visualizations back to the starting data (each dataset and
+  transform once, inputs first) and writes it out — every dataset's facts and **description** (why descriptions must
+  carry the reasoning: `docs/agents.md` *Describing datasets*), every transform's SQL, the visualizations' settings.
+- **Tools** (`lib/story/storyTools.ts`): `query_sql` (the assistant's) and `write_story`, which checks every scene
+  (words, figures) and runs every figure before saving anything; refusals list what to fix. It never changes datasets,
+  transforms or visualizations: the story lands in the workspace draft.
+- **Figures are code** (`lib/story/story.ts`): `sample` (SQL, 8 rows), `chart` (SQL + bar / pie / line / scatter /
+  histogram, drawn as SVG by `lib/story/chart.ts`), `map` (a visualization's settings + `hide` feature names + `fit`,
+  drawn off screen by `visualizationsPng`). Each SQL figure keeps a small **snapshot** of what it showed: the story
+  reads before the engine loads, and ⚠ marks a figure whose data changed since.
+- **Stored** in the workspace (`doc.stories`; the record's `config.stories`; documents' `stories`; the zip's
+  `stories/<id>.json`; the fingerprint): a few kilobytes, no images. Ids follow opened documents and Replace….
+- Later: read aloud (step through the narratives, like a browser's read-aloud), sharing a story, maps as live
+  components.
+
 ## Next: scouting and scraping
 
 Data isn't always a file to download: prices on product pages, shipping quotes from one place

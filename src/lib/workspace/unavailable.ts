@@ -7,6 +7,7 @@
 // (`removeUnavailable`).
 
 import { withoutEdit, type OpResult, type UnavailableDataset, type WorkspaceDoc } from './workspace'
+import { remapStory } from '../story/story'
 
 export interface Unavailability {
   /** Missing datasets nothing here can make: the ones to replace. */
@@ -83,6 +84,7 @@ export function replaceDataset(doc: WorkspaceDoc, oldId: string, newId: string):
         outputs: t.outputs.map((o) => (o.outputId === oldId ? { ...o, outputId: newId } : o)),
       })),
       ...(Object.keys(unavailable).length ? { unavailable } : { unavailable: undefined }),
+      ...(doc.stories ? { stories: doc.stories.map((s) => remapStory(s, { dataset: (id) => (id === oldId ? newId : undefined) })) } : {}),
     },
   }
 }

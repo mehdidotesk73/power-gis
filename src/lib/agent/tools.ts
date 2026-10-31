@@ -55,6 +55,8 @@ export interface AgentHost {
   builtins?(): { table: string; label: string; description: string }[]
   /** Adds a built-in table to the workspace (stored on this device first if it isn't yet); its dataset id. */
   addBuiltin?(table: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
+  /** Runs the storyteller on some visualizations (a new story, or `storyId` rewritten); what it wrote, or why it couldn't. */
+  tellStory?(req: { visualizationIds: string[]; wishes: string; storyId?: string }): Promise<{ storyId: string; name: string; scenes: string[] } | string>
 }
 
 export type WebRole = 'scout' | 'scraper'
@@ -245,6 +247,20 @@ export const TOOLS: ToolSpec[] = [
       'Delete a dataset\'s copy on this device and its rows for good (and its visualizations); a linked dataset\'s cloud copy stays. Refused while a workspace transform reads it. Use it to clean up datasets you made in this chat that are no longer needed; one you didn\'t make only when the user asked for it by name (userAsked).',
     inputSchema: { type: 'object', properties: { id: { type: 'string' }, userAsked: { type: 'boolean', description: 'The user asked, by name, for this dataset to be deleted.' } }, required: ['id'] },
   },
+  {
+    name: 'tell_story',
+    description:
+      'Have the storyteller write a story about some visualizations: scenes that walk from their starting data, through each transform, to the maps, each a short narrative with a figure or two (rows, a chart, a map). It reads the datasets\' descriptions and the SQL, so describe datasets well first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one). It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        visualizationIds: { type: 'array', items: { type: 'string' } },
+        wishes: { type: 'string', description: 'What the user asked of the story (focus, length, audience, changes to make), or "".' },
+        storyId: { type: 'string', description: 'The story to rewrite, or "" for a new one.' },
+      },
+      required: ['visualizationIds', 'wishes', 'storyId'],
+    },
+  },
 ]
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -262,7 +278,7 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 const str = (v: unknown): v is string => typeof v === 'string'
 const optStr = (v: unknown) => v === undefined || str(v)
 
-class Invalid extends Error {}
+export class Invalid extends Error {}
 function need(cond: unknown, message: string): asserts cond {
   if (!cond) throw new Invalid(message)
 }
@@ -557,6 +573,35 @@ function readStyle(raw: unknown, v: VisualizationSpec, where: string): Visualiza
  * The workspace a full description (the assembled workspace files) makes,
  * with every problem listed. Items given as just {id} are kept as they are.
  */
+/**
+ * A visualization from its file form ({name, datasetId, binding, column, aggregation?, kind?, visible?, style?}),
+ * checked against the dataset; `existing` (the same id) keeps its style where the kind of value is unchanged.
+ * Throws Invalid with what's wrong.
+ */
+export async function readVisualization(host: Pick<AgentHost, 'shape'>, raw: Obj, where: string, existing?: VisualizationSpec): Promise<VisualizationSpec> {
+  need(isObj(raw) && str(raw.name) && str(raw.datasetId) && str(raw.column), `${where} needs name, datasetId, binding and column`)
+  const b = raw.binding
+  need(isObj(b) && str(b.column) && (b.kind === undefined || b.kind === 'geometry') && optStr(b.label), `${where}.binding must be {"kind": "geometry", "column": <a geometry column>, "label"?: <a column naming each feature>}`)
+  need(optStr(raw.id), `${where}: id must be text`)
+  need(raw.kind === undefined || raw.kind === 'scalar' || raw.kind === 'vector', `${where}.kind must be scalar or vector`)
+  need(raw.aggregation === undefined || AGG_NAMES.includes(raw.aggregation as string), `${where}.aggregation must be one of ${AGG_NAMES.join(', ')}`)
+  need(raw.visible === undefined || typeof raw.visible === 'boolean', `${where}.visible must be true or false`)
+  const binding: GeometryBinding = { kind: 'geometry', column: b.column, ...(b.label ? { label: b.label as string } : {}) }
+  const info = await host.shape(raw.datasetId, binding)
+  need(typeof info !== 'string', `${where}: ${info as string}`)
+  const column = raw.column
+  need(column === ROWS || info.columns.some((c) => c.name === column), `${where}: "${column}" isn't a value column of this dataset under geometry "${binding.column}" (columns: ${info.columns.map((c) => c.name).join(', ') || 'none'}; or "${ROWS}")`)
+  const type = columnType(info.columns, column)
+  const agg = raw.aggregation as Aggregation | undefined
+  need(!agg || column === ROWS || aggregationsFor(type).includes(agg), `${where}: ${agg} doesn't apply to a ${type} column (use ${aggregationsFor(type).join(', ')})`)
+  const aggregation = agg ?? (existing && existing.column === column ? existing.aggregation : column === ROWS ? 'count' : defaultAggregation(type, info.maxRowsPerFeature))
+  let v: VisualizationSpec = existing ? retarget(info, existing, column, aggregation, binding) : { ...makeVisualization(info, raw.datasetId, binding, column, aggregation), ...(raw.id ? { id: raw.id as string } : {}) }
+  v = { ...v, name: raw.name, ...(raw.visible !== undefined ? { visible: raw.visible as boolean } : {}) }
+  need(raw.kind === undefined || raw.kind === v.kind, `${where}.kind: "${column}" draws as ${v.kind === 'vector' ? 'arrows ("vector")' : 'colors ("scalar")'}, so kind is ${v.kind}`)
+  if (raw.style !== undefined) v = { ...v, style: readStyle(raw.style, v, where) } as VisualizationSpec
+  return v
+}
+
 async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): Promise<{ doc: WorkspaceDoc; errors: string[] }> {
   need(optStr(input.name), '`name` must be text')
   need(Array.isArray(input.datasetIds) && input.datasetIds.every(str), '`datasetIds` must be a list of dataset ids')
@@ -629,28 +674,9 @@ async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): P
         else errors.push(`${where} "${v.name}": ${r.error.message}`)
         continue
       }
-      need(isObj(raw) && str(raw.name) && str(raw.datasetId) && str(raw.column), `${where} needs name, datasetId, binding and column`)
-      const b = raw.binding
-      need(isObj(b) && str(b.column) && (b.kind === undefined || b.kind === 'geometry') && optStr(b.label), `${where}.binding must be {"kind": "geometry", "column": <a geometry column>, "label"?: <a column naming each feature>}`)
-      need(optStr(raw.id), `${where}: id must be text`)
-      need(raw.kind === undefined || raw.kind === 'scalar' || raw.kind === 'vector', `${where}.kind must be scalar or vector`)
-      need(raw.aggregation === undefined || AGG_NAMES.includes(raw.aggregation as string), `${where}.aggregation must be one of ${AGG_NAMES.join(', ')}`)
-      need(raw.visible === undefined || typeof raw.visible === 'boolean', `${where}.visible must be true or false`)
+      need(isObj(raw) && str(raw.datasetId), `${where} needs name, datasetId, binding and column`)
       need(records.has(raw.datasetId), `${where}: dataset "${raw.datasetId}" isn't in datasetIds`)
-      const binding: GeometryBinding = { kind: 'geometry', column: b.column, ...(b.label ? { label: b.label as string } : {}) }
-      const info = await host.shape(raw.datasetId, binding)
-      need(typeof info !== 'string', `${where}: ${info as string}`)
-      const column = raw.column
-      need(column === ROWS || info.columns.some((c) => c.name === column), `${where}: "${column}" isn't a value column of this dataset under geometry "${binding.column}" (columns: ${info.columns.map((c) => c.name).join(', ') || 'none'}; or "${ROWS}")`)
-      const type = columnType(info.columns, column)
-      const agg = raw.aggregation as Aggregation | undefined
-      need(!agg || column === ROWS || aggregationsFor(type).includes(agg), `${where}: ${agg} doesn't apply to a ${type} column (use ${aggregationsFor(type).join(', ')})`)
-      const existing = cur.visualizations.find((v) => v.id === raw.id && v.datasetId === raw.datasetId)
-      const aggregation = agg ?? (existing && existing.column === column ? existing.aggregation : column === ROWS ? 'count' : defaultAggregation(type, info.maxRowsPerFeature))
-      let v: VisualizationSpec = existing ? retarget(info, existing, column, aggregation, binding) : { ...makeVisualization(info, raw.datasetId, binding, column, aggregation), ...(raw.id ? { id: raw.id as string } : {}) }
-      v = { ...v, name: raw.name, ...(raw.visible !== undefined ? { visible: raw.visible as boolean } : {}) }
-      need(raw.kind === undefined || raw.kind === v.kind, `${where}.kind: "${column}" draws as ${v.kind === 'vector' ? 'arrows ("vector")' : 'colors ("scalar")'}, so kind is ${v.kind}`)
-      if (raw.style !== undefined) v = { ...v, style: readStyle(raw.style, v, where) } as VisualizationSpec
+      const v = await readVisualization(host, raw, where, cur.visualizations.find((x) => x.id === raw.id && x.datasetId === raw.datasetId))
       const r = addVisualization(doc, v, doc.visualizations.length, ctx)
       if (r.ok) doc = r.doc
       else errors.push(`${where} "${raw.name}": ${r.error.message}`)
@@ -965,6 +991,19 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
 // ── dispatch ───────────────────────────────────────────────────────────────
 
 /** Runs a tool call: validated, gated, never throwing. */
+async function tellStory(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(host.tellStory, 'The storyteller isn\'t available here')
+  need(Array.isArray(input.visualizationIds) && input.visualizationIds.length && input.visualizationIds.every(str), '`visualizationIds` must list at least one visualization id')
+  const doc = host.doc()
+  const unknown = (input.visualizationIds as string[]).filter((id) => !doc.visualizations.some((v) => v.id === id))
+  need(!unknown.length, `No visualization ${unknown.map((u) => `"${u}"`).join(', ')} in the workspace (get_workspace lists them)`)
+  const storyId = str(input.storyId) && input.storyId ? input.storyId : undefined
+  need(!storyId || (doc.stories ?? []).some((x) => x.id === storyId), `No story "${storyId}" to rewrite`)
+  const r = await host.tellStory({ visualizationIds: input.visualizationIds as string[], wishes: str(input.wishes) ? input.wishes.trim() : '', ...(storyId ? { storyId } : {}) })
+  if (typeof r === 'string') return err(r, 'not written')
+  return ok({ ...r, note: 'The story is in the workspace draft (Stories, in the list view); the user saves it with the workspace.' }, `“${r.name}” · ${plural(r.scenes.length, 'scene')}`)
+}
+
 export async function runTool(host: AgentHost, name: string, input: unknown): Promise<ToolOutcome> {
   try {
     need(isObj(input), 'The tool input must be a JSON object')
@@ -993,6 +1032,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await runTransform(host, input)
       case 'delete_dataset':
         return await deleteDataset(host, input)
+      case 'tell_story':
+        return await tellStory(host, input)
       default:
         return err(`Unknown tool "${name}"`)
     }

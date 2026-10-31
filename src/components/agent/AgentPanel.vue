@@ -26,7 +26,10 @@ import { logDebug } from '../../debug'
 import { auth } from '../../client/auth'
 import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
 import { MAX_IMAGES, pastedImages, prepareImage, type Attached } from './images'
-import { addUsage, emptyUsage, type ChatSession, type ToolCall } from '../../lib/agent/provider'
+import { addUsage, emptyUsage, type ChatSession, type ToolCall, type Usage } from '../../lib/agent/provider'
+import { STORYTELLER_PROMPT } from '../../lib/story/storyPrompt'
+import { runStoryTool, STORY_TOOLS, storyRequest, type StoryChat } from '../../lib/story/storyTools'
+import { lineageOf, lineageText } from '../../lib/story/lineage'
 
 /** The page's side of the tools; the panel adds asking the user and the web runs. */
 const props = defineProps<{ host: Omit<AgentHost, 'ask' | 'web' | 'importWebFile'> }>()
@@ -96,7 +99,7 @@ const chatProfile = ref<AgentProfile | null>(null)
 let chatRecord: ChatRecord | null = null
 const labelOf = (id: string) => CLAUDE_MODELS.find((m) => m.id === id)?.label.replace(/^Claude /, '') ?? id
 /** "chat Haiku 5.5 · scout Sonnet 5.5 · …": the models a profile uses. */
-const modelsLine = (p: AgentProfile) => `chat ${labelOf(p.models.assistant)} · scout ${labelOf(p.models.scout)} · scraper ${labelOf(p.models.scraper)} · reviewer ${labelOf(p.models.reviewer)}`
+const modelsLine = (p: AgentProfile) => `chat ${labelOf(p.models.assistant)} · scout ${labelOf(p.models.scout)} · scraper ${labelOf(p.models.scraper)} · reviewer ${labelOf(p.models.reviewer)} · storyteller ${labelOf(p.models.storyteller)}`
 const chatLog = ref<ChatRecord[]>(
   (() => {
     try {
@@ -291,7 +294,46 @@ function runSummary(it: RunItem): string {
 }
 const datasetName = (id: string) => props.host.record(id)?.name ?? id
 
-const host: AgentHost = { ...props.host, ask, web, importWebFile }
+// ── the storyteller (tell_story): its own model and prompt, run inside this chat as one step ─
+
+/** Tokens the storyteller used in this chat, by model (priced with the rest). */
+const storyUsage = ref<{ model: string; usage: Usage }[]>([])
+/**
+ * Runs the storyteller on visualizations: it reads what stands behind them (lineage.ts) and writes
+ * the story with its own tools. The chat's tell_story step shows what it's doing.
+ */
+async function storyteller(req: { visualizationIds: string[]; wishes: string; storyId?: string }): Promise<{ storyId: string; name: string; scenes: string[] } | string> {
+  const p = chatProfile.value ?? nextProfile.value
+  const doc = props.host.doc()
+  const l = lineageOf(doc, req.visualizationIds)
+  const rewrite = req.storyId ? doc.stories?.find((x) => x.id === req.storyId) : undefined
+  const message = `${storyRequest(l.visualizations.map((v) => v.name), lineageText(l, props.host.record), rewrite)}${req.wishes ? `\n\nWhat the user asked of the story: ${req.wishes}` : ''}`
+  const chat: StoryChat = { visualizationIds: req.visualizationIds, ...(req.storyId ? { storyId: req.storyId } : {}) }
+  const step = [...items.value].reverse().find((x): x is Extract<Item, { kind: 'tool' }> => x.kind === 'tool' && x.call.name === 'tell_story' && x.state === 'running')
+  const log: string[] = []
+  const sub = claudeProvider.start({ apiKey: apiKey.value, model: p.models.storyteller, system: STORYTELLER_PROMPT, tools: STORY_TOOLS })
+  const entry = { model: p.models.storyteller, usage: emptyUsage() }
+  storyUsage.value = [...storyUsage.value, entry]
+  const { end } = await runAgent(
+    sub,
+    (name, input) => runStoryTool(host, chat, name, input),
+    message,
+    {
+      onToolStart: (call) => step && (step.summary = `${labelOf(p.models.storyteller)} · ${call.name === 'write_story' ? 'writing the story…' : 'looking at the data…'}`),
+      onToolEnd: (call, out) => log.push(`${call.name === 'write_story' ? 'Write the story' : 'Query'}: ${out.summary}${out.isError && call.name === 'write_story' ? `\n${out.content}` : ''}`),
+      onUsage: (u) => {
+        entry.usage = addUsage(entry.usage, u)
+        storyUsage.value = [...storyUsage.value]
+      },
+    },
+    controller?.signal,
+  )
+  const story = chat.storyId ? props.host.doc().stories?.find((x) => x.id === chat.storyId) : undefined
+  if (!story) return end === 'stopped' ? 'Stopped before the story was written.' : `The storyteller stopped (${end}) without writing the story.\n${log.join('\n')}`
+  return { storyId: story.id, name: story.name, scenes: story.scenes.map((sc) => sc.title) }
+}
+
+const host: AgentHost = { ...props.host, ask, web, importWebFile, tellStory: storyteller }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
@@ -304,6 +346,7 @@ const TOOL_LABEL: Record<string, string> = {
   visualization_stats: 'Check the values drawn',
   run_transform: 'Run a transform',
   delete_dataset: 'Delete a dataset',
+  tell_story: 'The storyteller',
 }
 
 /** A step's title: the tool, or for the file editor what it did to which file ("Edit /transforms/….sql"). */
@@ -477,7 +520,23 @@ function newChat(confirmFirst = false) {
   session = null
   chatProfile.value = null
   chatRecord = null
+  storyUsage.value = []
 }
+
+/**
+ * Tell a story / Rewrite (Stories): asks in this chat — the assistant hands it to the storyteller
+ * (tell_story). While it's busy the request waits in the message box. False with no API key yet.
+ */
+function tellStory(ask: string): boolean {
+  if (!apiKey.value) {
+    settings.value = true
+    return false
+  }
+  draft.value = ask
+  if (!busy.value) void send()
+  return true
+}
+defineExpose({ tellStory })
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.matchMedia('(pointer: fine)').matches) {
     e.preventDefault()
@@ -501,7 +560,8 @@ const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}
 const dollars = computed(() => {
   const tokens = chatCost(usage.value, (chatProfile.value ?? nextProfile.value).models.assistant)
   const runs = items.value.reduce((sum, x) => sum + (x.kind === 'run' && !x.resumed ? (x.result?.cost ?? 0) : 0), 0)
-  return tokens === undefined ? undefined : tokens + runs
+  const stories = storyUsage.value.reduce((sum, x) => sum + (chatCost(x.usage, x.model) ?? 0), 0)
+  return tokens === undefined ? undefined : tokens + runs + stories
 })
 const usageText = computed(() => {
   const u = usage.value
@@ -538,7 +598,7 @@ const usageText = computed(() => {
       </p>
       <fieldset class="profiles">
         <legend>Profile</legend>
-        <p class="muted small">Which model does each job: the chat itself, the scout (finds data on the web), the scraper (fetches it) and the reviewer (checks the work; coming).</p>
+        <p class="muted small">Which model does each job: the chat itself, the scout (finds data on the web), the scraper (fetches it), the reviewer (checks the work; coming) and the storyteller (Stories → ＋ Story).</p>
         <label v-for="p in PROFILES" :key="p.id" class="profile" :class="{ on: p.id === profileId }" :data-testid="`profile.${p.id}`">
           <input v-model="profileId" type="radio" name="agent-profile" :value="p.id" />
           <span class="p-text">
@@ -672,7 +732,7 @@ const usageText = computed(() => {
         <input ref="picker" class="hidden" type="file" accept="image/*" multiple @change="onPick" />
         <span class="muted small usage" title="Tokens this chat used; ≈ $ at list prices, scout and scraper runs included">{{ usageText }}</span>
         <UiButton v-if="busy" size="compact" @click="stop">Stop</UiButton>
-        <UiButton v-else size="compact" tone="primary" :disabled="!canSend || waiting" @click="send">Send</UiButton>
+        <UiButton v-else size="compact" tone="primary" :disabled="!canSend || waiting" @click="send()">Send</UiButton>
       </div>
     </footer>
   </aside>

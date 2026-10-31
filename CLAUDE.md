@@ -334,8 +334,20 @@ whatever they're actually asking about.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **⧉ Copy the map** (under the zoom buttons): `map/mapImage.ts` `mapPng` reads the map canvas right after a
   render and draws the legend (title on two lines, ramp or swatches, compact numbers) and the basemap's
-  attribution on it; clipboard via `copyPng` (iOS-safe), else `map.png`. Meant to be reused by the reviewer and
-  the assistant to look at a visualization.
+  attribution on it; clipboard via `copyPng` (iOS-safe), else `map.png`. **The map is a component**: `map/useVisualizationLayers.ts`
+  (visualizations → their values from the server, cached; the layers in list order; the legend) feeds
+  `map/VisualizationMap.vue` (basemap + the layers, stacked like the list; `png(legend)`), the page's map and any other.
+  `map/visualizationImage.ts` `visualizationsPng(visualizations, records)` draws some on a map of their own **off screen**
+  (fitted to their features, then gone), never touching the page's map: a visualization's **Copy as image**, and story maps.
+- **Stories** (`lib/story/`, `components/story/`; `docs/agents.md` *Storyteller*): a story walks from the starting data to
+  some visualizations in scenes (title, **narrative** ≈ 80 words, ≤ 2 figures). Figures are **code** — `sample` / `chart`
+  (SQL over workspace datasets + a small `snapshot`; charts drawn as SVG by `lib/story/chart.ts`) and `map` (a
+  visualization's settings, drawn off screen by `visualizationsPng` with `hide` / `fit`) — so a story is a few KB saved in the
+  workspace (`doc.stories`, ops `addStory` / `updateStory` / `removeStory`; `config.stories`; documents; zip `stories/<id>.json`;
+  fingerprint; ids remapped on open and Replace…). Lists → **Stories** (`StoryList`, `StoryView`, `StoryFigure`): ＋ Story → pick
+  visualizations → "Tell the story of …" goes into the **current assistant chat**, and the assistant calls **`tell_story`**: the
+  **storyteller** runs inside that step (`storyteller()` in `AgentPanel.vue`: its own prompt `storyPrompt.ts`, tools `query_sql` +
+  `write_story`, the profile's `storyteller` model), reading the lineage (`lib/story/lineage.ts`); follow-ups go through the same chat. ⚠ marks a figure whose data changed since; Edit changes title and narratives.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
   basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
   the trailing run of symbol layers; labels repainted light with a dark halo).
@@ -386,7 +398,7 @@ whatever they're actually asking about.
   Menus: datasets — Explore, Edit, Copy id, Link to cloud (linked: Sync…, Share…, Unlink from the cloud),
   Reorder, Remove from workspace, Delete dataset (this device's copy), Delete from the cloud (linked); visualizations
   (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
-  data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
+  data, Copy as image (alone, drawn off screen), Reorder, Delete; transforms — Preview, Run, Edit, Delete; stories — Open, Rewrite, Rename, Delete. **Double-click / double-tap a card**
   (`useDoubleTap`: two clicks on one card within 350 ms; not on buttons, fields or `[data-no-open]`
   editors) opens it: a dataset's Explore, a transform's or visualization's editor (`@open`). **Cards only** —
   graph nodes stay tap = select / tap again = deselect (a double-tap there raced the card's layout shift).
@@ -472,9 +484,11 @@ src/
   client/                  api.ts (requests to the server), db.ts (read-only database), agent/claude.ts (Anthropic adapter),
                            supabase.ts + auth.ts (the Supabase client; the signed-in account)
   lib/agent/               agent: provider contract, loop, tools (+ store gate), prompt, profiles (models per job)
+  lib/story/               stories: model + checks (story.ts), lineage, charts, the storyteller's prompt and tools
   components/
     map/                   reusable map widgets
       MapView.vue          the map; provides it to child layer widgets
+      VisualizationMap.vue a map of a list of visualizations (+ useVisualizationLayers.ts); visualizationImage.ts draws one off screen
       ScalarLayer.ts       renderless: points / polylines / regions with a ScalarStyle
       VectorLayer.ts       renderless: arrows with a VectorStyle
       FeatureTooltip.vue   hover card
@@ -490,6 +504,7 @@ src/
     MapPage.vue            the page (a client): workspace copy, server values → map widgets, panels, legend
     dataset/            AddDatasetPanel (Built-in · Samples · Upload [CSV / GeoJSON-Esri / ArcGIS URL] · Library [on this device / in your account]), DatasetList, BatchPanel (sync review), SharePanel, DatasetEditor (the dataset panel, missing ones too), VisualizationList, VisualizationEditor, BindingEditor, FeatureRows
     workspace/WorkspaceBar.vue  name, Save / Discard, file download / load, reset
+    story/                 StoryList (cards, ＋ Story), StoryView (scenes, Edit), StoryFigure (sample / SVG chart / off-screen map)
     transform/TransformsPanel.vue  transforms: inputs, SQL, Preview, Run
     HelpModal.vue          renders docs/concepts/*.md into the Help modal
     agent/AgentPanel.vue   the assistant chat (API key, messages, tool steps, Stop)

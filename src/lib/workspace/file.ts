@@ -14,6 +14,7 @@ import { isSupportedBinding } from '../dataset/binding'
 import { normalizeTransform, workspaceRequires, type DatasetOrigin, type MissingWhy, type TransformSpec, type UnavailableDataset, type WorkspaceDoc } from './workspace'
 import type { DatasetRecord, DatasetStore } from '../../shared/records'
 import { builtinTable } from '../../shared/builtins'
+import { readStories, remapStory, type Story } from '../story/story'
 
 export const FILE_FORMAT = 'powergis-workspace'
 export const FILE_VERSION = 2
@@ -49,6 +50,8 @@ export interface WorkspaceFile {
   visualizations: VisualizationSpec[]
   /** SQL engine extensions its transforms use, together (for people to read; opening reads each transform's). */
   requires?: string[]
+  /** Stories about the workspace (lib/story/story.ts). */
+  stories?: Story[]
 }
 
 /** Every dataset id the workspace points at, in a stable order. */
@@ -100,6 +103,7 @@ export function toWorkspaceFile(doc: WorkspaceDoc, record: (id: string) => Datas
     ...body,
     datasets: pointers(body).map((id) => datasetFact(id, record(id), transforms, doc.unavailable?.[id])),
     ...(workspaceRequires(doc).length ? { requires: workspaceRequires(doc) } : {}),
+    ...(doc.stories?.length ? { stories: doc.stories } : {}),
   }
 }
 
@@ -134,7 +138,9 @@ export function parseWorkspaceObject(o: unknown): Parsed {
   // A pointer without facts (hand-edited documents) gets the little that's known.
   const known = new Set(file.datasets.map((d) => d.id))
   const datasets = [...file.datasets, ...pointers(file).filter((id) => !known.has(id)).map((id) => datasetFact(id, undefined, file.transforms))]
-  return { ok: true, file: { ...file, datasets, transforms: file.transforms.map((t) => normalizeTransform(t)) } }
+  const { stories: _s, ...base } = file
+  const stories = readStories((o as Obj).stories)
+  return { ok: true, file: { ...base, datasets, transforms: file.transforms.map((t) => normalizeTransform(t)), ...(stories.length ? { stories } : {}) } }
 }
 
 function isVisualization(v: unknown, withId: boolean): boolean {
@@ -217,6 +223,7 @@ export function replaceDatasetIds(file: WorkspaceFile, to: (id: string) => strin
       inputs: t.inputs.map((i) => ({ ...i, datasetId: r(i.datasetId) })),
       outputs: t.outputs.map((o) => (o.outputId ? { ...o, outputId: r(o.outputId) } : o)),
     })),
+    ...(file.stories ? { stories: file.stories.map((s) => remapStory(s, { dataset: to })) } : {}),
   }
 }
 
@@ -239,10 +246,14 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
       ? { name: f.name, ...(f.description ? { description: f.description } : {}), store: f.store, ...(f.cloudId ? { cloudId: f.cloudId } : {}), ...(f.rows !== undefined ? { rows: f.rows } : {}), origin: f.origin, ...(f.sameAs ? { sameAs: f.sameAs } : {}), why: why.get(id) ?? 'unknown' }
       : { name: 'Unknown dataset', why: why.get(id) ?? 'unknown' }
   }
-  const visualizations = file.visualizations.filter((v) => isSupportedBinding(v.binding)).map((v) => ({ ...v, id: newId() })) // older files had lat/lon pairs
-  const transforms = file.transforms.map((t) => ({ ...t, id: newId() }))
+  const vizIds = new Map<string, string>()
+  const trIds = new Map<string, string>()
+  const visualizations = file.visualizations.filter((v) => isSupportedBinding(v.binding)).map((v) => ({ ...v, id: vizIds.set(v.id, newId()).get(v.id)! })) // older files had lat/lon pairs
+  const transforms = file.transforms.map((t) => ({ ...t, id: trIds.set(t.id, newId()).get(t.id)! }))
+  // Stories point at visualizations and transforms by id: they follow the new ones.
+  const stories = (file.stories ?? []).map((s) => remapStory(s, { visualization: (id) => vizIds.get(id), transform: (id) => trIds.get(id) }))
   return {
-    doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}) },
+    doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}), ...(stories.length ? { stories } : {}) },
     missing: lacking,
   }
 }
@@ -310,7 +321,7 @@ export function overviewOf(file: WorkspaceFile): string {
 
 /** Stable text of what Save would store — equal text means nothing to save. */
 export function snapshot(doc: WorkspaceDoc): string {
-  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms, datasetEdits: doc.datasetEdits ?? {} })
+  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms, datasetEdits: doc.datasetEdits ?? {}, stories: doc.stories ?? [] })
 }
 
 /** Unsaved edits kept on the device between visits. */
