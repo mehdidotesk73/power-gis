@@ -325,6 +325,21 @@ const staging = new WeakMap<AgentHost, Staging>()
 /** What the agent made in this chat (transforms, visualizations, datasets, datasets it brought in): only these it may remove unasked. */
 const madeHere = new WeakMap<AgentHost, Set<string>>()
 const made = (host: AgentHost) => madeHere.get(host) ?? (madeHere.set(host, new Set()), madeHere.get(host)!)
+/** Datasets this chat made, still in the workspace, with no description (or a bare line): the next person has nothing else to go on. */
+const BRIEF = 80
+function undescribed(host: AgentHost): Obj {
+  const mine = made(host)
+  const list = host
+    .doc()
+    .datasetIds.filter((id) => mine.has(id))
+    .map((id) => ({ id, name: host.record(id)?.name ?? id, description: host.record(id)?.description?.trim() ?? '' }))
+    .filter((d) => d.description.length < BRIEF || d.description.includes(PLACEHOLDER))
+  if (!list.length) return {}
+  return {
+    describe: `${list.map((d) => `"${d.name}" (${d.id})${!d.description ? '' : d.description.includes(PLACEHOLDER) ? ': only the import note' : ': only a line'}`).join(', ')} — datasets you made that still need a description: describe them in /datasets.json (see Describing datasets), then apply_workspace.`,
+  }
+}
+
 /** A new chat starts afresh: no staged files, nothing made yet. */
 export function forgetChat(host: AgentHost) {
   staging.delete(host)
@@ -762,7 +777,7 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
   }
   renames.set(host, known)
   return ok(
-    { ...result, ...(added.length ? { renamed: moved } : {}), files: 'Rewritten from the workspace in the standard format: view a file before editing it.' },
+    { ...result, ...(added.length ? { renamed: moved } : {}), ...undescribed(host), files: 'Rewritten from the workspace in the standard format: view a file before editing it.' },
     summary,
   )
 }
@@ -847,7 +862,7 @@ async function runTransform(host: AgentHost, input: Obj): Promise<ToolOutcome> {
     }),
   )
   const flagged = outputs.reduce((n, o) => n + (o.check?.flags.length ?? 0), 0)
-  return ok({ outputs }, `${r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · ')}${flagged ? ` · ${plural(flagged, 'flag')}` : ''}`)
+  return ok({ outputs, ...undescribed(host) }, `${r.outputs.map((o) => `${plural(o.rowCount, 'row')} → ${o.name}`).join(' · ')}${flagged ? ` · ${plural(flagged, 'flag')}` : ''}`)
 }
 
 async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> {
@@ -891,6 +906,12 @@ async function addBuiltin(host: AgentHost, input: Obj): Promise<ToolOutcome> {
 
 /** Output files that become datasets: tables, and shapes. */
 export const IMPORTABLE = /\.(csv|geojson)$/i
+const PLACEHOLDER = 'not described yet'
+/** A scraped file's description until the assistant writes one: when and what was asked for (the brief, trimmed). */
+export function webFileDescription(day: string, sessionId: string, brief: string): string {
+  const asked = brief.trim().replace(/\s+/g, ' ')
+  return `From the web, ${day} (scraper run ${sessionId}), ${PLACEHOLDER}.\nAsked for: ${asked.length > 400 ? `${asked.slice(0, 400)}…` : asked}`
+}
 
 const money = (n: number) => (n < 1 ? `$${n.toFixed(2)}` : `$${n}`)
 const nearestCap = (n: unknown, fallback: number) => (typeof n === 'number' && Number.isFinite(n) ? WEB_CAPS.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a)) : fallback)
@@ -933,7 +954,7 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
       files.push({ name: f.name, bytes: f.bytes })
       continue
     }
-    const r = await host.importWebFile(f.id, f.name, `From the web, ${day} (scraper run ${run.sessionId}).`)
+    const r = await host.importWebFile(f.id, f.name, webFileDescription(day, run.sessionId, brief))
     if (r.ok) made(host).add(r.id)
     files.push(r.ok ? { name: f.name, datasetId: r.id } : { name: f.name, importError: r.message })
   }

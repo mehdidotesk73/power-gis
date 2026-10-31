@@ -165,6 +165,11 @@ Track feature development, improvements, and known issues here. Move completed w
   as a folder in the app). Later: several folders offered in one build (a chooser), or a folder
   fetched at build time when too big for git.
 
+- **Dataset descriptions a later chat can follow** — the prompt's *Describing datasets* (Row, Columns,
+  Source with URLs and dates, Made by with the why, Feeds, Caveats), described as each dataset appears;
+  `run_transform` / `apply_workspace` name the chat's datasets still undescribed (`describe`); scraped files
+  start with the brief. A new chat had to guess sources from names before.
+
 ## Next (Current Sprint)
 
 One-time setup — tick these off as they're done:

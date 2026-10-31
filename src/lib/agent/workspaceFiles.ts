@@ -378,7 +378,7 @@ export interface OverviewInfo {
 const GUIDE = [
   '## How these files work',
   '- /workspace.json lists what exists: "datasetIds", "transforms" and "visualizations" (ids; visualizations in draw order, first on top).',
-  '- /datasets.json holds each workspace dataset by id: "name" and "description" you can change (give datasets you make a clear name and a one-line description); "store" (local / remote: linked to the cloud), "cloudId", "rows", "origin" ({"kind": "builtin", "table"} | {"kind": "output", "transform", "output"} | {"kind": "upload", "source"} | {"kind": "unknown"}) and "sameAs" are read-only.',
+  '- /datasets.json holds each workspace dataset by id: "name" and "description" you can change (give every dataset you make a clear name and a full description: row, columns, source or how it was made and why, what it feeds, caveats; lines separated by \\n); "store" (local / remote: linked to the cloud), "cloudId", "rows", "origin" ({"kind": "builtin", "table"} | {"kind": "output", "transform", "output"} | {"kind": "upload", "source"} | {"kind": "unknown"}) and "sameAs" are read-only.',
   '- /transforms/<id>.json is one transform: {"name", "inputs": [{"datasetId", "alias"}], "outputs": [{"key", "name", "outputId"?}]}.',
   '- /transforms/<id>.<output key>.sql is one output\'s SQL, plain text. SQL never goes inside JSON.',
   '- /visualizations/<id>.json is one visualization, with every setting (apply_workspace describes them). A file\'s name is its id.',
@@ -414,7 +414,7 @@ export function overviewText(files: Files, doc: WorkspaceDoc, info: OverviewInfo
   lines.push(`## Datasets (${dsIds.length})`)
   for (const id of dsIds) {
     const d = info.datasets.find((x) => x.id === id)
-    lines.push(d ? `- ${id}  "${d.name}"  ${[d.store, d.rows !== undefined ? `${d.rows.toLocaleString()} rows` : '', d.origin].filter(Boolean).join(' · ')}${d.description ? `\n    ${d.description}` : ''}` : `- ${id}  (missing on this device)`)
+    lines.push(d ? `- ${id}  "${d.name}"  ${[d.store, d.rows !== undefined ? `${d.rows.toLocaleString()} rows` : '', d.origin].filter(Boolean).join(' · ')}${d.description ? `\n    ${d.description.split('\n').join('\n    ')}` : ''}` : `- ${id}  (missing on this device)`)
   }
   const trs = list('transforms')
   lines.push('', `## Transforms (${trs.length})`)
