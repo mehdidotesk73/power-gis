@@ -34,6 +34,7 @@ const emit = defineEmits<{
   (e: 'remove', id: string): void
   (e: 'reorder', ids: string[]): void
   (e: 'zoom', id: string): void
+  (e: 'image', id: string): void
   (e: 'cancel-add'): void
   (e: 'add', datasetId: string, binding: GeometryBinding, column: string): void
 }>()
@@ -91,11 +92,13 @@ function confirmAdd() {
 const actions = (v: VisualizationSpec): ObjectAction[] => [
   { id: 'edit', icon: '✎', label: editing.value === v.id ? 'Close edit' : 'Edit' },
   { id: 'zoom', icon: '⤢', label: 'Zoom to data', disabled: !props.dataFor(v)?.features.length },
+  { id: 'image', icon: '⧉', label: 'Copy as image', disabled: !props.dataFor(v)?.features.length },
   { id: 'delete', icon: '✕', label: 'Delete', danger: true },
 ]
 function onAction(id: string, v: VisualizationSpec) {
   if (id === 'edit') editing.value = editing.value === v.id ? null : v.id
   else if (id === 'zoom') emit('zoom', v.id)
+  else if (id === 'image') emit('image', v.id)
   else if (id === 'delete') emit('remove', v.id)
 }
 

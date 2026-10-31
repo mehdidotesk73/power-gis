@@ -334,8 +334,11 @@ whatever they're actually asking about.
 - Column types are inferred (`inferColumns`); zero-padded codes stay text.
 - **⧉ Copy the map** (under the zoom buttons): `map/mapImage.ts` `mapPng` reads the map canvas right after a
   render and draws the legend (title on two lines, ramp or swatches, compact numbers) and the basemap's
-  attribution on it; clipboard via `copyPng` (iOS-safe), else `map.png`. Meant to be reused by the reviewer and
-  the assistant to look at a visualization.
+  attribution on it; clipboard via `copyPng` (iOS-safe), else `map.png`. **The map is a component**: `map/useVisualizationLayers.ts`
+  (visualizations → their values from the server, cached; the layers in list order; the legend) feeds
+  `map/VisualizationMap.vue` (basemap + the layers, stacked like the list; `png(legend)`), the page's map and any other.
+  `map/visualizationImage.ts` `visualizationsPng(visualizations, records)` draws some on a map of their own **off screen**
+  (fitted to their features, then gone), never touching the page's map: a visualization's **Copy as image**, and stories next.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
   basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
   the trailing run of symbol layers; labels repainted light with a dark halo).
@@ -386,7 +389,7 @@ whatever they're actually asking about.
   Menus: datasets — Explore, Edit, Copy id, Link to cloud (linked: Sync…, Share…, Unlink from the cloud),
   Reorder, Remove from workspace, Delete dataset (this device's copy), Delete from the cloud (linked); visualizations
   (a **Visible / Hidden pill** on the card toggles — only a tap on the pill itself) — Edit, Zoom to
-  data, Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
+  data, Copy as image (alone, drawn off screen), Reorder, Delete; transforms — Preview, Run, Edit, Delete. **Double-click / double-tap a card**
   (`useDoubleTap`: two clicks on one card within 350 ms; not on buttons, fields or `[data-no-open]`
   editors) opens it: a dataset's Explore, a transform's or visualization's editor (`@open`). **Cards only** —
   graph nodes stay tap = select / tap again = deselect (a double-tap there raced the card's layout shift).
@@ -475,6 +478,7 @@ src/
   components/
     map/                   reusable map widgets
       MapView.vue          the map; provides it to child layer widgets
+      VisualizationMap.vue a map of a list of visualizations (+ useVisualizationLayers.ts); visualizationImage.ts draws one off screen
       ScalarLayer.ts       renderless: points / polylines / regions with a ScalarStyle
       VectorLayer.ts       renderless: arrows with a VectorStyle
       FeatureTooltip.vue   hover card

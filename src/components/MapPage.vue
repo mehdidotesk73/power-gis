@@ -13,10 +13,9 @@ import { provideSelection } from './selection'
 import UiButton from './ui/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { copyPng } from './dag/graphImage'
-import { mapPng } from './map/mapImage'
-import MapView from './map/MapView.vue'
-import ScalarLayer from './map/ScalarLayer'
-import VectorLayer from './map/VectorLayer'
+import VisualizationMap from './map/VisualizationMap.vue'
+import { useVisualizationLayers } from './map/useVisualizationLayers'
+import { visualizationsPng } from './map/visualizationImage'
 import MapLegend from './map/MapLegend.vue'
 import FeatureTooltip from './map/FeatureTooltip.vue'
 import FeaturePanel from './map/FeaturePanel.vue'
@@ -92,22 +91,42 @@ import type { AgentHost } from '../lib/agent/tools'
 import type { Caller } from '../shared/api'
 
 const base = import.meta.env.BASE_URL
-const mapView = ref<InstanceType<typeof MapView>>()
+const mapView = ref<InstanceType<typeof VisualizationMap>>()
 
 /** Copies the map as it shows now, with its legend, as a PNG (components/map/mapImage.ts); downloads it where the clipboard can't take images. */
 const mapCopied = ref('')
 let mapCopiedTimer: ReturnType<typeof setTimeout> | undefined
 async function copyMap() {
-  const m = mapView.value?.getMap()
-  if (!m) return
+  const v = mapView.value
+  if (!v?.getMap()) return
   try {
-    const how = await copyPng(() => mapPng(m, legend.value), 'map.png')
+    const how = await copyPng(() => v.png(legend.value), 'map.png')
     mapCopied.value = how === 'copied' ? 'Copied ✓' : 'Saved as map.png'
   } catch (e) {
     mapCopied.value = `Couldn’t copy: ${(e as Error).message}`
   }
   clearTimeout(mapCopiedTimer)
   mapCopiedTimer = setTimeout(() => (mapCopied.value = ''), 2500)
+}
+/** One visualization alone, drawn on a map of its own off screen (map/visualizationImage.ts), as a PNG. */
+const note = ref('')
+let noteTimer: ReturnType<typeof setTimeout> | undefined
+function showNote(text: string) {
+  note.value = text
+  clearTimeout(noteTimer)
+  noteTimer = setTimeout(() => (note.value = ''), 3000)
+}
+async function copyVizImage(id: string) {
+  const v = vizById.value.get(id)
+  if (!v) return
+  showNote(`Drawing “${v.name}”…`)
+  try {
+    const how = await copyPng(() => visualizationsPng([v], records.value), `${v.name.replace(/[^\w.-]+/g, '-')}.png`)
+    showNote(how === 'copied' ? `Copied “${v.name}” ✓` : `Saved “${v.name}” as an image`)
+  } catch (e) {
+    showNote(`Couldn’t copy “${v.name}”: ${(e as Error).message}`)
+    logDebug(`copy "${v.name}" as image: ${(e as Error).message}`, 'error')
+  }
 }
 const vizList = ref<{ edit: (id: string) => void }>()
 const status = ref<'loading' | 'ready' | 'error'>('loading')
@@ -1351,65 +1370,8 @@ onMounted(async () => {
 
 // ── visualization values (from the server; restyling never refetches) ─────
 
-const valuesCache = new Map<string, Promise<LayerData | null>>()
-const layers = shallowRef(new Map<string, { key: string; data: LayerData; byKey: Map<string, LayerFeature> }>())
-
-// Keyed by the dataset's updatedAt too: a transform re-run rewrites the table.
-const queryKey = (v: VisualizationSpec) => `${v.datasetId}|${records.value.get(v.datasetId)?.updatedAt}|${JSON.stringify(v.binding)}|${v.column}|${v.aggregation}`
-const layerKey = (v: VisualizationSpec) => `${queryKey(v)}|${v.name}|${records.value.get(v.datasetId)?.name}`
-
-function fetchLayer(v: VisualizationSpec): Promise<LayerData | null> {
-  const k = queryKey(v)
-  let p = valuesCache.get(k)
-  if (!p) {
-    p = (async () => {
-      const values = await call(`values for "${v.name}"`, request('queryVisualization', { datasetId: v.datasetId, binding: v.binding, column: v.column, aggregation: v.aggregation }))
-      if (!values) return null
-      if (values.unmatched) logDebug(`"${v.name}": ${values.unmatched} rows had no feature (e.g. ${values.unmatchedSamples.slice(0, 5).join(', ')})`, 'warn')
-      return visualizationLayer(values, v, '')
-    })()
-    p.then((x) => x || valuesCache.delete(k))
-    valuesCache.set(k, p)
-  }
-  return p
-}
-
-watch(
-  () => visualizations.value.map(layerKey).join('\n'),
-  async () => {
-    for (const v of visualizations.value) {
-      if (!records.value.has(v.datasetId)) continue // unavailable here (or not loaded yet): nothing to draw
-      const key = layerKey(v)
-      if (layers.value.get(v.id)?.key === key) continue
-      const raw = await fetchLayer(v)
-      const now = vizById.value.get(v.id)
-      if (!raw || !now || layerKey(now) !== key) continue
-      const ds = records.value.get(v.datasetId)
-      const data: LayerData = { ...raw, id: v.id, name: `${ds?.name ?? ''} · ${v.name}`, fields: raw.fields.map((f) => (f.name === VALUE ? { ...f, alias: v.name } : f)) }
-      layers.value = new Map(layers.value).set(v.id, { key, data, byKey: new Map(data.features.map((f) => [String(f.id), f])) })
-    }
-  },
-  { immediate: true },
-)
-
-const vizById = computed(() => new Map(visualizations.value.map((v) => [v.id, v])))
+const { layers, rendered, renderedById, legend, vizById } = useVisualizationLayers(visualizations, records)
 const dataFor = (v: VisualizationSpec) => layers.value.get(v.id)?.data ?? null
-
-const rendered = computed(() =>
-  visualizations.value.flatMap((l) => {
-    const e = layers.value.get(l.id)
-    const ds = records.value.get(l.datasetId)
-    return e && ds ? [{ layer: l, ds, data: e.data }] : []
-  }),
-)
-const renderedById = computed(() => new Map(rendered.value.map((r) => [r.layer.id, r])))
-
-// Keep the map's stacking in step with the list (top of the list draws on top).
-watch(
-  () => rendered.value.map((r) => r.layer.id).join('|'),
-  () => nextTick(() => mapView.value?.restack(rendered.value.map((r) => r.layer.id))),
-  { flush: 'post' },
-)
 
 // ── hover / select ─────────────────────────────────────────────────────────
 
@@ -1491,32 +1453,6 @@ const highlightFor = (v: VisualizationSpec) => {
   const fv = f && vizById.value.get(f.vizId)
   return fv && fv.datasetId === v.datasetId && JSON.stringify(fv.binding) === JSON.stringify(v.binding) ? f!.keys : []
 }
-// ── legend ─────────────────────────────────────────────────────────────────
-
-const legend = computed<LegendEntry[]>(() => {
-  const out: LegendEntry[] = []
-  const shown = rendered.value.filter((r) => r.layer.visible)
-  const many = new Set(shown.map((r) => r.ds.id)).size > 1
-  for (const { layer: l, ds, data } of shown) {
-    const title = many ? `${ds.name}: ${l.name}` : l.name
-    if (l.kind === 'scalar') {
-      const e = colorLegend(l.style.color, data.features, title)
-      if (e) out.push(e)
-      const p = l.style.pattern
-      if (p.kind === 'field') {
-        const fd = data.fields.find((f) => f.name === p.field)
-        const pe = patternLegend(p, `${title} — pattern${fd && fd.name !== VALUE ? `: ${fieldLabel(fd)}` : ''}`)
-        if (pe) out.push(pe)
-      }
-    } else if (l.style.color.kind !== 'constant') {
-      const mags = data.features.map((f) => ({ ...f, properties: { [MAGNITUDE_FIELD]: vectorOf(f.properties, l.style.components)?.magnitude ?? null } }))
-      const e = colorLegend(l.style.color, mags, `${title} (magnitude)`)
-      if (e) out.push(e)
-    }
-  }
-  return out
-})
-
 // ── export ─────────────────────────────────────────────────────────────────
 
 const csvTables = SAMPLE_TABLES.map((t) => t.table)
@@ -1527,6 +1463,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
 <template>
   <div ref="pageEl" class="page" :data-ready="loaded && status === 'ready' ? 'yes' : 'no'" :class="[mode, { assisting: assistantOpen }]" :style="{ '--panel-w': `${panelWidth}px`, '--assist-w': `${assist.size.value}px`, '--minimap-h': minimapHeight }">
     <!-- List | Graph and ⤢ / ✕: the top of the side panel in explore, of the whole page in setup. -->
+    <p v-if="note" class="page-note" role="status" data-testid="page.note">{{ note }}</p>
     <div class="view-row">
       <div class="view-switch" role="group" aria-label="Show as">
         <button :class="{ on: view === 'list' }" :aria-pressed="view === 'list'" @click="view = 'list'">List</button>
@@ -1635,6 +1572,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @remove="removeVisualization"
             @reorder="reorderVisualizations"
             @zoom="zoomToViz"
+            @image="copyVizImage"
             @cancel-add="closeNode"
           />
           <DatasetEditor
@@ -1715,6 +1653,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             @remove="removeVisualization"
             @reorder="reorderVisualizations"
             @zoom="zoomToViz"
+            @image="copyVizImage"
           />
         </details>
 
@@ -1819,27 +1758,15 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       <FindPanel class="search" :visualizations="findable" :found="found" @found="onFound" @clear="clearFound" />
     </div>
     <section v-show="!(mode === 'setup' && mapMin)" class="map-wrap">
-      <MapView ref="mapView" @background-click="selected = null">
-        <template v-for="r in rendered" :key="`${r.layer.id}-${r.layer.kind}`">
-          <ScalarLayer
-            v-if="r.layer.kind === 'scalar'"
-            :layer="r.data"
-            :style-spec="r.layer.style"
-            :visible="r.layer.visible"
-            :highlight-ids="highlightFor(r.layer)"
-            :selected-id="selectedKeyFor(r.layer)"
-            @hover="(h) => onHover(r.layer.id, h)"
-            @select="(id) => onSelect(r.layer.id, id)"
-          />
-          <VectorLayer
-            v-else
-            :layer="r.data"
-            :style-spec="r.layer.style"
-            :visible="r.layer.visible"
-            @hover="(h) => onHover(r.layer.id, h)"
-            @select="(id) => onSelect(r.layer.id, id)"
-          />
-        </template>
+      <VisualizationMap
+        ref="mapView"
+        :rendered="rendered"
+        :highlight-for="highlightFor"
+        :selected-key-for="selectedKeyFor"
+        @hover="onHover"
+        @select="onSelect"
+        @background-click="selected = null"
+      >
         <template #overlay>
           <div v-if="status !== 'ready'" class="status" :class="status">
             {{ status === 'loading' ? loadingMsg : `Couldn't load data: ${errorMsg}` }}
@@ -1861,7 +1788,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
             <FeatureRows v-else :columns="selectedFeature.ds.columns" :rows="selectedRows" />
           </FeaturePanel>
         </template>
-      </MapView>
+      </VisualizationMap>
     </section>
       <details v-show="mode === 'explore'" class="box export">
         <summary>Export (ArcGIS)</summary>
@@ -2396,5 +2323,20 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
   .ai-word {
     display: none;
   }
+}
+.page-note {
+  position: fixed;
+  left: 50%;
+  bottom: 3rem;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: calc(100vw - 2rem);
+  margin: 0;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  font-size: 0.85rem;
 }
 </style>

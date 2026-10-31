@@ -1,7 +1,7 @@
 // Graph multi-select, Delete (out of the workspace, never the data) and undo / redo; copying the map
 // as a picture.
 import { expect, test, type Page } from '@playwright/test'
-import { card, closeDevices, device, listPanel, setUpStateIncome } from './helpers'
+import { card, cardAction, closeDevices, device, listPanel, setUpStateIncome } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -88,4 +88,24 @@ test('copies the map, with its legend, as a picture', async ({ browser, baseURL 
   })
   const box = await page.locator('.maplibregl-canvas').first().evaluate((c) => ({ w: (c as HTMLCanvasElement).width, h: (c as HTMLCanvasElement).height }))
   expect(size).toEqual(box)
+})
+
+test('copies one visualization alone, drawn off screen, without touching the map', async ({ browser, baseURL }) => {
+  const page = await device(browser)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(baseURL!).origin })
+  await setUpStateIncome(page)
+  await listPanel(page, 'Visualizations')
+  await cardAction(page, card(page, 'viz', 'State average household income ($)'), 'image')
+  await expect(page.getByTestId('page.note')).toHaveText('Copied “State average household income ($)” ✓', { timeout: 30000 })
+  // A map of its own (about 720 × 480 page pixels), gone again: only the page's map is left.
+  const size = await page.evaluate(async () => {
+    const blob = await (await navigator.clipboard.read())[0].getType('image/png')
+    const img = await createImageBitmap(blob)
+    return { w: img.width, h: img.height }
+  })
+  const dpr = await page.evaluate(() => devicePixelRatio)
+  // (less the map frame's 1px border)
+  expect(Math.abs(size.w - 720 * dpr)).toBeLessThanOrEqual(2 * dpr)
+  expect(Math.abs(size.h - 480 * dpr)).toBeLessThanOrEqual(2 * dpr)
+  await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
 })
