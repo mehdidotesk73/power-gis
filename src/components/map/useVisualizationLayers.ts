@@ -78,29 +78,32 @@ export function useVisualizationLayers(visualizations: Ref<VisualizationSpec[]>,
   )
   const renderedById = computed(() => new Map(rendered.value.map((r) => [r.layer.id, r])))
 
-  const legend = computed<LegendEntry[]>(() => {
-    const out: LegendEntry[] = []
-    const shown = rendered.value.filter((r) => r.layer.visible)
-    const many = new Set(shown.map((r) => r.ds.id)).size > 1
-    for (const { layer: l, ds, data } of shown) {
-      const title = many ? `${ds.name}: ${l.name}` : l.name
-      if (l.kind === 'scalar') {
-        const e = colorLegend(l.style.color, data.features, title)
-        if (e) out.push(e)
-        const p = l.style.pattern
-        if (p.kind === 'field') {
-          const fd = data.fields.find((f) => f.name === p.field)
-          const pe = patternLegend(p, `${title} — pattern${fd && fd.name !== VALUE ? `: ${fieldLabel(fd)}` : ''}`)
-          if (pe) out.push(pe)
-        }
-      } else if (l.style.color.kind !== 'constant') {
-        const mags = data.features.map((f) => ({ ...f, properties: { [MAGNITUDE_FIELD]: vectorOf(f.properties, l.style.components)?.magnitude ?? null } }))
-        const e = colorLegend(l.style.color, mags, `${title} (magnitude)`)
-        if (e) out.push(e)
-      }
-    }
-    return out
-  })
+  const legend = computed(() => legendOf(rendered.value))
 
   return { layers, rendered, renderedById, legend, vizById, settled: () => settled }
+}
+
+/** The legend for visualizations as drawn: the visible ones, each its color ramp or swatches (and pattern). */
+export function legendOf(rendered: RenderedViz[]): LegendEntry[] {
+  const out: LegendEntry[] = []
+  const shown = rendered.filter((r) => r.layer.visible)
+  const many = new Set(shown.map((r) => r.ds.id)).size > 1
+  for (const { layer: l, ds, data } of shown) {
+    const title = many ? `${ds.name}: ${l.name}` : l.name
+    if (l.kind === 'scalar') {
+      const e = colorLegend(l.style.color, data.features, title)
+      if (e) out.push(e)
+      const p = l.style.pattern
+      if (p.kind === 'field') {
+        const fd = data.fields.find((f) => f.name === p.field)
+        const pe = patternLegend(p, `${title} — pattern${fd && fd.name !== VALUE ? `: ${fieldLabel(fd)}` : ''}`)
+        if (pe) out.push(pe)
+      }
+    } else if (l.style.color.kind !== 'constant') {
+      const mags = data.features.map((f) => ({ ...f, properties: { [MAGNITUDE_FIELD]: vectorOf(f.properties, l.style.components)?.magnitude ?? null } }))
+      const e = colorLegend(l.style.color, mags, `${title} (magnitude)`)
+      if (e) out.push(e)
+    }
+  }
+  return out
 }

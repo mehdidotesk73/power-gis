@@ -170,6 +170,11 @@ Track feature development, improvements, and known issues here. Move completed w
   `run_transform` / `apply_workspace` name the chat's datasets still undescribed (`describe`); scraped files
   start with the brief. A new chat had to guess sources from names before.
 
+- **Stories and the storyteller** (PR 48) — the map as a component (`VisualizationMap`, off-screen `visualizationsPng`, a
+  visualization's Copy as image; `focusBox` fits the main group by outlines); stories in the workspace (scenes, narratives,
+  figures as code: sample / chart / map, snapshots, ⚠ when data changed); Lists → Stories; the storyteller (a mode of the
+  assistant panel, its own model per profile). Later: read aloud, sharing a story, maps as live components.
+
 ## Next (Current Sprint)
 
 One-time setup — tick these off as they're done:

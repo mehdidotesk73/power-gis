@@ -5,6 +5,7 @@ import { filesDocument, documentFiles } from '../workspace/files'
 import { addStory, emptyWorkspace, removeStory, updateStory, type WorkspaceDoc } from '../workspace/workspace'
 import { defaultScalarStyle, ROWS, type VisualizationSpec } from '../dataset/visualization'
 import { fingerprint } from '../workspace/fingerprint'
+import { replaceDataset } from '../workspace/unavailable'
 
 const viz: VisualizationSpec = {
   kind: 'scalar',
@@ -96,5 +97,8 @@ describe('stories', () => {
     const moved = replaceDatasetIds(file, (id) => (id === 'b' ? 'b2' : undefined)).stories![0]
     expect(storyDatasets(moved)).toEqual(['a', 'b2'])
     expect(remapStory(story, {}).scenes).toEqual(story.scenes)
+    // A dataset replaced (Edit → Replace…): the story's figures read the replacement.
+    const replaced = replaceDataset(doc, 'a', 'a2')
+    expect(replaced.ok && storyDatasets(replaced.doc.stories![0])).toEqual(['a2', 'b'])
   })
 })

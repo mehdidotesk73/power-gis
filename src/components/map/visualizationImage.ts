@@ -4,9 +4,9 @@
 // it alone.
 import { createApp, defineComponent, h, nextTick, ref, type Ref } from 'vue'
 import VisualizationMap from './VisualizationMap.vue'
-import { useVisualizationLayers } from './useVisualizationLayers'
+import { legendOf, useVisualizationLayers } from './useVisualizationLayers'
 import type { VisualizationSpec } from '../../lib/dataset/visualization'
-import { focusBox } from '../../lib/geometry'
+import { bboxOf, focusBox } from '../../lib/geometry'
 import type { DatasetRecord } from '../../shared/records'
 import type { Map as MlMap } from 'maplibre-gl'
 
@@ -23,20 +23,36 @@ const idle = (m: MlMap, ms: number) =>
     m.triggerRepaint()
   })
 
+export interface ImageOptions {
+  width?: number
+  height?: number
+  /** Names of features (their label) left off the map. */
+  hide?: string[]
+  /** `main` (default): fit the main group of features (far-off ones out of view); `all`: every feature. */
+  fit?: 'main' | 'all'
+}
+
 /** `visualizations` (first on top) drawn alone, fitted to their features, `width` × `height` page pixels. */
-export async function visualizationsPng(visualizations: VisualizationSpec[], records: Map<string, DatasetRecord>, size = { width: 720, height: 480 }): Promise<Blob> {
+export async function visualizationsPng(visualizations: VisualizationSpec[], records: Map<string, DatasetRecord>, opts: ImageOptions = {}): Promise<Blob> {
+  const size = { width: opts.width ?? 720, height: opts.height ?? 480 }
+  const hidden = new Set((opts.hide ?? []).map((h) => h.trim().toLowerCase()))
   const host = document.createElement('div')
   host.setAttribute('aria-hidden', 'true')
   Object.assign(host.style, { position: 'fixed', left: '-10000px', top: '0', width: `${size.width}px`, height: `${size.height}px`, pointerEvents: 'none' })
   document.body.appendChild(host)
-  let api: { map: Ref<InstanceType<typeof VisualizationMap> | undefined>; layers: ReturnType<typeof useVisualizationLayers> } | undefined
+  let api: { map: Ref<InstanceType<typeof VisualizationMap> | undefined>; layers: ReturnType<typeof useVisualizationLayers>; shown: () => ReturnType<typeof useVisualizationLayers>['rendered']['value'] } | undefined
   const app = createApp(
     defineComponent({
       setup() {
         const map = ref<InstanceType<typeof VisualizationMap>>()
         const layers = useVisualizationLayers(ref(visualizations.map((v) => ({ ...v, visible: true }))), ref(records))
-        api = { map, layers }
-        return () => h('div', { style: 'width:100%;height:100%' }, [h(VisualizationMap, { ref: map, rendered: layers.rendered.value })])
+        // Features named in `hide` are left out of what's drawn (and of the fit and the legend).
+        const shown = () =>
+          hidden.size
+            ? layers.rendered.value.map((r) => ({ ...r, data: { ...r.data, features: r.data.features.filter((f) => !hidden.has(String(f.properties._label ?? '').trim().toLowerCase())) } }))
+            : layers.rendered.value
+        api = { map, layers, shown }
+        return () => h('div', { style: 'width:100%;height:100%' }, [h(VisualizationMap, { ref: map, rendered: shown() })])
       },
     }),
   )
@@ -50,11 +66,12 @@ export async function visualizationsPng(visualizations: VisualizationSpec[], rec
     if (a.layers.rendered.value.length < want) throw new Error('some visualizations’ values couldn’t be read (View logs)')
     await nextTick() // the layers mount onto the map
     const m = a.map.value!.getMap()!
-    const box = focusBox(a.layers.rendered.value.flatMap((r) => r.data.features.map((f) => f.geometry)))
+    const geoms = a.shown().flatMap((r) => r.data.features.map((f) => f.geometry))
+    const box = opts.fit === 'all' ? bboxOf(geoms) : focusBox(geoms)
     m.resize() // its container's size, before fitting to it
     if (box) m.fitBounds([box[0], box[1], box[2], box[3]], { padding: 24, maxZoom: 8, animate: false })
     await idle(m, 8000)
-    return await a.map.value!.png(a.layers.legend.value)
+    return await a.map.value!.png(legendOf(a.shown()))
   } finally {
     app.unmount()
     host.remove()

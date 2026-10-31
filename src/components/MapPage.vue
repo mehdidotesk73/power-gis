@@ -62,6 +62,8 @@ import {
   addTransform as addTransform_,
   updateTransform as updateTransform_,
   removeTransform as removeTransform_,
+  updateStory as updateStory_,
+  removeStory as removeStory_,
   aliasFor,
   newOutput,
   normalizeTransform,
@@ -81,7 +83,10 @@ import { fromWorkspaceFile, missingReport, overviewOf, parseDraft, parseWorkspac
 import { unzipDocument, zipDocument, zipName } from '../lib/workspace/files'
 import { fingerprint, workspaceSync, type SyncPoint, type WorkspaceSync } from '../lib/workspace/fingerprint'
 import { saveFile } from '../client/saveFile'
-import { readStories } from '../lib/story/story'
+import { readStories, type Scene, type Story } from '../lib/story/story'
+import { lineageOf, lineageText } from '../lib/story/lineage'
+import { storyRequest } from '../lib/story/storyTools'
+import StoryList from './story/StoryList.vue'
 import { focusBox } from '../lib/geometry'
 import { colorLegend, MAGNITUDE_FIELD, patternLegend, vectorOf, type LegendEntry } from '../lib/style'
 import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
@@ -1226,6 +1231,31 @@ const agentHost: Omit<AgentHost, 'ask' | 'web' | 'importWebFile'> = {
   updateDataset,
 }
 const assistantOpen = ref(false)
+const agentPanel = ref<InstanceType<typeof AgentPanel>>()
+
+// ── stories ────────────────────────────────────────────────────────────────
+
+/** Opens the assistant panel on a storyteller chat about these visualizations (rewriting `rewrite` when given). */
+async function tellStory(visualizationIds: string[], rewrite?: Story) {
+  if (!visualizationIds.length) return
+  const l = lineageOf(doc.value, visualizationIds)
+  const names = l.visualizations.map((v) => v.name)
+  assistantOpen.value = true
+  await nextTick()
+  const ask = rewrite ? `Rewrite the story “${rewrite.name}”.` : `Tell the story of ${names.map((n) => `“${n}”`).join(', ')}.`
+  const started = agentPanel.value?.tellStory(ask, storyRequest(names, lineageText(l, (id) => records.value.get(id)), rewrite), { visualizationIds, ...(rewrite ? { storyId: rewrite.id } : {}) })
+  if (!started) showNote('Add your Anthropic API key in the assistant’s ⚙ first, then tell the story again.')
+}
+/** A scene's subject by name, while it's still in the workspace. */
+function aboutName(a: NonNullable<Scene['about']>): string | undefined {
+  if (a.kind === 'dataset') return records.value.get(a.id) ? `Dataset · ${records.value.get(a.id)!.name}` : undefined
+  if (a.kind === 'transform') {
+    const t = doc.value.transforms.find((x) => x.id === a.id)
+    return t ? `Transform · ${t.name}` : undefined
+  }
+  const v = vizById.value.get(a.id)
+  return v ? `Visualization · ${v.name}` : undefined
+}
 
 // ── Run all stale ──────────────────────────────────────────────────────────
 // Every transform needing a re-run, plus everything downstream of one, inputs
@@ -1709,6 +1739,20 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
           />
         </details>
 
+        <details class="box">
+          <summary>Stories</summary>
+          <StoryList
+            :stories="doc.stories ?? []"
+            :visualizations="visualizations"
+            :records="records"
+            :picked="marked.filter((k) => k.startsWith('viz:')).map((k) => k.slice(4))"
+            :about-name="aboutName"
+            @tell="tellStory"
+            @update="(st) => apply(updateStory_(doc, st))"
+            @remove="(id) => apply(removeStory_(doc, id))"
+          />
+        </details>
+
       </template>
       </div>
     </section>
@@ -1827,7 +1871,7 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       @keydown="assist.key"
       @dblclick="assist.reset"
     />
-    <AgentPanel v-show="assistantOpen" class="assistant-col" :host="agentHost" @close="assistantOpen = false" />
+    <AgentPanel ref="agentPanel" v-show="assistantOpen" class="assistant-col" :host="agentHost" @close="assistantOpen = false" />
     <SharePanel v-if="sharing" :id="sharing.id" :name="sharing.name" @close="sharing = null" @left="onLeft" />
     <BatchPanel v-if="batch" :title="batch.title" :intro="batch.intro" :items="batch.items" :running="batch.running" @proceed="runBatch" @close="batch = null" />
   </div>

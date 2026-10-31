@@ -1,0 +1,330 @@
+{
+  "format": "powergis-workspace",
+  "version": 2,
+  "exportedAt": "2026-10-29T06:00:00.000Z",
+  "workspaceId": "107ddd3d-8b3c-487f-b3f6-a6f86e600fea",
+  "name": "State income",
+  "datasetIds": [
+    "8fbe15e1-9441-43c5-ac64-6233c54a77b7",
+    "d1d739d8-55b7-4419-a001-b4f526c22993",
+    "99565af8-02ea-4a00-a795-6415da9acf9e",
+    "a8503b8e-5427-49fe-b7bd-77e94322fb32",
+    "254b58fd-aaa9-4dbf-b6c3-6fc7522e1605",
+    "7c4b417d-1a5b-4c63-9b0e-5d42120e922e",
+    "657a9f2a-d707-46a0-af50-408b86935791"
+  ],
+  "transforms": [
+    {
+      "id": "c32a8f85-125e-40f9-94f2-2e6e3d5ce1ef",
+      "name": "1 Clean county income",
+      "inputs": [
+        {
+          "datasetId": "99565af8-02ea-4a00-a795-6415da9acf9e",
+          "alias": "inc"
+        }
+      ],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "Clean county income",
+          "sql": "-- One row per county: its median household income; placeholder values (zero or below) become NULL.\nSELECT\n  GEOID AS fips,\n  CASE WHEN median_hh_income > 0 THEN median_hh_income END AS median_hh_income\nFROM inc",
+          "outputId": "254b58fd-aaa9-4dbf-b6c3-6fc7522e1605"
+        }
+      ]
+    },
+    {
+      "id": "21cb2033-ffab-469d-a365-fbe9de9b003f",
+      "name": "2 State income",
+      "inputs": [
+        {
+          "datasetId": "8fbe15e1-9441-43c5-ac64-6233c54a77b7",
+          "alias": "c"
+        },
+        {
+          "datasetId": "254b58fd-aaa9-4dbf-b6c3-6fc7522e1605",
+          "alias": "i"
+        }
+      ],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "State income",
+          "sql": "-- Per state: how many counties report an income, and their plain average.\nSELECT\n  c.state_fips,\n  any_value(c.state) AS state,\n  count(i.median_hh_income) AS counties,\n  round(avg(i.median_hh_income), 0) AS avg_median_hh_income\nFROM c\nLEFT JOIN i ON i.fips = c.fips\nGROUP BY c.state_fips",
+          "outputId": "7c4b417d-1a5b-4c63-9b0e-5d42120e922e"
+        }
+      ]
+    },
+    {
+      "id": "e3c5e51a-7d65-40d1-bb58-552fcec3707c",
+      "name": "3 State income map",
+      "inputs": [
+        {
+          "datasetId": "d1d739d8-55b7-4419-a001-b4f526c22993",
+          "alias": "st"
+        },
+        {
+          "datasetId": "7c4b417d-1a5b-4c63-9b0e-5d42120e922e",
+          "alias": "s"
+        }
+      ],
+      "outputs": [
+        {
+          "key": "out",
+          "name": "State income map",
+          "sql": "-- State shapes with their average, ready to map.\nSELECT\n  st.fips AS state_fips,\n  st.name AS state_name,\n  s.counties,\n  s.avg_median_hh_income,\n  st.geometry\nFROM st\nLEFT JOIN s ON s.state_fips = st.fips",
+          "outputId": "657a9f2a-d707-46a0-af50-408b86935791"
+        }
+      ]
+    }
+  ],
+  "visualizations": [
+    {
+      "id": "c6de3c5e-d9e2-4460-bcb7-ee99d1610d83",
+      "datasetId": "657a9f2a-d707-46a0-af50-408b86935791",
+      "name": "State average household income ($)",
+      "visible": true,
+      "binding": {
+        "kind": "geometry",
+        "column": "geometry",
+        "label": "state_name"
+      },
+      "column": "avg_median_hh_income",
+      "aggregation": "first",
+      "kind": "scalar",
+      "style": {
+        "opacity": {
+          "kind": "constant",
+          "value": 0.8
+        },
+        "pattern": {
+          "kind": "none"
+        },
+        "outline": {
+          "color": "#0b0f18",
+          "width": 0.3,
+          "opacity": 0.6
+        },
+        "size": 2,
+        "color": {
+          "kind": "colormap",
+          "field": "_value",
+          "colormap": "viridis"
+        }
+      }
+    }
+  ],
+  "datasets": [
+    {
+      "id": "8fbe15e1-9441-43c5-ac64-6233c54a77b7",
+      "name": "US counties",
+      "store": "local",
+      "rows": 3231,
+      "origin": {
+        "kind": "builtin",
+        "table": "us_counties",
+        "version": 1
+      }
+    },
+    {
+      "id": "d1d739d8-55b7-4419-a001-b4f526c22993",
+      "name": "US states",
+      "store": "local",
+      "rows": 56,
+      "origin": {
+        "kind": "builtin",
+        "table": "us_states",
+        "version": 1
+      }
+    },
+    {
+      "id": "99565af8-02ea-4a00-a795-6415da9acf9e",
+      "name": "county_income",
+      "store": "local",
+      "rows": 3222,
+      "origin": {
+        "kind": "upload",
+        "source": "Device \u00b7 county_income.csv"
+      }
+    },
+    {
+      "id": "a8503b8e-5427-49fe-b7bd-77e94322fb32",
+      "name": "county_education",
+      "store": "local",
+      "rows": 3222,
+      "origin": {
+        "kind": "upload",
+        "source": "Device \u00b7 county_education.csv"
+      }
+    },
+    {
+      "id": "254b58fd-aaa9-4dbf-b6c3-6fc7522e1605",
+      "name": "Clean county income",
+      "description": "One row per county: median household income, placeholders removed.",
+      "store": "local",
+      "rows": 3222,
+      "origin": {
+        "kind": "output",
+        "transform": "c32a8f85-125e-40f9-94f2-2e6e3d5ce1ef",
+        "output": "out"
+      }
+    },
+    {
+      "id": "7c4b417d-1a5b-4c63-9b0e-5d42120e922e",
+      "name": "State income",
+      "description": "Per state: counties with an income and their average.",
+      "store": "local",
+      "rows": 56,
+      "origin": {
+        "kind": "output",
+        "transform": "21cb2033-ffab-469d-a365-fbe9de9b003f",
+        "output": "out"
+      }
+    },
+    {
+      "id": "657a9f2a-d707-46a0-af50-408b86935791",
+      "name": "State income map",
+      "description": "State shapes with their average household income.",
+      "store": "local",
+      "rows": 56,
+      "origin": {
+        "kind": "output",
+        "transform": "e3c5e51a-7d65-40d1-bb58-552fcec3707c",
+        "output": "out"
+      }
+    }
+  ],
+  "stories": [
+    {
+      "id": "story-income",
+      "name": "How state income is mapped",
+      "visualizationIds": [
+        "c6de3c5e-d9e2-4460-bcb7-ee99d1610d83"
+      ],
+      "writtenAt": "2026-10-31T00:00:00Z",
+      "scenes": [
+        {
+          "id": "s1",
+          "title": "County incomes",
+          "narrative": "Each row is a county: its **median household income** from the census, with placeholder values turned into blanks.",
+          "about": {
+            "kind": "dataset",
+            "id": "254b58fd-aaa9-4dbf-b6c3-6fc7522e1605"
+          },
+          "figures": [
+            {
+              "kind": "sample",
+              "sql": "SELECT fips, median_hh_income FROM i ORDER BY median_hh_income DESC NULLS LAST",
+              "inputs": [
+                {
+                  "datasetId": "254b58fd-aaa9-4dbf-b6c3-6fc7522e1605",
+                  "alias": "i"
+                }
+              ],
+              "caption": "The highest incomes",
+              "snapshot": {
+                "columns": [
+                  "fips",
+                  "median_hh_income"
+                ],
+                "rows": [
+                  [
+                    "00000",
+                    1
+                  ]
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "title": "Averaged by state",
+          "narrative": "Counties are averaged within each state, plainly: a small county counts as much as a large one.",
+          "about": {
+            "kind": "transform",
+            "id": "21cb2033-ffab-469d-a365-fbe9de9b003f"
+          },
+          "figures": [
+            {
+              "kind": "chart",
+              "chart": "bar",
+              "x": "state",
+              "y": "avg_median_hh_income",
+              "sql": "SELECT state, avg_median_hh_income FROM s ORDER BY avg_median_hh_income DESC NULLS LAST LIMIT 10",
+              "inputs": [
+                {
+                  "datasetId": "7c4b417d-1a5b-4c63-9b0e-5d42120e922e",
+                  "alias": "s"
+                }
+              ],
+              "caption": "The ten highest"
+            },
+            {
+              "kind": "chart",
+              "chart": "histogram",
+              "x": "median_hh_income",
+              "sql": "SELECT median_hh_income FROM i",
+              "inputs": [
+                {
+                  "datasetId": "254b58fd-aaa9-4dbf-b6c3-6fc7522e1605",
+                  "alias": "i"
+                }
+              ],
+              "caption": "How county incomes spread"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "title": "The map",
+          "narrative": "Each state is colored by its average: brighter is higher.",
+          "about": {
+            "kind": "visualization",
+            "id": "c6de3c5e-d9e2-4460-bcb7-ee99d1610d83"
+          },
+          "figures": [
+            {
+              "kind": "map",
+              "viz": {
+                "datasetId": "657a9f2a-d707-46a0-af50-408b86935791",
+                "name": "State average household income ($)",
+                "binding": {
+                  "kind": "geometry",
+                  "column": "geometry",
+                  "label": "state_name"
+                },
+                "column": "avg_median_hh_income",
+                "aggregation": "first",
+                "kind": "scalar",
+                "style": {
+                  "opacity": {
+                    "kind": "constant",
+                    "value": 0.8
+                  },
+                  "pattern": {
+                    "kind": "none"
+                  },
+                  "outline": {
+                    "color": "#0b0f18",
+                    "width": 0.3,
+                    "opacity": 0.6
+                  },
+                  "size": 2,
+                  "color": {
+                    "kind": "colormap",
+                    "field": "_value",
+                    "colormap": "viridis"
+                  }
+                }
+              },
+              "hide": [
+                "Guam"
+              ],
+              "caption": "Without Guam"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
