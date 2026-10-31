@@ -129,6 +129,23 @@ describe('workspace DAG', () => {
     }
   })
 
+  it('the compact layout centers each row, and is never wider than the regular one', () => {
+    const dag = buildDag(doc, (id) => records[id])
+    for (const dir of ['vertical', 'horizontal'] as const) {
+      const regular = layoutDag(dag, dir)
+      const compact = layoutDag(dag, dir, 'compact')
+      const breadth = (l: typeof regular) => (dir === 'vertical' ? l.width : l.height)
+      expect(breadth(compact)).toBeLessThanOrEqual(breadth(regular))
+      // Every row's span is centered on the widest: its middle is the layout's middle.
+      for (const layer of dag.layers) {
+        const across = layer.filter((k) => compact.at.has(k)).map((k) => (dir === 'vertical' ? compact.at.get(k)!.x : compact.at.get(k)!.y))
+        if (!across.length || across.length !== layer.length) continue
+        const mid = (Math.min(...across) + Math.max(...across) + (dir === 'vertical' ? NODE_W : NODE_H)) / 2
+        expect(Math.abs(mid - breadth(compact) / 2)).toBeLessThanOrEqual(1)
+      }
+    }
+  })
+
   it('lays rows out with the widest row setting the width', () => {
     const dag = buildDag(doc, (id) => records[id])
     const l = layoutDag(dag)

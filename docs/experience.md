@@ -326,6 +326,11 @@ Two additions from reviewing it here, beyond what the originating project report
 
 (Record major releases here as you merge features. Example format below.)
 
+### Compact graph layouts — 2026-10-31
+
+- The layout menu has four layouts: Top to bottom and Left to right (arrows straight, wider) and a **compact**
+  version of each (the earlier centered rows: narrower, arrows fan in and out). Remembered per device.
+
 ### Workspace fingerprints and the sample workspace — 2026-10-30
 
 - A first visit starts **empty** (the Workspace button pulses gently; its panel says so and offers the sample); **Workspace → Open the sample workspace**
