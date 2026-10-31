@@ -18,7 +18,7 @@ import { chatCost, claudeProvider, CLAUDE_MODELS, describeError } from '../../cl
 import { DEFAULT_PROFILE, PROFILES, profileById, profileStats, recordChat, statsLine, type AgentProfile, type ChatRecord } from '../../lib/agent/profiles'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
-import { forgetChat, IMPORTABLE, runTool, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
+import { forgetChat, IMPORTABLE, runTool, webFileDescription, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
 import { STOPPED, type Form, type FormAnswer } from '../../lib/agent/form'
 import { activeRun, downloadFile, followRun, forgetRun, SignInNeeded, startRun, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
 import { saveFile } from '../../client/saveFile'
@@ -249,7 +249,7 @@ onMounted(async () => {
     const r = await follow(it, run)
     if (run.role === 'scraper') {
       const day = new Date(run.startedAt).toISOString().slice(0, 10)
-      for (const f of r.files) if (IMPORTABLE.test(f.name)) await importWebFile(f.id, f.name, `From the web, ${day} (scraper run ${r.sessionId}).`)
+      for (const f of r.files) if (IMPORTABLE.test(f.name)) await importWebFile(f.id, f.name, webFileDescription(day, r.sessionId, run.brief))
     }
   } catch (e) {
     it.state = 'error'

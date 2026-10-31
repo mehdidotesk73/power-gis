@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { documentFiles } from '../workspace/files'
 import { toWorkspaceFile } from '../workspace/file'
 import type { Form } from './form'
-import { forgetChat, runTool, workspaceVersion, type AgentHost } from './tools'
+import { forgetChat, runTool, webFileDescription, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
@@ -386,6 +386,22 @@ describe('agent tools', () => {
     expect((await runTool(host, 'delete_dataset', { id: 'joined', userAsked: true })).isError).toBe(false)
     expect(calls).toEqual(['run t1', 'run t2', 'delete joined'])
     expect(await runTool(host, 'drop_everything', {})).toMatchObject({ isError: true })
+  })
+
+  it('asks for a description of every dataset it made, until there is one', async () => {
+    const doc: WorkspaceDoc = {
+      ...emptyWorkspace('Test'),
+      datasetIds: ['prices', 'joined'],
+      transforms: [{ id: 't1', name: 'Join', inputs: [{ datasetId: 'prices', alias: 'p' }], outputs: [{ key: 'o', name: 'Out', sql: 'SELECT 1', outputId: 'joined' }] }],
+    }
+    const { host } = fakeHost(doc)
+    host.runTransform = async () => ({ ok: true, outputs: [{ datasetId: 'joined', name: 'JOINED', rowCount: 10, created: true }] })
+    expect(json((await runTool(host, 'run_transform', { id: 't1' })).content).describe).toMatch(/^"JOINED" \(joined\) — datasets you made that still need a description/)
+    // The import note a scraped file starts with isn't a description yet.
+    host.record('joined')!.description = webFileDescription('2026-10-31', 's1', 'Fetch rents per county, '.repeat(10))
+    expect(json((await runTool(host, 'run_transform', { id: 't1' })).content).describe).toMatch(/only the import note/)
+    host.record('joined')!.description = 'Row: one county, key fips.\nMade by: Join, from prices; adds the county names so the map can label them.'
+    expect(json((await runTool(host, 'run_transform', { id: 't1' })).content).describe).toBeUndefined()
   })
 })
 
