@@ -10,6 +10,7 @@
 // 80 words, the length read aloud in that time) and at most two figures.
 
 import type { VisualizationSpec } from '../dataset/visualization'
+import { chartData, CHART_LIMITS } from './chart'
 
 /** Words a narrative should keep to (≈ 30 s read aloud), and the most it may have. */
 export const NARRATIVE_WORDS = 80
@@ -212,4 +213,35 @@ export function remapStory(s: Story, to: { dataset?: (id: string) => string | un
       figures: sc.figures.map((f) => (f.kind === 'map' ? { ...f, viz: { ...f.viz, datasetId: ds(f.viz.datasetId) } } : { ...f, inputs: f.inputs.map((i) => ({ ...i, datasetId: ds(i.datasetId) })) })),
     })),
   }
+}
+
+// ── running a figure ─────────────────────────────────────────────────────────
+
+/** Runs SQL over datasets: the page's request, or the agent host's query. */
+export type FigureQuery = (
+  sql: string,
+  inputs: SqlSource['inputs'],
+  limit: number,
+) => Promise<{ ok: true; data: { columns: { name: string; type: string }[]; rows: Record<string, unknown>[]; rowCount: number } } | { ok: false; error: { message: string } }>
+
+const GEOMETRY = new Set(['point', 'polyline', 'region'])
+
+/** What a sample or chart figure shows now (its snapshot's shape), or why it can't. */
+export async function runFigure(f: Extract<Figure, { kind: 'sample' | 'chart' }>, query: FigureQuery): Promise<Snapshot | string> {
+  const limit = f.kind === 'sample' ? SAMPLE_ROWS : CHART_LIMITS[f.chart] + 1
+  const r = await query(f.sql, f.inputs, limit)
+  if (!r.ok) return r.error.message
+  const geo = new Set(r.data.columns.filter((c) => GEOMETRY.has(c.type)).map((c) => c.name))
+  const rows = r.data.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, geo.has(k) ? `<${r.data.columns.find((c) => c.name === k)!.type}>` : v])))
+  const columns = r.data.columns.map((c) => c.name)
+  if (f.kind === 'sample') return snapshotOf(columns, rows.map(plain), SAMPLE_ROWS)
+  if (r.data.rowCount > CHART_LIMITS[f.chart]) return `${r.data.rowCount} rows is too many for a ${f.chart} chart (at most ${CHART_LIMITS[f.chart]}): aggregate in the SQL, or LIMIT it`
+  return chartData(f.chart, f.x, f.y, columns, rows)
+}
+
+/** Cells as JSON keeps them (numbers, text, true / false, null); anything else as text. */
+function plain(row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(row).map(([k, v]) => [k, v === null || v === undefined ? null : typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean' ? v : typeof v === 'bigint' ? Number(v) : v instanceof Date ? v.toISOString() : JSON.stringify(v)]),
+  )
 }

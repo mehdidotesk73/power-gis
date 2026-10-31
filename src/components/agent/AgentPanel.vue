@@ -27,6 +27,8 @@ import { auth } from '../../client/auth'
 import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
 import { MAX_IMAGES, pastedImages, prepareImage, type Attached } from './images'
 import { addUsage, emptyUsage, type ChatSession, type ToolCall } from '../../lib/agent/provider'
+import { STORYTELLER_PROMPT } from '../../lib/story/storyPrompt'
+import { runStoryTool, STORY_TOOLS, type StoryChat } from '../../lib/story/storyTools'
 
 /** The page's side of the tools; the panel adds asking the user and the web runs. */
 const props = defineProps<{ host: Omit<AgentHost, 'ask' | 'web' | 'importWebFile'> }>()
@@ -96,7 +98,15 @@ const chatProfile = ref<AgentProfile | null>(null)
 let chatRecord: ChatRecord | null = null
 const labelOf = (id: string) => CLAUDE_MODELS.find((m) => m.id === id)?.label.replace(/^Claude /, '') ?? id
 /** "chat Haiku 5.5 · scout Sonnet 5.5 · …": the models a profile uses. */
-const modelsLine = (p: AgentProfile) => `chat ${labelOf(p.models.assistant)} · scout ${labelOf(p.models.scout)} · scraper ${labelOf(p.models.scraper)} · reviewer ${labelOf(p.models.reviewer)}`
+const modelsLine = (p: AgentProfile) => `chat ${labelOf(p.models.assistant)} · scout ${labelOf(p.models.scout)} · scraper ${labelOf(p.models.scraper)} · reviewer ${labelOf(p.models.reviewer)} · storyteller ${labelOf(p.models.storyteller)}`
+
+// ── who the chat is with: the assistant, or the storyteller (Tell a story) ─
+
+const mode = ref<'assistant' | 'storyteller'>('assistant')
+/** The storyteller chat's story: what it tells, and the story it wrote (rewritten in place). */
+let storyChat: StoryChat | null = null
+/** The model the chat runs on. */
+const chatModel = (p: AgentProfile) => (mode.value === 'storyteller' ? p.models.storyteller : p.models.assistant)
 const chatLog = ref<ChatRecord[]>(
   (() => {
     try {
@@ -304,6 +314,7 @@ const TOOL_LABEL: Record<string, string> = {
   visualization_stats: 'Check the values drawn',
   run_transform: 'Run a transform',
   delete_dataset: 'Delete a dataset',
+  write_story: 'Write the story',
 }
 
 /** A step's title: the tool, or for the file editor what it did to which file ("Edit /transforms/….sql"). */
@@ -355,7 +366,8 @@ function onPick(e: Event) {
 const unattach = (i: number) => (attached.value = attached.value.filter((_, j) => j !== i))
 const canSend = computed(() => !!apiKey.value && (!!draft.value.trim() || attached.value.length > 0))
 
-async function send() {
+/** Sends what's in the message box; `forModel`, when given, is what the model reads instead (the storyteller's lineage). */
+async function send(forModel?: string) {
   const text = draft.value.trim()
   const images = attached.value
   if ((!text && !images.length) || busy.value || !apiKey.value) return
@@ -365,7 +377,10 @@ async function send() {
   items.value.push({ kind: 'user', text, ...(images.length ? { images: images.map((im) => im.url) } : {}) })
   if (!session) {
     const p = nextProfile.value
-    session = claudeProvider.start({ apiKey: apiKey.value, model: p.models.assistant, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
+    session =
+      mode.value === 'storyteller'
+        ? claudeProvider.start({ apiKey: apiKey.value, model: p.models.storyteller, system: STORYTELLER_PROMPT, tools: STORY_TOOLS })
+        : claudeProvider.start({ apiKey: apiKey.value, model: p.models.assistant, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
     chatProfile.value = p
     chatRecord = { chat: crypto.randomUUID(), profile: p.id, startedAt: Date.now(), turns: 0, tokensIn: 0, tokensOut: 0, runs: 0 }
   }
@@ -378,8 +393,8 @@ async function send() {
   try {
     const { end } = await runAgent(
       session,
-      (name, input) => runTool(host, name, input),
-      { text, ...(images.length ? { images: images.map(({ mediaType, data }) => ({ mediaType, data })) } : {}) },
+      (name, input) => (mode.value === 'storyteller' && storyChat ? runStoryTool(host, storyChat, name, input) : runTool(host, name, input)),
+      { text: forModel ?? text, ...(images.length ? { images: images.map(({ mediaType, data }) => ({ mediaType, data })) } : {}) },
       {
         onTurnStart: () => {
           current = null
@@ -477,7 +492,27 @@ function newChat(confirmFirst = false) {
   session = null
   chatProfile.value = null
   chatRecord = null
+  mode.value = 'assistant'
+  storyChat = null
 }
+
+/**
+ * Starts a storyteller chat (a new chat): the user's line shows `ask`, the model reads `message`
+ * (what to tell and everything behind it). False when there's no API key yet (settings open).
+ */
+function tellStory(ask: string, message: string, chat: StoryChat): boolean {
+  if (!apiKey.value) {
+    settings.value = true
+    return false
+  }
+  newChat()
+  mode.value = 'storyteller'
+  storyChat = chat
+  draft.value = ask
+  void send(message)
+  return true
+}
+defineExpose({ tellStory })
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && window.matchMedia('(pointer: fine)').matches) {
     e.preventDefault()
@@ -499,7 +534,7 @@ const toolInput = (call: ToolCall) => JSON.stringify(call.input, null, 2)
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
 /** The chat's cost so far: its tokens at list prices plus its scout and scraper runs. */
 const dollars = computed(() => {
-  const tokens = chatCost(usage.value, (chatProfile.value ?? nextProfile.value).models.assistant)
+  const tokens = chatCost(usage.value, chatModel(chatProfile.value ?? nextProfile.value))
   const runs = items.value.reduce((sum, x) => sum + (x.kind === 'run' && !x.resumed ? (x.result?.cost ?? 0) : 0), 0)
   return tokens === undefined ? undefined : tokens + runs
 })
@@ -517,8 +552,8 @@ const usageText = computed(() => {
     <header>
       <div class="title">
         <span class="eyebrow">Assistant</span>
-        <strong>Dataset processor</strong>
-        <span class="muted small" data-testid="agent.profile">{{ (chatProfile ?? nextProfile).label }} · {{ labelOf((chatProfile ?? nextProfile).models.assistant) }}</span>
+        <strong data-testid="agent.mode">{{ mode === 'storyteller' ? 'Storyteller' : 'Dataset processor' }}</strong>
+        <span class="muted small" data-testid="agent.profile">{{ (chatProfile ?? nextProfile).label }} · {{ labelOf(chatModel(chatProfile ?? nextProfile)) }}</span>
       </div>
       <UiButton size="compact" title="Clear this conversation and start over" :disabled="!items.length" @click="newChat(true)">New chat</UiButton>
       <UiButton size="compact" icon="⚙" :active="settings" :aria-pressed="settings" title="API key and profile" aria-label="Settings: API key and profile" @click="settings = !settings" />
@@ -538,7 +573,7 @@ const usageText = computed(() => {
       </p>
       <fieldset class="profiles">
         <legend>Profile</legend>
-        <p class="muted small">Which model does each job: the chat itself, the scout (finds data on the web), the scraper (fetches it) and the reviewer (checks the work; coming).</p>
+        <p class="muted small">Which model does each job: the chat itself, the scout (finds data on the web), the scraper (fetches it), the reviewer (checks the work; coming) and the storyteller (Stories → ＋ Story).</p>
         <label v-for="p in PROFILES" :key="p.id" class="profile" :class="{ on: p.id === profileId }" :data-testid="`profile.${p.id}`">
           <input v-model="profileId" type="radio" name="agent-profile" :value="p.id" />
           <span class="p-text">
@@ -672,7 +707,7 @@ const usageText = computed(() => {
         <input ref="picker" class="hidden" type="file" accept="image/*" multiple @change="onPick" />
         <span class="muted small usage" title="Tokens this chat used; ≈ $ at list prices, scout and scraper runs included">{{ usageText }}</span>
         <UiButton v-if="busy" size="compact" @click="stop">Stop</UiButton>
-        <UiButton v-else size="compact" tone="primary" :disabled="!canSend || waiting" @click="send">Send</UiButton>
+        <UiButton v-else size="compact" tone="primary" :disabled="!canSend || waiting" @click="send()">Send</UiButton>
       </div>
     </footer>
   </aside>

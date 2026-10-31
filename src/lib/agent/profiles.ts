@@ -1,6 +1,7 @@
 // Profiles: which model does each job. The user picks a profile, not a model —
 // the assistant (the chat), the scout (looks for data on the web), the scraper
-// (fetches it) and the reviewer (checks the finished work; not built yet) each get
+// (fetches it), the reviewer (checks the finished work; not built yet) and the
+// storyteller (tells how the workspace gets to its maps) each get
 // the model that suits the profile. Scrapers mostly follow instructions, so most
 // profiles keep them on Haiku; scouting and reviewing are where judgement pays.
 // A chat keeps the profile it started with.
@@ -9,7 +10,7 @@
 // device (cost, tokens, scout / scraper runs), so a profile's average cost per
 // chat can be shown next to it. The cloud table of runs comes with run records.
 
-export type AgentRole = 'assistant' | 'scout' | 'scraper' | 'reviewer'
+export type AgentRole = 'assistant' | 'scout' | 'scraper' | 'reviewer' | 'storyteller'
 
 export interface AgentProfile {
   id: string
@@ -24,12 +25,12 @@ const SONNET = 'claude-sonnet-5-5'
 const OPUS = 'claude-opus-5-5'
 
 export const PROFILES: AgentProfile[] = [
-  { id: 'quick', label: 'Quick', note: 'everything on Haiku · cheapest', models: { assistant: HAIKU, scout: HAIKU, scraper: HAIKU, reviewer: HAIKU } },
-  { id: 'smart-scout', label: 'Smart scout', note: 'Haiku, with Sonnet scouting and reviewing', models: { assistant: HAIKU, scout: SONNET, scraper: HAIKU, reviewer: SONNET } },
-  { id: 'balanced', label: 'Balanced', note: 'Sonnet, with a Haiku scraper', models: { assistant: SONNET, scout: SONNET, scraper: HAIKU, reviewer: SONNET } },
-  { id: 'deep-research', label: 'Deep research', note: 'Sonnet, with Opus scouting and reviewing', models: { assistant: SONNET, scout: OPUS, scraper: HAIKU, reviewer: OPUS } },
-  { id: 'planner', label: 'Planner', note: 'Opus plans and reviews; Sonnet scouts', models: { assistant: OPUS, scout: SONNET, scraper: HAIKU, reviewer: OPUS } },
-  { id: 'all-sonnet', label: 'All Sonnet', note: 'everything on Sonnet', models: { assistant: SONNET, scout: SONNET, scraper: SONNET, reviewer: SONNET } },
+  { id: 'quick', label: 'Quick', note: 'everything on Haiku · cheapest', models: { assistant: HAIKU, scout: HAIKU, scraper: HAIKU, reviewer: HAIKU, storyteller: HAIKU } },
+  { id: 'smart-scout', label: 'Smart scout', note: 'Haiku, with Sonnet scouting and reviewing', models: { assistant: HAIKU, scout: SONNET, scraper: HAIKU, reviewer: SONNET, storyteller: SONNET } },
+  { id: 'balanced', label: 'Balanced', note: 'Sonnet, with a Haiku scraper', models: { assistant: SONNET, scout: SONNET, scraper: HAIKU, reviewer: SONNET, storyteller: SONNET } },
+  { id: 'deep-research', label: 'Deep research', note: 'Sonnet, with Opus scouting and reviewing', models: { assistant: SONNET, scout: OPUS, scraper: HAIKU, reviewer: OPUS, storyteller: SONNET } },
+  { id: 'planner', label: 'Planner', note: 'Opus plans and reviews; Sonnet scouts', models: { assistant: OPUS, scout: SONNET, scraper: HAIKU, reviewer: OPUS, storyteller: OPUS } },
+  { id: 'all-sonnet', label: 'All Sonnet', note: 'everything on Sonnet', models: { assistant: SONNET, scout: SONNET, scraper: SONNET, reviewer: SONNET, storyteller: SONNET } },
 ]
 
 export const DEFAULT_PROFILE = 'quick'
