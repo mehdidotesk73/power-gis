@@ -671,14 +671,23 @@ export function createServer(db: Database, env: ServerEnv) {
       return { signedIn: !!cloud }
     },
 
-    async cloudWorkspace() {
-      const w = await signedIn().defaultWorkspace()
-      return { workspace: w && { name: w.name, updatedAt: w.updatedAt, file: w.file } }
+    async cloudWorkspaces() {
+      return { workspaces: await signedIn().listWorkspaces() }
     },
 
-    async saveCloudWorkspace({ file, overview }) {
-      const { updatedAt } = await signedIn().saveDefaultWorkspace({ name: file.name, file: { ...file, exportedAt: now() }, overview })
-      return { updatedAt }
+    async cloudWorkspace({ id }) {
+      const w = id ? await signedIn().workspace(id) : await signedIn().defaultWorkspace()
+      return { workspace: w && { id: w.id, name: w.name, updatedAt: w.updatedAt, file: w.file } }
+    },
+
+    async saveCloudWorkspace({ id, file, overview }) {
+      const r = await signedIn().saveWorkspace({ ...(id ? { id } : {}), name: file.name, file: { ...file, exportedAt: now() }, overview })
+      return r ?? { gone: true as const }
+    },
+
+    async deleteCloudWorkspace({ id }) {
+      await signedIn().deleteWorkspace(id)
+      return {}
     },
 
     async profileDataset({ datasetId }) {
@@ -760,6 +769,7 @@ export function createServer(db: Database, env: ServerEnv) {
           transformIds: transforms.map((x) => x.id),
           ...(config.unavailable && Object.keys(config.unavailable).length ? { unavailable: config.unavailable } : {}),
           ...(config.stories?.length ? { stories: config.stories } : {}),
+          ...(config.cloudId ? { cloudId: config.cloudId } : {}),
         },
         createdAt: existing?.createdAt ?? t,
         updatedAt: t,

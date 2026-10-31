@@ -148,13 +148,29 @@ describe('cloud datasets on a real Supabase stack', () => {
     expect(await rows(b, id)).toEqual([{ fips: '01001', r: 4 }])
   })
 
-  it("keeps each account's workspace to itself", async () => {
+  it("keeps several workspaces per account, each to its owner", async () => {
     const a1 = await device(alice)
     const a2 = await device(alice)
     const b = await device(bob)
-    const file1 = toWorkspaceFile(emptyWorkspace('Alice’s map'), () => undefined)
-    data(await a1.server.handle('saveCloudWorkspace', { file: file1, overview: 'nothing yet' }))
-    expect(data(await a2.server.handle('cloudWorkspace', {})).workspace).toMatchObject({ name: 'Alice’s map' })
-    expect(data(await b.server.handle('cloudWorkspace', {})).workspace).toBeNull()
+    const doc = (name: string) => toWorkspaceFile(emptyWorkspace(name), () => undefined)
+    const first = data(await a1.server.handle('saveCloudWorkspace', { file: doc('Alice’s map'), overview: 'nothing yet' }))
+    const second = data(await a1.server.handle('saveCloudWorkspace', { file: doc('Alice’s second map'), overview: '' }))
+    if ('gone' in first || 'gone' in second) throw new Error('not saved')
+    expect(second.id).not.toBe(first.id)
+    // Another device of hers lists both (most recent first) and reads either; Bob sees none of them.
+    const list = data(await a2.server.handle('cloudWorkspaces', {})).workspaces
+    expect(list.map((w) => w.name)).toEqual(['Alice’s second map', 'Alice’s map'])
+    expect(data(await a2.server.handle('cloudWorkspace', { id: first.id })).workspace).toMatchObject({ name: 'Alice’s map' })
+    expect(data(await b.server.handle('cloudWorkspaces', {})).workspaces).toEqual([])
+    expect(data(await b.server.handle('cloudWorkspace', { id: first.id })).workspace).toBeNull()
+    // Bob can't overwrite or delete hers: his save reads as gone, his delete changes nothing.
+    expect(data(await b.server.handle('saveCloudWorkspace', { id: first.id, file: doc('Bob was here'), overview: '' }))).toEqual({ gone: true })
+    data(await b.server.handle('deleteCloudWorkspace', { id: first.id }))
+    expect(data(await a2.server.handle('cloudWorkspace', { id: first.id })).workspace).toMatchObject({ name: 'Alice’s map' })
+    // She replaces one in place, and deletes the other.
+    const again = data(await a2.server.handle('saveCloudWorkspace', { id: first.id, file: doc('Alice’s map, renamed'), overview: '' }))
+    expect(again).toMatchObject({ id: first.id })
+    data(await a2.server.handle('deleteCloudWorkspace', { id: second.id }))
+    expect(data(await a1.server.handle('cloudWorkspaces', {})).workspaces.map((w) => w.name)).toEqual(['Alice’s map, renamed'])
   })
 })

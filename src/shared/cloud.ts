@@ -12,11 +12,23 @@ export interface CloudWorkspace {
   updatedAt: string
 }
 
+/** One of the user's workspaces, as listed (no document). */
+export interface CloudWorkspaceInfo {
+  id: string
+  name: string
+  updatedAt: string
+}
+
 export interface CloudStore {
-  /** The user's default workspace, or null before their first save. */
+  /** The user's workspaces, most recently saved first. */
+  listWorkspaces(): Promise<CloudWorkspaceInfo[]>
+  /** One of the user's workspaces, or null when there's none with this id (deleted). */
+  workspace(id: string): Promise<CloudWorkspace | null>
+  /** The workspace the app used before there were several (marked default), or null. */
   defaultWorkspace(): Promise<CloudWorkspace | null>
-  /** Creates or replaces the user's default workspace. */
-  saveDefaultWorkspace(w: { name: string; file: WorkspaceFile; overview: string }): Promise<{ id: string; updatedAt: string }>
+  /** Replaces workspace `id` (null when it's gone), or creates a new one (no id). */
+  saveWorkspace(w: { id?: string; name: string; file: WorkspaceFile; overview: string }): Promise<{ id: string; updatedAt: string } | null>
+  deleteWorkspace(id: string): Promise<void>
 
   /** The cloud datasets the user can see, of these ids. */
   datasets(ids: string[]): Promise<CloudDataset[]>

@@ -253,7 +253,7 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   // Stories point at visualizations and transforms by id: they follow the new ones.
   const stories = (file.stories ?? []).map((s) => remapStory(s, { visualization: (id) => vizIds.get(id), transform: (id) => trIds.get(id) }))
   return {
-    doc: { ...(current.id ? { id: current.id } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}), ...(stories.length ? { stories } : {}) },
+    doc: { ...(current.id ? { id: current.id } : {}), ...(current.cloudId ? { cloudId: current.cloudId } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}), ...(stories.length ? { stories } : {}) },
     missing: lacking,
   }
 }
