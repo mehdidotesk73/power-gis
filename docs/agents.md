@@ -71,7 +71,9 @@ linked copy it changes shows ↑ until the user pushes it, and the agent says wh
 | `visualization_stats(id)` | read | The per-feature values a visualization draws (after aggregation): count, nulls, min, percentiles (p2…p98), max, mean, how many ≤ 0 / < 0, orders of magnitude of the positive values; text: distinct count and most common | `queryVisualization` |
 | `ask_user(question, details?, fields?, buttons?)` | read | Shows a **card it composes** (`lib/agent/form.ts`, `components/agent/AskCard.vue`): the question, details, any **fields** — `text` (one line or multiline; `value` fills it in to review and edit: a plan, a brief) and `choice` (options; `multiple`; `other` for the user's own answer; `selected`; `required`) — and **buttons** (first = the main answer, the only one held back by required fields; default Approve / Reject without fields, Submit with them). Waits; returns `{button, values}` | The chat panel |
 | `add_builtin(table)` | gated | Adds a built-in table (state / county boundaries, the ACS county tables) to the workspace: no web. `list_datasets` lists them under `builtins` | `uploadDataset` (`builtin` source) |
-| `send_scout(brief, cap_dollars?)` / `send_scraper(brief, cap_dollars?)` | **gated** (approval card) | Shows an approval card (the brief, editable; the spending cap $0.50 / $1 / $2 / $5; notes; Send / Not now), then runs the role on Managed Agents through the relay (signed in) and follows it to the end. Scout: returns its report. Scraper: its CSVs become new datasets (description "From the web, <date> (scraper run …), not described yet" plus the brief, until the assistant writes its own), returns its summary and each file's dataset id | `client/agent/managed.ts` (`startRun` / `followRun`), `importCsv` |
+| `send_scout(brief, cap_dollars?)` / `send_scraper(brief, cap_dollars?)` | **gated** (approval card) | Shows an approval card (the brief, editable; the spending cap — the assistant's recommended amount, its expected cost × 2 with the reason, first, then $0.50 / $1 / $2 / $5 and the user's own amount; notes; Send / Not now), then runs the role on Managed Agents through the relay (signed in) and follows it to the end. Scout: returns its report. Scraper: its CSVs become new datasets (description "From the web, <date> (scraper run …), not described yet" plus the brief, until the assistant writes its own), returns its summary and each file's dataset id | `client/agent/managed.ts` (`startRun` / `followRun`), `importCsv` |
+| `list_runs()` / `fetch_run(runId)` | free | This device's recent scout / scraper runs (`powergis.webRuns`: id, role, state, cost, files) / picks up a run by its id — follows it if it's still going, then reads its report and imports the scraper's files (each file once: `powergis.importedRunFiles`). Used instead of sending again when results didn't arrive | `client/agent/managed.ts` (`recentRuns`, `followRun`) |
+| `diagnose(what_happened)` | **gated** (approval card, model choice) | For something expensive or unexpected (a run that failed or lost its results, a failure that repeats; not a bad SQL string). The user picks the model (Opus / Sonnet / Haiku) and approves; one call, no tools, reads the chat's steps, the runs and the debug log (`lib/agent/diagnosis.ts`) and writes an issue report shown in red (🩺 Issue diagnosis) with **Copy report** | `AgentPanel.vue` (`runDiagnosis`) |
 | `query_sql(sql, inputs, limit ≤ 50)` | read | One SELECT over any datasets (any store); rows + total count; nothing stored | `previewTransform` |
 | `str_replace_based_edit_tool` | edits files | Anthropic's **text editor** (`text_editor_20250728`, declared by type; we run it): `view`, `create`, `str_replace`, `insert` on the workspace files only. Changes nothing until `apply_workspace` | `runEditor` over the staged files |
 | `apply_workspace(dryRun?)` | **gated** | Assembles the files, checks the whole workspace (every problem, with its file), replaces the draft; replies with the changes and the **ids of new items**; rebuilds the files | The workspace ops (`addTransform`, `addVisualization`, …) |
@@ -288,6 +290,18 @@ again and the scraper's CSVs are still imported (the chat itself isn't kept). Th
 sign-in**: every call carries the user's Supabase session token, which it checks with Supabase Auth
 (`/auth/v1/user`, cached a minute); signed out, the tools answer "Sign in …". UI tests fake the model
 and the relay at the network (`tests/e2e/assistant.spec.ts`).
+
+**Failures, after the second real session (2026-10-31).** Two scraper sends answered "API key was not accepted"
+while the run itself finished on Anthropic's side; its results were lost. Cause: the run captured the
+Supabase token once, so a token that expired mid-run made the relay answer 401 ("Sign in to PowerGIS …"),
+which the SDK reports as an authentication error and the app worded as a key problem; and the run was
+forgotten when it failed. Now: every relay call carries the session's current token (refreshed and
+retried once on the relay's sign-in 401); failures are `RunError`s with a **phase** (launch · follow ·
+results · download), a **cause** (sign-in · key · network · other) and the **run id**, and their text says
+whether the run never started (nothing spent) or carries on / has finished; network and sign-in failures
+are retried with backoff (polling up to 20 times); a run is logged (`powergis.webRuns`) and remembered
+the moment its session exists, and a failed one stays remembered, so `fetch_run` recovers it. The
+assistant offers `diagnose` when something like this happens.
 
 **After the first real session (user, 2026-10-30):**
 - **Files:** the scraper ends its report with `FILES: a.csv, b.geojson, script.py`; the app waits until every one

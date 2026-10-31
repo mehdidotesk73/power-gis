@@ -198,3 +198,38 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   // The chat's cost: its tokens at list prices plus the run's $0.03.
   await expect(page.getByText(/≈ \$0\.03/)).toBeVisible()
 })
+
+test('a diagnosis: asked first with its model, then a red report in the chat to copy', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  const seen: unknown[] = []
+  await fakeModel(
+    page,
+    [
+      { text: 'The scraper failed twice.', tools: [{ name: 'diagnose', input: { what_happened: 'The scraper failed twice with "API key was not accepted"; run sesn_9 finished anyway.' } }] },
+      { text: '## Summary\nThe relay refused a stale sign-in token.\n\n## Details for troubleshooting\nRun sesn_9' },
+      { text: 'The report is in the chat.' },
+    ],
+    seen,
+  )
+  await openAssistant(page)
+  await say(page, 'Why did the scraper fail?')
+
+  const approval = page.getByTestId('ask-card')
+  await expect(approval.getByText('Run a diagnosis of what went wrong?')).toBeVisible()
+  await approval.getByLabel('Sonnet 5.5 · balanced').check()
+  await approval.getByTestId('ask.button-0').click()
+
+  const report = page.getByTestId('agent.diagnosis')
+  await expect(report).toContainText('The relay refused a stale sign-in token.')
+  await expect(page.getByText('The report is in the chat.')).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('diagnosis-phone.png') })
+  // The diagnosis call: the chosen model, its own prompt, no tools, the chat's steps in its input.
+  const call = seen[1] as { model: string; system: unknown; tools?: unknown[]; messages: { content: unknown }[] }
+  expect(call.model).toBe('claude-sonnet-5-5')
+  expect(JSON.stringify(call.system)).toContain('Write an issue report')
+  expect(call.tools ?? []).toEqual([])
+  expect(JSON.stringify(call.messages)).toContain('Why did the scraper fail?')
+  expect(JSON.stringify(lastToolResult(seen))).toContain('The relay refused')
+  await report.getByTestId('agent.diagnosis.copy').click()
+  await expect(report.getByTestId('agent.diagnosis.copy')).toContainText(/Copied|Copy report/)
+})

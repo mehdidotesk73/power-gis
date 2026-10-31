@@ -66,19 +66,121 @@ export class SignInNeeded extends Error {
   }
 }
 
-/** An SDK client that talks to the relay as the signed-in user. */
-export async function client(apiKey: string): Promise<Anthropic> {
+/** The relay's own refusals (it answers 401 for a missing / expired sign-in, before Anthropic is reached). */
+const RELAY_SIGN_IN = /Sign in to PowerGIS to use the relay/
+const RELAY_NO_KEY = /No Anthropic key reached the relay/
+
+/** The signed-in user's current access token (refreshed when `fresh`), or null when signed out. */
+async function accessToken(fresh = false): Promise<string | null> {
+  if (fresh) {
+    const r = await supabase.auth.refreshSession()
+    if (r.data.session?.access_token) return r.data.session.access_token
+  }
   const { data } = await supabase.auth.getSession()
-  const token = data.session?.access_token
-  if (!token) throw new SignInNeeded()
+  return data.session?.access_token ?? null
+}
+
+/**
+ * An SDK client that talks to the relay as the signed-in user. Every request carries the session's
+ * current token (a run lasts minutes; the token it started with can expire, or be replaced when the
+ * phone wakes), and one the relay refuses for sign-in is sent once more with a refreshed token.
+ */
+export async function client(apiKey: string): Promise<Anthropic> {
+  if (!(await accessToken())) throw new SignInNeeded()
+  const withToken = async (input: RequestInfo | URL, init: RequestInit | undefined, fresh: boolean) => {
+    const token = await accessToken(fresh)
+    if (!token) throw new SignInNeeded()
+    const headers = new Headers(init?.headers)
+    headers.set('authorization', `Bearer ${token}`)
+    return fetch(input, { ...init, headers })
+  }
   // The key also goes in x-relay-key: Supabase's hosted gateway doesn't pass the SDK's x-api-key on.
   return new Anthropic({
     apiKey,
     baseURL: RELAY_URL,
-    defaultHeaders: { apikey: SUPABASE_KEY, 'x-relay-key': apiKey, authorization: `Bearer ${token}` },
+    defaultHeaders: { apikey: SUPABASE_KEY, 'x-relay-key': apiKey },
     dangerouslyAllowBrowser: true,
     maxRetries: 2,
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const res = await withToken(input, init, false)
+      if (res.status !== 401) return res
+      const body = await res.clone().text()
+      return RELAY_SIGN_IN.test(body) ? withToken(input, init, true) : res
+    },
   })
+}
+
+// ── what went wrong, and where ─────────────────────────────────────────────
+
+/** Where a run's call failed: starting it, following it, collecting its results, or downloading a file. */
+export type RunPhase = 'launch' | 'follow' | 'results' | 'download'
+/** Why: the PowerGIS sign-in (the relay refused), the Anthropic key (Anthropic refused), the network, or something else. */
+export type RunCause = 'sign-in' | 'key' | 'network' | 'other'
+
+/** A run's call that failed, with what's known: where, why, and the run (its session id) when there is one. */
+export class RunError extends Error {
+  constructor(
+    readonly phase: RunPhase,
+    readonly cause: RunCause,
+    readonly detail: string,
+    readonly sessionId?: string,
+  ) {
+    super(runErrorText(phase, cause, detail, sessionId))
+  }
+}
+
+/** What a failed call means, from the error the SDK or the relay gave. */
+export function causeOf(e: unknown): { cause: RunCause; detail: string } {
+  if (e instanceof SignInNeeded) return { cause: 'sign-in', detail: e.message }
+  const msg = e instanceof Error ? e.message : String(e)
+  const status = (e as { status?: number })?.status
+  if (RELAY_SIGN_IN.test(msg)) return { cause: 'sign-in', detail: 'the relay refused the PowerGIS sign-in (expired or missing session)' }
+  if (RELAY_NO_KEY.test(msg)) return { cause: 'key', detail: 'no Anthropic key reached the relay' }
+  if (status === 401 || status === 403) return { cause: 'key', detail: `Anthropic refused the key (${status}): ${msg.slice(0, 200)}` }
+  if (e instanceof Anthropic.APIConnectionError || /network|fetch|Load failed|timed? ?out/i.test(msg)) return { cause: 'network', detail: msg.slice(0, 200) }
+  return { cause: 'other', detail: `${status ? `${status}: ` : ''}${msg.slice(0, 300)}` }
+}
+
+const PHASE_TEXT: Record<RunPhase, string> = {
+  launch: 'starting the run',
+  follow: 'following the run',
+  results: "collecting the run's results",
+  download: 'downloading a file of the run',
+}
+const CAUSE_TEXT: Record<RunCause, string> = {
+  'sign-in': 'your PowerGIS sign-in was refused by the relay (sign in again: ☰ → Sign in)',
+  key: 'the Anthropic API key was refused (check it in the assistant settings, ⚙)',
+  network: 'the network dropped',
+  other: 'an unexpected error',
+}
+function runErrorText(phase: RunPhase, cause: RunCause, detail: string, sessionId?: string): string {
+  const state =
+    phase === 'launch'
+      ? sessionId
+        ? 'The run may have started.'
+        : 'The run did not start (nothing was spent).'
+      : 'The run carries on, or has finished, on Anthropic’s side: nothing is lost — fetch its results later with its id.'
+  return `Failed while ${PHASE_TEXT[phase]}: ${CAUSE_TEXT[cause]}. ${state}${sessionId ? ` Run id: ${sessionId}.` : ''} (${detail})`
+}
+
+/** Wraps a failure as a RunError for its phase (one already wrapped is passed on). */
+export function asRunError(e: unknown, phase: RunPhase, sessionId?: string): RunError {
+  if (e instanceof RunError) return e
+  const { cause, detail } = causeOf(e)
+  return new RunError(phase, cause, detail, sessionId)
+}
+
+/** Retries `f` while it fails for a reason that can pass (the network, a refused sign-in): a few times, waiting longer each time. */
+async function patiently<T>(f: () => Promise<T>, tries = 5): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await f()
+    } catch (e) {
+      const { cause } = causeOf(e)
+      if (i + 1 >= tries || (cause !== 'network' && cause !== 'sign-in')) throw e
+      await pause(1000 * 2 ** i)
+    }
+  }
 }
 
 // ── the run in progress (this device) ──────────────────────────────────────
@@ -111,6 +213,39 @@ function remember(r: ActiveRun | null) {
 }
 /** Forgets the run in progress (it finished and its results were taken care of). */
 export const forgetRun = () => remember(null)
+
+// ── recent runs (this device): what was sent, how it ended, so a run can be found and fetched later ──
+
+const RUNS = 'powergis.webRuns'
+export interface RunLog {
+  sessionId: string
+  role: Role
+  brief: string
+  startedAt: number
+  state: 'running' | 'finished' | 'failed' | 'stopped'
+  error?: string
+  cost?: number
+  files?: string[]
+}
+export function recentRuns(): RunLog[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(RUNS) ?? '[]')
+    return Array.isArray(v) ? (v as RunLog[]) : []
+  } catch {
+    return []
+  }
+}
+/** Records (or updates) a run in this device's list of recent runs (the 30 latest). */
+export function logRun(entry: Partial<RunLog> & { sessionId: string }) {
+  const all = recentRuns()
+  const was = all.find((x) => x.sessionId === entry.sessionId)
+  const next = { ...(was ?? { role: 'scraper', brief: '', startedAt: Date.now(), state: 'running' }), ...entry } as RunLog
+  try {
+    localStorage.setItem(RUNS, JSON.stringify([next, ...all.filter((x) => x.sessionId !== entry.sessionId)].slice(0, 30)))
+  } catch {
+    /* a convenience */
+  }
+}
 
 /**
  * The environment and the role's agent, created once and remembered on this
@@ -193,18 +328,26 @@ const textOf = (content: unknown): string =>
  * sent. Remembered on this device until forgetRun. Then followRun.
  */
 export async function startRun(apiKey: string, opts: { role: Role; model: string; brief: string; capDollars: number }): Promise<ActiveRun> {
-  const c = await client(apiKey)
-  const { environmentId, agent } = await setup(c, opts.role, opts.model)
-  const session = await c.beta.sessions.create({
-    agent: { type: 'agent', id: agent.id, version: agent.version },
-    environment_id: environmentId,
-    title: `PowerGIS ${opts.role}`,
-    budget: { type: 'limit', max_list_cost: { amount: String(Math.round(opts.capDollars * 100)), currency: 'USD' } },
-  })
-  await c.beta.sessions.events.send(session.id, { events: [{ type: 'user.message', content: [{ type: 'text', text: opts.brief }] }] })
-  const run: ActiveRun = { sessionId: session.id, role: opts.role, brief: opts.brief, startedAt: Date.now() }
-  remember(run)
-  return run
+  let sessionId: string | undefined
+  try {
+    const c = await client(apiKey)
+    const { environmentId, agent } = await setup(c, opts.role, opts.model)
+    const session = await c.beta.sessions.create({
+      agent: { type: 'agent', id: agent.id, version: agent.version },
+      environment_id: environmentId,
+      title: `PowerGIS ${opts.role}`,
+      budget: { type: 'limit', max_list_cost: { amount: String(Math.round(opts.capDollars * 100)), currency: 'USD' } },
+    })
+    sessionId = session.id
+    // Remembered before the brief is sent: from here on the run can always be found again by its id.
+    const run: ActiveRun = { sessionId: session.id, role: opts.role, brief: opts.brief, startedAt: Date.now() }
+    remember(run)
+    logRun({ ...run, state: 'running' })
+    await patiently(() => c.beta.sessions.events.send(session.id, { events: [{ type: 'user.message', content: [{ type: 'text', text: opts.brief }] }] }))
+    return run
+  } catch (e) {
+    throw asRunError(e, 'launch', sessionId)
+  }
 }
 
 /**
@@ -218,7 +361,7 @@ export async function followRun(
   run: ActiveRun,
   opts: { onEvent: (e: RunEvent) => void; signal?: { stopped: boolean } | AbortSignal },
 ): Promise<RunResult> {
-  const c = await client(apiKey)
+  const c = await client(apiKey).catch((e) => Promise.reject(asRunError(e, 'follow', run.sessionId)))
   const stopped = () => (opts.signal ? ('aborted' in opts.signal ? opts.signal.aborted : opts.signal.stopped) : false)
   let report = ''
   let stop = 'unknown'
@@ -238,10 +381,12 @@ export async function followRun(
     try {
       page = await c.beta.sessions.events.list(run.sessionId, { order: 'asc', limit: 100, ...(since ? { 'created_at[gte]': since } : {}) })
     } catch (e) {
-      // A network blip (the phone slept, the network changed): the session carries on; ask again.
-      if (++quiet > 20) throw e
-      opts.onEvent({ kind: 'status', text: `Lost touch (${(e as Error).message}); trying again…` })
-      await pause(5000)
+      // A network blip (the phone slept, the network changed) or a sign-in that lapsed: the session
+      // carries on; ask again, waiting a little longer each time. A refused key won't pass by waiting.
+      const { cause, detail } = causeOf(e)
+      if (cause === 'key' || cause === 'other' || ++quiet > 20) throw asRunError(e, 'follow', run.sessionId)
+      opts.onEvent({ kind: 'status', text: `Lost touch (${cause}: ${detail}); trying again…` })
+      await pause(Math.min(30_000, 2000 * quiet))
       continue
     }
     quiet = 0
@@ -283,14 +428,20 @@ export async function followRun(
     if (page.data.length < 100) await pause(3000)
   }
 
-  const after = await c.beta.sessions.retrieve(run.sessionId)
+  let after, outputs
+  try {
+    after = await patiently(() => c.beta.sessions.retrieve(run.sessionId))
+    const expected = expectedFiles(report)
+    let told = false
+    outputs = await outputFiles(c, run.sessionId, expected, (m) => {
+      if (!told) opts.onEvent({ kind: 'status', text: `Waiting for ${m.length === 1 ? m[0] : `${m.length} files`} to come back…` })
+      told = true
+    })
+  } catch (e) {
+    throw asRunError(e, 'results', run.sessionId)
+  }
   const usage = after.usage as { list_cost?: { amount: string }; active_seconds?: number } | undefined
-  const expected = expectedFiles(report)
-  let told = false
-  const { files, missing } = await outputFiles(c, run.sessionId, expected, (m) => {
-    if (!told) opts.onEvent({ kind: 'status', text: `Waiting for ${m.length === 1 ? m[0] : `${m.length} files`} to come back…` })
-    told = true
-  })
+  const { files, missing } = outputs
   return {
     sessionId: run.sessionId,
     report: withoutFilesLine(report),
@@ -340,7 +491,7 @@ async function outputFiles(c: Anthropic, sessionId: string, expected: string[], 
   const deadline = Date.now() + (expected.length ? 120_000 : 6_000)
   let last = -1
   for (;;) {
-    const page = await c.beta.files.list({ scope_id: sessionId, limit: 100, betas: ['managed-agents-2026-04-01'] })
+    const page = await patiently(() => c.beta.files.list({ scope_id: sessionId, limit: 100, betas: ['managed-agents-2026-04-01'] }))
     const files = page.data.map((f) => ({ id: f.id, name: f.filename, bytes: f.size_bytes }))
     const missing = expected.filter((n) => !files.some((f) => f.name === n))
     if (expected.length ? !missing.length : files.length && files.length === last) return { files, missing }
@@ -357,9 +508,14 @@ export async function confirm(apiKey: string, sessionId: string, toolUseId: stri
 }
 
 /** One output file's contents. */
-export async function downloadFile(apiKey: string, fileId: string): Promise<Blob> {
-  const r = await (await client(apiKey)).beta.files.download(fileId, { betas: ['managed-agents-2026-04-01'] })
-  return r.blob()
+export async function downloadFile(apiKey: string, fileId: string, sessionId?: string): Promise<Blob> {
+  try {
+    const c = await client(apiKey)
+    const r = await patiently(() => c.beta.files.download(fileId, { betas: ['managed-agents-2026-04-01'] }))
+    return await r.blob()
+  } catch (e) {
+    throw asRunError(e, 'download', sessionId)
+  }
 }
 
 /** The live trace of a session in Anthropic's console (Default workspace). */

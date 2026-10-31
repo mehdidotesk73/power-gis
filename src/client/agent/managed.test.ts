@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { describeTool, expectedFiles, withoutFilesLine } from './managed'
+import Anthropic from '@anthropic-ai/sdk'
+import { asRunError, causeOf, describeTool, expectedFiles, RunError, SignInNeeded, withoutFilesLine } from './managed'
 import { chatCost } from './claude'
 
 describe('describeTool', () => {
@@ -32,5 +33,26 @@ describe('the chat cost', () => {
     // Haiku 5.5: $0.10 in / $0.50 out per million.
     expect(chatCost(u, 'claude-haiku-5-5')).toBeCloseTo(0.01 + 0.0125 + 0.01 + 0.005, 6)
     expect(chatCost(u, 'claude-haiku-4-5')).toBeUndefined()
+  })
+})
+
+describe('what a failed run call means', () => {
+  const api = (status: number, message: string) => Anthropic.APIError.generate(status, { error: { message } }, message, new Headers())
+  it('tells the relay refusing the sign-in from Anthropic refusing the key', () => {
+    expect(causeOf(api(401, 'Sign in to PowerGIS to use the relay (the request carried no valid session token)')).cause).toBe('sign-in')
+    expect(causeOf(api(401, 'No Anthropic key reached the relay (headers received: …)')).cause).toBe('key')
+    expect(causeOf(api(401, 'invalid x-api-key')).cause).toBe('key')
+    expect(causeOf(new SignInNeeded()).cause).toBe('sign-in')
+    expect(causeOf(new Anthropic.APIConnectionError({ message: 'Load failed' })).cause).toBe('network')
+    expect(causeOf(api(500, 'overloaded')).cause).toBe('other')
+  })
+  it('says where it failed, why, whether the run goes on, and its id', () => {
+    const e = asRunError(api(401, 'Sign in to PowerGIS to use the relay'), 'follow', 'sesn_1')
+    expect(e).toBeInstanceOf(RunError)
+    expect(e.message).toMatch(/^Failed while following the run: your PowerGIS sign-in was refused by the relay/)
+    expect(e.message).toContain('carries on, or has finished')
+    expect(e.message).toContain('Run id: sesn_1.')
+    expect(asRunError(e, 'results')).toBe(e) // already wrapped: kept
+    expect(asRunError(new Anthropic.APIConnectionError({ message: 'x' }), 'launch').message).toContain('The run did not start (nothing was spent).')
   })
 })
