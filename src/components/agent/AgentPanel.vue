@@ -20,7 +20,9 @@ import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
 import { forgetChat, IMPORTABLE, runTool, webFileDescription, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
 import { STOPPED, type Form, type FormAnswer } from '../../lib/agent/form'
-import { activeRun, downloadFile, followRun, forgetRun, SignInNeeded, startRun, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
+import { activeRun, downloadFile, followRun, forgetRun, logRun, readRun, recentRuns, RunError, SignInNeeded, startRun, traceText, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
+import { DIAGNOSIS_MODELS, DIAGNOSIS_PROMPT, diagnosisInput, type DiagnosisStep } from '../../lib/agent/diagnosis'
+import { logAsText } from '../../debug'
 import { saveFile } from '../../client/saveFile'
 import { logDebug } from '../../debug'
 import { auth } from '../../client/auth'
@@ -123,6 +125,7 @@ type Item =
   | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string }
   | { kind: 'thinking'; text: string; open: boolean }
   | { kind: 'ask'; form: Form; answer?: FormAnswer }
+  | { kind: 'diagnosis'; state: 'running' | 'ok' | 'error'; model: string; report: string; open: boolean; copied?: boolean }
   | RunItem
 
 /** A scout or scraper run: a step like the others, expanding into its brief, log and results. */
@@ -212,17 +215,63 @@ async function web(role: WebRole, brief: string, capDollars: number): Promise<We
   if (!auth.user) return new SignInNeeded().message
   if (running.value) return 'Another scout or scraper run is still going; wait for it (or stop it) first.'
   const it = pushRun({ role, brief, startedAt: Date.now() })
+  // A run that failed after it started stays remembered: a reload picks it up again, and fetch_run can collect it.
+  let keep = false
   try {
     const run = await startRun(apiKey.value, { role, model: (chatProfile.value ?? nextProfile.value).models[role], brief, capDollars })
     it.sessionId = run.sessionId
     const r = await follow(it, run, controller?.signal)
+    logRun({ sessionId: r.sessionId, state: r.stop === 'end_turn' ? 'finished' : r.stop === 'stopped' ? 'stopped' : 'failed', ...(r.cost !== undefined ? { cost: r.cost } : {}), files: r.files.map((f) => f.name) })
     return { sessionId: r.sessionId, report: r.report, files: r.files, ...(r.missing ? { missing: r.missing } : {}), ...(r.cost !== undefined ? { cost: r.cost } : {}), elapsedSeconds: r.elapsedSeconds, stop: r.stop }
   } catch (e) {
     it.state = 'error'
     it.error = describeRunError(e)
+    if (e instanceof RunError && e.sessionId) {
+      it.sessionId = e.sessionId
+      logRun({ sessionId: e.sessionId, state: 'failed', error: it.error })
+      keep = e.phase !== 'launch'
+    }
+    logDebug(`${role} run failed: ${it.error}`, 'error')
     return it.error
   } finally {
-    forgetRun()
+    if (!keep) forgetRun()
+  }
+}
+
+/** The tools' fetchRun(): a run started earlier, followed to its end (or read, if it ended), shown as a step. */
+async function fetchRunById(sessionId: string): Promise<(WebRun & { role: WebRole; brief: string }) | string> {
+  if (!auth.user) return new SignInNeeded().message
+  if (items.value.some((x) => x.kind === 'run' && x.state === 'running' && x.sessionId === sessionId)) return 'That run is being followed right now; its results arrive with it.'
+  const known = recentRuns().find((x) => x.sessionId === sessionId)
+  const run: ActiveRun = { sessionId, role: known?.role ?? 'scraper', brief: known?.brief ?? '', startedAt: known?.startedAt ?? Date.now() }
+  const it = pushRun({ ...run }, true)
+  try {
+    const r = await follow(it, run, controller?.signal)
+    logRun({ ...run, state: r.stop === 'end_turn' ? 'finished' : 'failed', ...(r.cost !== undefined ? { cost: r.cost } : {}), files: r.files.map((f) => f.name) })
+    if (activeRun()?.sessionId === sessionId) forgetRun()
+    return { sessionId, role: run.role, brief: run.brief, report: r.report, files: r.files, ...(r.missing ? { missing: r.missing } : {}), ...(r.cost !== undefined ? { cost: r.cost } : {}), elapsedSeconds: r.elapsedSeconds, stop: r.stop }
+  } catch (e) {
+    it.state = 'error'
+    it.error = describeRunError(e)
+    return it.error
+  }
+}
+
+// ── each run file imported once (fetch_run, a resumed run and the first return may meet the same file) ──
+
+const IMPORTED = 'powergis.importedRunFiles'
+const importedFiles = (): Record<string, string> => {
+  try {
+    return (JSON.parse(localStorage.getItem(IMPORTED) ?? '{}') as Record<string, string>) ?? {}
+  } catch {
+    return {}
+  }
+}
+function rememberImport(fileId: string, datasetId: string) {
+  try {
+    localStorage.setItem(IMPORTED, JSON.stringify({ ...importedFiles(), [fileId]: datasetId }))
+  } catch {
+    /* imported again next time, that's all */
   }
 }
 
@@ -230,11 +279,14 @@ async function web(role: WebRole, brief: string, capDollars: number): Promise<We
 async function importWebFile(fileId: string, name: string, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
   const it = [...items.value].reverse().find((x): x is RunItem => x.kind === 'run' && !!x.result?.files.some((f) => f.id === fileId))
   let r: { ok: true; id: string } | { ok: false; message: string }
-  if (!props.host.importCsv) r = { ok: false, message: 'Importing files isn’t available here.' }
+  const before = importedFiles()[fileId]
+  if (before && props.host.record(before)) r = { ok: true, id: before }
+  else if (!props.host.importCsv) r = { ok: false, message: 'Importing files isn’t available here.' }
   else {
     try {
-      const blob = await downloadFile(apiKey.value, fileId)
+      const blob = await downloadFile(apiKey.value, fileId, it?.sessionId)
       r = await props.host.importCsv(new File([blob], name, { type: /\.(geo)?json$/i.test(name) ? 'application/geo+json' : 'text/csv' }), description)
+      if (r.ok) rememberImport(fileId, r.id)
     } catch (e) {
       r = { ok: false, message: describeRunError(e) }
     }
@@ -333,7 +385,102 @@ async function storyteller(req: { visualizationIds: string[]; wishes: string; st
   return { storyId: story.id, name: story.name, scenes: story.scenes.map((sc) => sc.title) }
 }
 
-const host: AgentHost = { ...props.host, ask, web, importWebFile, tellStory: storyteller }
+// ── the diagnosis agent: approved by the user (who picks its model), one call, a red report in the chat ──
+
+/** The chat so far, step by step, for the diagnosis: messages, tool calls with their inputs and results, runs with their logs. */
+function chatSteps(): DiagnosisStep[] {
+  return items.value.flatMap((x): DiagnosisStep[] => {
+    if (x.kind === 'user') return [{ kind: 'user message', text: x.text }]
+    if (x.kind === 'assistant') return [{ kind: 'assistant message', text: x.text }]
+    if (x.kind === 'note') return [{ kind: `note (${x.tone})`, text: `${x.text}${x.detail ? `\n${x.detail}` : ''}` }]
+    if (x.kind === 'tool') return [{ kind: `tool ${x.call.name} (${x.state}${x.summary ? `: ${x.summary}` : ''})`, text: `input: ${JSON.stringify(x.call.input)}\nresult: ${x.result ?? '(none)'}` }]
+    if (x.kind === 'ask') return [{ kind: 'question card', text: `${x.form.question}\nanswer: ${JSON.stringify(x.answer ?? null)}` }]
+    if (x.kind === 'run')
+      return [
+        {
+          kind: `${x.role} run (${x.state}${x.resumed ? ', picked up again' : ''})`,
+          text: [
+            `run id: ${x.sessionId ?? '(none: it never started)'}`,
+            `started: ${new Date(x.startedAt).toISOString()}`,
+            x.error ? `error: ${x.error}` : '',
+            x.result ? `result: stop ${x.result.stop}, ${x.result.elapsedSeconds} s, cost ${x.result.cost ?? '?'}, files ${x.result.files.map((f) => f.name).join(', ') || 'none'}${x.result.missing?.length ? `, missing ${x.result.missing.join(', ')}` : ''}` : '',
+            x.imported.length ? `imported: ${JSON.stringify(x.imported)}` : '',
+            `brief: ${x.brief}`,
+            `log:\n${x.log.map((e) => `[${e.kind}] ${e.text}`).join('\n')}`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        },
+      ]
+    if (x.kind === 'diagnosis') return [{ kind: 'earlier diagnosis', text: x.report }]
+    return []
+  })
+}
+
+/** The tools' diagnose(): asks first (with the model to use), then writes the report into the chat. */
+async function runDiagnosis(whatHappened: string): Promise<{ report: string; model: string; cost?: number } | string> {
+  const labels = DIAGNOSIS_MODELS.map((m) => m.label)
+  const a = await ask({
+    question: 'Run a diagnosis of what went wrong?',
+    details: `${whatHappened}\n\nA separate agent reads this chat's steps, the runs and the app's log, and writes an issue report you can send to the developers. One call; on Opus it may cost around $0.20–0.60.`,
+    fields: [{ id: 'model', kind: 'choice', label: 'Model', options: labels, selected: [labels[0]], required: true }],
+    buttons: ['Diagnose', 'Not now'],
+  })
+  if (a.button !== 'Diagnose') return `The user didn't want a diagnosis now (${a.button}).`
+  const picked = Array.isArray(a.values.model) ? a.values.model[0] : undefined
+  const model = DIAGNOSIS_MODELS.find((m) => m.label === picked)?.id ?? DIAGNOSIS_MODELS[0].id
+  items.value.push({ kind: 'diagnosis', state: 'running', model, report: '', open: true })
+  const it = items.value[items.value.length - 1] as Extract<Item, { kind: 'diagnosis' }>
+  const entry = { model, usage: emptyUsage() }
+  storyUsage.value = [...storyUsage.value, entry]
+  try {
+    const sub = claudeProvider.start({ apiKey: apiKey.value, model, system: DIAGNOSIS_PROMPT, tools: [] })
+    // The chat's runs read back from Anthropic: what each did, even after the app lost touch with it.
+    const ids = [...new Set(items.value.flatMap((x) => (x.kind === 'run' && x.sessionId ? [x.sessionId] : [])))].slice(-3)
+    const traces = await Promise.all(ids.map((id) => readRun(apiKey.value, id).then(traceText, (e) => `run ${id}: couldn't be read back (${e instanceof Error ? e.message : String(e)})`)))
+    const text = diagnosisInput({
+      whatHappened,
+      steps: chatSteps(),
+      runs: recentRuns(),
+      traces,
+      log: logAsText(__BUILD_ID__, ''),
+      build: __BUILD_ID__,
+      userAgent: navigator.userAgent,
+      now: new Date().toISOString(),
+    })
+    const turn = await sub.send({ text }, { onText: (d) => (it.report += d) }, controller?.signal)
+    entry.usage = turn.usage
+    storyUsage.value = [...storyUsage.value]
+    it.report = turn.text || it.report
+    it.state = 'ok'
+    logDebug(`diagnosis (${model}) written: ${it.report.length} characters`)
+    return { report: it.report, model, cost: chatCost(turn.usage, model) }
+  } catch (e) {
+    it.state = 'error'
+    it.report = `The diagnosis failed: ${describeError(e)}`
+    return it.report
+  }
+}
+async function copyDiagnosis(it: Extract<Item, { kind: 'diagnosis' }>) {
+  const text = `PowerGIS issue diagnosis (${it.model}, build ${__BUILD_ID__})\n\n${it.report}`
+  try {
+    await navigator.clipboard.writeText(text)
+    it.copied = true
+    setTimeout(() => (it.copied = false), 2000)
+  } catch {
+    await saveFile(new Blob([text], { type: 'text/markdown' }), 'powergis-diagnosis.md')
+  }
+}
+async function readRunById(sessionId: string): Promise<{ text: string; status: string; files: string[] } | string> {
+  try {
+    const t = await readRun(apiKey.value, sessionId)
+    logDebug(`read run ${sessionId}: ${t.status}, ${t.events.length + t.omitted} events, ${t.files.length} files`)
+    return { text: traceText(t), status: t.status, files: t.files.map((f) => f.name) }
+  } catch (e) {
+    return e instanceof SignInNeeded ? 'Sign in to read a run (☰ → Sign in).' : e instanceof Error ? e.message : String(e)
+  }
+}
+const host: AgentHost = { ...props.host, ask, web, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
@@ -347,6 +494,10 @@ const TOOL_LABEL: Record<string, string> = {
   run_transform: 'Run a transform',
   delete_dataset: 'Delete a dataset',
   tell_story: 'The storyteller',
+  list_runs: 'Recent runs',
+  fetch_run: 'Collect a run',
+  read_run: 'Look inside a run',
+  diagnose: 'Diagnosis',
 }
 
 /** A step's title: the tool, or for the file editor what it did to which file ("Edit /transforms/….sql"). */
@@ -658,6 +809,17 @@ const usageText = computed(() => {
           </button>
           <div v-if="it.open" class="detail">
             <p class="reasoning">{{ it.text }}</p>
+          </div>
+        </div>
+        <div v-else-if="it.kind === 'diagnosis'" class="tool diagnosis" :class="it.state" data-testid="agent.diagnosis">
+          <button class="tool-line" :aria-expanded="it.open" @click="it.open = !it.open">
+            <span class="dot" aria-hidden="true">🩺</span>
+            <span class="name">Issue diagnosis</span>
+            <span class="sum">{{ it.state === 'running' ? 'writing…' : it.state === 'error' ? 'failed' : `${labelOf(it.model)} · tap to read` }}</span>
+          </button>
+          <div v-if="it.open" class="detail">
+            <p class="report">{{ it.report || '…' }}</p>
+            <UiButton v-if="it.state === 'ok'" size="compact" icon="⧉" data-testid="agent.diagnosis.copy" @click="copyDiagnosis(it)">{{ it.copied ? 'Copied ✓' : 'Copy report' }}</UiButton>
           </div>
         </div>
         <AskCard v-else-if="it.kind === 'ask'" :form="it.form" :answer="it.answer" @answer="(a) => answerPending?.(a)" />
@@ -1116,5 +1278,18 @@ footer textarea {
 .small {
   font-size: var(--chat-fs-sm);
   margin: 0;
+}
+.tool.diagnosis {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  background: color-mix(in srgb, var(--danger-bg) 60%, transparent);
+}
+.tool.diagnosis .name {
+  color: var(--danger);
+}
+.tool.diagnosis .report {
+  white-space: pre-wrap;
+  margin: 0 0 0.4rem;
+  font-size: var(--chat-fs-sm);
+  line-height: 1.45;
 }
 </style>

@@ -212,6 +212,58 @@ describe('agent tools', () => {
     expect(out.summary).toBe('finished · 40 s · $0.03')
   })
 
+  it('offers the recommended cap first, the usual ones after it, and the user\'s own amount', async () => {
+    const { host } = fakeHost()
+    let shown: Form | undefined
+    const caps: number[] = []
+    host.web = async (_r, _b, cap) => (caps.push(cap), { sessionId: 's1', report: 'ok', files: [], elapsedSeconds: 1, stop: 'end_turn' })
+    host.ask = async (form) => ((shown = form), { button: form.buttons[0], values: { brief: 'b', cap: ['Recommended: $1.40'] } })
+    await runTool(host, 'send_scout', { brief: 'b', cap_dollars: 1.4, cap_reason: '2 sources ×2' })
+    const cap = shown!.fields.find((f) => f.id === 'cap')!
+    expect(cap).toMatchObject({ label: 'Spending cap (2 sources ×2)', options: ['Recommended: $1.40', '$0.50', '$1', '$2', '$5'], selected: ['Recommended: $1.40'], other: true })
+    // The user's own amount (choice "other": the last value), however it's typed; kept within range.
+    host.ask = async (form) => ({ button: form.buttons[0], values: { brief: 'b', cap: ['$3'] } })
+    await runTool(host, 'send_scout', { brief: 'b', cap_dollars: 1 })
+    host.ask = async (form) => ({ button: form.buttons[0], values: { brief: 'b', cap: ['Recommended: $1', '2.5 dollars'] } })
+    await runTool(host, 'send_scout', { brief: 'b' })
+    host.ask = async (form) => ({ button: form.buttons[0], values: { brief: 'b', cap: ['$900'] } })
+    await runTool(host, 'send_scout', { brief: 'b' })
+    expect(caps).toEqual([1.4, 3, 2.5, 25])
+  })
+
+  it('lists recent runs, and collects a run by its id (its CSVs as datasets, the scout\'s report as is)', async () => {
+    const { host } = fakeHost()
+    expect(await runTool(host, 'list_runs', {})).toMatchObject({ isError: false, summary: 'no runs on this device' })
+    host.runs = () => [{ sessionId: 'sesn_1', role: 'scraper', brief: 'Fetch rents', startedAt: Date.UTC(2026, 9, 31), state: 'failed', error: 'Failed while following the run: …' }]
+    expect(json((await runTool(host, 'list_runs', {})).content).runs[0]).toMatchObject({ runId: 'sesn_1', state: 'failed', error: 'Failed while following the run: …' })
+    expect(await runTool(host, 'fetch_run', { runId: 'sesn_1' })).toMatchObject({ isError: true, content: "Fetching a run isn't available here." })
+    host.fetchRun = async (id) => ({ sessionId: id, role: 'scraper', brief: 'Fetch rents', report: 'Two files', files: [{ id: 'f1', name: 'rents.csv', bytes: 10 }, { id: 'f2', name: 'script.py', bytes: 5 }], cost: 0.06, elapsedSeconds: 360, stop: 'end_turn' })
+    const imports: string[] = []
+    host.importWebFile = async (id, name, description) => (imports.push(`${id} ${name} ${description.includes('scraper run sesn_1') && description.includes('Fetch rents')}`), { ok: true, id: `ds-${id}` })
+    const out = await runTool(host, 'fetch_run', { runId: 'sesn_1' })
+    expect(out).toMatchObject({ isError: false, summary: 'finished · $0.06 · 1 dataset' })
+    expect(json(out.content).files).toEqual([{ name: 'rents.csv', datasetId: 'ds-f1' }, { name: 'script.py', bytes: 5 }])
+    expect(imports).toEqual(['f1 rents.csv true'])
+    host.fetchRun = async () => 'That run is being followed right now; its results arrive with it.'
+    expect(await runTool(host, 'fetch_run', { runId: 'sesn_1' })).toMatchObject({ isError: true, summary: 'not fetched' })
+    // read_run: looks inside a run, changing nothing.
+    expect(await runTool(host, 'read_run', { runId: 'sesn_1' })).toMatchObject({ isError: true, content: "Reading a run isn't available here." })
+    host.readRun = async (id) => (id === 'sesn_1' ? { text: 'run sesn_1: status idle, stopped: end_turn\n[tool] web_fetch https://x.gov', status: 'idle', files: ['a.csv'] } : 'No such run')
+    expect(await runTool(host, 'read_run', { runId: ' sesn_1 ' })).toMatchObject({ isError: false, summary: 'idle · 1 file', content: expect.stringContaining('web_fetch https://x.gov') })
+    expect(await runTool(host, 'read_run', { runId: 'sesn_9' })).toMatchObject({ isError: true, summary: 'not read', content: 'No such run' })
+  })
+
+  it('asks for a diagnosis through the page, and hands its report back', async () => {
+    const { host } = fakeHost()
+    expect(await runTool(host, 'diagnose', { what_happened: 'x' })).toMatchObject({ isError: true })
+    host.diagnose = async (what) => ({ report: `## Summary\n${what}`, model: 'claude-opus-5-5' })
+    const out = await runTool(host, 'diagnose', { what_happened: 'The scraper finished but its results never arrived.' })
+    expect(out).toMatchObject({ isError: false, summary: 'report written · claude-opus-5-5' })
+    expect(json(out.content).report).toContain('never arrived')
+    host.diagnose = async () => "The user didn't want a diagnosis now (Not now)."
+    expect(await runTool(host, 'diagnose', { what_happened: 'x' })).toMatchObject({ isError: true, summary: 'no diagnosis' })
+  })
+
   it("doesn't send when the user declines, and imports the scraper's CSVs when it runs", async () => {
     const { host } = fakeHost()
     host.web = async () => ({ sessionId: 's2', report: 'Two files', files: [{ id: 'f1', name: 'rents.csv', bytes: 10 }, { id: 'f2', name: 'script.py', bytes: 5 }, { id: 'f3', name: 'bad.csv', bytes: 1 }], elapsedSeconds: 90, stop: 'end_turn' })

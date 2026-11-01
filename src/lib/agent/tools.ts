@@ -49,6 +49,14 @@ export interface AgentHost {
   importCsv?(file: File, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
   /** Sends the scout or the scraper with a brief and a spending cap, and follows it to the end (the chat shows its progress); a message when it can't. */
   web?(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string>
+  /** Follows a run started earlier (by its session id) to its end, or reads it if it has ended; its result, or why not. */
+  fetchRun?(sessionId: string): Promise<(WebRun & { role: WebRole; brief: string }) | string>
+  /** Reads a run back by its id, changing nothing: its status, cost, events (condensed), last message and files, as text; or why not. */
+  readRun?(sessionId: string): Promise<{ text: string; status: string; files: string[] } | string>
+  /** Runs started on this device lately: id, role, brief, when, how it ended. */
+  runs?(): { sessionId: string; role: WebRole; brief: string; startedAt: number; state: string; error?: string; cost?: number; files?: string[] }[]
+  /** Runs the diagnosis agent (the user approves it and picks its model first); its report, or why not. */
+  diagnose?(what: string): Promise<{ report: string; model: string; cost?: number } | string>
   /** Imports one of a web run's output files (a CSV or GeoJSON) as a new dataset; its id, or a message. */
   importWebFile?(fileId: string, name: string, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
   /** The tables that ship with the app (state and county boundaries…), whether or not they're stored on this device yet. */
@@ -74,6 +82,8 @@ export interface WebRun {
 
 /** The spending caps the approval card offers, in dollars. */
 export const WEB_CAPS = [0.5, 1, 2, 5]
+/** Caps a run may have, in dollars. */
+export const CAP_RANGE = { min: 0.1, max: 25 }
 
 const PALETTES: PaletteName[] = ['auto', 'p12', 'p24', 'p60', 'many']
 const AGG_NAMES = ['first', 'count', 'distinct', 'sum', 'mean', 'min', 'max', 'mode', 'any']
@@ -148,7 +158,8 @@ export const TOOLS: ToolSpec[] = [
       type: 'object',
       properties: {
         brief: { type: 'string', description: 'What to look for: the question, what the data must cover (what, where, when, level of detail), candidate sources if any, and what to report.' },
-        cap_dollars: { type: 'number', description: `Spending cap to propose: one of ${WEB_CAPS.join(', ')} (default 1).` },
+        cap_dollars: { type: 'number', description: `The spending cap you recommend, in dollars (${CAP_RANGE.min}–${CAP_RANGE.max}): what you expect the run to cost, times a safety factor of about 2 (a scout: about $0.20–0.50 a source; a scraper: about $0.50–1.50 a source, more for PDFs or pages built by JavaScript). Default 1.` },
+        cap_reason: { type: 'string', description: 'A few words on how you sized it ("3 sources, PDFs; ×2"), shown on the card; "" for none.' },
       },
       required: ['brief'],
     },
@@ -164,9 +175,38 @@ export const TOOLS: ToolSpec[] = [
           type: 'string',
           description: "Precise: which sources (URLs), what to extract, and for each output CSV its file name and columns (with units and key formats, e.g. fips as 5-digit text), one row per what. Everything it needs: it can't ask you.",
         },
-        cap_dollars: { type: 'number', description: `Spending cap to propose: one of ${WEB_CAPS.join(', ')} (default 2).` },
+        cap_dollars: { type: 'number', description: `The spending cap you recommend, in dollars (${CAP_RANGE.min}–${CAP_RANGE.max}): what you expect the run to cost, times a safety factor of about 2 (a scout: about $0.20–0.50 a source; a scraper: about $0.50–1.50 a source, more for PDFs or pages built by JavaScript). Default 2.` },
+        cap_reason: { type: 'string', description: 'A few words on how you sized it ("3 sources, PDFs; ×2"), shown on the card; "" for none.' },
       },
       required: ['brief'],
+    },
+  },
+  {
+    name: 'list_runs',
+    description:
+      'The scout and scraper runs started on this device lately (newest first): run id, role, brief (start), when, how it ended (finished, failed with why, stopped, still running), cost and files. Use it to find a run whose results never arrived.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'fetch_run',
+    description:
+      "Collect a scout or scraper run's results by its run id (from an error message, list_runs, or the user): it follows the run if it is still going, then returns its report, and a scraper's CSVs become datasets in the workspace, described like a normal return (files already imported are not imported twice). Use it instead of sending the run again when its results didn't arrive (a failed hand-off): a new run costs money and may duplicate the work.",
+    inputSchema: { type: 'object', properties: { runId: { type: 'string', description: 'The run (session) id, e.g. sesn_….' } }, required: ['runId'] },
+  },
+  {
+    name: 'read_run',
+    description:
+      "Look inside a scout or scraper run by its run id, changing nothing: its status now (still running, finished, stopped), how it stopped, its cost, what it did step by step (pages fetched, commands, its messages, errors), its last message and the files it made. Free; nothing is imported. Use it to see where a run got to and why it failed before deciding what to do (fetch_run to collect its results, or a new brief that fixes what went wrong).",
+    inputSchema: { type: 'object', properties: { runId: { type: 'string', description: 'The run (session) id, e.g. sesn_….' } }, required: ['runId'] },
+  },
+  {
+    name: 'diagnose',
+    description:
+      'Ask for a diagnosis when something expensive or unexpected went wrong in this chat — a scout or scraper run that failed or whose results went missing, repeated failures you can\'t explain, results that contradict each other — not for an ordinary mistake you can fix yourself (a SQL error, a wrong column). The user approves it and picks the model (it can be costly); a separate agent then reads this chat\'s steps, their inputs and results, the runs, errors and the app\'s log, and writes an issue report the user can send to the app\'s developers. It returns the report; tell the user it is in the chat, and carry on with what it suggests you can do.',
+    inputSchema: {
+      type: 'object',
+      properties: { what_happened: { type: 'string', description: 'What went wrong, as you saw it: what you did, what came back, what you expected, and what it cost the user.' } },
+      required: ['what_happened'],
     },
   },
   {
@@ -947,13 +987,23 @@ export function webFileDescription(day: string, sessionId: string, brief: string
   return `From the web, ${day} (scraper run ${sessionId}), ${PLACEHOLDER}.\nAsked for: ${asked.length > 400 ? `${asked.slice(0, 400)}…` : asked}`
 }
 
-const money = (n: number) => (n < 1 ? `$${n.toFixed(2)}` : `$${n}`)
-const nearestCap = (n: unknown, fallback: number) => (typeof n === 'number' && Number.isFinite(n) ? WEB_CAPS.reduce((a, b) => (Math.abs(b - n) < Math.abs(a - n) ? b : a)) : fallback)
+const money = (n: number) => (Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`)
+const clampCap = (n: number) => Math.round(Math.min(CAP_RANGE.max, Math.max(CAP_RANGE.min, n)) * 100) / 100
+/** The assistant's recommended cap (any amount in range), else the role's default. */
+const recommendedCap = (n: unknown, fallback: number) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? clampCap(n) : fallback)
+/** A cap the user picked or typed ("Recommended: $1.50", "$3", "3", "2.5 dollars"), or undefined. */
+export function readCap(v: unknown): number | undefined {
+  const t = Array.isArray(v) ? v[v.length - 1] : v
+  const m = typeof t === 'string' ? t.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/) : null
+  return m ? clampCap(Number(m[1])) : undefined
+}
 
 async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<ToolOutcome> {
   need(str(input.brief) && input.brief.trim(), '`brief` is required')
   if (!host.web) return err('Sending the scout or scraper isn\'t available here.')
-  const cap = nearestCap(input.cap_dollars, role === 'scout' ? 1 : 2)
+  const cap = recommendedCap(input.cap_dollars, role === 'scout' ? 1 : 2)
+  const why = str(input.cap_reason) && input.cap_reason.trim() ? input.cap_reason.trim() : ''
+  const recommended = `Recommended: ${money(cap)}`
   const Role = role === 'scout' ? 'scout' : 'scraper'
   const form: Form = {
     question: `Send the ${Role}?`,
@@ -963,7 +1013,8 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
         : 'It fetches the data and makes the CSVs below; they become new datasets in your workspace. Edit the brief if you like.',
     fields: [
       { id: 'brief', kind: 'text', label: 'Brief', value: input.brief.trim(), multiline: true, required: true },
-      { id: 'cap', kind: 'choice', label: 'Spending cap', options: WEB_CAPS.map(money), selected: [money(cap)], required: true },
+      // The assistant's recommendation first, the usual amounts after it, and the user's own amount (other).
+      { id: 'cap', kind: 'choice', label: why ? `Spending cap (${why})`.slice(0, 120) : 'Spending cap', options: [recommended, ...WEB_CAPS.filter((c) => c !== cap).map(money)], selected: [recommended], other: true, required: true },
       { id: 'notes', kind: 'text', label: 'Notes for the assistant', placeholder: 'Optional' },
     ],
     buttons: [`Send the ${Role}`, 'Not now'],
@@ -972,16 +1023,21 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
   const notes = typeof a.values.notes === 'string' && a.values.notes ? { notes: a.values.notes } : {}
   if (a.button !== form.buttons[0]) return ok({ sent: false, button: a.button, ...notes }, 'not sent')
   const brief = String(a.values.brief ?? '').trim() || input.brief.trim()
-  const chosen = Array.isArray(a.values.cap) ? a.values.cap[0] : undefined
-  const capDollars = WEB_CAPS.find((c) => money(c) === chosen) ?? cap
+  const capDollars = readCap(a.values.cap) ?? cap
   const run = await host.web(role, brief, capDollars)
   if (typeof run === 'string') return err(run, `${Role} not sent`)
   const edited = brief !== input.brief.trim() ? { briefEditedByUser: brief } : {}
   const facts = { stop: run.stop, cost: run.cost, elapsedSeconds: run.elapsedSeconds, ...(run.missing?.length ? { filesThatNeverCameBack: run.missing } : {}), ...edited, ...notes }
   const head = `${run.stop === 'end_turn' ? 'finished' : run.stop} · ${Math.round(run.elapsedSeconds)} s${run.cost !== undefined ? ` · $${run.cost.toFixed(2)}` : ''}`
   if (role === 'scout') return ok({ report: run.report, ...facts }, head)
-  // The scraper's CSVs become datasets; the rest (its script) stays with the run.
-  const day = new Date().toISOString().slice(0, 10)
+  const files = await importRunFiles(host, run, brief, new Date())
+  const imported = files.filter((f) => 'datasetId' in f).length
+  return ok({ summary: run.report, files, ...facts }, `${head} · ${plural(imported, 'dataset')} added`)
+}
+
+/** A scraper run's CSVs / GeoJSON as datasets (described with the run and its brief); the rest (its script) stays with the run. */
+async function importRunFiles(host: AgentHost, run: WebRun, brief: string, when: Date) {
+  const day = when.toISOString().slice(0, 10)
   const files = []
   for (const f of run.files) {
     if (!IMPORTABLE.test(f.name) || !host.importWebFile) {
@@ -992,8 +1048,59 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
     if (r.ok) made(host).add(r.id)
     files.push(r.ok ? { name: f.name, datasetId: r.id } : { name: f.name, importError: r.message })
   }
-  const imported = files.filter((f) => 'datasetId' in f).length
-  return ok({ summary: run.report, files, ...facts }, `${head} · ${plural(imported, 'dataset')} added`)
+  return files
+}
+
+// ── runs after the fact: list them, fetch one's results ─────────────────────
+
+function listRuns(host: AgentHost): ToolOutcome {
+  const runs = host.runs?.() ?? []
+  if (!runs.length) return ok({ runs: [] }, 'no runs on this device')
+  return ok(
+    {
+      runs: runs.map((x) => ({
+        runId: x.sessionId,
+        role: x.role,
+        brief: x.brief.length > 200 ? `${x.brief.slice(0, 200)}…` : x.brief,
+        started: new Date(x.startedAt).toISOString(),
+        state: x.state,
+        ...(x.error ? { error: x.error } : {}),
+        ...(x.cost !== undefined ? { cost: x.cost } : {}),
+        ...(x.files?.length ? { files: x.files } : {}),
+      })),
+    },
+    plural(runs.length, 'run'),
+  )
+}
+
+async function fetchRun(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.runId) && input.runId.trim(), '`runId` is required')
+  if (!host.fetchRun) return err('Fetching a run isn\'t available here.')
+  const run = await host.fetchRun(input.runId.trim())
+  if (typeof run === 'string') return err(run, 'not fetched')
+  const head = `${run.stop === 'end_turn' ? 'finished' : run.stop}${run.cost !== undefined ? ` · $${run.cost.toFixed(2)}` : ''}`
+  const facts = { runId: run.sessionId, role: run.role, stop: run.stop, cost: run.cost, ...(run.missing?.length ? { filesThatNeverCameBack: run.missing } : {}) }
+  if (run.role === 'scout') return ok({ report: run.report, ...facts }, head)
+  const files = await importRunFiles(host, run, run.brief, new Date())
+  return ok({ summary: run.report, files, ...facts }, `${head} · ${plural(files.filter((f) => 'datasetId' in f).length, 'dataset')}`)
+}
+
+async function readRun(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.runId) && input.runId.trim(), '`runId` is required')
+  if (!host.readRun) return err('Reading a run isn\'t available here.')
+  const r = await host.readRun(input.runId.trim())
+  if (typeof r === 'string') return err(r, 'not read')
+  return ok({ trace: r.text }, `${r.status} · ${plural(r.files.length, 'file')}`)
+}
+
+// ── diagnose ─────────────────────────────────────────────────────────────────
+
+async function diagnose(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.what_happened) && input.what_happened.trim(), '`what_happened` is required')
+  if (!host.diagnose) return err('The diagnosis isn\'t available here.')
+  const r = await host.diagnose(input.what_happened.trim())
+  if (typeof r === 'string') return err(r, 'no diagnosis')
+  return ok({ report: r.report, note: 'The report is in the chat (the user can copy it for the developers).' }, `report written · ${r.model}`)
 }
 
 // ── dispatch ───────────────────────────────────────────────────────────────
@@ -1040,6 +1147,14 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await runTransform(host, input)
       case 'delete_dataset':
         return await deleteDataset(host, input)
+      case 'list_runs':
+        return listRuns(host)
+      case 'fetch_run':
+        return await fetchRun(host, input)
+      case 'read_run':
+        return await readRun(host, input)
+      case 'diagnose':
+        return await diagnose(host, input)
       case 'tell_story':
         return await tellStory(host, input)
       default:

@@ -36,7 +36,8 @@ describe('client / server boundary', () => {
     const bad: string[] = []
     for (const f of [...CLIENT, 'src/lib/useVersionCheck.ts']) {
       const text = readFileSync(f, 'utf8')
-      if (/\bfetch\(/.test(text) && !f.endsWith('useVersionCheck.ts')) bad.push(`${f}: fetch`)
+      // The managed-agents client's fetch carries the SDK's own calls to the relay (a fresh sign-in token on each), not data.
+      if (/\bfetch\(/.test(text) && !f.endsWith('useVersionCheck.ts') && !f.endsWith('client/agent/managed.ts')) bad.push(`${f}: fetch`)
       if (/\breadRows\(/.test(text)) bad.push(`${f}: readRows`)
     }
     expect(bad).toEqual([])

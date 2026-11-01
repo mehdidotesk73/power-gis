@@ -180,6 +180,8 @@ export function describeError(e: unknown): string {
   if (!(e instanceof Anthropic.APIError) && /tool parameter JSON|Unexpected .* JSON|JSON at position/i.test((e as Error)?.message ?? ''))
     return "The assistant's last step came out garbled (its instructions to the app weren't valid JSON), even after retrying. Nothing from that step was applied. Ask it to try again, or to make the change in smaller steps."
   if (e instanceof Anthropic.APIUserAbortError) return 'Stopped.'
+  // The relay answers 401 too, for an expired or missing PowerGIS sign-in: that isn't the key.
+  if (e instanceof Anthropic.AuthenticationError && /Sign in to PowerGIS/.test(e.message)) return 'Your PowerGIS sign-in has expired or is missing (the relay refused it). Sign in again (☰ → Sign in) and retry.'
   if (e instanceof Anthropic.AuthenticationError) return 'The API key was not accepted. Check it in the assistant settings.'
   if (e instanceof Anthropic.PermissionDeniedError) return "This API key isn't allowed to use the model. Check your Anthropic Console workspace."
   if (e instanceof Anthropic.RateLimitError) return 'Rate limited by Anthropic. Wait a moment and try again.'

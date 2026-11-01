@@ -4,6 +4,7 @@ Track feature development, improvements, and known issues here. Move completed w
 
 ## Done
 
+- **Agent runs: recovery, diagnosis, budget** — the relay gets the session's current token on every call (a stale one was misreported as a bad API key and the run lost); `RunError` phase / cause / run id, retries with backoff; run log + `list_runs` / `fetch_run` (files imported once) + `read_run` (the run as Anthropic kept it, read only; the diagnosis reads the chat's runs too); `diagnose` (approved, model chosen, red report to copy); spending cap recommended (expected × 2, with why) plus own amount.
 - **Scaffold + personalization** — template copied in, docs filled for PowerGIS.
 - **Map widgets + first dataset (utilities by county)** — reusable MapLibre widgets
   (`MapView`, `ScalarLayer`, `VectorLayer`, `FeatureTooltip`, `FeaturePanel` + `PropertyValue`,

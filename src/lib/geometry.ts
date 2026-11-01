@@ -69,16 +69,31 @@ export function bboxOf(geoms: (Geometry | null)[]): BBox | null {
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
-  const visit = (c: unknown): void => {
-    if (typeof (c as number[])[0] === 'number') {
-      const [x, y] = c as number[]
+  for (const g of geoms) {
+    if (!g || !('coordinates' in g)) continue
+    const pts: number[][] = []
+    const visit = (c: unknown): void => {
+      if (typeof (c as number[])[0] === 'number') pts.push(c as number[])
+      else (c as unknown[]).forEach(visit)
+    }
+    visit(g.coordinates)
+    // A shape across the 180° meridian (Alaska's Aleutians, Fiji, Chukotka) holds longitudes near
+    // both +180 and -180: read it on one side (eastern ones past -180), not as spanning the globe.
+    let gMin = Infinity
+    let gMax = -Infinity
+    for (const [x] of pts) {
+      if (x < gMin) gMin = x
+      if (x > gMax) gMax = x
+    }
+    const wraps = gMax - gMin > 180
+    for (const [x0, y] of pts) {
+      const x = wraps && x0 > 0 ? x0 - 360 : x0
       if (x < minX) minX = x
       if (x > maxX) maxX = x
       if (y < minY) minY = y
       if (y > maxY) maxY = y
-    } else (c as unknown[]).forEach(visit)
+    }
   }
-  for (const g of geoms) if (g && 'coordinates' in g) visit(g.coordinates)
   return minX === Infinity ? null : [minX, minY, maxX, maxY]
 }
 

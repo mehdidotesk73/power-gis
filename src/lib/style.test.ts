@@ -84,6 +84,18 @@ describe('rasters', () => {
 })
 
 describe('focusBox', () => {
+  it('reads a shape across the 180° meridian on one side, not as the whole globe', async () => {
+    const { bboxOf, focusBox } = await import('./geometry')
+    // Alaska with an Aleutian island past 180°, and the lower 48 states.
+    const alaska = { type: 'MultiPolygon' as const, coordinates: [[[[-170, 55], [-140, 55], [-140, 70], [-170, 70], [-170, 55]]], [[[178, 51], [179.5, 51], [179.5, 52], [178, 52], [178, 51]]]] }
+    const states = Array.from({ length: 60 }, (_, i) => ({ type: 'Point' as const, coordinates: [-124 + i, 30 + (i % 15)] }))
+    const [minX, , maxX] = bboxOf([alaska])!
+    expect(minX).toBe(-182)
+    expect(maxX).toBe(-140)
+    const box = focusBox([alaska, ...states])!
+    expect(box[0]).toBeGreaterThan(-190)
+    expect(box[2]).toBeLessThan(-60)
+  })
   it('ignores far-flung outliers once there are many features', async () => {
     const { focusBox } = await import('./geometry')
     const pts = Array.from({ length: 200 }, (_, i) => ({ type: 'Point' as const, coordinates: [-100 + (i % 20), 30 + (i % 10)] }))
