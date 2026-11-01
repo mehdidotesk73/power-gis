@@ -8,6 +8,7 @@ Run locally (needs Docker; no Supabase account):
 
 ```sh
 eval "$(scripts/test-stack.sh)"   # start the stack, apply supabase/*.sql, export the test env
+# or, in a Claude cloud session (the sandbox may have been recycled): eval "$(scripts/ensure-stack.sh)"
 npm run test:cloud
 npx supabase stop --no-backup     # throw the stack away
 ```

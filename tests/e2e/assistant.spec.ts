@@ -114,13 +114,8 @@ test('the assistant asks with a form: choices, its own answer, a drafted plan, a
   await expect(askCard.getByText('✓ Build it')).toBeVisible()
 })
 
-test('the scraper: signed in, the brief approved, its run followed, its CSV a new dataset', async ({ browser }) => {
-  const page = await device(browser, PHONE)
-  const seen: unknown[] = []
-  const brief = 'Fetch median rent per county from example.gov as rents.csv: fips (5-digit text), rent (dollars).'
-  await fakeModel(page, [{ text: 'I can fetch rents.', tools: [{ name: 'send_scraper', input: { brief, cap_dollars: 2 } }] }, { text: 'Rents are in.' }], seen)
-
-  // Anthropic's Managed Agents, as the relay would answer.
+/** Anthropic's Managed Agents, as the relay would answer: one scraper session (sesn_1) that fetched a page and wrote rents.csv. */
+async function fakeRelay(page: Page) {
   const relay = new URL(`${process.env.SUPABASE_TEST_URL ?? 'http://127.0.0.1:54321'}/functions/v1/managed-relay/`).href
   const asked: string[] = []
   const agentModels: string[] = []
@@ -153,6 +148,16 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
     if (path === '/v1/files/file_csv/content') return route.fulfill({ status: 200, headers: { 'content-type': 'text/csv', 'access-control-allow-origin': '*' }, body: 'fips,rent\n01001,980\n01003,1210\n' })
     return route.fulfill({ status: 404, body: 'not faked' })
   })
+  return { asked, agentModels }
+}
+
+test('the scraper: signed in, the brief approved, its run followed, its CSV a new dataset', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  const seen: unknown[] = []
+  const brief = 'Fetch median rent per county from example.gov as rents.csv: fips (5-digit text), rent (dollars).'
+  await fakeModel(page, [{ text: 'I can fetch rents.', tools: [{ name: 'send_scraper', input: { brief, cap_dollars: 2 } }] }, { text: 'Rents are in.' }], seen)
+
+  const { asked, agentModels } = await fakeRelay(page)
 
   await openAssistant(page)
   // Signed out, the tool refuses and says why.
@@ -197,4 +202,58 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   await expect(run).toContainText('rents.csv → dataset “rents”')
   // The chat's cost: its tokens at list prices plus the run's $0.03.
   await expect(page.getByText(/≈ \$0\.03/)).toBeVisible()
+})
+
+test('a diagnosis: asked first with its model, then a red report in the chat to copy', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  const seen: unknown[] = []
+  await fakeModel(
+    page,
+    [
+      { text: 'The scraper failed twice.', tools: [{ name: 'diagnose', input: { what_happened: 'The scraper failed twice with "API key was not accepted"; run sesn_9 finished anyway.' } }] },
+      { text: '## Summary\nThe relay refused a stale sign-in token.\n\n## Details for troubleshooting\nRun sesn_9' },
+      { text: 'The report is in the chat.' },
+    ],
+    seen,
+  )
+  await openAssistant(page)
+  await say(page, 'Why did the scraper fail?')
+
+  const approval = page.getByTestId('ask-card')
+  await expect(approval.getByText('Run a diagnosis of what went wrong?')).toBeVisible()
+  await approval.getByLabel('Sonnet 5.5 · balanced').check()
+  await approval.getByTestId('ask.button-0').click()
+
+  const report = page.getByTestId('agent.diagnosis')
+  await expect(report).toContainText('The relay refused a stale sign-in token.')
+  await expect(page.getByText('The report is in the chat.')).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('diagnosis-phone.png') })
+  // The diagnosis call: the chosen model, its own prompt, no tools, the chat's steps in its input.
+  const call = seen[1] as { model: string; system: unknown; tools?: unknown[]; messages: { content: unknown }[] }
+  expect(call.model).toBe('claude-sonnet-5-5')
+  expect(JSON.stringify(call.system)).toContain('Write an issue report')
+  expect(call.tools ?? []).toEqual([])
+  expect(JSON.stringify(call.messages)).toContain('Why did the scraper fail?')
+  expect(JSON.stringify(lastToolResult(seen))).toContain('The relay refused')
+  await report.getByTestId('agent.diagnosis.copy').click()
+  await expect(report.getByTestId('agent.diagnosis.copy')).toContainText(/Copied|Copy report/)
+})
+
+test('the assistant looks inside a run by its id, changing nothing (read_run)', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  const seen: unknown[] = []
+  await fakeModel(page, [{ text: 'Let me look at that run.', tools: [{ name: 'read_run', input: { runId: 'sesn_1' } }] }, { text: 'It finished and wrote rents.csv.' }], seen)
+  const { asked } = await fakeRelay(page)
+  await signIn(page, await account('reader'))
+  await openAssistant(page)
+  await say(page, 'What happened to run sesn_1?')
+  await expect(page.getByText('It finished and wrote rents.csv.')).toBeVisible()
+  const trace = String(lastToolResult(seen).trace)
+  expect(trace).toContain('run sesn_1: status idle, stopped: end_turn, cost $0.03, active 30 s')
+  expect(trace).toContain('files: rents.csv (40 bytes), script.py (20 bytes)')
+  expect(trace).toContain('[tool] web_fetch https://example.gov/rents')
+  expect(trace).toContain('last message:\nWrote rents.csv')
+  // Read only: nothing sent to the run, nothing downloaded, no dataset made.
+  expect(asked.filter((a) => a.startsWith('POST') || a.includes('/content'))).toEqual([])
+  await expect(page.locator('.tool', { hasText: 'Look inside a run' })).toContainText('idle · 2 files')
 })

@@ -99,6 +99,13 @@ whatever they're actually asking about.
   (`eval "$(scripts/test-stack.sh)"`: `supabase start` via the npm `supabase` CLI, Docker, no account;
   our `supabase/*.sql` applied in order; `supabase/config.toml` is that local stack's config only).
   Builds can point at another project with `VITE_SUPABASE_URL` / `VITE_SUPABASE_KEY`.
+  **In a Claude cloud session, start with `eval "$(scripts/ensure-stack.sh)"`** before any cloud or UI test: the sandbox is
+  recycled while a session waits (for the user, or CI) and comes back without the Docker daemon, so the stack is gone. The
+  script starts `dockerd`, waits for the database, checks Auth / REST, (re)starts the stack only if needed (`test-stack.sh`,
+  retried) and prints the env (also in `/tmp/stack.env`): ~0 s when up, ~12 s after a restart, ~30 s from nothing. Rebuild
+  `dist-e2e` with `VITE_SUPABASE_URL=$SUPABASE_TEST_URL VITE_SUPABASE_KEY=$SUPABASE_TEST_KEY npm run build:e2e`. Two things
+  only CI can run: the relay test that reaches Anthropic (the stack's containers can't get past the sandbox's proxy: 502),
+  and the sample pipeline's spatial step (DuckDB's extension download is blocked here).
 - **UI tests:** `tests/e2e/` (Playwright, `npm run build:e2e` against the stack, then `npm run test:e2e`):
   the app in a browser, one context per device, two people: the socioeconomic fixture pipeline and
   the cloud scenarios (`tests/e2e/README.md`). Elements by **stable test keys** (`data-testid`: cards
@@ -183,7 +190,7 @@ whatever they're actually asking about.
   Managed Agents runs through the relay (`supabase/functions/managed-relay`: browsers are refused there; it checks the
   user's Supabase session — signed in only), approved on a card (brief, cap), followed in the chat as a step, picked up
   again after a reload (`powergis.webRun`); the scraper lists its files (`FILES:` line) and the app waits for them;
-  CSV / GeoJSON outputs become datasets. The agent removes only what it made in this chat (else `userAsked`);
+  CSV / GeoJSON outputs become datasets. Every relay call carries the session's **current** token (`client()` in `managed.ts`: refreshed and retried once on the relay's sign-in 401 — a token captured once had expired mid-run and read as a bad key); failures are `RunError`s (phase launch · follow · results · download, cause, run id; network / sign-in retried with backoff); runs are logged (`powergis.webRuns`) and remembered as soon as they exist, so **`list_runs` / `fetch_run`** pick one up by id (files imported once, `powergis.importedRunFiles`), and **`read_run`** looks inside one by id, changing nothing (`readRun` / `traceText` in `managed.ts`: status, stop, cost, its events condensed, last message, files) — the back channel when the app lost touch; the diagnosis reads the chat's runs back the same way. The cap card leads with a recommended amount (`cap_dollars` = expected × 2, `cap_reason`), then fixed ones and the user's own. **`diagnose`** (`lib/agent/diagnosis.ts`): for expensive or unexpected failures; the user approves and picks the model; one call over the chat's steps, runs and log; a red 🩺 Issue diagnosis with Copy report. The agent removes only what it made in this chat (else `userAsked`);
   built-ins via `add_builtin`; the usage line shows ≈ $ (`chatCost`). **Reasoning** steps show the model's thinking (`thinking: adaptive, display: summarized`; folded to its first line), and a
   question card's step shows what it sent (also in View logs as `ask_user input:`). Chat text uses three sizes only
   (`--chat-fs`, `-sm`, `-xs` on the panel). Agents
