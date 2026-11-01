@@ -55,4 +55,17 @@ describe('ask_user forms', () => {
     expect(answerSummary(g, { button: 'Submit', values: { p: long } })).toBe('Submit · Plan: as proposed')
     expect(answerSummary(g, { button: 'Submit', values: { p: `${long}!` } })).toBe('Submit · Plan: edited')
   })
+
+  it('adds a Notes box to every card, and Revise with my notes to one with a draft', async () => {
+    const { withNotes, REVISE } = await import('./form')
+    const plain = withNotes({ question: 'Go?', fields: [], buttons: ['Approve', 'Reject'] })
+    expect(plain.fields.map((f) => f.id)).toEqual(['notes'])
+    expect(plain.buttons).toEqual(['Approve', 'Reject']) // nothing drafted to revise
+    const draft = withNotes({ question: 'Framing', fields: [{ id: 'framing', kind: 'text', label: 'Framing', value: 'A retirement score…', multiline: true }], buttons: ['Approve'] })
+    expect(draft.buttons).toEqual(['Approve', REVISE])
+    // The assistant's own notes box is kept; a full card gets none; four buttons leave no room for Revise.
+    expect(withNotes({ question: 'Q', fields: [{ id: 'notes', kind: 'text', label: 'Mine' }], buttons: ['OK'] }).fields).toHaveLength(1)
+    const full = Array.from({ length: 8 }, (_, i) => ({ id: `f${i}`, kind: 'text' as const, label: 'x', value: 'y' }))
+    expect(withNotes({ question: 'Q', fields: full, buttons: ['A', 'B', 'C', 'D'] })).toMatchObject({ fields: full, buttons: ['A', 'B', 'C', 'D'] })
+  })
 })

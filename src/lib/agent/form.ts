@@ -156,3 +156,26 @@ export function answerSummary(form: Form, a: FormAnswer): string {
   })
   return [a.button, ...parts].join(' · ')
 }
+
+// ── notes and revising (added by the app to every card the assistant composes) ──
+
+/** The notes box's id, and the button that asks for the draft again with the notes applied. */
+export const NOTES = 'notes'
+export const REVISE = 'Revise with my notes'
+
+/**
+ * The card as the user sees it: an optional Notes box at the end (unless the assistant made its own,
+ * or there's no room), and — on a card with something to review (a drafted text, a multiple choice) —
+ * a Revise with my notes button after the main answer, so the user can steer a draft in a few words
+ * instead of rewriting it.
+ */
+export function withNotes(form: Form): Form {
+  const fields =
+    form.fields.some((f) => f.id === NOTES) || form.fields.length >= LIMITS.fields
+      ? form.fields
+      : [...form.fields, { id: NOTES, kind: 'text' as const, label: 'Notes', placeholder: 'Optional: what to change, add or tighten, in a few words', multiline: true }]
+  const reviews = form.fields.some((f) => (f.kind === 'text' && !!f.value?.trim()) || (f.kind === 'choice' && f.multiple))
+  const buttons =
+    reviews && !form.buttons.includes(REVISE) && form.buttons.length < LIMITS.buttons ? [form.buttons[0], REVISE, ...form.buttons.slice(1)] : form.buttons
+  return { ...form, fields, buttons }
+}

@@ -319,7 +319,10 @@ test('several workspaces: New starts an empty one, each is its own in the accoun
   await ready(phone)
   await openWorkspacePanel(phone)
   await expect(items(phone)).toHaveCount(2)
-  await items(phone).filter({ hasText: 'Project A' }).locator('button.pick').click()
+  // Tapped twice in a row (it takes a moment): opened once, one copy on this device.
+  const pickA = items(phone).filter({ hasText: 'Project A' }).locator('button.pick')
+  await pickA.dispatchEvent('click')
+  await pickA.dispatchEvent('click')
   await expect(phone.getByText(/Opened “Project A” from your account/)).toBeVisible({ timeout: 120_000 })
   await openWorkspacePanel(phone)
   await expect(phone.getByLabel('Workspace name')).toHaveValue('Project A')
