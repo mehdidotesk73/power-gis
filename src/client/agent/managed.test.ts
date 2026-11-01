@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import Anthropic from '@anthropic-ai/sdk'
-import { asRunError, causeOf, describeTool, expectedFiles, RunError, SignInNeeded, withoutFilesLine } from './managed'
+import { asRunError, causeOf, describeTool, expectedFiles, RunError, SignInNeeded, traceText, withoutFilesLine } from './managed'
 import { chatCost } from './claude'
 
 describe('describeTool', () => {
@@ -54,5 +54,15 @@ describe('what a failed run call means', () => {
     expect(e.message).toContain('Run id: sesn_1.')
     expect(asRunError(e, 'results')).toBe(e) // already wrapped: kept
     expect(asRunError(new Anthropic.APIConnectionError({ message: 'x' }), 'launch').message).toContain('The run did not start (nothing was spent).')
+  })
+})
+
+describe('a run read back by id', () => {
+  it('reads as lines: status, files, events (with what was left out), the last message', () => {
+    const events = Array.from({ length: 8 }, (_, i) => ({ kind: 'tool' as const, text: `step ${i}` }))
+    const text = traceText({ sessionId: 'sesn_1', status: 'idle', stop: 'end_turn', cost: 0.42, activeSeconds: 61, events, omitted: 30, lastMessage: 'Wrote rents.csv', files: [{ id: 'f', name: 'rents.csv', bytes: 40 }] })
+    expect(text.split('\n').slice(0, 2)).toEqual(['run sesn_1: status idle, stopped: end_turn, cost $0.42, active 61 s', 'files: rents.csv (40 bytes)'])
+    expect(text).toContain('… 30 events left out …\n[tool] step 2')
+    expect(text.endsWith('last message:\nWrote rents.csv')).toBe(true)
   })
 })

@@ -502,6 +502,92 @@ async function outputFiles(c: Anthropic, sessionId: string, expected: string[], 
   }
 }
 
+/** A run as Anthropic keeps it, read back by its id: its status, cost, what happened (condensed) and its files. */
+export interface RunTrace {
+  sessionId: string
+  /** The session's status now (running, idle, terminated…). */
+  status: string
+  /** How it last stopped, when it has (end_turn, max_tokens, an error…). */
+  stop?: string
+  cost?: number
+  activeSeconds?: number
+  /** In order: status changes, the agent's tool calls and messages, errors. */
+  events: { at?: string; kind: 'status' | 'message' | 'tool' | 'error'; text: string }[]
+  /** Events left out from the middle (the first and last ones are kept). */
+  omitted: number
+  /** The agent's last message (its report or summary), whole. */
+  lastMessage?: string
+  files: OutputFile[]
+}
+
+/**
+ * Reads a run back by its id without changing anything (nothing is sent to it, nothing imported):
+ * the back channel when the app lost touch with a run — where it got to, what failed and why.
+ */
+export async function readRun(apiKey: string, sessionId: string, opts: { maxEvents?: number } = {}): Promise<RunTrace> {
+  const max = opts.maxEvents ?? 160
+  try {
+    const c = await client(apiKey)
+    const session = (await patiently(() => c.beta.sessions.retrieve(sessionId))) as unknown as { status?: string; usage?: { list_cost?: { amount: string }; active_seconds?: number } }
+    const events: RunTrace['events'] = []
+    let lastMessage: string | undefined
+    let stop: string | undefined
+    const seen = new Set<string>()
+    let since: string | undefined
+    for (let pages = 0; pages < 50; pages++) {
+      const page = await patiently(() => c.beta.sessions.events.list(sessionId, { order: 'asc', limit: 100, ...(since ? { 'created_at[gte]': since } : {}) }))
+      let fresh = 0
+      for (const ev of page.data) {
+        if (seen.has(ev.id)) continue
+        seen.add(ev.id)
+        fresh++
+        since = ev.processed_at ?? since
+        const at = ev.processed_at ?? undefined
+        const e = ev as unknown as { type: string; content?: unknown; name?: string; input?: unknown; error?: unknown; stop_reason?: { type?: string }; is_error?: boolean }
+        if (e.type === 'agent.message') {
+          const t = textOf(e.content)
+          if (t.trim()) (lastMessage = t), events.push({ at, kind: 'message', text: clip(t, 600) })
+        } else if (e.type === 'agent.tool_use') events.push({ at, kind: 'tool', text: describeTool(e.name ?? 'tool', e.input) })
+        else if (e.type === 'agent.tool_result' && e.is_error) events.push({ at, kind: 'error', text: `tool failed: ${clip(textOf(e.content) || JSON.stringify(e.content ?? ''), 400)}` })
+        else if (e.type === 'session.error') events.push({ at, kind: 'error', text: clip(JSON.stringify(e.error), 600) })
+        else if (e.type.startsWith('session.status_')) {
+          const s = e.type.slice('session.status_'.length)
+          if (s === 'idle' && e.stop_reason?.type) stop = e.stop_reason.type
+          else if (s === 'terminated') stop = 'terminated'
+          events.push({ at, kind: 'status', text: `${s}${e.stop_reason?.type ? ` (${e.stop_reason.type})` : ''}` })
+        }
+      }
+      if (page.data.length < 100 || !fresh) break
+    }
+    const files = (await patiently(() => c.beta.files.list({ scope_id: sessionId, limit: 100, betas: ['managed-agents-2026-04-01'] }))).data.map((f) => ({ id: f.id, name: f.filename, bytes: f.size_bytes }))
+    const keepHead = Math.floor(max / 4)
+    const omitted = Math.max(0, events.length - max)
+    const kept = omitted ? [...events.slice(0, keepHead), ...events.slice(events.length - (max - keepHead))] : events
+    const usage = session.usage
+    return {
+      sessionId,
+      status: session.status ?? 'unknown',
+      ...(stop ? { stop } : {}),
+      ...(usage?.list_cost ? { cost: Number(usage.list_cost.amount) / 100 } : {}),
+      ...(usage?.active_seconds !== undefined ? { activeSeconds: usage.active_seconds } : {}),
+      events: kept,
+      omitted,
+      ...(lastMessage ? { lastMessage } : {}),
+      files,
+    }
+  } catch (e) {
+    throw asRunError(e, 'results', sessionId)
+  }
+}
+
+/** A trace as text, a line per event (the diagnosis and the assistant read it). */
+export function traceText(t: RunTrace): string {
+  const head = `run ${t.sessionId}: status ${t.status}${t.stop ? `, stopped: ${t.stop}` : ''}${t.cost !== undefined ? `, cost $${t.cost.toFixed(2)}` : ''}${t.activeSeconds !== undefined ? `, active ${t.activeSeconds} s` : ''}`
+  const files = `files: ${t.files.map((f) => `${f.name} (${f.bytes} bytes)`).join(', ') || 'none'}`
+  const lines = t.events.map((e, i) => `${i === Math.floor(t.events.length / 4) && t.omitted ? `… ${t.omitted} events left out …\n` : ''}${e.at ? `${e.at} ` : ''}[${e.kind}] ${e.text}`)
+  return [head, files, ...lines, ...(t.lastMessage ? [`last message:\n${t.lastMessage}`] : [])].join('\n')
+}
+
 /** Answers a paused tool call (an `ask` event). */
 export async function confirm(apiKey: string, sessionId: string, toolUseId: string, allow: boolean) {
   await (await client(apiKey)).beta.sessions.events.send(sessionId, { events: [{ type: 'user.tool_confirmation', tool_use_id: toolUseId, result: allow ? 'allow' : 'deny' }] })

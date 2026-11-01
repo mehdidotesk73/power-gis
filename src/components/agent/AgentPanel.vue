@@ -20,7 +20,7 @@ import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
 import { forgetChat, IMPORTABLE, runTool, webFileDescription, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
 import { STOPPED, type Form, type FormAnswer } from '../../lib/agent/form'
-import { activeRun, downloadFile, followRun, forgetRun, logRun, recentRuns, RunError, SignInNeeded, startRun, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
+import { activeRun, downloadFile, followRun, forgetRun, logRun, readRun, recentRuns, RunError, SignInNeeded, startRun, traceText, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
 import { DIAGNOSIS_MODELS, DIAGNOSIS_PROMPT, diagnosisInput, type DiagnosisStep } from '../../lib/agent/diagnosis'
 import { logAsText } from '../../debug'
 import { saveFile } from '../../client/saveFile'
@@ -435,10 +435,14 @@ async function runDiagnosis(whatHappened: string): Promise<{ report: string; mod
   storyUsage.value = [...storyUsage.value, entry]
   try {
     const sub = claudeProvider.start({ apiKey: apiKey.value, model, system: DIAGNOSIS_PROMPT, tools: [] })
+    // The chat's runs read back from Anthropic: what each did, even after the app lost touch with it.
+    const ids = [...new Set(items.value.flatMap((x) => (x.kind === 'run' && x.sessionId ? [x.sessionId] : [])))].slice(-3)
+    const traces = await Promise.all(ids.map((id) => readRun(apiKey.value, id).then(traceText, (e) => `run ${id}: couldn't be read back (${e instanceof Error ? e.message : String(e)})`)))
     const text = diagnosisInput({
       whatHappened,
       steps: chatSteps(),
       runs: recentRuns(),
+      traces,
       log: logAsText(__BUILD_ID__, ''),
       build: __BUILD_ID__,
       userAgent: navigator.userAgent,
@@ -467,7 +471,16 @@ async function copyDiagnosis(it: Extract<Item, { kind: 'diagnosis' }>) {
     await saveFile(new Blob([text], { type: 'text/markdown' }), 'powergis-diagnosis.md')
   }
 }
-const host: AgentHost = { ...props.host, ask, web, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, runs: recentRuns, diagnose: runDiagnosis }
+async function readRunById(sessionId: string): Promise<{ text: string; status: string; files: string[] } | string> {
+  try {
+    const t = await readRun(apiKey.value, sessionId)
+    logDebug(`read run ${sessionId}: ${t.status}, ${t.events.length + t.omitted} events, ${t.files.length} files`)
+    return { text: traceText(t), status: t.status, files: t.files.map((f) => f.name) }
+  } catch (e) {
+    return e instanceof SignInNeeded ? 'Sign in to read a run (☰ → Sign in).' : e instanceof Error ? e.message : String(e)
+  }
+}
+const host: AgentHost = { ...props.host, ask, web, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
@@ -483,6 +496,7 @@ const TOOL_LABEL: Record<string, string> = {
   tell_story: 'The storyteller',
   list_runs: 'Recent runs',
   fetch_run: 'Collect a run',
+  read_run: 'Look inside a run',
   diagnose: 'Diagnosis',
 }
 

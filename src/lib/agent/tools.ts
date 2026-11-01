@@ -51,6 +51,8 @@ export interface AgentHost {
   web?(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string>
   /** Follows a run started earlier (by its session id) to its end, or reads it if it has ended; its result, or why not. */
   fetchRun?(sessionId: string): Promise<(WebRun & { role: WebRole; brief: string }) | string>
+  /** Reads a run back by its id, changing nothing: its status, cost, events (condensed), last message and files, as text; or why not. */
+  readRun?(sessionId: string): Promise<{ text: string; status: string; files: string[] } | string>
   /** Runs started on this device lately: id, role, brief, when, how it ended. */
   runs?(): { sessionId: string; role: WebRole; brief: string; startedAt: number; state: string; error?: string; cost?: number; files?: string[] }[]
   /** Runs the diagnosis agent (the user approves it and picks its model first); its report, or why not. */
@@ -189,6 +191,12 @@ export const TOOLS: ToolSpec[] = [
     name: 'fetch_run',
     description:
       "Collect a scout or scraper run's results by its run id (from an error message, list_runs, or the user): it follows the run if it is still going, then returns its report, and a scraper's CSVs become datasets in the workspace, described like a normal return (files already imported are not imported twice). Use it instead of sending the run again when its results didn't arrive (a failed hand-off): a new run costs money and may duplicate the work.",
+    inputSchema: { type: 'object', properties: { runId: { type: 'string', description: 'The run (session) id, e.g. sesn_….' } }, required: ['runId'] },
+  },
+  {
+    name: 'read_run',
+    description:
+      "Look inside a scout or scraper run by its run id, changing nothing: its status now (still running, finished, stopped), how it stopped, its cost, what it did step by step (pages fetched, commands, its messages, errors), its last message and the files it made. Free; nothing is imported. Use it to see where a run got to and why it failed before deciding what to do (fetch_run to collect its results, or a new brief that fixes what went wrong).",
     inputSchema: { type: 'object', properties: { runId: { type: 'string', description: 'The run (session) id, e.g. sesn_….' } }, required: ['runId'] },
   },
   {
@@ -1077,6 +1085,14 @@ async function fetchRun(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   return ok({ summary: run.report, files, ...facts }, `${head} · ${plural(files.filter((f) => 'datasetId' in f).length, 'dataset')}`)
 }
 
+async function readRun(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.runId) && input.runId.trim(), '`runId` is required')
+  if (!host.readRun) return err('Reading a run isn\'t available here.')
+  const r = await host.readRun(input.runId.trim())
+  if (typeof r === 'string') return err(r, 'not read')
+  return ok({ trace: r.text }, `${r.status} · ${plural(r.files.length, 'file')}`)
+}
+
 // ── diagnose ─────────────────────────────────────────────────────────────────
 
 async function diagnose(host: AgentHost, input: Obj): Promise<ToolOutcome> {
@@ -1135,6 +1151,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return listRuns(host)
       case 'fetch_run':
         return await fetchRun(host, input)
+      case 'read_run':
+        return await readRun(host, input)
       case 'diagnose':
         return await diagnose(host, input)
       case 'tell_story':

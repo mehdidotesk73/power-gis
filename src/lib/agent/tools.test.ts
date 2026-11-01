@@ -246,6 +246,11 @@ describe('agent tools', () => {
     expect(imports).toEqual(['f1 rents.csv true'])
     host.fetchRun = async () => 'That run is being followed right now; its results arrive with it.'
     expect(await runTool(host, 'fetch_run', { runId: 'sesn_1' })).toMatchObject({ isError: true, summary: 'not fetched' })
+    // read_run: looks inside a run, changing nothing.
+    expect(await runTool(host, 'read_run', { runId: 'sesn_1' })).toMatchObject({ isError: true, content: "Reading a run isn't available here." })
+    host.readRun = async (id) => (id === 'sesn_1' ? { text: 'run sesn_1: status idle, stopped: end_turn\n[tool] web_fetch https://x.gov', status: 'idle', files: ['a.csv'] } : 'No such run')
+    expect(await runTool(host, 'read_run', { runId: ' sesn_1 ' })).toMatchObject({ isError: false, summary: 'idle · 1 file', content: expect.stringContaining('web_fetch https://x.gov') })
+    expect(await runTool(host, 'read_run', { runId: 'sesn_9' })).toMatchObject({ isError: true, summary: 'not read', content: 'No such run' })
   })
 
   it('asks for a diagnosis through the page, and hands its report back', async () => {

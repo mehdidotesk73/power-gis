@@ -12,7 +12,7 @@ export const DIAGNOSIS_MODELS = [
   { id: 'claude-haiku-5-5', label: 'Haiku 5.5 · quickest, cheapest' },
 ]
 
-export const DIAGNOSIS_PROMPT = `You diagnose problems in PowerGIS, a map app whose in-app assistant (an AI) works on the user's data and sends a scout and a scraper (agents on Anthropic's Managed Agents, reached through the app's relay, a Supabase Edge Function) to fetch data from the web. Something expensive or unexpected went wrong. You get: what the assistant says happened; the chat's steps in order (the user's messages, the assistant's tool calls with their inputs and results, scout / scraper runs with their run ids, progress logs, results and errors, notes); this device's recent runs; and the app's debug log.
+export const DIAGNOSIS_PROMPT = `You diagnose problems in PowerGIS, a map app whose in-app assistant (an AI) works on the user's data and sends a scout and a scraper (agents on Anthropic's Managed Agents, reached through the app's relay, a Supabase Edge Function) to fetch data from the web. Something expensive or unexpected went wrong. You get: what the assistant says happened; the chat's steps in order (the user's messages, the assistant's tool calls with their inputs and results, scout / scraper runs with their run ids, progress logs, results and errors, notes); this device's recent runs; the runs read back from Anthropic by id (everything each did, even after the app lost touch: compare it with what the chat saw); and the app's debug log.
 
 Write an issue report for the app's developers, who will read it with the code at hand. Be specific and evidence-based: quote the exact error texts, run ids, tool names and the order of events. Separate what the evidence shows from what you infer, and say how confident you are. Plain markdown, these sections:
 
@@ -46,6 +46,8 @@ export function diagnosisInput(o: {
   whatHappened: string
   steps: DiagnosisStep[]
   runs: unknown[]
+  /** The runs read back from Anthropic (what each did after the app lost touch, if it did). */
+  traces?: string[]
   log: string
   build: string
   userAgent: string
@@ -56,6 +58,7 @@ export function diagnosisInput(o: {
     `# What the assistant says happened\n${o.whatHappened}`,
     `# The app\nBuild ${o.build} · ${o.userAgent} · now ${o.now}`,
     `# This device's recent scout / scraper runs\n${clip(JSON.stringify(o.runs, null, 1), 6000)}`,
+    ...(o.traces?.length ? [`# The runs as Anthropic kept them (read back by id: everything each did, even after the app lost touch)\n${o.traces.map((t) => clip(t, 15_000)).join('\n\n')}`] : []),
     `# The chat's steps, in order\n${clip(steps, 60_000)}`,
     `# The app's debug log (newest last)\n${clip(o.log, 12_000)}`,
   ].join('\n\n')
