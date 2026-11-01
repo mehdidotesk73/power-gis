@@ -6,6 +6,10 @@ name: CI
 # cloud integration and UI tests all run inside that one job, so the ruleset's
 # one check covers them all. (The UI tests ran as a separate, non-blocking job
 # until they had been green 14 times in a row; then they moved in here.)
+# A pull request that changes only documentation (docs/, .claude/, any .md
+# file) still runs this job — the ruleset needs `build` to report — but only
+# the build and unit tests: the Help pages (docs/concepts) are bundled, so the
+# build still matters; the stack, cloud and UI tests can't be affected.
 
 on:
   pull_request:
@@ -20,6 +24,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: What changed
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD)
+          else
+            files=''
+          fi
+          echo "$files"
+          if [ -n "$files" ] && ! echo "$files" | grep -Ev '^(docs/|\.claude/)|\.md$' >/dev/null; then
+            echo "Documentation only: build and unit tests; the stack, cloud and UI tests are skipped."
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -31,18 +50,22 @@ jobs:
       # no account or secrets), started empty with our schema applied
       # (scripts/test-stack.sh): the server's cloud requests as real accounts.
       - name: Start the test stack
+        if: steps.changes.outputs.docs_only != 'true'
         run: |
           eval "$(scripts/test-stack.sh)"
           echo "SUPABASE_TEST_URL=$SUPABASE_TEST_URL" >> "$GITHUB_ENV"
           echo "SUPABASE_TEST_KEY=$SUPABASE_TEST_KEY" >> "$GITHUB_ENV"
       - name: Cloud integration tests
+        if: steps.changes.outputs.docs_only != 'true'
         run: npm run test:cloud
       # The app in a browser against the same stack, driven by Playwright (tests/e2e).
       - name: Build the app against the test stack
+        if: steps.changes.outputs.docs_only != 'true'
         run: |
           FETCH_DUCKDB_EXT=1 node scripts/fetch-duckdb-extensions.mjs
           VITE_SUPABASE_URL="$SUPABASE_TEST_URL" VITE_SUPABASE_KEY="$SUPABASE_TEST_KEY" npm run build:e2e
       - name: UI tests
+        if: steps.changes.outputs.docs_only != 'true'
         run: |
           npx playwright install --with-deps chromium
           npm run test:e2e

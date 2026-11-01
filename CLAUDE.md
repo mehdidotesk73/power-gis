@@ -114,6 +114,8 @@ whatever they're actually asking about.
 - **CI runs build + tests on every PR** (`.github/workflows/ci.yml`, job `build`: build, unit, cloud
   integration and UI tests, against the local stack), and the branch ruleset requires it to pass before
   merge. Tests stay inside that one job — never a separate job, since the ruleset only watches `build`.
+  A PR that changes **only documentation** (`docs/`, `.claude/`, any `.md`) runs just the build and unit tests (the job's first
+  step, *What changed*, decides; the Help pages in `docs/concepts` are bundled, so the build still runs); anything else runs everything.
   (A new kind of test may start in its own non-blocking job while it proves steady, as the UI tests did
   — then tell the user whenever it goes red, and move it into `build` once it's reliably green.)
 - **External data dependencies:** the basemap (dark vector tiles, free, no key: OpenFreeMap dark, else CARTO Dark Matter, else a plain background).
