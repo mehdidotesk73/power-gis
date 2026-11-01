@@ -3,7 +3,7 @@
 // (or stops for another reason). Tool calls never throw: every outcome,
 // including a refusal from the gate, goes back to the model to act on.
 
-import { addUsage, emptyUsage, type ChatSession, type ToolCall, type ToolResult, type TurnStop, type Usage, type UserMessage } from './provider'
+import { addUsage, emptyUsage, type ChatSession, type ToolCall, type ToolResult, type TurnEvents, type TurnStop, type Usage, type UserMessage } from './provider'
 
 export interface ToolOutcome {
   content: string
@@ -15,6 +15,8 @@ export interface ToolOutcome {
 export interface LoopEvents {
   onText?(delta: string): void
   onThinking?(delta: string): void
+  /** The connection dropped and the step is being retried (see TurnEvents.onRetry). */
+  onRetry?: TurnEvents['onRetry']
   /** A new assistant message starts (after tool results, the model writes again). */
   onTurnStart?(): void
   onToolStart?(call: ToolCall): void
@@ -73,7 +75,7 @@ export async function runAgent(
   for (let step = 0; step < MAX_STEPS; step++) {
     if (signal?.aborted) return { end: 'stopped', usage }
     events.onTurnStart?.()
-    const turn = await untilStopped(session.send(input, { onText: events.onText, onThinking: events.onThinking }, signal), signal)
+    const turn = await untilStopped(session.send(input, { onText: events.onText, onThinking: events.onThinking, onRetry: events.onRetry }, signal), signal)
     usage = addUsage(usage, turn.usage)
     events.onUsage?.(turn.usage)
     if (turn.stop !== 'tools') return { end: turn.stop, usage }

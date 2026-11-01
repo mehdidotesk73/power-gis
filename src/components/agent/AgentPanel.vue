@@ -122,7 +122,7 @@ type Item =
   | { kind: 'user'; text: string; images?: string[] }
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean }
-  | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string }
+  | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string; /** A failed turn: offer Retry and Diagnose. */ failed?: boolean; /** The connection dropped: retrying. */ retrying?: boolean }
   | { kind: 'thinking'; text: string; open: boolean }
   | { kind: 'ask'; form: Form; answer?: FormAnswer }
   | { kind: 'diagnosis'; state: 'running' | 'ok' | 'error'; model: string; report: string; open: boolean; copied?: boolean }
@@ -598,6 +598,22 @@ async function send() {
           void scrollDown()
         },
         onUsage: (turn) => (usage.value = addUsage(usage.value, turn)),
+        onRetry: (r) => {
+          if (!live()) return
+          const at = items.value.findIndex((x) => x.kind === 'note' && x.retrying)
+          if (!r) {
+            if (at >= 0) items.value.splice(at, 1)
+            logDebug('assistant: the connection came back; the step went through')
+            return
+          }
+          // What streamed before the drop comes again with the retry: start this message's text afresh.
+          if (current) current.text = ''
+          if (thinking) thinking.text = ''
+          const text = `The connection dropped; trying again in ${Math.round(r.waitMs / 1000)} s (${r.attempt} of ${r.max})… Keep the app open.`
+          logDebug(`assistant: connection dropped (${r.reason}); retry ${r.attempt}/${r.max} in ${r.waitMs} ms`, 'warn')
+          if (at >= 0) Object.assign(items.value[at], { text })
+          else items.value.push({ kind: 'note', tone: 'warn', text, retrying: true })
+        },
         onToolStart: (call) => {
           current = null
           thinking = null
@@ -626,7 +642,11 @@ async function send() {
     if (live()) {
       const text = describeError(e)
       const raw = (e as Error)?.message ?? String(e)
-      items.value.push({ kind: 'note', tone: ctl.signal.aborted ? 'info' : 'error', text, ...(raw && raw !== text ? { detail: raw } : {}) })
+      const stopped = ctl.signal.aborted
+      const at = items.value.findIndex((x) => x.kind === 'note' && x.retrying)
+      if (at >= 0) items.value.splice(at, 1)
+      items.value.push({ kind: 'note', tone: stopped ? 'info' : 'error', text, ...(raw && raw !== text ? { detail: raw } : {}), ...(stopped ? {} : { failed: true }) })
+      if (!stopped) logDebug(`assistant: the turn failed: ${raw}`, 'error')
     }
   } finally {
     // A step cut short by Stop never reports back: show it as stopped, not running forever.
@@ -635,6 +655,19 @@ async function send() {
     if (controller === ctl) controller = null
     if (live()) logChat()
   }
+}
+/** After a failed turn: carry on where it stopped (the conversation still holds everything that went through). */
+function retryTurn() {
+  if (busy.value) return
+  draft.value = 'The last step failed (the connection dropped, or an error). Nothing from that step was applied. Carry on where you left off, in smaller steps if it was a long one.'
+  void send()
+}
+/** After a failed turn: the diagnosis, started by the user (the assistant can't ask for it when its own turn died). */
+function diagnoseFailure(it: Extract<Item, { kind: 'note' }>) {
+  if (busy.value) return
+  const last = [...items.value].reverse().find((x): x is Extract<Item, { kind: 'user' }> => x.kind === 'user')
+  busy.value = true
+  void runDiagnosis(`The assistant's turn failed and the chat stopped. Error shown: "${it.text}"${it.detail ? ` (raw: ${it.detail})` : ''}. The user's last message: "${(last?.text ?? '').slice(0, 600)}". The user started this diagnosis from the error card.`).finally(() => (busy.value = false))
 }
 /** Updates this chat's line in the per-profile log (after each finished turn). */
 function logChat() {
@@ -860,8 +893,12 @@ const usageText = computed(() => {
           </div>
           <UiButton v-if="it.state === 'running'" size="compact" class="stop-run" :disabled="it.stop.stopped" @click="stopRun(it)">{{ it.stop.stopped ? 'Stopping…' : 'Stop this run' }}</UiButton>
         </div>
-        <div v-else class="note" :class="it.tone">
+        <div v-else class="note" :class="it.tone" :data-testid="it.failed ? 'agent.failed' : undefined">
           <p>{{ it.text }}</p>
+          <div v-if="it.failed && it === items[items.length - 1] && !busy" class="failed-actions">
+            <UiButton size="compact" tone="primary" icon="↻" data-testid="agent.retry" @click="retryTurn">Retry</UiButton>
+            <UiButton size="compact" icon="🩺" data-testid="agent.diagnose" @click="diagnoseFailure(it)">Diagnose</UiButton>
+          </div>
           <details v-if="it.detail" class="detail-box">
             <summary>Details</summary>
             <pre>{{ it.detail.length > 4000 ? `${it.detail.slice(0, 4000)}…` : it.detail }}</pre>
@@ -1146,6 +1183,11 @@ header {
 }
 .note.warn {
   color: var(--warn);
+}
+.failed-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
 }
 .note.error {
   color: var(--danger);

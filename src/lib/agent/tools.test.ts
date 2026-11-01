@@ -487,6 +487,16 @@ describe('agent tools', () => {
     expect(await runTool(host, 'drop_everything', {})).toMatchObject({ isError: true })
   })
 
+  it('lists the stories and their visualizations in the overview, so a rewrite keeps the same maps', async () => {
+    const viz = { kind: 'scalar', id: 'v1', name: 'Price', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price', aggregation: 'mean', visible: true, style: { color: { kind: 'constant', color: '#fff' }, opacity: { kind: 'constant', value: 1 }, pattern: { kind: 'none' } } }
+    const story = { id: 's1', name: 'How prices are mapped', visualizationIds: ['v1', 'gone'], writtenAt: '2026-11-01T00:00:00Z', scenes: [{ id: 'a', title: 'T', narrative: 'N', figures: [] }] }
+    const { host } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['joined'], visualizations: [viz as never], stories: [story as never] })
+    const w = (await runTool(host, 'get_workspace', {})).content
+    expect(w).toContain('## Stories (1;')
+    expect(w).toContain('- s1  "How prices are mapped"  1 scenes · written 2026-11-01')
+    expect(w).toContain('visualizations: v1 (Price), gone (no longer in the workspace)')
+  })
+
   it('hands stories to the storyteller (tell_story), for visualizations of the workspace', async () => {
     const doc: WorkspaceDoc = { ...emptyWorkspace('Test'), datasetIds: ['joined'], visualizations: [{ kind: 'scalar', id: 'v1', name: 'Price', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price', aggregation: 'mean', visible: true, style: { color: { kind: 'constant', color: '#fff' }, opacity: { kind: 'constant', value: 1 }, pattern: { kind: 'none' } } } as never] }
     const { host } = fakeHost(doc)

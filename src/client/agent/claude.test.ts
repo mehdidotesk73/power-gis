@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { startClaude, CLAUDE_MODEL, describeError } from './claude'
+import { afterEach, describe, expect, it } from 'vitest'
+import { startClaude, CLAUDE_MODEL, describeError, DROP_WAITS, isDropped } from './claude'
 
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: unknown }
 
@@ -112,5 +112,51 @@ describe('Claude adapter', () => {
     const { fetchImpl } = fakeApi([sse([{ type: 'tool_use', id: 'tu_1', name: 'get_workspace', input: {} }], 'max_tokens')])
     const s = startClaude({ apiKey: 'k', system: 'S', tools }, fetchImpl)
     expect(await s.send({ text: 'go' }, {})).toMatchObject({ stop: 'truncated', toolCalls: [] })
+  })
+})
+
+describe('a dropped connection', () => {
+  const waits = [...DROP_WAITS]
+  afterEach(() => DROP_WAITS.splice(0, DROP_WAITS.length, ...waits))
+  /** A response that streams the start of an answer, then the connection drops (Safari: "Load failed"). */
+  const dropped = (body: string) =>
+    new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(body.slice(0, Math.floor(body.length / 2))))
+          c.error(new TypeError('Load failed'))
+        },
+      }),
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    )
+
+  it('sends the same step again after a pause, and the turn goes through', async () => {
+    DROP_WAITS.splice(0, DROP_WAITS.length, 5, 5, 5)
+    const answer = sse([{ type: 'text', text: 'All of it, at last.' }], 'end_turn')
+    const bodies: unknown[] = []
+    let n = 0
+    const fetchImpl = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)).messages)
+      return ++n <= 2 ? dropped(answer) : new Response(answer, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }) as typeof fetch
+    const s = startClaude({ apiKey: 'sk-test', system: 'S', tools }, fetchImpl)
+    const retries: unknown[] = []
+    const t = await s.send({ text: 'describe every dataset' }, { onRetry: (r) => retries.push(r && { attempt: r.attempt, max: r.max }) })
+    expect(t).toMatchObject({ text: 'All of it, at last.', stop: 'done' })
+    expect(retries).toEqual([{ attempt: 1, max: 3 }, { attempt: 2, max: 3 }, null])
+    // Each try sent the same conversation: the user's message once, nothing from the dropped tries.
+    expect(bodies).toHaveLength(3)
+    expect(bodies[2]).toEqual(bodies[0])
+  })
+
+  it('gives up after the last try, saying the connection dropped and nothing was applied', async () => {
+    DROP_WAITS.splice(0, DROP_WAITS.length, 1, 1)
+    const fetchImpl = (async () => dropped(sse([{ type: 'text', text: 'x' }], 'end_turn'))) as unknown as typeof fetch
+    const s = startClaude({ apiKey: 'sk-test', system: 'S', tools }, fetchImpl)
+    const e = await s.send({ text: 'go' }, {}).then(() => null, (err) => err)
+    expect(isDropped(e)).toBe(true)
+    expect(describeError(e)).toMatch(/^The connection to Anthropic dropped .* Nothing from the step that failed was applied/)
+    expect(isDropped(new TypeError('Failed to fetch'))).toBe(true)
+    expect(isDropped(new Error('Unexpected token } in JSON at position 4'))).toBe(false)
   })
 })
