@@ -53,6 +53,8 @@ export interface TurnEvents {
   onText?(delta: string): void
   /** The model's reasoning (a summary of it), as it arrives. */
   onThinking?(delta: string): void
+  /** The connection dropped and the step is being sent again (attempt n of max), after `waitMs`; `null` once it went through. */
+  onRetry?(r: { attempt: number; max: number; waitMs: number; reason: string } | null): void
 }
 
 /** An image the user attached (base64, already resized for the model). */

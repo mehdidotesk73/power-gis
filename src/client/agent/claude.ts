@@ -61,6 +61,26 @@ export function strictSchema(schema: unknown): unknown {
   return o
 }
 
+/**
+ * A dropped connection, not an answer from Anthropic: the network went away mid-request (Safari's
+ * "Load failed", Chrome's "Failed to fetch", the phone slept, the app went to the background). Worth
+ * sending the same step again after a pause; nothing from it was applied.
+ */
+export function isDropped(e: unknown): boolean {
+  if (e instanceof Anthropic.APIUserAbortError) return false
+  if (e instanceof Anthropic.APIConnectionError) return true
+  if (e instanceof Anthropic.APIError) return e.status === undefined || e.status === 0
+  const m = `${(e as Error)?.name ?? ''} ${(e as Error)?.message ?? String(e)}`
+  return /load failed|failed to fetch|network ?error|networkerror|network connection was lost|connection (was )?(reset|closed|lost)|terminated|ECONNRESET|socket hang up|the internet connection appears to be offline/i.test(m)
+}
+/** Waits before each new try after a dropped connection (ms): a phone that slept needs a moment to reconnect. */
+export const DROP_WAITS = [2000, 5000, 10_000, 20_000, 30_000]
+const pause = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true })
+  })
+
 class ClaudeSession implements ChatSession {
   private history: Msg[] = []
   private readonly tools: Anthropic.Beta.BetaToolUnion[]
@@ -93,6 +113,7 @@ class ClaudeSession implements ChatSession {
     let usage = emptyUsage()
     let text = ''
     let jsonRetries = 0
+    let drops = 0
     let resumes = 0
     for (;;) {
       const stream = this.client.beta.messages.stream(
@@ -119,11 +140,21 @@ class ClaudeSession implements ChatSession {
       try {
         msg = await stream.finalMessage()
       } catch (e) {
+        // A dropped connection: the same step goes again after a pause (the history holds it, unchanged),
+        // up to DROP_WAITS.length times. Stop wins at any point.
+        if (isDropped(e) && !signal?.aborted && drops < DROP_WAITS.length) {
+          const waitMs = DROP_WAITS[drops++]
+          events.onRetry?.({ attempt: drops, max: DROP_WAITS.length, waitMs, reason: (e as Error)?.message ?? String(e) })
+          await pause(waitMs, signal)
+          if (signal?.aborted) throw e
+          continue
+        }
         // API errors (auth, rate limit, the user's Stop) go to the caller; a tool
         // input that couldn't be parsed at all is retried a couple of times.
-        if (e instanceof Anthropic.APIError || jsonRetries++ >= 2) throw e
+        if (e instanceof Anthropic.APIError || isDropped(e) || jsonRetries++ >= 2) throw e
         continue
       }
+      if (drops) events.onRetry?.(null)
       usage = addUsage(usage, usageOf(msg.usage))
       text += turnText
       if (msg.stop_reason === 'refusal') return { text, toolCalls: [], stop: 'refused', usage }
@@ -185,7 +216,8 @@ export function describeError(e: unknown): string {
   if (e instanceof Anthropic.AuthenticationError) return 'The API key was not accepted. Check it in the assistant settings.'
   if (e instanceof Anthropic.PermissionDeniedError) return "This API key isn't allowed to use the model. Check your Anthropic Console workspace."
   if (e instanceof Anthropic.RateLimitError) return 'Rate limited by Anthropic. Wait a moment and try again.'
-  if (e instanceof Anthropic.APIConnectionError) return "Couldn't reach Anthropic. Check the connection and try again."
+  if (isDropped(e))
+    return `The connection to Anthropic dropped and didn't come back after several tries (${(e as Error)?.message ?? 'network error'}). Nothing from the step that failed was applied. Keep the app open with the screen on, then tap Retry.`
   if (e instanceof Anthropic.APIError) return `Anthropic API error ${e.status ?? ''}: ${e.message}`
   return (e as Error)?.message ?? String(e)
 }

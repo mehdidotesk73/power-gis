@@ -257,3 +257,39 @@ test('the assistant looks inside a run by its id, changing nothing (read_run)', 
   expect(asked.filter((a) => a.startsWith('POST') || a.includes('/content'))).toEqual([])
   await expect(page.locator('.tool', { hasText: 'Look inside a run' })).toContainText('idle · 2 files')
 })
+
+test('a turn that fails shows Retry and Diagnose: Retry carries on, Diagnose asks first', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  const seen: unknown[] = []
+  let failNext = true
+  const turns = [{ text: 'Carrying on from where it stopped.' }, { text: '## Summary\nThe request was refused with a 400.' }]
+  await page.context().route('https://api.anthropic.com/v1/messages**', async (route) => {
+    seen.push(route.request().postDataJSON())
+    if (failNext) {
+      failNext = false
+      return route.fulfill({ status: 400, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' }, body: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'Something went wrong upstream' } }) })
+    }
+    await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' }, body: turn(turns.shift() ?? { text: 'Done.' }) })
+  })
+  await openAssistant(page)
+  await say(page, 'Describe every dataset')
+  const failed = page.getByTestId('agent.failed')
+  await expect(failed).toContainText('Something went wrong upstream')
+  await expect(page.getByTestId('agent.retry')).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('turn-failed-phone.png') })
+
+  await page.getByTestId('agent.retry').click()
+  await expect(page.getByText('Carrying on from where it stopped.')).toBeVisible()
+  expect(JSON.stringify(seen[1])).toContain('The last step failed')
+  // Retry is gone once the chat moved on.
+  await expect(page.getByTestId('agent.retry')).toHaveCount(0)
+
+  // Diagnose from a failed card: the approval card first, then the red report.
+  failNext = true
+  await say(page, 'And the transforms?')
+  await expect(page.getByTestId('agent.failed').last()).toBeVisible()
+  await page.getByTestId('agent.diagnose').click()
+  await expect(page.getByTestId('ask-card').last()).toContainText('Run a diagnosis of what went wrong?')
+  await page.getByTestId('ask-card').last().getByTestId('ask.button-0').click()
+  await expect(page.getByTestId('agent.diagnosis')).toContainText('The request was refused with a 400.')
+})
