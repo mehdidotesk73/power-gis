@@ -34,6 +34,22 @@ test('a story opens: scenes, a sample, charts and a map, all drawn from their co
   await expect(figure.locator('img')).toBeVisible({ timeout: 30000 })
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
 
+  // Tap the picture: a live map, raised off the page, locked to the figure. Tap a state for its value and rows.
+  await figure.getByTestId('story.map').click()
+  const live = figure.getByTestId('story.livemap')
+  await expect(live.locator('.maplibregl-canvas')).toBeVisible({ timeout: 30000 })
+  await expect(page.locator('.maplibregl-canvas')).toHaveCount(2)
+  await expect(figure.locator('.map.lifted')).toBeVisible()
+  await page.waitForTimeout(1500) // the layer draws and fits
+  const box = (await live.locator('.maplibregl-canvas').boundingBox())!
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5)
+  await expect(figure.getByTestId('story.featurecard')).toBeVisible({ timeout: 10000 })
+  await page.screenshot({ path: test.info().outputPath('story-live-map.png') })
+  // Release: the view goes back to a picture, and the live map is gone.
+  await figure.getByTestId('story.release').click()
+  await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
+  await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
+
   // Edit a narrative: kept in the draft.
   await view.getByTestId('story.edit').click()
   await view.locator('textarea').first().fill('Each row is a county and its median income.')

@@ -19,6 +19,8 @@ const props = withDefaults(
     zoom?: number
     /** 'light' = OpenFreeMap Positron vector tiles (free, no API key); 'none' = plain background. */
     basemap?: 'dark' | 'none'
+    /** Inside a scrolling page: one finger scrolls the page, two fingers (or Ctrl + wheel) move the map. */
+    cooperative?: boolean
   }>(),
   { center: () => [-96.5, 38.5], zoom: 3.2, basemap: 'dark' },
 )
@@ -75,6 +77,7 @@ onMounted(() => {
     attributionControl: { compact: true },
     dragRotate: false,
     pitchWithRotate: false,
+    ...(props.cooperative ? { cooperativeGestures: true } : {}),
   })
   m.touchZoomRotate.disableRotation()
   m.addControl(new NavigationControl({ showCompass: false }), 'top-right')

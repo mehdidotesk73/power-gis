@@ -4,7 +4,9 @@
 // says now, marked when it differs from what the narrative was written on. Maps
 // are drawn from their settings on a map of their own, off screen
 // (visualizationImage.ts), one at a time, when the figure scrolls into view; the
-// picture is kept for the visit.
+// picture is kept for the visit. Tapping a map's picture brings it to life
+// (LiveStoryMap: pan, zoom, tap a region), raised off the page; one live map at a
+// time; Release puts the view back as a picture. None of it is stored.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { request } from '../../client/api'
 import { runFigure, snapshotChanged, type Figure, type Snapshot } from '../../lib/story/story'
@@ -13,6 +15,7 @@ import { paletteColors } from '../../lib/palettes'
 import type { DatasetRecord } from '../../shared/records'
 import type { VisualizationSpec } from '../../lib/dataset/visualization'
 import { visualizationsPng } from '../map/visualizationImage'
+import LiveStoryMap from './LiveStoryMap.vue'
 import { logDebug } from '../../debug'
 
 const props = defineProps<{ figure: Figure; records: Map<string, DatasetRecord> }>()
@@ -62,6 +65,31 @@ async function drawMap(f: Extract<Figure, { kind: 'map' }>) {
   }
 }
 
+// ── a live map, one at a time on the page ─────────────────────────────────
+
+const myId = Symbol('figure')
+const mapLive = ref(false)
+const liveMap = ref<InstanceType<typeof LiveStoryMap>>()
+function goLive() {
+  if (props.figure.kind !== 'map' || !image.value) return
+  // Another figure's live map goes back to a picture first.
+  if (activeLive.value && activeLive.value !== myId) releaseOthers.value?.()
+  activeLive.value = myId
+  releaseOthers.value = () => void liveMap.value?.release()
+  mapLive.value = true
+}
+function onRelease(picture: Blob | null) {
+  if (picture) image.value = URL.createObjectURL(picture) // this visit only: the cache keeps the figure's own picture
+  mapLive.value = false
+  if (activeLive.value === myId) {
+    activeLive.value = null
+    releaseOthers.value = null
+  }
+}
+onBeforeUnmount(() => {
+  if (activeLive.value === myId) (activeLive.value = null), (releaseOthers.value = null)
+})
+
 let seen: IntersectionObserver | null = null
 onMounted(() => {
   if (typeof IntersectionObserver === 'undefined') return void load()
@@ -83,8 +111,12 @@ const cell = (v: unknown) => (v === null || v === undefined ? '—' : typeof v =
 </script>
 
 <script lang="ts">
+import { ref as sharedRef } from 'vue'
 // Shared by every figure on the page: map pictures by their settings.
 const mapCache = new Map<string, Promise<string>>()
+/** The figure whose map is live now (one at a time), and how to send it back to a picture. */
+const activeLive = sharedRef<symbol | null>(null)
+const releaseOthers = sharedRef<(() => void) | null>(null)
 </script>
 
 <template>
@@ -125,9 +157,13 @@ const mapCache = new Map<string, Promise<string>>()
       <p v-if="!shapes && !problem" class="muted small">Reading…</p>
     </div>
 
-    <!-- map: drawn off screen from its settings -->
-    <div v-else class="map">
-      <img v-if="image" :src="image" :alt="figure.caption ?? figure.viz.name" />
+    <!-- map: a picture drawn off screen from its settings; tap it for a live map -->
+    <div v-else class="map" :class="{ lifted: mapLive }">
+      <LiveStoryMap v-if="mapLive" ref="liveMap" :figure="figure" :records="records" @release="onRelease" />
+      <button v-else-if="image" class="tap" data-testid="story.map" :aria-label="`Explore the map: ${figure.viz.name}`" @click="goLive">
+        <img :src="image" :alt="figure.caption ?? figure.viz.name" />
+        <span class="hint">Tap to explore</span>
+      </button>
       <p v-else-if="!problem" class="muted small">{{ drawing ? 'Drawing the map…' : 'The map draws when it scrolls into view.' }}</p>
     </div>
 
@@ -209,6 +245,37 @@ th {
   border-radius: 2px;
   margin-right: 0.3rem;
   vertical-align: -1px;
+}
+.map {
+  border-radius: var(--radius);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+/* Live: raised off the page, so it reads as something to touch. */
+.map.lifted {
+  position: relative;
+  z-index: 2;
+  transform: translateY(-3px) scale(1.015);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.55), 0 0 0 1px var(--accent-blue);
+}
+.tap {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tap .hint {
+  position: absolute;
+  right: 0.45rem;
+  bottom: 0.45rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: var(--text);
+  font-size: 0.7rem;
 }
 .map img {
   width: 100%;
