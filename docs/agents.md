@@ -61,6 +61,14 @@ refuse `caller: 'agent'`).
 device (built-in copy, upload, transform output, a linked copy); it never touches the cloud. A
 linked copy it changes shows ↑ until the user pushes it, and the agent says which ones it changed.
 
+## Notes and revising (every question card)
+
+The app adds an optional **Notes** box to every `ask_user` card (unless the assistant made its own, or the card is
+full), and — on a card with something to review (a drafted text, a multiple choice) — a **Revise with my notes**
+button after the main answer (`withNotes`, `lib/agent/form.ts`). The answer then carries `revise` (redraft from the
+notes and edits, and ask again) or, with notes on any other button, a reminder to take them into account. The user
+steers a draft (the framing, the components to consider, a plan) in a few words instead of rewriting it.
+
 ## Tools
 
 | Tool | Kind | What it does | Built on |
