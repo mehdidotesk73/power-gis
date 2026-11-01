@@ -9,7 +9,7 @@ import type { Aggregation } from '../lib/dataset/aggregate'
 import type { GeometryBinding } from '../lib/dataset/binding'
 import type { BindingInfo, FindEntry, VizValues } from '../lib/dataset/query'
 import type { VisualizationSettings } from '../lib/dataset/visualization'
-import type { SyncState, TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
+import type { DatasetMetadata, SyncState, TransformInputRef, TransformOutputRef, WorkspaceConfig } from './records'
 import type { ColumnInfo } from '../lib/dataset/columns'
 import type { DatasetProfile } from '../lib/dataset/profile'
 import type { MissingDataset, WorkspaceFile } from '../lib/workspace/file'
@@ -33,6 +33,7 @@ export type UploadSource =
 export interface TransformInput {
   id: string
   name: string
+  description?: string
   inputs: TransformInputRef[]
   /** Each written on Run: into its `outputId`, or a new dataset (whose id it then gets). */
   outputs: TransformOutputRef[]
@@ -53,7 +54,7 @@ export interface Api {
   init: [{ baseUrl: string }, { userId: string }]
   /** Upload a table: stored as a new data table, registered in `datasets`. */
   uploadDataset: [{ source: UploadSource; name?: string }, { datasetId: string }]
-  updateDataset: [{ id: string; name?: string; description?: string; extensions?: Record<string, unknown> }, { datasetId: string }]
+  updateDataset: [{ id: string; name?: string; description?: string; metadata?: DatasetMetadata | null; notes?: string; extensions?: Record<string, unknown> }, { datasetId: string }]
   /** Drops the data table and registry row, and every visualization of it. */
   deleteDataset: [{ id: string }, { datasetId: string }]
   /**
@@ -142,7 +143,7 @@ export interface Api {
   featureRows: [{ datasetId: string; binding: GeometryBinding; key: string }, DataRecord[]]
   /** Creates or updates a workspace with its visualizations and transforms; ones it no longer lists are deleted (output datasets stay). */
   saveWorkspace: [
-    { id?: string; name: string; config: Pick<WorkspaceConfig, 'datasetIds' | 'unavailable' | 'stories' | 'cloudId'>; visualizations: VisualizationInput[]; transforms?: TransformInput[] },
+    { id?: string; name: string; config: Pick<WorkspaceConfig, 'datasetIds' | 'unavailable' | 'stories' | 'about' | 'cloudId'>; visualizations: VisualizationInput[]; transforms?: TransformInput[] },
     { workspaceId: string },
   ]
   deleteWorkspace: [{ id: string }, { workspaceId: string }]

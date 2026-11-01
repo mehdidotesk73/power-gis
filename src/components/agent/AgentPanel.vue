@@ -359,7 +359,7 @@ async function storyteller(req: { visualizationIds: string[]; wishes: string; st
   const doc = props.host.doc()
   const l = lineageOf(doc, req.visualizationIds)
   const rewrite = req.storyId ? doc.stories?.find((x) => x.id === req.storyId) : undefined
-  const message = `${storyRequest(l.visualizations.map((v) => v.name), lineageText(l, props.host.record), rewrite)}${req.wishes ? `\n\nWhat the user asked of the story: ${req.wishes}` : ''}`
+  const message = `${storyRequest(l.visualizations.map((v) => v.name), lineageText(l, props.host.record, doc.about), rewrite)}${req.wishes ? `\n\nWhat the user asked of the story: ${req.wishes}` : ''}`
   const chat: StoryChat = { visualizationIds: req.visualizationIds, ...(req.storyId ? { storyId: req.storyId } : {}) }
   const step = [...items.value].reverse().find((x): x is Extract<Item, { kind: 'tool' }> => x.kind === 'tool' && x.call.name === 'tell_story' && x.state === 'running')
   const log: string[] = []

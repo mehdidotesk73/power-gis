@@ -20,6 +20,32 @@ describe('workspace documents as files and zips', () => {
     expect(unzipDocument(zipDocument(file))).toEqual({ ok: true, file })
   })
 
+  it('keeps the About note as about.md, through files, zips and documents', () => {
+    const file = { ...load(DEFAULT), about: '## Question\nWhere is a therapy practice viable?' }
+    const files = documentFiles(file)
+    expect(files.get('about.md')).toBe('## Question\nWhere is a therapy practice viable?\n')
+    expect(files.get('overview.md')).toContain('## About\n## Question')
+    expect(filesDocument(files)).toEqual({ ok: true, file })
+    expect(unzipDocument(zipDocument(file))).toEqual({ ok: true, file })
+    expect(parseWorkspaceFile(JSON.stringify(file))).toEqual({ ok: true, file })
+  })
+
+  it('keeps datasets\' metadata and notes and transforms\' descriptions through files, zips and documents', () => {
+    const base = load(DEFAULT)
+    const file = {
+      ...base,
+      datasets: base.datasets.map((d, i) => (i === 0 ? { ...d, metadata: { row: 'one per county', source: { publisher: 'Census Bureau', urls: ['https://census.gov'] }, caveats: ['CT uses planning regions'] }, notes: 'Fetched by hand.' } : d)),
+      transforms: base.transforms.map((t, i) => (i === 0 ? { ...t, description: 'Cleans income: one row per county.' } : t)),
+    }
+    expect(filesDocument(documentFiles(file))).toEqual({ ok: true, file })
+    expect(unzipDocument(zipDocument(file))).toEqual({ ok: true, file })
+    // Hand-edited documents: metadata cleaned, text that isn't text dropped.
+    const messy = { ...file, datasets: [{ ...file.datasets[0], metadata: { row: ' ', key: 'fips' }, notes: 3 }, ...file.datasets.slice(1)] }
+    const p = parseWorkspaceFile(JSON.stringify(messy))
+    expect(p.ok && p.file.datasets[0]).toMatchObject({ metadata: { key: 'fips' } })
+    expect(p.ok && p.file.datasets[0]).not.toHaveProperty('notes')
+  })
+
   it('lays the files out as the agent sees them: SQL in its own files, never in JSON', () => {
     const file = load(DEFAULT)
     const files = documentFiles(file)

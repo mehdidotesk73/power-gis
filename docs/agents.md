@@ -409,6 +409,22 @@ put "Tell the story of … (visualization ids …)" in the current chat — the 
 priced into the chat's cost), and the assistant hears back the story's id, title and scenes, so follow-ups ("shorter",
 "add a scene on the weights") go through the same chat.
 
+- **Reads only the workspace (user, 2026-11-01)**: never the chat, so a story can be told in a new chat or after a
+  reload. What a chat learns lives in the workspace: every dataset has a plain-language **description**, structured
+  **metadata** (row, key, columns, source — publisher and who they are, coverage, period, fetched, how it was made,
+  terms — caveats) and **notes**; every transform a plain-language **description** (what and why); the workspace's
+  **About** note (`doc.about`, the assistant's `/about.md`, the Workspace panel's About) holds only the question and
+  its framing. The assistant fills them as it works (datasets.json, the transform files, about.md); the lineage text
+  opens with About, then each dataset's description, metadata and notes and each transform's description and SQL.
+- **Voice (user, 2026-11-01)**: written for someone who isn't a data person — meaning, not mechanics: no row counts,
+  column lists or SQL. **Three acts**: (1) the question and the base data, grouped by what each source stands for, each
+  in plain words (who published it and who they are, what it measures, where and when, how it was made, what it can't
+  do); figures: a chart of how a measure is spread or differs, or a few telling rows. (2) What the steps compute and
+  why, one scene per idea (percentiles so measures can be added, weights, proxies, missing data), with a sample,
+  histogram, scatter or map of an intermediate by what the scene is about. (3) Each map with its headlines, queried:
+  top and bottom places nationally, best and worst states, where the middle half lies, patterns; then how to read them
+  together. Facts about the data come only from the descriptions, metadata and queries; what an institution is may come
+  from general knowledge.
 - **What it reads**: `lib/story/lineage.ts` walks from the visualizations back to the starting data (each dataset and
   transform once, inputs first) and writes it out — every dataset's facts and **description** (why descriptions must
   carry the reasoning: `docs/agents.md` *Describing datasets*), every transform's SQL, the visualizations' settings.

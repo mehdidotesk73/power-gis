@@ -3,6 +3,7 @@
 // for the signed-in user's token (server/cloud.ts), tests a fake.
 import type { WorkspaceFile } from '../lib/workspace/file'
 import type { ColumnInfo } from '../lib/dataset/columns'
+import type { DatasetMetadata } from './records'
 
 export interface CloudWorkspace {
   id: string
@@ -86,8 +87,8 @@ export interface CloudDatasetDetails {
   description: string
   columns: ColumnInfo[]
   rowCount: number
-  /** Origin and extensions (the SQL that wrote an output, a built-in's table, …). */
-  meta: { origin?: string; extensions?: Record<string, unknown> }
+  /** Origin and extensions (the SQL that wrote an output, a built-in's table, …), and the dataset's metadata and notes. */
+  meta: { origin?: string; extensions?: Record<string, unknown>; metadata?: DatasetMetadata; notes?: string }
 }
 export interface CloudDataset extends CloudDatasetDetails {
   /** Its version: when it last changed (the database's updated_at). */

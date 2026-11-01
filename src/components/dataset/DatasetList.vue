@@ -19,6 +19,8 @@ import { localSyncState, storeOf, type DatasetRecord, type SyncState } from '../
 import { useDetailTarget } from '../detailTarget'
 import { vReveal } from '../reveal'
 import DatasetEditor from './DatasetEditor.vue'
+import type { DatasetEdit } from '../../lib/workspace/workspace'
+import { sourceLine } from '../../lib/dataset/metadata'
 
 const props = defineProps<{
   datasets: DatasetRecord[]
@@ -42,7 +44,7 @@ const emit = defineEmits<{
   (e: 'cloud', action: CloudAction, id: string): void
   (e: 'dismiss-note', id: string): void
   (e: 'reorder', ids: string[]): void
-  (e: 'update', id: string, patch: { name?: string; description?: string }): void
+  (e: 'update', id: string, patch: DatasetEdit): void
   /** Put another dataset (one here, or a new upload) in this one's place in the workspace. */
   (e: 'replace', id: string, newId: string): void
 }>()
@@ -136,6 +138,7 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
       <div class="title">
         <strong :title="ds.name">{{ ds.name }}</strong>
         <span v-if="ds.description" class="desc">{{ ds.description }}</span>
+        <span v-if="ds.metadata?.row || ds.metadata?.source" class="facts muted">{{ [ds.metadata?.row, sourceLine(ds.metadata?.source)].filter(Boolean).join(' · ') }}</span>
         <span class="muted">
           <span
             class="store"
@@ -218,6 +221,13 @@ const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n ==
 }
 .desc {
   font-size: 0.76rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.facts {
+  font-size: 0.72rem;
 }
 .edit {
   display: grid;

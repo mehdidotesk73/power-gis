@@ -16,7 +16,7 @@ import { newId } from '../dataset/dataset'
 import { COLORMAPS, type ColormapName } from '../colormaps'
 import type { PaletteName } from '../palettes'
 import { MAGNITUDE_FIELD, PATTERNS, type ColorEncoding, type OpacityEncoding, type PatternEncoding, type PatternKind, type ScalarStyle, type VectorStyle } from '../style'
-import { addDataset, addTransform, addVisualization, newOutput, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
+import { addDataset, addTransform, addVisualization, newOutput, setAbout, type DatasetEdit, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
 import { outputCheck } from './checks'
 import { transformState } from '../workspace/dag'
 import { datasetFact, snapshot } from '../workspace/file'
@@ -42,7 +42,7 @@ export interface AgentHost {
   runTransform(id: string): Promise<{ ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }>
   deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
   /** Drafts a dataset's new name / description (written to it when the user saves). */
-  updateDataset(id: string, patch: { name?: string; description?: string }): { ok: true } | { ok: false; message: string }
+  updateDataset(id: string, patch: DatasetEdit): { ok: true } | { ok: false; message: string }
   /** Shows the user a question card (details, fields, buttons); resolves with their answer. */
   ask(form: Form): Promise<FormAnswer>
   /** Adds a file (a scraper's CSV or GeoJSON) as a new dataset in the workspace, with a description. */
@@ -290,7 +290,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'tell_story',
     description:
-      'Have the storyteller write a story about some visualizations: scenes that walk from their starting data, through each transform, to the maps, each a short narrative with a figure or two (rows, a chart, a map). It reads the datasets\' descriptions and the SQL, so describe datasets well first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one). It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
+      'Have the storyteller write a story about some visualizations, for someone who isn\'t a data person: the base data in plain words (who published it, what it measures), what the steps compute and why, then the maps and their headlines; short scenes with a figure or two (rows, a chart, a map). It reads only what the workspace keeps — the About note (/about.md), the datasets\' descriptions and the SQL, never this chat — so make sure those say what the story needs first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one). It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -690,7 +690,8 @@ async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): P
         const out = await host.dataset(o.outputId)
         need(out, `${where}: output "${o.name}" writes dataset "${o.outputId}", which doesn't exist (leave outputId out to make a new one)`)
       }
-      const t: TransformSpec = { id: (raw.id as string | undefined) ?? newId(), name: raw.name, inputs, outputs }
+      need(optStr(raw.description), `${where}.description must be text`)
+      const t: TransformSpec = { id: (raw.id as string | undefined) ?? newId(), name: raw.name, ...(str(raw.description) && raw.description.trim() ? { description: raw.description.trim() } : {}), inputs, outputs }
       const r = addTransform(doc, t)
       if (r.ok) doc = r.doc
       else errors.push(`${where} "${raw.name}": ${r.error.message}`)
@@ -775,7 +776,7 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
   const refused = (errors: string[]) => err(`Nothing was changed. Fix these in the files and apply again:\n- ${errors.join('\n- ')}`, `refused: ${plural(errors.length, 'problem')}`)
   const assembled = assembleFiles(s.files, cur, newId, facts(host))
   if (!assembled.ok) return refused(assembled.errors)
-  const { input: description, created, unused, datasetEdits } = assembled.value
+  const { input: description, created, unused, datasetEdits, about } = assembled.value
   let built: { doc: WorkspaceDoc; errors: string[] }
   try {
     built = await buildWorkspace(host, cur, keepUnchanged(description, cur))
@@ -784,7 +785,7 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
     return refused([e.message])
   }
   if (built.errors.length) return refused(built.errors)
-  const { doc } = built
+  const doc = about === undefined ? built.doc : (setAbout(built.doc, about) as { ok: true; doc: WorkspaceDoc }).doc
   // Only what this chat made may go unasked: the user's own items stay unless they asked.
   need(input.userAsked === undefined || (Array.isArray(input.userAsked) && input.userAsked.every(str)), '`userAsked` must be a list of ids')
   const asked = new Set((input.userAsked as string[] | undefined) ?? [])
@@ -803,9 +804,11 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
     )
   const changes = [
     ...describeChanges(cur, doc),
+    ...(about === undefined ? [] : [about ? 'updated About (/about.md)' : 'cleared About (/about.md)']),
     ...Object.entries(datasetEdits).map(([id, e]) => {
       const was = host.record(id)?.name ?? id
-      return e.name ? `renamed dataset “${was}” → “${e.name}”${e.description !== undefined ? ' (and its description)' : ''}` : `described dataset “${was}”`
+      const parts = [e.description !== undefined && 'description', e.metadata !== undefined && 'metadata', e.notes !== undefined && 'notes'].filter(Boolean).join(', ')
+      return e.name ? `renamed dataset “${was}” → “${e.name}”${parts ? ` (and its ${parts})` : ''}` : `updated dataset “${was}”: ${parts}`
     }),
   ]
   const notRun = doc.transforms.filter((t) => t.outputs.some((o) => !o.outputId)).map((t) => t.name)

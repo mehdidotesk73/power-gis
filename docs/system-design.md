@@ -188,8 +188,13 @@ backend (Supabase + functions) is a refactor, not a rewrite.
 - **Boundary datasets** — region codes become shapes by a join onto a boundary dataset: built-in
   `us_counties` / `us_states` (`lib/data/boundaryTables.ts`: us-atlas TopoJSON → rows with `fips`,
   names and a region `geometry`; read by the worker's `readBuiltin`).
-- **Not dataset properties:** source and usage policy — they belong to the agent workflow's run
-  records (roadmap step 5).
+- **Details**: a plain-language `description`; structured `metadata` (`lib/dataset/metadata.ts`: row, key, columns with
+  meaning and unit, source — publisher and who they are, title, URLs, coverage, period, fetched, how it was made,
+  terms — and caveats); free `notes`. Drafted like names (`DatasetEdit`), saved with `updateDataset`, carried in
+  documents (`datasets[]`), the zip's `datasets.json`, the fingerprint, and a cloud dataset's `meta`. "Made by" and
+  "Feeds" are never stored: the graph has them. Transforms have a plain-language `description`.
+- **Not a dataset property:** usage policy (what an agent may do with it) — it belongs to the agent workflow's run
+  records (roadmap step 5). The *described* source is metadata (user, 2026-11-01).
 
 ### Transforms (SQL that makes datasets)
 

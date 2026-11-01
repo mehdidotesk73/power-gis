@@ -147,6 +147,19 @@ describe('dataset details as a draft', () => {
   it('refuses an empty name', () => {
     expect(editDataset(base, 'a', { name: '  ' }, stored).ok).toBe(false)
   })
+  it('drafts metadata and notes too: shown over the stored ones, cleared with null, dropped when back to what is stored', () => {
+    const metadata = { row: 'one per plant', source: { publisher: 'EIA' } }
+    const r1 = editDataset(base, 'a', { metadata, notes: ' Checked by hand ' }, stored)
+    if (!r1.ok) throw new Error()
+    expect(withEdits(r1.doc, { id: 'a', ...stored })).toEqual({ id: 'a', ...stored, metadata, notes: 'Checked by hand' })
+    const r2 = editDataset(r1.doc, 'a', { metadata: null }, { ...stored, metadata })
+    if (!r2.ok) throw new Error()
+    expect(r2.doc.datasetEdits).toEqual({ a: { metadata: null, notes: 'Checked by hand' } })
+    expect(withEdits(r2.doc, { id: 'a', ...stored, metadata })).not.toHaveProperty('metadata', metadata)
+    const r3 = editDataset(r1.doc, 'a', { metadata: { ...metadata }, notes: '' }, { ...stored, metadata })
+    if (!r3.ok) throw new Error()
+    expect(r3.doc.datasetEdits).toBeUndefined()
+  })
   it('forgets the change when the dataset leaves the workspace', () => {
     const r1 = editDataset(base, 'a', { name: 'X' }, stored)
     if (!r1.ok) throw new Error()

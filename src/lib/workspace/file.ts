@@ -12,7 +12,8 @@ import type { VisualizationSettings, VisualizationSpec } from '../dataset/visual
 import { newId } from '../dataset/dataset'
 import { isSupportedBinding } from '../dataset/binding'
 import { normalizeTransform, workspaceRequires, type DatasetOrigin, type MissingWhy, type TransformSpec, type UnavailableDataset, type WorkspaceDoc } from './workspace'
-import type { DatasetRecord, DatasetStore } from '../../shared/records'
+import type { DatasetMetadata, DatasetRecord, DatasetStore } from '../../shared/records'
+import { cleanMetadata } from '../dataset/metadata'
 import { builtinTable } from '../../shared/builtins'
 import { readStories, remapStory, type Story } from '../story/story'
 
@@ -25,7 +26,10 @@ export type { DatasetOrigin } from './workspace'
 export interface DatasetFact {
   id: string
   name: string
+  /** Plain language (lib/dataset/metadata.ts has the structured part). */
   description?: string
+  metadata?: DatasetMetadata
+  notes?: string
   /** `remote`: linked to a cloud dataset (`cloudId`), which another device pulls. */
   store: DatasetStore
   cloudId?: string
@@ -52,6 +56,8 @@ export interface WorkspaceFile {
   requires?: string[]
   /** Stories about the workspace (lib/story/story.ts). */
   stories?: Story[]
+  /** About the workspace (markdown): the question it answers and its framing. */
+  about?: string
 }
 
 /** Every dataset id the workspace points at, in a stable order. */
@@ -82,6 +88,8 @@ export function datasetFact(id: string, record: DatasetRecord | undefined, trans
     id,
     name: record?.name ?? (writer ? writer.outputs.find((o) => o.outputId === id)!.name : 'Unknown dataset'),
     ...(record?.description ? { description: record.description } : {}),
+    ...(record?.metadata ? { metadata: record.metadata } : {}),
+    ...(record?.notes ? { notes: record.notes } : {}),
     store: record?.link ? 'remote' : 'local',
     ...(record?.link ? { cloudId: record.link.cloudId } : {}),
     ...(record ? { rows: record.rowCount } : {}),
@@ -104,6 +112,7 @@ export function toWorkspaceFile(doc: WorkspaceDoc, record: (id: string) => Datas
     datasets: pointers(body).map((id) => datasetFact(id, record(id), transforms, doc.unavailable?.[id])),
     ...(workspaceRequires(doc).length ? { requires: workspaceRequires(doc) } : {}),
     ...(doc.stories?.length ? { stories: doc.stories } : {}),
+    ...(doc.about ? { about: doc.about } : {}),
   }
 }
 
@@ -137,10 +146,11 @@ export function parseWorkspaceObject(o: unknown): Parsed {
   const file = o as unknown as WorkspaceFile
   // A pointer without facts (hand-edited documents) gets the little that's known.
   const known = new Set(file.datasets.map((d) => d.id))
-  const datasets = [...file.datasets, ...pointers(file).filter((id) => !known.has(id)).map((id) => datasetFact(id, undefined, file.transforms))]
-  const { stories: _s, ...base } = file
+  const datasets = [...file.datasets.map(cleanFact), ...pointers(file).filter((id) => !known.has(id)).map((id) => datasetFact(id, undefined, file.transforms))]
+  const { stories: _s, about: _a, ...base } = file
   const stories = readStories((o as Obj).stories)
-  return { ok: true, file: { ...base, datasets, transforms: file.transforms.map((t) => normalizeTransform(t)), ...(stories.length ? { stories } : {}) } }
+  const about = isStr((o as Obj).about) ? ((o as Obj).about as string).trim() : ''
+  return { ok: true, file: { ...base, datasets, transforms: file.transforms.map((t) => cleanTransform(normalizeTransform(t))), ...(stories.length ? { stories } : {}), ...(about ? { about } : {}) } }
 }
 
 function isVisualization(v: unknown, withId: boolean): boolean {
@@ -155,6 +165,19 @@ function isTransform(t: unknown, withId: boolean): boolean {
   const outputsOk = Array.isArray(t.outputs) ? t.outputs.every((x) => isObj(x) && isStr(x.sql) && isStr(x.name) && isStr(x.key)) : isStr(t.sql)
   const requiresOk = t.requires === undefined || (Array.isArray(t.requires) && t.requires.every(isStr))
   return (!withId || isStr(t.id)) && isStr(t.name) && outputsOk && requiresOk && Array.isArray(t.inputs) && t.inputs.every((i) => isObj(i) && isStr(i.datasetId) && isStr(i.alias))
+}
+
+/** A fact's free parts made safe: text that isn't text dropped, metadata cleaned. */
+function cleanFact(d: DatasetFact): DatasetFact {
+  const { description, metadata, notes, ...rest } = d
+  const m = cleanMetadata(metadata)
+  return { ...rest, ...(isStr(description) && description.trim() ? { description } : {}), ...(m ? { metadata: m } : {}), ...(isStr(notes) && notes.trim() ? { notes } : {}) }
+}
+/** A transform's description kept only when it's text. */
+function cleanTransform<T extends { description?: unknown }>(t: T): T {
+  if (t.description === undefined || (isStr(t.description) && t.description.trim())) return t
+  const { description: _d, ...rest } = t
+  return rest as T
 }
 
 function isFact(d: unknown): boolean {
@@ -243,7 +266,7 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   for (const id of lacking) {
     const f = facts.get(id)
     unavailable[id] = f
-      ? { name: f.name, ...(f.description ? { description: f.description } : {}), store: f.store, ...(f.cloudId ? { cloudId: f.cloudId } : {}), ...(f.rows !== undefined ? { rows: f.rows } : {}), origin: f.origin, ...(f.sameAs ? { sameAs: f.sameAs } : {}), why: why.get(id) ?? 'unknown' }
+      ? { name: f.name, ...(f.description ? { description: f.description } : {}), ...(f.metadata ? { metadata: f.metadata } : {}), ...(f.notes ? { notes: f.notes } : {}), store: f.store, ...(f.cloudId ? { cloudId: f.cloudId } : {}), ...(f.rows !== undefined ? { rows: f.rows } : {}), origin: f.origin, ...(f.sameAs ? { sameAs: f.sameAs } : {}), why: why.get(id) ?? 'unknown' }
       : { name: 'Unknown dataset', why: why.get(id) ?? 'unknown' }
   }
   const vizIds = new Map<string, string>()
@@ -253,7 +276,7 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   // Stories point at visualizations and transforms by id: they follow the new ones.
   const stories = (file.stories ?? []).map((s) => remapStory(s, { visualization: (id) => vizIds.get(id), transform: (id) => trIds.get(id) }))
   return {
-    doc: { ...(current.id ? { id: current.id } : {}), ...(current.cloudId ? { cloudId: current.cloudId } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}), ...(stories.length ? { stories } : {}) },
+    doc: { ...(current.id ? { id: current.id } : {}), ...(current.cloudId ? { cloudId: current.cloudId } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}), ...(stories.length ? { stories } : {}), ...(file.about ? { about: file.about } : {}) },
     missing: lacking,
   }
 }
@@ -305,7 +328,7 @@ export function overviewOf(file: WorkspaceFile): string {
   const ds = (id: string) => `"${fact.get(id)?.name ?? id}"`
   const origin = (d: DatasetFact) =>
     d.origin.kind === 'builtin' ? 'built-in' : d.origin.kind === 'output' ? `output of "${file.transforms.find((t) => t.id === (d.origin as { transform: string }).transform)?.name ?? '?'}"` : d.origin.kind === 'upload' ? `uploaded (${d.origin.source})` : 'origin unknown'
-  const lines = [`# Workspace "${file.name}"`, '', `## Datasets (${file.datasetIds.length})`]
+  const lines = [`# Workspace "${file.name}"`, '', ...(file.about ? ['## About', file.about, ''] : []), `## Datasets (${file.datasetIds.length})`]
   for (const id of file.datasetIds) {
     const d = fact.get(id)
     lines.push(d ? `- ${d.name} · ${d.store === 'remote' ? 'Cloud' : 'Local'}${d.rows !== undefined ? ` · ${d.rows.toLocaleString()} rows` : ''} · ${origin(d)}` : `- ${id}`)
@@ -321,7 +344,7 @@ export function overviewOf(file: WorkspaceFile): string {
 
 /** Stable text of what Save would store — equal text means nothing to save. */
 export function snapshot(doc: WorkspaceDoc): string {
-  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms, datasetEdits: doc.datasetEdits ?? {}, stories: doc.stories ?? [] })
+  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms, datasetEdits: doc.datasetEdits ?? {}, stories: doc.stories ?? [], about: doc.about ?? '' })
 }
 
 /** Unsaved edits kept on the device between visits. */
