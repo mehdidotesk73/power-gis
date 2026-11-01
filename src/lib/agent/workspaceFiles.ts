@@ -5,12 +5,12 @@
 // the draft changes (tools.ts).
 //
 //   workspace.json                    index: name, datasetIds, transform ids, visualization ids (draw order)
-//   datasets.json                     the workspace's datasets by id, as the document knows them: name and
-//                                     description (editable); store, cloudId, rows, origin, sameAs (read-only)
-//   transforms/<id>.json              one transform: name, inputs, outputs (key, name, outputId)
+//   datasets.json                     the workspace's datasets by id, as the document knows them: name,
+//                                     description, metadata, notes (editable); store, cloudId, rows, origin, sameAs (read-only)
+//   transforms/<id>.json              one transform: name, description, inputs, outputs (key, name, outputId)
 //   transforms/<id>.<key>.sql         that output's SQL, plain (found by name: no reference to get wrong)
 //   visualizations/<id>.json          one visualization, every setting (as in a downloaded zip)
-//   about.md                          about the workspace: its question, framing, decisions (markdown;
+//   about.md                          about the workspace: the question it answers and its framing (markdown;
 //                                     what the storyteller and the next chat read)
 //   overview.md                       generated, read-only: one line per item
 //
@@ -19,7 +19,8 @@
 
 import type { VisualizationSpec } from '../dataset/visualization'
 import type { ColorEncoding } from '../style'
-import type { TransformSpec, WorkspaceDoc } from '../workspace/workspace'
+import type { DatasetEdit, TransformSpec, WorkspaceDoc } from '../workspace/workspace'
+import { readMetadata, sameMetadata } from '../dataset/metadata'
 import type { DatasetFact } from '../workspace/file'
 
 type Obj = Record<string, unknown>
@@ -41,6 +42,7 @@ export function agentColor(c: ColorEncoding): Obj {
 export const agentTransform = (t: TransformSpec): Obj => ({
   id: t.id,
   name: t.name,
+  ...(t.description ? { description: t.description } : {}),
   inputs: t.inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })),
   outputs: t.outputs.map((o) => ({ key: o.key, name: o.name, sql: o.sql, ...(o.outputId ? { outputId: o.outputId } : {}) })),
 })
@@ -67,16 +69,20 @@ const TRANSFORM_FILE = new RegExp(`^transforms/(${NAME})\\.json$`)
 const SQL_FILE = new RegExp(`^transforms/(${NAME})\\.(${NAME})\\.sql$`)
 const VIZ_FILE = new RegExp(`^visualizations/(${NAME})\\.json$`)
 const DIRS = ['transforms', 'visualizations']
-const TRANSFORM_KEYS = ['name', 'inputs', 'outputs']
+const TRANSFORM_KEYS = ['name', 'description', 'inputs', 'outputs']
 const OUTPUT_KEYS = ['key', 'name', 'outputId']
 const VIZ_KEYS = ['kind', 'name', 'datasetId', 'visible', 'binding', 'column', 'aggregation', 'style']
 
-const DATASET_KEYS = ['name', 'description', 'store', 'cloudId', 'rows', 'origin', 'sameAs']
+const DATASET_KEYS = ['name', 'description', 'metadata', 'notes', 'store', 'cloudId', 'rows', 'origin', 'sameAs']
 const READ_ONLY = ['store', 'cloudId', 'rows', 'origin', 'sameAs'] as const
 
 /** What datasets.json says about a dataset: the document's fact for it (lib/workspace/file.ts `datasetFact`), drafted names included. */
 export type DatasetFacts = Omit<DatasetFact, 'id'>
-const datasetEntry = (d: DatasetFacts): Obj => ({ ...d, description: d.description ?? '' })
+/** A dataset as datasets.json shows it: description, metadata and notes always there (empty when unset), so the agent sees the slots. */
+const datasetEntry = (d: DatasetFacts): Obj => {
+  const { name, description, metadata, notes, ...rest } = d
+  return { name, description: description ?? '', metadata: metadata ?? {}, notes: notes ?? '', ...rest }
+}
 
 const pretty = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
 
@@ -86,7 +92,7 @@ export function workspaceFiles(doc: WorkspaceDoc, dataset: (id: string) => Datas
   files.set(INDEX, pretty({ name: doc.name, datasetIds: doc.datasetIds, transforms: doc.transforms.map((t) => t.id), visualizations: doc.visualizations.map((v) => v.id) }))
   files.set(DATASETS, pretty(Object.fromEntries(doc.datasetIds.flatMap((id) => { const d = dataset(id); return d ? [[id, datasetEntry(d)]] : [] }))))
   for (const t of doc.transforms) {
-    files.set(transformPath(t.id), pretty({ name: t.name, inputs: t.inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })), outputs: t.outputs.map((o) => ({ key: o.key, name: o.name, ...(o.outputId ? { outputId: o.outputId } : {}) })) }))
+    files.set(transformPath(t.id), pretty({ name: t.name, ...(t.description ? { description: t.description } : {}), inputs: t.inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })), outputs: t.outputs.map((o) => ({ key: o.key, name: o.name, ...(o.outputId ? { outputId: o.outputId } : {}) })) }))
     for (const o of t.outputs) files.set(sqlPath(t.id, o.key), o.sql.endsWith('\n') ? o.sql : `${o.sql}\n`)
   }
   for (const v of doc.visualizations) {
@@ -232,8 +238,8 @@ export interface Assembled {
   created: { kind: 'transform' | 'visualization'; file: string; id: string }[]
   /** Files no listed item uses (dropped). */
   unused: string[]
-  /** Datasets whose name / description datasets.json changes: id → the new values. */
-  datasetEdits: Record<string, { name?: string; description?: string }>
+  /** Datasets whose details datasets.json changes: id → the new values (metadata null = cleared). */
+  datasetEdits: Record<string, DatasetEdit>
   /** about.md, when it differs from the draft's About ("" clears it). */
   about?: string
 }
@@ -350,9 +356,14 @@ export function assembleFiles(
       for (const k of READ_ONLY) if (e[k] !== undefined && canonical(e[k]) !== canonical(was[k])) errors.push(`${w}: "${k}" is read-only (it says ${JSON.stringify(was[k])})`)
       if (e.name !== undefined && (typeof e.name !== 'string' || !e.name.trim())) errors.push(`${w}: "name" must be non-empty text`)
       if (e.description !== undefined && typeof e.description !== 'string') errors.push(`${w}: "description" must be text`)
-      const patch = {
+      if (e.notes !== undefined && typeof e.notes !== 'string') errors.push(`${w}: "notes" must be text`)
+      const meta = readMetadata(e.metadata, `${w} metadata`)
+      errors.push(...meta.errors)
+      const patch: DatasetEdit = {
         ...(typeof e.name === 'string' && e.name.trim() !== d.name ? { name: e.name.trim() } : {}),
         ...(typeof e.description === 'string' && e.description.trim() !== (d.description ?? '') ? { description: e.description.trim() } : {}),
+        ...(typeof e.notes === 'string' && e.notes.trim() !== (d.notes ?? '') ? { notes: e.notes.trim() } : {}),
+        ...(e.metadata !== undefined && !meta.errors.length && !sameMetadata(meta.value, d.metadata) ? { metadata: meta.value ?? null } : {}),
       }
       if (!Object.keys(patch).length) continue
       datasetEdits[id] = patch

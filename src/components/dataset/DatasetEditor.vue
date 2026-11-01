@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// One dataset's panel: name, description, profile and Replace… — for a dataset
+// One dataset's panel: name, description, metadata, notes, profile and Replace… — for a dataset
 // that's here, and for one the workspace points at that this device doesn't
 // have (what's known of it, why it's missing, what waits on it; nothing to edit
 // but Replace…). Replace… opens the usual add-dataset panel (every source,
@@ -8,9 +8,10 @@
 import { ref } from 'vue'
 import UiButton from '../ui/UiButton.vue'
 import AddDatasetPanel from './AddDatasetPanel.vue'
+import MetadataEditor from './MetadataEditor.vue'
 import { vReveal } from '../reveal'
 import type { DatasetRecord } from '../../shared/records'
-import type { UnavailableDataset } from '../../lib/workspace/workspace'
+import type { DatasetEdit, UnavailableDataset } from '../../lib/workspace/workspace'
 
 const props = defineProps<{
   id: string
@@ -26,7 +27,7 @@ const props = defineProps<{
   closable?: boolean
 }>()
 const emit = defineEmits<{
-  (e: 'update', patch: { name?: string; description?: string }): void
+  (e: 'update', patch: DatasetEdit): void
   (e: 'replace', newId: string): void
   (e: 'close'): void
 }>()
@@ -61,11 +62,28 @@ const short = (v: unknown) =>
     <label>
       Description
       <textarea
-        rows="2"
+        rows="3"
         :value="dataset?.description ?? missing?.info.description ?? ''"
         :disabled="!dataset"
-        placeholder="What this data is, where it's from"
+        placeholder="In plain words, for anyone: what this is, who made it and how, what it's good for"
         @change="emit('update', { description: ($event.target as HTMLTextAreaElement).value })"
+      />
+    </label>
+    <MetadataEditor
+      :metadata="dataset?.metadata ?? missing?.info.metadata"
+      :columns="(dataset?.columns ?? []).map((c) => c.name)"
+      :disabled="!dataset"
+      @change="(m) => emit('update', { metadata: m })"
+    />
+    <label>
+      Notes
+      <textarea
+        rows="2"
+        data-testid="dataset.notes"
+        :value="dataset?.notes ?? missing?.info.notes ?? ''"
+        :disabled="!dataset"
+        placeholder="Anything else worth keeping"
+        @change="emit('update', { notes: ($event.target as HTMLTextAreaElement).value })"
       />
     </label>
     <template v-if="missing">

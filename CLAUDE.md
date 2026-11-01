@@ -151,11 +151,12 @@ whatever they're actually asking about.
 - **Database** (IndexedDB `powergis-db` on this device; Supabase later). Base tables, every row with a
   uuid `id` + editable `name`, no access control yet: `users`, `workspaces` (config of **pointers**:
   `datasetIds`, ordered `visualizationIds`), `datasets` (registry: data table name, columns, row
-  count, origin, description, `extensions`), `transforms` (SQL, inputs `{datasetId, alias}`, output
-  id), `visualizations` (dataset id + settings). **Each dataset is its own data table**
+  count, origin, **description** (plain language), **`metadata`** (structured: row, key, columns {name, meaning, unit}, source
+  {publisher, publisherAbout, title, urls, coverage, period, fetched, method, terms}, caveats; `lib/dataset/metadata.ts`), **notes**
+  (free text), `extensions`), `transforms` (SQL, inputs `{datasetId, alias}`, output id, a plain-language **description**), `visualizations` (dataset id + settings). **Each dataset is its own data table**
   (`ds_<uuid>`). **Stores**: every dataset's rows are here; `storeOf(d)` is `remote` when it's linked to a cloud
-  dataset (`DatasetRecord.link`), else `local`; **users see "Local" / "Cloud" (↑ ↓ ↑↓)** — same functions on both. Datasets carry standard metadata only — **source and usage policy are not dataset
-  properties**.
+  dataset (`DatasetRecord.link`), else `local`; **users see "Local" / "Cloud" (↑ ↓ ↑↓)** — same functions on both. Datasets carry a described **source** in their metadata (who published it, terms, …: for people and the
+  storyteller, user 2026-11-01); **usage policy** (what an agent may do with it) is not a dataset property.
 - **Assistant (agents)** (`docs/agents.md`): **✦ Assistant** in the header opens a chat with the
   dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
   stays on the device (localStorage `powergis.anthropicKey`); calls go straight to Anthropic
@@ -259,8 +260,8 @@ whatever they're actually asking about.
   download elsewhere. Pointers + settings, never rows; loading replaces the
   working copy (fresh visualization ids, datasets missing from the database dropped and reported).
   Details: `docs/system-design.md` §4.
-  **About** (`doc.about`, markdown; `setAbout`): the workspace's question, framing, sources and decisions — what a chat learned that no
-  dataset holds. The assistant keeps it as `/about.md` (one of its files), the user edits it in the Workspace panel (**About**);
+  **About** (`doc.about`, markdown; `setAbout`): the question the workspace answers and its framing (factors, weights) — what no dataset or
+  transform holds. The assistant keeps it as `/about.md` (one of its files), the user edits it in the Workspace panel (**About**);
   saved in the record's `config.about`, documents (`about`), the zip (`about.md`), the overview and the fingerprint; the storyteller reads it first.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
   column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
@@ -350,7 +351,7 @@ whatever they're actually asking about.
   fingerprint; ids remapped on open and Replace…). Lists → **Stories** (`StoryList`, `StoryView`, `StoryFigure`): ＋ Story → pick
   visualizations → "Tell the story of …" goes into the **current assistant chat**, and the assistant calls **`tell_story`**: the
   **storyteller** runs inside that step (`storyteller()` in `AgentPanel.vue`: its own prompt `storyPrompt.ts`, tools `query_sql` +
-  `write_story`, the profile's `storyteller` model), reading only what the workspace keeps — its **About** note and the lineage (`lib/story/lineage.ts`: descriptions, SQL, settings), never the chat, so it works in a new chat or after a reload; it writes for a non-data reader in three acts — the base data in plain words (who published it, what it measures, its limits), what the steps compute and why, the maps with queried headlines (top / bottom places and states, the middle half) — never row counts or column lists; follow-ups go through the same chat. ⚠ marks a figure whose data changed since; Edit changes title and narratives.
+  `write_story`, the profile's `storyteller` model), reading only what the workspace keeps — its **About** note and the lineage (`lib/story/lineage.ts`: datasets' descriptions, metadata and notes, transforms' descriptions and SQL, settings), never the chat, so it works in a new chat or after a reload; it writes for a non-data reader in three acts — the base data in plain words (who published it, what it measures, its limits), what the steps compute and why, the maps with queried headlines (top / bottom places and states, the middle half) — never row counts or column lists; follow-ups go through the same chat. ⚠ marks a figure whose data changed since; Edit changes title and narratives.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
   basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
   the trailing run of symbol layers; labels repainted light with a dark halo).

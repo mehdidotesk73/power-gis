@@ -29,7 +29,7 @@ export interface WorkspaceConfig {
   unavailable?: Record<string, UnavailableDataset>
   /** Its stories (text and figure specs; small). */
   stories?: Story[]
-  /** About the workspace (markdown): its question, framing, decisions. */
+  /** About the workspace (markdown): the question it answers and its framing. */
   about?: string
   /** The account's copy of this workspace (signed in): the id of its row there. */
   cloudId?: string
@@ -62,11 +62,50 @@ export interface DatasetRecord extends BaseRecord {
   store?: DatasetStore
   /** Linked to a cloud dataset: which one, the version this copy last matched, and whether it changed here since. */
   link?: CloudLink
+  /** In plain language, for people and the storyteller: what this is, where it comes from, what it's good for (2–4 sentences). */
   description?: string
+  /** Structured facts: what a row is, the key, the columns, the source, caveats (lib/dataset/metadata.ts). */
+  metadata?: DatasetMetadata
+  /** Anything else worth keeping, in free text. */
+  notes?: string
   /** What's in each column; computed whenever the data table is written. */
   profile?: DatasetProfile
   /** Open slot for features to attach their own metadata (e.g. `builtin`, the table a built-in copy came from). */
   extensions?: Record<string, unknown>
+}
+
+/** A dataset's structured facts. Every part optional; the "Made by" and "Feeds" of a dataset come from the workspace graph, not from here. */
+export interface DatasetMetadata {
+  /** What one row is ("one per US county"). */
+  row?: string
+  /** The key column(s) and their format ("fips, 5-digit text"). */
+  key?: string
+  /** The main columns: meaning and unit. */
+  columns?: { name: string; meaning?: string; unit?: string }[]
+  /** Where raw data comes from (outputs of transforms usually have none). */
+  source?: DatasetSource
+  /** Gaps and limits, one per line. */
+  caveats?: string[]
+}
+
+export interface DatasetSource {
+  /** Who published it ("CDC"). */
+  publisher?: string
+  /** Who they are, in a clause ("the federal public-health agency"). */
+  publisherAbout?: string
+  /** The dataset or table's own name. */
+  title?: string
+  urls?: string[]
+  /** Which places it covers ("every US county except KY and PA"). */
+  coverage?: string
+  /** The period the data describes ("2023", "2020–2024 5-year"). */
+  period?: string
+  /** When it was fetched (YYYY-MM-DD). */
+  fetched?: string
+  /** How it was made: counted, a survey, a model, an official designation, a proxy for something else. */
+  method?: string
+  /** Terms of use. */
+  terms?: string
 }
 
 /**
@@ -104,6 +143,8 @@ export interface TransformOutputRef {
 
 /** Inputs and outputs; every output is written on each Run. (Older records had one `sql` + `outputId`.) */
 export interface TransformRecord extends BaseRecord {
+  /** In plain language: what it does and why. */
+  description?: string
   inputs: TransformInputRef[]
   outputs: TransformOutputRef[]
   /** SQL engine extensions its SQL uses (shared/sqlExtensions.ts), recorded from its last successful run. */

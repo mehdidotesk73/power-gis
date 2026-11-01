@@ -8,7 +8,7 @@
 //   transforms/<id>.json              one transform: name, inputs, outputs (key, name, outputId), requires
 //   transforms/<id>.<key>.sql         that output's SQL, plain
 //   visualizations/<id>.json          one visualization, every setting
-//   about.md                          about the workspace: its question, framing, decisions (markdown)
+//   about.md                          about the workspace: the question it answers and its framing (markdown)
 //   overview.md                       generated, for people (ignored when loading)
 //
 // An item's id is its file name; SQL is never inside JSON. Reading goes back
@@ -58,6 +58,7 @@ export function documentFiles(file: WorkspaceFile): Files {
       transformPath(t.id),
       pretty({
         name: t.name,
+        ...(t.description ? { description: t.description } : {}),
         inputs: t.inputs,
         outputs: t.outputs.map((o) => ({ key: o.key, name: o.name, ...(o.outputId ? { outputId: o.outputId } : {}) })),
         ...(t.requires?.length ? { requires: t.requires } : {}),

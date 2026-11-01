@@ -156,7 +156,7 @@ describe('agent tools', () => {
     await runTool(host, 'get_workspace', {})
     const files = JSON.parse((await edit(host, { command: 'view', path: '/datasets.json' })).content.replace(/^\s*\d+\t/gm, ''))
     // The document's facts for each dataset: the origin structured, as in a downloaded zip.
-    expect(files.prices).toEqual({ name: 'PRICES', description: '', store: 'local', rows: 10, origin: { kind: 'upload', source: 'Device · test.csv' } })
+    expect(files.prices).toEqual({ name: 'PRICES', description: '', metadata: {}, notes: '', store: 'local', rows: 10, origin: { kind: 'upload', source: 'Device · test.csv' } })
     expect(files.shared.store).toBe('remote')
     const write = (o: object) => edit(host, { command: 'create', path: '/datasets.json', file_text: JSON.stringify(o) })
     await write({ ...files, prices: { ...files.prices, rows: 11 } })
@@ -165,6 +165,31 @@ describe('agent tools', () => {
     const r = await runTool(host, 'apply_workspace', {})
     expect(r.summary).toBe('renamed dataset “PRICES” → “Home prices” (and its description)')
     expect(calls).toEqual(['update prices {"name":"Home prices","description":"Zillow ZHVI by county"}'])
+  })
+
+  it('edits a dataset\'s metadata and notes in /datasets.json, checking the metadata\'s fields', async () => {
+    const { host, calls } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices'] })
+    await runTool(host, 'get_workspace', {})
+    const files = JSON.parse((await edit(host, { command: 'view', path: '/datasets.json' })).content.replace(/^\s*\d+\t/gm, ''))
+    const write = (o: object) => edit(host, { command: 'create', path: '/datasets.json', file_text: JSON.stringify(o) })
+    await write({ ...files, prices: { ...files.prices, metadata: { row: 'one county', source: { publisher: 'Zillow', site: 'x' } } } })
+    expect((await runTool(host, 'apply_workspace', {})).content).toContain('metadata.source: unknown field "site"')
+    const metadata = { row: 'one per US county', key: 'fips (5-digit text)', columns: [{ name: 'zhvi', meaning: 'typical home value', unit: '$' }], source: { publisher: 'Zillow', publisherAbout: 'a real-estate marketplace', period: 'Sept 2026', method: 'a model over sales' }, caveats: ['Rural counties are thin'] }
+    await write({ ...files, prices: { ...files.prices, metadata, notes: 'Smoothed, seasonally adjusted.' } })
+    const r = await runTool(host, 'apply_workspace', {})
+    expect(r.summary).toBe('updated dataset “PRICES”: metadata, notes')
+    expect(JSON.parse(calls[0].replace(/^update prices /, ''))).toEqual({ metadata, notes: 'Smoothed, seasonally adjusted.' })
+  })
+
+  it('keeps a transform\'s description in its file', async () => {
+    const { host, state } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices'] })
+    const r = await writeAndApply(
+      host,
+      { datasetIds: ['prices'], transforms: ['clean'], visualizations: [] },
+      { 'transforms/clean.json': { name: '1 Clean', description: 'Keeps one row per county and names the columns plainly.', inputs: [{ datasetId: 'prices', alias: 'p' }], outputs: [{ key: 'main', name: 'Clean prices' }] }, 'transforms/clean.main.sql': 'SELECT * FROM p' },
+    )
+    expect(r.isError, r.content).toBe(false)
+    expect(state.doc.transforms[0].description).toBe('Keeps one row per county and names the columns plainly.')
   })
 
   it('keeps the workspace\'s About note in /about.md: written, applied into the draft, cleared', async () => {

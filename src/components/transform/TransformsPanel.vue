@@ -259,6 +259,7 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
       <template #default="{ item: t }">
         <div class="title">
           <strong>{{ t.name }}</strong>
+          <span v-if="t.description" class="tdesc">{{ t.description }}</span>
           <span class="muted">{{ describe(t) }}</span>
           <span v-if="t.requires?.length" class="muted" :title="`Its SQL uses the SQL engine's ${t.requires.join(', ')} extension`">· uses {{ t.requires.join(', ') }}</span>
           <span v-if="problems?.get(t.id)" class="bad">⚠ {{ problems.get(t.id) }}</span>
@@ -271,6 +272,16 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
         <div v-if="editing === t.id" v-reveal class="ed" :class="{ aside: detailTarget && !compact }" data-no-open>
           <div v-if="detailTarget && !compact" class="aside-title"><span class="eyebrow">Transform</span> <strong>{{ t.name }}</strong></div>
           <label class="row">Name <input type="text" :value="t.name" @change="patch(t, { name: ($event.target as HTMLInputElement).value })" /></label>
+          <label class="stack">
+            Description
+            <textarea
+              rows="2"
+              data-testid="transform.description"
+              :value="t.description ?? ''"
+              placeholder="In plain words: what it does and why (the choice behind it, not the SQL)"
+              @change="patch(t, { description: ($event.target as HTMLTextAreaElement).value.trim() || undefined })"
+            />
+          </label>
 
           <div class="lbl">Inputs <span class="muted">— tap one to preview it below; "as" is its table name in the SQL</span></div>
           <div v-for="(inp, i) in t.inputs" :key="i" class="io">
@@ -413,6 +424,22 @@ defineExpose({ edit: (id: string) => (editing.value = id) })
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+.stack {
+  display: grid;
+  gap: 0.15rem;
+}
+.stack textarea {
+  font: inherit;
+  font-size: 16px; /* below 16px iOS zooms the page on focus */
+  padding: 0.3rem;
+}
+.tdesc {
+  font-size: 0.76rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .row.end {
   justify-content: flex-end;

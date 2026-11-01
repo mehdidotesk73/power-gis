@@ -16,6 +16,7 @@ import { inferColumns, isGeometryColumn, type ColumnInfo } from '../lib/dataset/
 import { newId } from '../lib/dataset/dataset'
 import { bindingInfo, findIndex, groupDataset, queryValues, type FindIndex, type Grouped } from '../lib/dataset/query'
 import { profileRows } from '../lib/dataset/profile'
+import { cleanMetadata, readMetadata, sameMetadata } from '../lib/dataset/metadata'
 import { visualizationLayer } from '../lib/dataset/visualization'
 import { parseWorkspaceFile, parseWorkspaceObject, pointers, replaceDatasetIds, type MissingDataset, type WorkspaceFile } from '../lib/workspace/file'
 import { canManage, canShare, MAX_CLOUD_FILE, type Access, type CloudDataset, type CloudMember, type CloudStore } from '../shared/cloud'
@@ -135,6 +136,8 @@ export function createServer(db: Database, env: ServerEnv) {
       table: have?.table ?? dataTableName(id),
       name: cd.name,
       ...(cd.description ? { description: cd.description } : { description: undefined }),
+      metadata: cleanMetadata(cd.meta.metadata),
+      notes: typeof cd.meta.notes === 'string' && cd.meta.notes.trim() ? cd.meta.notes : undefined,
       columns: cd.columns,
       rowCount: rows.length,
       profile: profileRows(rows, cd.columns),
@@ -157,7 +160,7 @@ export function createServer(db: Database, env: ServerEnv) {
     if (file.byteLength > MAX_CLOUD_FILE) {
       fail('invalid', `"${ds.name}" is too large for cloud storage (${(file.byteLength / 1e6).toFixed(1)} MB compressed; files can be up to ${MAX_CLOUD_FILE / 1024 / 1024} MB)`)
     }
-    const { updatedAt } = await c.putDataset({ id: cloudId, name: ds.name, description: ds.description ?? '', columns: ds.columns, rowCount: ds.rowCount, meta: { origin: ds.origin, ...(ds.extensions ? { extensions: ds.extensions } : {}) } }, file)
+    const { updatedAt } = await c.putDataset({ id: cloudId, name: ds.name, description: ds.description ?? '', columns: ds.columns, rowCount: ds.rowCount, meta: { origin: ds.origin, ...(ds.extensions ? { extensions: ds.extensions } : {}), ...(ds.metadata ? { metadata: ds.metadata } : {}), ...(ds.notes ? { notes: ds.notes } : {}) } }, file)
     return updatedAt
   }
 
@@ -375,13 +378,24 @@ export function createServer(db: Database, env: ServerEnv) {
       return { datasetId: id }
     },
 
-    async updateDataset({ id, name, description, extensions }, caller) {
+    async updateDataset({ id, name, description, metadata, notes, extensions }, caller) {
       const ds = await dataset(id)
       if (name !== undefined && !name.trim()) fail('invalid', 'A dataset needs a name')
-      // A linked copy's new name or description is a change here, pushed with its next sync.
-      const changes = (name !== undefined && name.trim() !== ds.name) || (description !== undefined && description !== (ds.description ?? ''))
+      const meta = metadata === undefined ? undefined : readMetadata(metadata ?? undefined)
+      if (meta?.errors.length) fail('invalid', meta.errors.join('; '))
+      // A linked copy's new details are a change here, pushed with its next sync.
+      const changes =
+        (name !== undefined && name.trim() !== ds.name) ||
+        (description !== undefined && description !== (ds.description ?? '')) ||
+        (notes !== undefined && notes.trim() !== (ds.notes ?? '')) ||
+        (meta !== undefined && !sameMetadata(meta.value, ds.metadata))
+      const { metadata: _m, notes: _n, ...kept } = ds
+      const nextMeta = meta === undefined ? ds.metadata : meta.value
+      const nextNotes = notes === undefined ? ds.notes : notes.trim() || undefined
       await db.put('datasets', {
-        ...ds,
+        ...kept,
+        ...(nextMeta ? { metadata: nextMeta } : {}),
+        ...(nextNotes ? { notes: nextNotes } : {}),
         ...(ds.link && changes ? { link: { ...ds.link, changed: true } } : {}),
         ...(name !== undefined ? { name: name.trim() } : {}),
         ...(description !== undefined ? { description } : {}),
@@ -749,6 +763,7 @@ export function createServer(db: Database, env: ServerEnv) {
         const record: TransformRecord = {
           id: tr.id,
           name: tr.name.trim(),
+          ...(tr.description?.trim() ? { description: tr.description.trim() } : {}),
           inputs: tr.inputs.map((i) => ({ datasetId: i.datasetId, alias: i.alias })),
           outputs: tr.outputs.map((o) => ({ key: o.key, name: o.name, sql: o.sql, ...(o.outputId ? { outputId: o.outputId } : {}) })),
           ...(tr.requires?.length ? { requires: [...tr.requires] } : {}),

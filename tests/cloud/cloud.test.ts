@@ -93,6 +93,20 @@ describe('cloud datasets on a real Supabase stack', () => {
     data(await a1.server.handle('pushDataset', { id }))
     data(await a2.server.handle('pullDataset', { id }))
     expect((await a2.db.get('datasets', id))!.name).toBe('Prices, renamed')
+
+    // So do its metadata and notes.
+    const metadata = { row: 'one per county', source: { publisher: 'Zillow', period: 'Sept 2026' }, caveats: ['Rural counties are thin'] }
+    expect(await a1.server.handle('updateDataset', { id, metadata: { row: 'x', colour: 'red' } as never })).toMatchObject({ ok: false, error: { code: 'invalid' } })
+    data(await a1.server.handle('updateDataset', { id, metadata, notes: 'Smoothed.' }))
+    expect((await status(a1, id)).state).toBe('ahead')
+    data(await a1.server.handle('pushDataset', { id }))
+    data(await a2.server.handle('pullDataset', { id }))
+    expect(await a2.db.get('datasets', id)).toMatchObject({ metadata, notes: 'Smoothed.' })
+    data(await a1.server.handle('updateDataset', { id, metadata: null, notes: '' }))
+    data(await a1.server.handle('pushDataset', { id }))
+    data(await a2.server.handle('pullDataset', { id }))
+    expect((await a2.db.get('datasets', id))!.metadata).toBeUndefined()
+    expect((await a2.db.get('datasets', id))!.notes).toBeUndefined()
   })
 
   it('shares by email: readers pull, writers push and share, the rules hold in the database too', async () => {

@@ -73,6 +73,7 @@ import {
   withEdits,
   removeItems,
   type TransformSpec,
+  type DatasetEdit,
   type OpContext,
   type OpResult,
   type UnavailableDataset,
@@ -831,7 +832,7 @@ async function deleteForGood(id: string, by: Caller = 'user'): Promise<{ ok: tru
 }
 
 /** A dataset's new name / description: a draft edit, written to the dataset on Save. */
-function updateDataset(id: string, patch: { name?: string; description?: string }): { ok: true } | { ok: false; message: string } {
+function updateDataset(id: string, patch: DatasetEdit): { ok: true } | { ok: false; message: string } {
   const was = stored.value.get(id)
   if (!was) return { ok: false, message: `No dataset "${id}" on this device` }
   const r = editDataset(doc.value, id, patch, was)
@@ -1513,7 +1514,7 @@ async function open(w: WorkspaceRecord) {
     const t = await readDb.get('transforms', id)
     // Records saved before multi-output transforms have one `sql` + `outputId`.
     const old = t as typeof t & { sql?: string; outputId?: string }
-    if (t) transforms.push(normalizeTransform({ id: t.id, name: t.name, inputs: t.inputs, outputs: t.outputs, sql: old.sql, outputId: old.outputId, ...(t.requires?.length ? { requires: t.requires } : {}) }))
+    if (t) transforms.push(normalizeTransform({ id: t.id, name: t.name, ...(t.description ? { description: t.description } : {}), inputs: t.inputs, outputs: t.outputs, sql: old.sql, outputId: old.outputId, ...(t.requires?.length ? { requires: t.requires } : {}) }))
   }
   for (const t of transforms) for (const o of t.outputs) if (o.outputId) await loadRecord(o.outputId) // output names for the panel
   for (const t of transforms) for (const id of [...t.inputs.map((i) => i.datasetId), ...t.outputs.flatMap((o) => (o.outputId ? [o.outputId] : []))]) {

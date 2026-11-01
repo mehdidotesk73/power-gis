@@ -8,6 +8,8 @@
 import type { VisualizationSpec } from '../dataset/visualization'
 import type { Story } from '../story/story'
 import { newId } from '../dataset/dataset'
+import { cleanMetadata, sameMetadata } from '../dataset/metadata'
+import type { DatasetMetadata } from '../../shared/records'
 
 export interface WorkspaceDoc {
   /** Server id once saved. */
@@ -31,19 +33,28 @@ export interface WorkspaceDoc {
   /** Stories told about the workspace (lib/story/story.ts): text and figure specs, never images. */
   stories?: Story[]
   /**
-   * About the workspace, in markdown: the question it answers, for whom, the framing, the decisions and
-   * assumptions behind it. What a chat learned that no single dataset holds — kept here so the storyteller
-   * and the next chat (or person) have it after a reload.
+   * About the workspace, in markdown: the question it answers, for whom, and how it frames it (pillars,
+   * weights). What no dataset or transform holds (their own descriptions and metadata hold the rest) — kept
+   * here so the storyteller and the next chat (or person) have it after a reload.
    */
   about?: string
   /** Signed in: the id of this workspace in the account (its copy there). Bookkeeping: not part of the setup. */
   cloudId?: string
 }
 
-/** A drafted change to a dataset's details. */
+/** A drafted change to a dataset's details. `metadata: null` clears it. */
 export interface DatasetEdit {
   name?: string
   description?: string
+  metadata?: DatasetMetadata | null
+  notes?: string
+}
+/** A dataset's editable details. */
+export interface DatasetDetails {
+  name: string
+  description?: string
+  metadata?: DatasetMetadata
+  notes?: string
 }
 
 /** Where a dataset came from: what a device without it can do about it. */
@@ -60,6 +71,8 @@ export type MissingWhy = 'elsewhere' | 'cloud' | 'unknown' | 'builtin' | 'output
 export interface UnavailableDataset {
   name: string
   description?: string
+  metadata?: DatasetMetadata
+  notes?: string
   store?: 'local' | 'remote'
   /** Linked: the cloud dataset another device can pull it from. */
   cloudId?: string
@@ -77,6 +90,8 @@ export interface UnavailableDataset {
 export interface TransformSpec {
   id: string
   name: string
+  /** In plain language: what it does and why (for people and the storyteller). */
+  description?: string
   inputs: { datasetId: string; alias: string }[]
   outputs: TransformOutput[]
   /** SQL engine extensions its SQL uses (e.g. spatial), recorded from its last successful run. */
@@ -167,25 +182,36 @@ export function forgetDataset(doc: WorkspaceDoc, datasetId: string): OpResult {
 }
 
 /**
- * Drafts a dataset's new name and / or description. `stored` is what the dataset has now: a
- * value back to it is no change (and drops out of the draft).
+ * Drafts a dataset's new details (name, description, metadata, notes). `stored` is what the dataset
+ * has now: a value back to it is no change (and drops out of the draft).
  */
-export function editDataset(doc: WorkspaceDoc, datasetId: string, patch: DatasetEdit, stored: { name: string; description?: string }): OpResult {
+export function editDataset(doc: WorkspaceDoc, datasetId: string, patch: DatasetEdit, stored: DatasetDetails): OpResult {
   if (patch.name !== undefined && !patch.name.trim()) return fail('invalid', 'A dataset needs a name')
   const next: DatasetEdit = { ...doc.datasetEdits?.[datasetId] }
   if (patch.name !== undefined) next.name = patch.name.trim()
   if (patch.description !== undefined) next.description = patch.description.trim()
+  if (patch.notes !== undefined) next.notes = patch.notes.trim()
+  if (patch.metadata !== undefined) next.metadata = cleanMetadata(patch.metadata) ?? null
   if (next.name === stored.name) delete next.name
   if (next.description !== undefined && next.description === (stored.description ?? '')) delete next.description
+  if (next.notes !== undefined && next.notes === (stored.notes ?? '')) delete next.notes
+  if (next.metadata !== undefined && sameMetadata(next.metadata ?? undefined, stored.metadata)) delete next.metadata
   const { [datasetId]: _old, ...others } = doc.datasetEdits ?? {}
   const edits = Object.keys(next).length ? { ...others, [datasetId]: next } : others
   return ok({ ...doc, datasetEdits: Object.keys(edits).length ? edits : undefined })
 }
 
 /** A dataset's details with its drafted changes on top. */
-export function withEdits<T extends { id: string; name: string; description?: string }>(doc: WorkspaceDoc, d: T): T {
+export function withEdits<T extends { id: string } & DatasetDetails>(doc: WorkspaceDoc, d: T): T {
   const e = doc.datasetEdits?.[d.id]
-  return e ? { ...d, ...(e.name !== undefined ? { name: e.name } : {}), ...(e.description !== undefined ? { description: e.description } : {}) } : d
+  if (!e) return d
+  return {
+    ...d,
+    ...(e.name !== undefined ? { name: e.name } : {}),
+    ...(e.description !== undefined ? { description: e.description } : {}),
+    ...(e.notes !== undefined ? { notes: e.notes } : {}),
+    ...(e.metadata !== undefined ? { metadata: e.metadata ?? undefined } : {}),
+  }
 }
 
 function sameSet(ids: string[], current: string[]): boolean {

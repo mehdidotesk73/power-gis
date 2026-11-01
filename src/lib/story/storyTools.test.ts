@@ -63,6 +63,13 @@ describe('lineage', () => {
     expect(text).not.toContain('Dataset other')
     expect(text).toMatch(/^# About the workspace\n\(no About note/)
     expect(lineageText(l, (id) => records.get(id), '## Question\nWhere do incomes lag?')).toMatch(/^# About the workspace\n## Question\nWhere do incomes lag\?\n/)
+    // Metadata, notes and transform descriptions reach the storyteller.
+    const withDetails = (id: string) => (id === 'raw' ? { ...records.get(id)!, metadata: { row: 'one per county', source: { publisher: 'Census Bureau', publisherAbout: 'the federal statistics agency', period: '2023' } }, notes: 'Pulled by hand.' } : records.get(id))
+    const l2 = { ...l, steps: l.steps.map((st) => (st.kind === 'transform' && st.transform.id === 't1' ? { ...st, transform: { ...st.transform, description: 'Keeps income per county.' } } : st)) }
+    const t2 = lineageText(l2, withDetails)
+    expect(t2).toContain('Metadata:\n- Row: one per county\n- Source: Census Bureau (the federal statistics agency): 2023')
+    expect(t2).toContain('Notes:\nPulled by hand.')
+    expect(t2).toMatch(/## Transform "[^"]+" \(id t1\)\nDescription: Keeps income per county\./)
     expect(storyRequest(['Income'], 'L')).toBe('Tell the story of this visualization: "Income".\n\nL')
   })
 })

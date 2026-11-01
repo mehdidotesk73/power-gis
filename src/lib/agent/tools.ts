@@ -16,7 +16,7 @@ import { newId } from '../dataset/dataset'
 import { COLORMAPS, type ColormapName } from '../colormaps'
 import type { PaletteName } from '../palettes'
 import { MAGNITUDE_FIELD, PATTERNS, type ColorEncoding, type OpacityEncoding, type PatternEncoding, type PatternKind, type ScalarStyle, type VectorStyle } from '../style'
-import { addDataset, addTransform, addVisualization, newOutput, setAbout, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
+import { addDataset, addTransform, addVisualization, newOutput, setAbout, type DatasetEdit, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
 import { outputCheck } from './checks'
 import { transformState } from '../workspace/dag'
 import { datasetFact, snapshot } from '../workspace/file'
@@ -42,7 +42,7 @@ export interface AgentHost {
   runTransform(id: string): Promise<{ ok: true; outputs: { datasetId: string; name: string; rowCount: number; created: boolean }[] } | { ok: false; message: string }>
   deleteDataset(id: string): Promise<{ ok: true } | { ok: false; message: string }>
   /** Drafts a dataset's new name / description (written to it when the user saves). */
-  updateDataset(id: string, patch: { name?: string; description?: string }): { ok: true } | { ok: false; message: string }
+  updateDataset(id: string, patch: DatasetEdit): { ok: true } | { ok: false; message: string }
   /** Shows the user a question card (details, fields, buttons); resolves with their answer. */
   ask(form: Form): Promise<FormAnswer>
   /** Adds a file (a scraper's CSV or GeoJSON) as a new dataset in the workspace, with a description. */
@@ -650,7 +650,8 @@ async function buildWorkspace(host: AgentHost, cur: WorkspaceDoc, input: Obj): P
         const out = await host.dataset(o.outputId)
         need(out, `${where}: output "${o.name}" writes dataset "${o.outputId}", which doesn't exist (leave outputId out to make a new one)`)
       }
-      const t: TransformSpec = { id: (raw.id as string | undefined) ?? newId(), name: raw.name, inputs, outputs }
+      need(optStr(raw.description), `${where}.description must be text`)
+      const t: TransformSpec = { id: (raw.id as string | undefined) ?? newId(), name: raw.name, ...(str(raw.description) && raw.description.trim() ? { description: raw.description.trim() } : {}), inputs, outputs }
       const r = addTransform(doc, t)
       if (r.ok) doc = r.doc
       else errors.push(`${where} "${raw.name}": ${r.error.message}`)
@@ -766,7 +767,8 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
     ...(about === undefined ? [] : [about ? 'updated About (/about.md)' : 'cleared About (/about.md)']),
     ...Object.entries(datasetEdits).map(([id, e]) => {
       const was = host.record(id)?.name ?? id
-      return e.name ? `renamed dataset “${was}” → “${e.name}”${e.description !== undefined ? ' (and its description)' : ''}` : `described dataset “${was}”`
+      const parts = [e.description !== undefined && 'description', e.metadata !== undefined && 'metadata', e.notes !== undefined && 'notes'].filter(Boolean).join(', ')
+      return e.name ? `renamed dataset “${was}” → “${e.name}”${parts ? ` (and its ${parts})` : ''}` : `updated dataset “${was}”: ${parts}`
     }),
   ]
   const notRun = doc.transforms.filter((t) => t.outputs.some((o) => !o.outputId)).map((t) => t.name)

@@ -42,7 +42,7 @@ const props = defineProps<{
   empty?: boolean
   /** Every workspace: this device's and (signed in) the account's, most recent first. */
   workspaces?: WorkspaceEntry[]
-  /** The workspace's About note (markdown): its question, framing, sources, decisions. */
+  /** The workspace's About note (markdown): the question it answers and its framing. */
   about?: string
 }>()
 const emit = defineEmits<{
@@ -204,13 +204,13 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
       <details class="about" data-testid="workspace.about">
         <summary>
           <span class="eyebrow">About</span>
-          <span class="muted small">{{ about ? about.split('\n').find((l) => l.trim() && !l.startsWith('#'))?.slice(0, 80) ?? 'the question, framing and sources' : 'not written yet' }}</span>
+          <span class="muted small">{{ about ? about.split('\n').find((l) => l.trim() && !l.startsWith('#'))?.slice(0, 80) ?? 'the question and its framing' : 'not written yet' }}</span>
         </summary>
         <textarea
           v-model="aboutDraft"
           rows="8"
           aria-label="About this workspace"
-          placeholder="The question this workspace answers, for whom; how it frames it; the sources and why; decisions and caveats. The assistant writes and keeps it; stories are told from it."
+          placeholder="The question this workspace answers, for whom, and how it frames it (the factors and how they combine). The assistant writes and keeps it; stories start from it."
           @focus="editingAbout = true"
           @blur="saveAbout"
         ></textarea>

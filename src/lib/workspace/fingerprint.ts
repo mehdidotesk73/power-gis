@@ -1,8 +1,9 @@
 // A workspace's fingerprint, and whether this device and the account agree.
 //
 // The fingerprint is a SHA-256 of the workspace's setup as a document: its
-// name, dataset pointers, transforms, visualizations, stories, its About note and the datasets'
-// names and descriptions. Not what changes on its own (row counts, stores, when it
+// name, dataset pointers, transforms (with their descriptions), visualizations,
+// stories, its About note, and the datasets' names, descriptions, metadata and
+// notes. Not what changes on its own (row counts, stores, when it
 // was exported), so the same setup always gives the same fingerprint.
 //
 // Each device remembers, per account, the account's fingerprint and its own at
@@ -22,7 +23,7 @@ export function setupOf(file: WorkspaceFile): unknown {
     datasetIds: file.datasetIds,
     transforms: file.transforms,
     visualizations: file.visualizations,
-    datasets: file.datasets.map((d) => ({ id: d.id, name: d.name, ...(d.description ? { description: d.description } : {}) })),
+    datasets: file.datasets.map((d) => ({ id: d.id, name: d.name, ...(d.description ? { description: d.description } : {}), ...(d.metadata ? { metadata: d.metadata } : {}), ...(d.notes ? { notes: d.notes } : {}) })),
     ...(file.stories?.length ? { stories: file.stories } : {}),
     ...(file.about ? { about: file.about } : {}),
   })

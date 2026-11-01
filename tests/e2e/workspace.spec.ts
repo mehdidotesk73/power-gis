@@ -1,7 +1,7 @@
 // Workspace files: Download makes a zip of the workspace's files; Load on another device opens the same
 // workspace from it.
 import { expect, test, type Page } from '@playwright/test'
-import { card, closeDevices, closeWorkspacePanel, device, listPanel, loadWorkspaceFile, openSample, openWorkspacePanel, PHONE, ready, reload, startSmall } from './helpers'
+import { card, cardAction, closeDevices, closeWorkspacePanel, device, listPanel, loadWorkspaceFile, openSample, openWorkspacePanel, PHONE, ready, reload, saveWorkspace, startSmall } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -98,4 +98,41 @@ test('the About note is written in the Workspace panel, saved with the workspace
   await expect(page.getByTestId('workspace.about')).toContainText('Where is a therapy practice viable?')
   await page.getByTestId('workspace.about').locator('summary').click()
   await expect(page.getByTestId('workspace.about').getByLabel('About this workspace')).toHaveValue(/CDC PLACES: depression and distress by county\./)
+})
+
+test('a dataset keeps a plain-language description, structured metadata and notes, through Save and a reload', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  await startSmall(page)
+  await listPanel(page, 'Datasets')
+  const counties = card(page, 'dataset', 'US counties')
+  await cardAction(page, counties, 'edit')
+  const editor = page.getByTestId('dataset-editor')
+  await editor.getByLabel('Description').fill('The outline of every US county, from the Census Bureau, the federal statistics agency.')
+  await editor.getByLabel('Description').blur()
+  await editor.getByTestId('metadata.edit').click()
+  await editor.getByLabel('What one row is').fill('one per US county')
+  await editor.getByLabel('Key').fill('fips (5-digit text)')
+  await editor.getByLabel('Publisher').fill('Census Bureau')
+  await editor.getByLabel('Who they are').fill('the federal statistics agency')
+  await editor.getByLabel('Period').fill('2017')
+  await editor.getByLabel('Caveats').fill("Connecticut's eight old counties\nCartographic (1:10m), not survey-grade")
+  await editor.getByLabel('Add a column').selectOption('name')
+  await editor.getByLabel('name: meaning').fill('county and state, e.g. "Autauga, AL"')
+  await editor.getByTestId('metadata.done').click()
+  await expect(editor.getByTestId('dataset.metadata')).toContainText('Row: one per US county · key fips (5-digit text)')
+  await expect(editor.getByTestId('dataset.metadata')).toContainText('Source: Census Bureau (the federal statistics agency): 2017')
+  await editor.getByTestId('dataset.notes').fill('Made from the us-atlas package.')
+  await editor.getByTestId('dataset.notes').blur()
+  await page.screenshot({ path: test.info().outputPath('dataset-metadata-phone.png'), fullPage: true })
+  await expect(counties).toContainText('one per US county · Census Bureau (the federal statistics agency): 2017')
+
+  await saveWorkspace(page)
+  await reload(page)
+  await listPanel(page, 'Datasets')
+  await cardAction(page, card(page, 'dataset', 'US counties'), 'edit')
+  const again = page.getByTestId('dataset-editor')
+  await expect(again.getByLabel('Description')).toHaveValue(/federal statistics agency/)
+  await expect(again.getByTestId('dataset.metadata')).toContainText("Caveats: Connecticut's eight old counties · Cartographic (1:10m), not survey-grade")
+  await expect(again.getByTestId('dataset.metadata')).toContainText('Columns: name (county and state, e.g. "Autauga, AL")')
+  await expect(again.getByTestId('dataset.notes')).toHaveValue('Made from the us-atlas package.')
 })

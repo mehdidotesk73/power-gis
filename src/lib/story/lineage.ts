@@ -6,6 +6,7 @@
 import type { WorkspaceDoc, TransformSpec } from '../workspace/workspace'
 import type { VisualizationSpec } from '../dataset/visualization'
 import type { DatasetRecord } from '../../shared/records'
+import { metadataLines } from '../dataset/metadata'
 
 export type LineageStep = { kind: 'dataset'; id: string } | { kind: 'transform'; transform: TransformSpec }
 
@@ -60,10 +61,13 @@ export function lineageText(l: Lineage, record: (id: string) => DatasetRecord | 
       out.push(`Columns: ${d.columns.map((c) => `${c.name} ${c.type}`).join(', ')}`)
       if (d.description) out.push(`Description:\n${d.description.length > MAX_DESCRIPTION ? `${d.description.slice(0, MAX_DESCRIPTION)}…` : d.description}`)
       else out.push('Description: (none)')
+      const meta = metadataLines(d.metadata)
+      if (meta.length) out.push('Metadata:', ...meta.map((l) => `- ${l}`))
+      if (d.notes) out.push(`Notes:\n${d.notes.length > MAX_DESCRIPTION ? `${d.notes.slice(0, MAX_DESCRIPTION)}…` : d.notes}`)
       out.push('')
     } else {
       const t = s.transform
-      out.push(`## Transform "${t.name}" (id ${t.id})`, `Inputs: ${t.inputs.map((i) => `${i.alias} = "${name(i.datasetId)}" (${i.datasetId})`).join(', ')}`)
+      out.push(`## Transform "${t.name}" (id ${t.id})`, `Description: ${t.description ?? '(none)'}`, `Inputs: ${t.inputs.map((i) => `${i.alias} = "${name(i.datasetId)}" (${i.datasetId})`).join(', ')}`)
       for (const o of t.outputs) out.push(`Output "${o.name}" → ${o.outputId ? `dataset "${name(o.outputId)}" (${o.outputId})` : 'not run yet'}:`, '```sql', o.sql.trim(), '```')
       out.push('')
     }

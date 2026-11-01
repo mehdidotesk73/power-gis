@@ -12,7 +12,8 @@ import type { VisualizationSettings, VisualizationSpec } from '../dataset/visual
 import { newId } from '../dataset/dataset'
 import { isSupportedBinding } from '../dataset/binding'
 import { normalizeTransform, workspaceRequires, type DatasetOrigin, type MissingWhy, type TransformSpec, type UnavailableDataset, type WorkspaceDoc } from './workspace'
-import type { DatasetRecord, DatasetStore } from '../../shared/records'
+import type { DatasetMetadata, DatasetRecord, DatasetStore } from '../../shared/records'
+import { cleanMetadata } from '../dataset/metadata'
 import { builtinTable } from '../../shared/builtins'
 import { readStories, remapStory, type Story } from '../story/story'
 
@@ -25,7 +26,10 @@ export type { DatasetOrigin } from './workspace'
 export interface DatasetFact {
   id: string
   name: string
+  /** Plain language (lib/dataset/metadata.ts has the structured part). */
   description?: string
+  metadata?: DatasetMetadata
+  notes?: string
   /** `remote`: linked to a cloud dataset (`cloudId`), which another device pulls. */
   store: DatasetStore
   cloudId?: string
@@ -52,7 +56,7 @@ export interface WorkspaceFile {
   requires?: string[]
   /** Stories about the workspace (lib/story/story.ts). */
   stories?: Story[]
-  /** About the workspace (markdown): its question, framing, decisions. */
+  /** About the workspace (markdown): the question it answers and its framing. */
   about?: string
 }
 
@@ -84,6 +88,8 @@ export function datasetFact(id: string, record: DatasetRecord | undefined, trans
     id,
     name: record?.name ?? (writer ? writer.outputs.find((o) => o.outputId === id)!.name : 'Unknown dataset'),
     ...(record?.description ? { description: record.description } : {}),
+    ...(record?.metadata ? { metadata: record.metadata } : {}),
+    ...(record?.notes ? { notes: record.notes } : {}),
     store: record?.link ? 'remote' : 'local',
     ...(record?.link ? { cloudId: record.link.cloudId } : {}),
     ...(record ? { rows: record.rowCount } : {}),
@@ -140,11 +146,11 @@ export function parseWorkspaceObject(o: unknown): Parsed {
   const file = o as unknown as WorkspaceFile
   // A pointer without facts (hand-edited documents) gets the little that's known.
   const known = new Set(file.datasets.map((d) => d.id))
-  const datasets = [...file.datasets, ...pointers(file).filter((id) => !known.has(id)).map((id) => datasetFact(id, undefined, file.transforms))]
+  const datasets = [...file.datasets.map(cleanFact), ...pointers(file).filter((id) => !known.has(id)).map((id) => datasetFact(id, undefined, file.transforms))]
   const { stories: _s, about: _a, ...base } = file
   const stories = readStories((o as Obj).stories)
   const about = isStr((o as Obj).about) ? ((o as Obj).about as string).trim() : ''
-  return { ok: true, file: { ...base, datasets, transforms: file.transforms.map((t) => normalizeTransform(t)), ...(stories.length ? { stories } : {}), ...(about ? { about } : {}) } }
+  return { ok: true, file: { ...base, datasets, transforms: file.transforms.map((t) => cleanTransform(normalizeTransform(t))), ...(stories.length ? { stories } : {}), ...(about ? { about } : {}) } }
 }
 
 function isVisualization(v: unknown, withId: boolean): boolean {
@@ -159,6 +165,19 @@ function isTransform(t: unknown, withId: boolean): boolean {
   const outputsOk = Array.isArray(t.outputs) ? t.outputs.every((x) => isObj(x) && isStr(x.sql) && isStr(x.name) && isStr(x.key)) : isStr(t.sql)
   const requiresOk = t.requires === undefined || (Array.isArray(t.requires) && t.requires.every(isStr))
   return (!withId || isStr(t.id)) && isStr(t.name) && outputsOk && requiresOk && Array.isArray(t.inputs) && t.inputs.every((i) => isObj(i) && isStr(i.datasetId) && isStr(i.alias))
+}
+
+/** A fact's free parts made safe: text that isn't text dropped, metadata cleaned. */
+function cleanFact(d: DatasetFact): DatasetFact {
+  const { description, metadata, notes, ...rest } = d
+  const m = cleanMetadata(metadata)
+  return { ...rest, ...(isStr(description) && description.trim() ? { description } : {}), ...(m ? { metadata: m } : {}), ...(isStr(notes) && notes.trim() ? { notes } : {}) }
+}
+/** A transform's description kept only when it's text. */
+function cleanTransform<T extends { description?: unknown }>(t: T): T {
+  if (t.description === undefined || (isStr(t.description) && t.description.trim())) return t
+  const { description: _d, ...rest } = t
+  return rest as T
 }
 
 function isFact(d: unknown): boolean {
@@ -247,7 +266,7 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   for (const id of lacking) {
     const f = facts.get(id)
     unavailable[id] = f
-      ? { name: f.name, ...(f.description ? { description: f.description } : {}), store: f.store, ...(f.cloudId ? { cloudId: f.cloudId } : {}), ...(f.rows !== undefined ? { rows: f.rows } : {}), origin: f.origin, ...(f.sameAs ? { sameAs: f.sameAs } : {}), why: why.get(id) ?? 'unknown' }
+      ? { name: f.name, ...(f.description ? { description: f.description } : {}), ...(f.metadata ? { metadata: f.metadata } : {}), ...(f.notes ? { notes: f.notes } : {}), store: f.store, ...(f.cloudId ? { cloudId: f.cloudId } : {}), ...(f.rows !== undefined ? { rows: f.rows } : {}), origin: f.origin, ...(f.sameAs ? { sameAs: f.sameAs } : {}), why: why.get(id) ?? 'unknown' }
       : { name: 'Unknown dataset', why: why.get(id) ?? 'unknown' }
   }
   const vizIds = new Map<string, string>()
