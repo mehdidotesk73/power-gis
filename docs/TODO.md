@@ -466,6 +466,14 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 ### Backlog
 
 
+- **Chat history and context** (asked 2026-11-01; after #51 / #52): each chat saved after every turn — on the device
+  (IndexedDB) and, signed in, in the account (a `chats` table, one new SQL file), linked to its workspace — with an
+  assistant-written title (one Haiku call after the first exchange). A history list in the assistant panel (title,
+  workspace, date, cost; continue, rename, delete); New chat starts a new entry instead of wiping. Saved: the model's
+  messages, the panel's steps, the profile, and what the chat made (`madeHere`, which gates deletes). Care points: a
+  chat from an older build whose tools changed resumes from a compact summary (asked, decided, made, ids) instead of
+  the raw history; screenshots stored as small files, long tool results trimmed; resuming a long chat re-sends it (offer
+  "continue from a summary"); one chat open on two devices: last save wins, with a note.
 - EIA-861 customers / sales / revenue as a separate built-in (per utility × state)
 - Real vector dataset (e.g. EIA-930 balancing-authority interchange flows) to replace the demo arrows
 - Point and polyline datasets (plants from EIA-860, transmission lines) to exercise those geometries
