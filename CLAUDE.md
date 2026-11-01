@@ -347,7 +347,7 @@ whatever they're actually asking about.
   fingerprint; ids remapped on open and Replace…). Lists → **Stories** (`StoryList`, `StoryView`, `StoryFigure`): ＋ Story → pick
   visualizations → "Tell the story of …" goes into the **current assistant chat**, and the assistant calls **`tell_story`**: the
   **storyteller** runs inside that step (`storyteller()` in `AgentPanel.vue`: its own prompt `storyPrompt.ts`, tools `query_sql` +
-  `write_story`, the profile's `storyteller` model), reading the lineage (`lib/story/lineage.ts`); follow-ups go through the same chat. ⚠ marks a figure whose data changed since; Edit changes title and narratives.
+  `write_story`, the profile's `storyteller` model), reading the lineage (`lib/story/lineage.ts`) and the assistant's notes on the sources (`tell_story`'s `sources`); it writes for a non-data reader in three acts — the base data in plain words (who published it, what it measures, its limits), what the steps compute and why, the maps with queried headlines (top / bottom places and states, the middle half) — never row counts or column lists; follow-ups go through the same chat. ⚠ marks a figure whose data changed since; Edit changes title and narratives.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
   basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
   the trailing run of symbol layers; labels repainted light with a dark halo).

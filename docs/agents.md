@@ -381,11 +381,20 @@ Tells how the workspace gets from its starting data to some of its maps, as a **
 title, a **narrative** (about 80 words: understood in under 30 seconds, and later read aloud) and at most two
 figures. Asked for in the assistant's chat — the user's words, or **Stories → ＋ Story** / a story's **Rewrite**, which
 put "Tell the story of … (visualization ids …)" in the current chat — the assistant hands it to the storyteller with
-**`tell_story`** (visualization ids, the user's wishes, a storyId to rewrite). The storyteller runs inside that one step
+**`tell_story`** (visualization ids, the user's wishes, **`sources`** — what the assistant knows of each starting dataset's source from the chat: publisher and who they are, what it measures, places, year, how it was made, gaps, terms — and a storyId to rewrite). The storyteller runs inside that one step
 (`storyteller()` in `AgentPanel.vue`: its own session, prompt and tools, the profile's `storyteller` model; its tokens
 priced into the chat's cost), and the assistant hears back the story's id, title and scenes, so follow-ups ("shorter",
 "add a scene on the weights") go through the same chat.
 
+- **Voice (user, 2026-11-01)**: written for someone who isn't a data person — meaning, not mechanics: no row counts,
+  column lists or SQL. **Three acts**: (1) the question and the base data, grouped by what each source stands for, each
+  in plain words (who published it and who they are, what it measures, where and when, how it was made, what it can't
+  do); figures: a chart of how a measure is spread or differs, or a few telling rows. (2) What the steps compute and
+  why, one scene per idea (percentiles so measures can be added, weights, proxies, missing data), with a sample,
+  histogram, scatter or map of an intermediate by what the scene is about. (3) Each map with its headlines, queried:
+  top and bottom places nationally, best and worst states, where the middle half lies, patterns; then how to read them
+  together. Facts about the data come only from the notes, descriptions and queries; what an institution is may come
+  from general knowledge.
 - **What it reads**: `lib/story/lineage.ts` walks from the visualizations back to the starting data (each dataset and
   transform once, inputs first) and writes it out — every dataset's facts and **description** (why descriptions must
   carry the reasoning: `docs/agents.md` *Describing datasets*), every transform's SQL, the visualizations' settings.

@@ -37,7 +37,7 @@ export function lineageOf(doc: WorkspaceDoc, visualizationIds: string[]): Lineag
   return { steps, visualizations }
 }
 
-const MAX_DESCRIPTION = 1500
+const MAX_DESCRIPTION = 3000
 
 /** The lineage as text for the storyteller: every dataset's facts and description, every transform's SQL, every visualization's settings. */
 export function lineageText(l: Lineage, record: (id: string) => DatasetRecord | undefined): string {

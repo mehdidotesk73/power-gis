@@ -302,12 +302,12 @@ const storyUsage = ref<{ model: string; usage: Usage }[]>([])
  * Runs the storyteller on visualizations: it reads what stands behind them (lineage.ts) and writes
  * the story with its own tools. The chat's tell_story step shows what it's doing.
  */
-async function storyteller(req: { visualizationIds: string[]; wishes: string; storyId?: string }): Promise<{ storyId: string; name: string; scenes: string[] } | string> {
+async function storyteller(req: { visualizationIds: string[]; wishes: string; sources?: string; storyId?: string }): Promise<{ storyId: string; name: string; scenes: string[] } | string> {
   const p = chatProfile.value ?? nextProfile.value
   const doc = props.host.doc()
   const l = lineageOf(doc, req.visualizationIds)
   const rewrite = req.storyId ? doc.stories?.find((x) => x.id === req.storyId) : undefined
-  const message = `${storyRequest(l.visualizations.map((v) => v.name), lineageText(l, props.host.record), rewrite)}${req.wishes ? `\n\nWhat the user asked of the story: ${req.wishes}` : ''}`
+  const message = `${storyRequest(l.visualizations.map((v) => v.name), lineageText(l, props.host.record), rewrite)}${req.sources ? `\n\n# Where the starting data comes from (the assistant's notes)\n${req.sources}` : ''}${req.wishes ? `\n\nWhat the user asked of the story: ${req.wishes}` : ''}`
   const chat: StoryChat = { visualizationIds: req.visualizationIds, ...(req.storyId ? { storyId: req.storyId } : {}) }
   const step = [...items.value].reverse().find((x): x is Extract<Item, { kind: 'tool' }> => x.kind === 'tool' && x.call.name === 'tell_story' && x.state === 'running')
   const log: string[] = []
