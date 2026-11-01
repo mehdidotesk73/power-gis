@@ -8,6 +8,7 @@
 //   transforms/<id>.json              one transform: name, inputs, outputs (key, name, outputId), requires
 //   transforms/<id>.<key>.sql         that output's SQL, plain
 //   visualizations/<id>.json          one visualization, every setting
+//   about.md                          about the workspace: its question, framing, decisions (markdown)
 //   overview.md                       generated, for people (ignored when loading)
 //
 // An item's id is its file name; SQL is never inside JSON. Reading goes back
@@ -22,6 +23,7 @@ export type Files = Map<string, string>
 export const INDEX = 'workspace.json'
 export const DATASETS = 'datasets.json'
 export const OVERVIEW = 'overview.md'
+export const ABOUT = 'about.md'
 export const transformPath = (id: string) => `transforms/${id}.json`
 export const sqlPath = (id: string, key: string) => `transforms/${id}.${key}.sql`
 export const vizPath = (id: string) => `visualizations/${id}.json`
@@ -68,6 +70,7 @@ export function documentFiles(file: WorkspaceFile): Files {
     files.set(vizPath(v.id), pretty(settings))
   }
   for (const s of file.stories ?? []) files.set(storyPath(s.id), pretty(s))
+  if (file.about) files.set(ABOUT, `${file.about}\n`)
   files.set(OVERVIEW, overviewOf(file))
   return files
 }
@@ -117,6 +120,7 @@ export function filesDocument(files: Files): Parsed {
       transforms,
       visualizations,
       ...(stories.length ? { stories } : {}),
+      ...(files.get(ABOUT)?.trim() ? { about: files.get(ABOUT)!.trim() } : {}),
     })
   } catch (e) {
     return { ok: false, error: `Not a PowerGIS workspace: ${(e as Error).message}` }

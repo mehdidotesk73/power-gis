@@ -61,6 +61,8 @@ describe('lineage', () => {
     expect(text).toContain('SELECT fips, income FROM r')
     expect(text).toContain('- "Income" (id v1): dataset "Dataset map" (map), geometry geometry, named by name, column income (first)')
     expect(text).not.toContain('Dataset other')
+    expect(text).toMatch(/^# About the workspace\n\(no About note/)
+    expect(lineageText(l, (id) => records.get(id), '## Question\nWhere do incomes lag?')).toMatch(/^# About the workspace\n## Question\nWhere do incomes lag\?\n/)
     expect(storyRequest(['Income'], 'L')).toBe('Tell the story of this visualization: "Income".\n\nL')
   })
 })

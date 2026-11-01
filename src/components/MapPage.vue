@@ -56,6 +56,7 @@ import {
   forgetDataset,
   removeVisualization as removeVisualization_,
   renameWorkspace,
+  setAbout,
   reorderDatasets as reorderDatasets_,
   reorderVisualizations as reorderVisualizations_,
   updateVisualization as updateVisualization_,
@@ -329,7 +330,7 @@ async function saveHere(): Promise<boolean> {
     request('saveWorkspace', {
       id: d.id,
       name: d.name,
-      config: { datasetIds: d.datasetIds, ...(d.unavailable ? { unavailable: d.unavailable } : {}), ...(d.stories?.length ? { stories: d.stories } : {}), ...(d.cloudId ? { cloudId: d.cloudId } : {}) },
+      config: { datasetIds: d.datasetIds, ...(d.unavailable ? { unavailable: d.unavailable } : {}), ...(d.stories?.length ? { stories: d.stories } : {}), ...(d.about ? { about: d.about } : {}), ...(d.cloudId ? { cloudId: d.cloudId } : {}) },
       visualizations: d.visualizations.map((v) => ({ id: v.id, name: v.name, datasetId: v.datasetId, settings: settingsOf(v) })),
       transforms: d.transforms,
     }),
@@ -1519,7 +1520,7 @@ async function open(w: WorkspaceRecord) {
     if (!records.value.has(id) && !unavailable[id] && w.config.unavailable?.[id]) unavailable[id] = w.config.unavailable[id]
   }
   const stories = readStories(w.config.stories)
-  quietly({ id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}), ...(stories.length ? { stories } : {}), ...(w.config.cloudId ? { cloudId: w.config.cloudId } : {}) })
+  quietly({ id: w.id, name: w.name, datasetIds: ids, visualizations: vizs, transforms, ...(Object.keys(unavailable).length ? { unavailable } : {}), ...(stories.length ? { stories } : {}), ...(typeof w.config.about === 'string' && w.config.about.trim() ? { about: w.config.about.trim() } : {}), ...(w.config.cloudId ? { cloudId: w.config.cloudId } : {}) })
   logDebug(`workspace "${w.name}" opened: ${ids.length} datasets, ${vizs.length} visualizations, ${transforms.length} transforms`)
 }
 
@@ -1690,6 +1691,8 @@ const exportViz = computed(() => (renderedById.value.get(exportTarget.value ?? '
       <Teleport defer to="#header-workspace">
         <WorkspaceBar
           :name="doc.name"
+          :about="doc.about"
+          @about="(t: string) => apply(setAbout(doc, t))"
           :dirty="dirty"
           :saving="saving"
           :message="barMessage"

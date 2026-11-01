@@ -30,6 +30,12 @@ export interface WorkspaceDoc {
   datasetEdits?: Record<string, DatasetEdit>
   /** Stories told about the workspace (lib/story/story.ts): text and figure specs, never images. */
   stories?: Story[]
+  /**
+   * About the workspace, in markdown: the question it answers, for whom, the framing, the decisions and
+   * assumptions behind it. What a chat learned that no single dataset holds — kept here so the storyteller
+   * and the next chat (or person) have it after a reload.
+   */
+  about?: string
   /** Signed in: the id of this workspace in the account (its copy there). Bookkeeping: not part of the setup. */
   cloudId?: string
 }
@@ -314,6 +320,15 @@ export function updateStory(doc: WorkspaceDoc, s: Story): OpResult {
 export function removeStory(doc: WorkspaceDoc, id: string): OpResult {
   if (!storiesOf(doc).some((x) => x.id === id)) return fail('not_found', `No story "${id}"`)
   return ok(withStories(doc, storiesOf(doc).filter((x) => x.id !== id)))
+}
+
+// ── about ──────────────────────────────────────────────────────────────────
+
+/** Sets (or, with "", clears) the workspace's About note. */
+export function setAbout(doc: WorkspaceDoc, text: string): OpResult {
+  const { about: _a, ...rest } = doc
+  const t = text.trim()
+  return ok(t ? { ...rest, about: t } : rest)
 }
 
 /** A table name for a dataset's name: lowercase words joined by _. */

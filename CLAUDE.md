@@ -259,6 +259,9 @@ whatever they're actually asking about.
   download elsewhere. Pointers + settings, never rows; loading replaces the
   working copy (fresh visualization ids, datasets missing from the database dropped and reported).
   Details: `docs/system-design.md` §4.
+  **About** (`doc.about`, markdown; `setAbout`): the workspace's question, framing, sources and decisions — what a chat learned that no
+  dataset holds. The assistant keeps it as `/about.md` (one of its files), the user edits it in the Workspace panel (**About**);
+  saved in the record's `config.about`, documents (`about`), the zip (`about.md`), the overview and the fingerprint; the storyteller reads it first.
 - **Vector is a primitive type** (`schema.ts`: `{u, v}` = east, north). A visualization's kind follows its
   column: vector columns → arrows, everything else → scalar (color / transparency / pattern).
   Vectors are read from `[u, v]`, `(u, v)`, `u,v`, `{"u":…,"v":…}` cells (combining two numeric
@@ -347,7 +350,7 @@ whatever they're actually asking about.
   fingerprint; ids remapped on open and Replace…). Lists → **Stories** (`StoryList`, `StoryView`, `StoryFigure`): ＋ Story → pick
   visualizations → "Tell the story of …" goes into the **current assistant chat**, and the assistant calls **`tell_story`**: the
   **storyteller** runs inside that step (`storyteller()` in `AgentPanel.vue`: its own prompt `storyPrompt.ts`, tools `query_sql` +
-  `write_story`, the profile's `storyteller` model), reading the lineage (`lib/story/lineage.ts`) and the assistant's notes on the sources (`tell_story`'s `sources`); it writes for a non-data reader in three acts — the base data in plain words (who published it, what it measures, its limits), what the steps compute and why, the maps with queried headlines (top / bottom places and states, the middle half) — never row counts or column lists; follow-ups go through the same chat. ⚠ marks a figure whose data changed since; Edit changes title and narratives.
+  `write_story`, the profile's `storyteller` model), reading only what the workspace keeps — its **About** note and the lineage (`lib/story/lineage.ts`: descriptions, SQL, settings), never the chat, so it works in a new chat or after a reload; it writes for a non-data reader in three acts — the base data in plain words (who published it, what it measures, its limits), what the steps compute and why, the maps with queried headlines (top / bottom places and states, the middle half) — never row counts or column lists; follow-ups go through the same chat. ⚠ marks a figure whose data changed since; Edit changes title and narratives.
 - **Draw order** follows geometry, not add order: regions → lines → points → arrows, all above the
   basemap's roads and borders and under its labels (invisible slot layers added in `MapView` before
   the trailing run of symbol layers; labels repainted light with a dark halo).

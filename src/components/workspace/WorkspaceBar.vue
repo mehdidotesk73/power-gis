@@ -42,11 +42,14 @@ const props = defineProps<{
   empty?: boolean
   /** Every workspace: this device's and (signed in) the account's, most recent first. */
   workspaces?: WorkspaceEntry[]
+  /** The workspace's About note (markdown): its question, framing, sources, decisions. */
+  about?: string
 }>()
 const emit = defineEmits<{
   (e: 'save'): void
   (e: 'revert'): void
   (e: 'rename', name: string): void
+  (e: 'about', text: string): void
   (e: 'download'): void
   (e: 'load', file: File): void
   (e: 'copy'): void
@@ -99,6 +102,19 @@ watch(
     if (!editingName.value) nameDraft.value = n
   },
 )
+// About: a local draft while typing, so a panel refresh doesn't reset it; sent on change.
+const aboutDraft = ref(props.about ?? '')
+const editingAbout = ref(false)
+watch(
+  () => props.about,
+  (a) => {
+    if (!editingAbout.value) aboutDraft.value = a ?? ''
+  },
+)
+function saveAbout() {
+  editingAbout.value = false
+  if (aboutDraft.value.trim() !== (props.about ?? '')) emit('about', aboutDraft.value)
+}
 function rename() {
   editingName.value = false
   const v = nameDraft.value.trim()
@@ -185,6 +201,20 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
         />
         <UiButton size="compact" icon="✎" aria-label="Rename" title="Rename" @click="editName" />
       </div>
+      <details class="about" data-testid="workspace.about">
+        <summary>
+          <span class="eyebrow">About</span>
+          <span class="muted small">{{ about ? about.split('\n').find((l) => l.trim() && !l.startsWith('#'))?.slice(0, 80) ?? 'the question, framing and sources' : 'not written yet' }}</span>
+        </summary>
+        <textarea
+          v-model="aboutDraft"
+          rows="8"
+          aria-label="About this workspace"
+          placeholder="The question this workspace answers, for whom; how it frames it; the sources and why; decisions and caveats. The assistant writes and keeps it; stories are told from it."
+          @focus="editingAbout = true"
+          @blur="saveAbout"
+        ></textarea>
+      </details>
       <div class="list" data-testid="workspace.list">
         <div class="list-head">
           <span class="eyebrow">Your workspaces</span>
@@ -573,5 +603,26 @@ const ARROWS = { synced: '', ahead: '↑', behind: '↓', both: '↑↓', gone: 
 .w-meta {
   font-size: 0.72rem;
   color: var(--text-muted);
+}
+.about summary {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  cursor: pointer;
+  list-style: none;
+  min-width: 0;
+}
+.about summary .small {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.about textarea {
+  width: 100%;
+  margin-top: 0.4rem;
+  font: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
 }
 </style>

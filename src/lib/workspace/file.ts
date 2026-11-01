@@ -52,6 +52,8 @@ export interface WorkspaceFile {
   requires?: string[]
   /** Stories about the workspace (lib/story/story.ts). */
   stories?: Story[]
+  /** About the workspace (markdown): its question, framing, decisions. */
+  about?: string
 }
 
 /** Every dataset id the workspace points at, in a stable order. */
@@ -104,6 +106,7 @@ export function toWorkspaceFile(doc: WorkspaceDoc, record: (id: string) => Datas
     datasets: pointers(body).map((id) => datasetFact(id, record(id), transforms, doc.unavailable?.[id])),
     ...(workspaceRequires(doc).length ? { requires: workspaceRequires(doc) } : {}),
     ...(doc.stories?.length ? { stories: doc.stories } : {}),
+    ...(doc.about ? { about: doc.about } : {}),
   }
 }
 
@@ -138,9 +141,10 @@ export function parseWorkspaceObject(o: unknown): Parsed {
   // A pointer without facts (hand-edited documents) gets the little that's known.
   const known = new Set(file.datasets.map((d) => d.id))
   const datasets = [...file.datasets, ...pointers(file).filter((id) => !known.has(id)).map((id) => datasetFact(id, undefined, file.transforms))]
-  const { stories: _s, ...base } = file
+  const { stories: _s, about: _a, ...base } = file
   const stories = readStories((o as Obj).stories)
-  return { ok: true, file: { ...base, datasets, transforms: file.transforms.map((t) => normalizeTransform(t)), ...(stories.length ? { stories } : {}) } }
+  const about = isStr((o as Obj).about) ? ((o as Obj).about as string).trim() : ''
+  return { ok: true, file: { ...base, datasets, transforms: file.transforms.map((t) => normalizeTransform(t)), ...(stories.length ? { stories } : {}), ...(about ? { about } : {}) } }
 }
 
 function isVisualization(v: unknown, withId: boolean): boolean {
@@ -253,7 +257,7 @@ export function fromWorkspaceFile(file: WorkspaceFile, current: WorkspaceDoc, in
   // Stories point at visualizations and transforms by id: they follow the new ones.
   const stories = (file.stories ?? []).map((s) => remapStory(s, { visualization: (id) => vizIds.get(id), transform: (id) => trIds.get(id) }))
   return {
-    doc: { ...(current.id ? { id: current.id } : {}), ...(current.cloudId ? { cloudId: current.cloudId } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}), ...(stories.length ? { stories } : {}) },
+    doc: { ...(current.id ? { id: current.id } : {}), ...(current.cloudId ? { cloudId: current.cloudId } : {}), name: file.name, datasetIds: [...file.datasetIds], visualizations, transforms, ...(lacking.length ? { unavailable } : {}), ...(stories.length ? { stories } : {}), ...(file.about ? { about: file.about } : {}) },
     missing: lacking,
   }
 }
@@ -305,7 +309,7 @@ export function overviewOf(file: WorkspaceFile): string {
   const ds = (id: string) => `"${fact.get(id)?.name ?? id}"`
   const origin = (d: DatasetFact) =>
     d.origin.kind === 'builtin' ? 'built-in' : d.origin.kind === 'output' ? `output of "${file.transforms.find((t) => t.id === (d.origin as { transform: string }).transform)?.name ?? '?'}"` : d.origin.kind === 'upload' ? `uploaded (${d.origin.source})` : 'origin unknown'
-  const lines = [`# Workspace "${file.name}"`, '', `## Datasets (${file.datasetIds.length})`]
+  const lines = [`# Workspace "${file.name}"`, '', ...(file.about ? ['## About', file.about, ''] : []), `## Datasets (${file.datasetIds.length})`]
   for (const id of file.datasetIds) {
     const d = fact.get(id)
     lines.push(d ? `- ${d.name} · ${d.store === 'remote' ? 'Cloud' : 'Local'}${d.rows !== undefined ? ` · ${d.rows.toLocaleString()} rows` : ''} · ${origin(d)}` : `- ${id}`)
@@ -321,7 +325,7 @@ export function overviewOf(file: WorkspaceFile): string {
 
 /** Stable text of what Save would store — equal text means nothing to save. */
 export function snapshot(doc: WorkspaceDoc): string {
-  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms, datasetEdits: doc.datasetEdits ?? {}, stories: doc.stories ?? [] })
+  return JSON.stringify({ name: doc.name, datasetIds: doc.datasetIds, visualizations: doc.visualizations, transforms: doc.transforms, datasetEdits: doc.datasetEdits ?? {}, stories: doc.stories ?? [], about: doc.about ?? '' })
 }
 
 /** Unsaved edits kept on the device between visits. */

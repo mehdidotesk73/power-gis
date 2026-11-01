@@ -16,7 +16,7 @@ import { newId } from '../dataset/dataset'
 import { COLORMAPS, type ColormapName } from '../colormaps'
 import type { PaletteName } from '../palettes'
 import { MAGNITUDE_FIELD, PATTERNS, type ColorEncoding, type OpacityEncoding, type PatternEncoding, type PatternKind, type ScalarStyle, type VectorStyle } from '../style'
-import { addDataset, addTransform, addVisualization, newOutput, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
+import { addDataset, addTransform, addVisualization, newOutput, setAbout, type OpContext, type TransformSpec, type WorkspaceDoc } from '../workspace/workspace'
 import { outputCheck } from './checks'
 import { transformState } from '../workspace/dag'
 import { datasetFact, snapshot } from '../workspace/file'
@@ -56,7 +56,7 @@ export interface AgentHost {
   /** Adds a built-in table to the workspace (stored on this device first if it isn't yet); its dataset id. */
   addBuiltin?(table: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
   /** Runs the storyteller on some visualizations (a new story, or `storyId` rewritten); what it wrote, or why it couldn't. */
-  tellStory?(req: { visualizationIds: string[]; wishes: string; sources?: string; storyId?: string }): Promise<{ storyId: string; name: string; scenes: string[] } | string>
+  tellStory?(req: { visualizationIds: string[]; wishes: string; storyId?: string }): Promise<{ storyId: string; name: string; scenes: string[] } | string>
 }
 
 export type WebRole = 'scout' | 'scraper'
@@ -250,20 +250,15 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'tell_story',
     description:
-      'Have the storyteller write a story about some visualizations, for someone who isn\'t a data person: the base data in plain words (who published it, what it measures), what the steps compute and why, then the maps and their headlines; short scenes with a figure or two (rows, a chart, a map). It reads the datasets\' descriptions and the SQL, and your notes on the sources, so describe datasets well first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one). It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
+      'Have the storyteller write a story about some visualizations, for someone who isn\'t a data person: the base data in plain words (who published it, what it measures), what the steps compute and why, then the maps and their headlines; short scenes with a figure or two (rows, a chart, a map). It reads only what the workspace keeps — the About note (/about.md), the datasets\' descriptions and the SQL, never this chat — so make sure those say what the story needs first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one). It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
     inputSchema: {
       type: 'object',
       properties: {
         visualizationIds: { type: 'array', items: { type: 'string' } },
         wishes: { type: 'string', description: 'What the user asked of the story (focus, length, audience, changes to make), or "".' },
-        sources: {
-          type: 'string',
-          description:
-            'What you know of each starting dataset\'s source, for a reader who isn\'t a data person: who published it (and in a clause who they are), what it measures, for which places and year, how it was made (survey, model, designation, proxy), its gaps and terms of use, when it was fetched. From this chat (scout reports, briefs, the user) and the descriptions; "" if you know nothing beyond the descriptions.',
-        },
         storyId: { type: 'string', description: 'The story to rewrite, or "" for a new one.' },
       },
-      required: ['visualizationIds', 'wishes', 'sources', 'storyId'],
+      required: ['visualizationIds', 'wishes', 'storyId'],
     },
   },
 ]
@@ -740,7 +735,7 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
   const refused = (errors: string[]) => err(`Nothing was changed. Fix these in the files and apply again:\n- ${errors.join('\n- ')}`, `refused: ${plural(errors.length, 'problem')}`)
   const assembled = assembleFiles(s.files, cur, newId, facts(host))
   if (!assembled.ok) return refused(assembled.errors)
-  const { input: description, created, unused, datasetEdits } = assembled.value
+  const { input: description, created, unused, datasetEdits, about } = assembled.value
   let built: { doc: WorkspaceDoc; errors: string[] }
   try {
     built = await buildWorkspace(host, cur, keepUnchanged(description, cur))
@@ -749,7 +744,7 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
     return refused([e.message])
   }
   if (built.errors.length) return refused(built.errors)
-  const { doc } = built
+  const doc = about === undefined ? built.doc : (setAbout(built.doc, about) as { ok: true; doc: WorkspaceDoc }).doc
   // Only what this chat made may go unasked: the user's own items stay unless they asked.
   need(input.userAsked === undefined || (Array.isArray(input.userAsked) && input.userAsked.every(str)), '`userAsked` must be a list of ids')
   const asked = new Set((input.userAsked as string[] | undefined) ?? [])
@@ -768,6 +763,7 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
     )
   const changes = [
     ...describeChanges(cur, doc),
+    ...(about === undefined ? [] : [about ? 'updated About (/about.md)' : 'cleared About (/about.md)']),
     ...Object.entries(datasetEdits).map(([id, e]) => {
       const was = host.record(id)?.name ?? id
       return e.name ? `renamed dataset “${was}” → “${e.name}”${e.description !== undefined ? ' (and its description)' : ''}` : `described dataset “${was}”`
@@ -1004,7 +1000,7 @@ async function tellStory(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(!unknown.length, `No visualization ${unknown.map((u) => `"${u}"`).join(', ')} in the workspace (get_workspace lists them)`)
   const storyId = str(input.storyId) && input.storyId ? input.storyId : undefined
   need(!storyId || (doc.stories ?? []).some((x) => x.id === storyId), `No story "${storyId}" to rewrite`)
-  const r = await host.tellStory({ visualizationIds: input.visualizationIds as string[], wishes: str(input.wishes) ? input.wishes.trim() : '', ...(str(input.sources) && input.sources.trim() ? { sources: input.sources.trim() } : {}), ...(storyId ? { storyId } : {}) })
+  const r = await host.tellStory({ visualizationIds: input.visualizationIds as string[], wishes: str(input.wishes) ? input.wishes.trim() : '', ...(storyId ? { storyId } : {}) })
   if (typeof r === 'string') return err(r, 'not written')
   return ok({ ...r, note: 'The story is in the workspace draft (Stories, in the list view); the user saves it with the workspace.' }, `“${r.name}” · ${plural(r.scenes.length, 'scene')}`)
 }

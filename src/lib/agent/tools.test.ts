@@ -92,8 +92,8 @@ describe('agent tools', () => {
     const w = (await runTool(host, 'get_workspace', {})).content
     expect(w).toContain(`version ${workspaceVersion(host.doc())}`)
     expect(w).toContain('- prices  "PRICES"  local · 10 rows · Device · test.csv')
-    expect(w).toContain('Files: /datasets.json · /workspace.json')
-    expect((await edit(host, { command: 'view', path: '/' })).content).toBe('Files in /:\n/datasets.json\n/overview.md\n/workspace.json')
+    expect(w).toContain('Files: /about.md · /datasets.json · /workspace.json')
+    expect((await edit(host, { command: 'view', path: '/' })).content).toBe('Files in /:\n/about.md\n/datasets.json\n/overview.md\n/workspace.json')
     expect((await edit(host, { command: 'view', path: '/workspace.json' })).content).toContain('     3\t  "datasetIds": [')
   })
 
@@ -165,6 +165,21 @@ describe('agent tools', () => {
     const r = await runTool(host, 'apply_workspace', {})
     expect(r.summary).toBe('renamed dataset “PRICES” → “Home prices” (and its description)')
     expect(calls).toEqual(['update prices {"name":"Home prices","description":"Zillow ZHVI by county"}'])
+  })
+
+  it('keeps the workspace\'s About note in /about.md: written, applied into the draft, cleared', async () => {
+    const { host, state } = fakeHost({ ...emptyWorkspace('Test'), datasetIds: ['prices'] })
+    await runTool(host, 'get_workspace', {})
+    expect((await edit(host, { command: 'view', path: '/about.md' })).isError).toBe(false)
+    await edit(host, { command: 'create', path: '/about.md', file_text: '## Question\nWhere are homes affordable?\n' })
+    const r = await runTool(host, 'apply_workspace', {})
+    expect(r.summary).toBe('updated About (/about.md)')
+    expect(state.doc.about).toBe('## Question\nWhere are homes affordable?')
+    await runTool(host, 'get_workspace', {})
+    expect((await edit(host, { command: 'view', path: '/about.md' })).content).toContain('Where are homes affordable?')
+    await edit(host, { command: 'create', path: '/about.md', file_text: '' })
+    expect((await runTool(host, 'apply_workspace', {})).summary).toBe('cleared About (/about.md)')
+    expect(state.doc.about).toBeUndefined()
   })
 
   it('asks the user (Approve / Reject without fields) and hands the answer back', async () => {
@@ -391,16 +406,16 @@ describe('agent tools', () => {
   it('hands stories to the storyteller (tell_story), for visualizations of the workspace', async () => {
     const doc: WorkspaceDoc = { ...emptyWorkspace('Test'), datasetIds: ['joined'], visualizations: [{ kind: 'scalar', id: 'v1', name: 'Price', datasetId: 'joined', binding: { kind: 'geometry', column: 'geometry' }, column: 'price', aggregation: 'mean', visible: true, style: { color: { kind: 'constant', color: '#fff' }, opacity: { kind: 'constant', value: 1 }, pattern: { kind: 'none' } } } as never] }
     const { host } = fakeHost(doc)
-    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', sources: '', storyId: '' })).toMatchObject({ isError: true, content: "The storyteller isn't available here" })
+    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', storyId: '' })).toMatchObject({ isError: true, content: "The storyteller isn't available here" })
     const asked: object[] = []
     host.tellStory = async (req) => (asked.push(req), { storyId: 's1', name: 'How prices are mapped', scenes: ['Prices', 'The map'] })
-    expect(await runTool(host, 'tell_story', { visualizationIds: ['nope'], wishes: '', sources: '', storyId: '' })).toMatchObject({ isError: true, content: expect.stringContaining('No visualization "nope"') })
-    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', sources: '', storyId: 'gone' })).toMatchObject({ isError: true, content: 'No story "gone" to rewrite' })
-    const out = await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: 'for a general audience', sources: 'Prices: from the county assessor (the office that values property), 2025.', storyId: '' })
+    expect(await runTool(host, 'tell_story', { visualizationIds: ['nope'], wishes: '', storyId: '' })).toMatchObject({ isError: true, content: expect.stringContaining('No visualization "nope"') })
+    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', storyId: 'gone' })).toMatchObject({ isError: true, content: 'No story "gone" to rewrite' })
+    const out = await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: 'for a general audience', storyId: '' })
     expect(out).toMatchObject({ isError: false, summary: '“How prices are mapped” · 2 scenes' })
-    expect(asked).toEqual([{ visualizationIds: ['v1'], wishes: 'for a general audience', sources: 'Prices: from the county assessor (the office that values property), 2025.' }])
+    expect(asked).toEqual([{ visualizationIds: ['v1'], wishes: 'for a general audience' }])
     host.tellStory = async () => 'The storyteller stopped (truncated) without writing the story.'
-    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', sources: '', storyId: '' })).toMatchObject({ isError: true, summary: 'not written' })
+    expect(await runTool(host, 'tell_story', { visualizationIds: ['v1'], wishes: '', storyId: '' })).toMatchObject({ isError: true, summary: 'not written' })
   })
 
   it('asks for a description of every dataset it made, until there is one', async () => {

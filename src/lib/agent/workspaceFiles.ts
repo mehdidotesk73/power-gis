@@ -10,6 +10,8 @@
 //   transforms/<id>.json              one transform: name, inputs, outputs (key, name, outputId)
 //   transforms/<id>.<key>.sql         that output's SQL, plain (found by name: no reference to get wrong)
 //   visualizations/<id>.json          one visualization, every setting (as in a downloaded zip)
+//   about.md                          about the workspace: its question, framing, decisions (markdown;
+//                                     what the storyteller and the next chat read)
 //   overview.md                       generated, read-only: one line per item
 //
 // An item's id is its file name. A new item gets a name the agent picks;
@@ -57,8 +59,8 @@ export function canonical(v: unknown): string {
 
 // The layout is the workspace document's file form (lib/workspace/files.ts: Download / Load zips it):
 // the same paths, so people and the agent see one workspace the same way.
-import { DATASETS, INDEX, OVERVIEW, sqlPath, transformPath, vizPath, type Files } from '../workspace/files'
-export { DATASETS, INDEX, OVERVIEW, sqlPath, transformPath, vizPath, type Files }
+import { ABOUT, DATASETS, INDEX, OVERVIEW, sqlPath, transformPath, vizPath, type Files } from '../workspace/files'
+export { ABOUT, DATASETS, INDEX, OVERVIEW, sqlPath, transformPath, vizPath, type Files }
 
 const NAME = '[A-Za-z0-9_-]+'
 const TRANSFORM_FILE = new RegExp(`^transforms/(${NAME})\\.json$`)
@@ -91,11 +93,12 @@ export function workspaceFiles(doc: WorkspaceDoc, dataset: (id: string) => Datas
     const { id: _id, ...rest } = agentVisualization(v)
     files.set(vizPath(v.id), pretty(rest))
   }
+  files.set(ABOUT, doc.about ? `${doc.about}\n` : '')
   return files
 }
 
 /** A file the agent may write: the index, the datasets' details, a transform, an output's SQL, a visualization. */
-export const writable = (path: string) => path === INDEX || path === DATASETS || TRANSFORM_FILE.test(path) || SQL_FILE.test(path) || VIZ_FILE.test(path)
+export const writable = (path: string) => path === INDEX || path === ABOUT || path === DATASETS || TRANSFORM_FILE.test(path) || SQL_FILE.test(path) || VIZ_FILE.test(path)
 
 // ── the editor (Anthropic's text editor commands, on the staged files) ─────
 
@@ -231,6 +234,8 @@ export interface Assembled {
   unused: string[]
   /** Datasets whose name / description datasets.json changes: id → the new values. */
   datasetEdits: Record<string, { name?: string; description?: string }>
+  /** about.md, when it differs from the draft's About ("" clears it). */
+  about?: string
 }
 
 function parseJson(files: Files, path: string, errors: string[]): Obj | null {
@@ -354,9 +359,13 @@ export function assembleFiles(
     }
   }
 
+  used.add(ABOUT)
+  const aboutText = files.get(ABOUT)?.trim() ?? ''
+  const about = aboutText !== (doc.about ?? '') ? aboutText : undefined
+
   if (errors.length) return { ok: false, errors }
   const unused = [...files.keys()].filter((p) => !used.has(p)).sort()
-  return { ok: true, value: { input: { name: index.name, datasetIds: index.datasetIds, transforms, visualizations }, created, unused, datasetEdits } }
+  return { ok: true, value: { input: { name: index.name, datasetIds: index.datasetIds, transforms, visualizations }, created, unused, datasetEdits, ...(about !== undefined ? { about } : {}) } }
 }
 
 // ── the overview ───────────────────────────────────────────────────────────

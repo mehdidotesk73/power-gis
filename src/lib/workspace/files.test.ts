@@ -20,6 +20,16 @@ describe('workspace documents as files and zips', () => {
     expect(unzipDocument(zipDocument(file))).toEqual({ ok: true, file })
   })
 
+  it('keeps the About note as about.md, through files, zips and documents', () => {
+    const file = { ...load(DEFAULT), about: '## Question\nWhere is a therapy practice viable?' }
+    const files = documentFiles(file)
+    expect(files.get('about.md')).toBe('## Question\nWhere is a therapy practice viable?\n')
+    expect(files.get('overview.md')).toContain('## About\n## Question')
+    expect(filesDocument(files)).toEqual({ ok: true, file })
+    expect(unzipDocument(zipDocument(file))).toEqual({ ok: true, file })
+    expect(parseWorkspaceFile(JSON.stringify(file))).toEqual({ ok: true, file })
+  })
+
   it('lays the files out as the agent sees them: SQL in its own files, never in JSON', () => {
     const file = load(DEFAULT)
     const files = documentFiles(file)

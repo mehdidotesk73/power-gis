@@ -1,7 +1,7 @@
 // Workspace files: Download makes a zip of the workspace's files; Load on another device opens the same
 // workspace from it.
 import { expect, test, type Page } from '@playwright/test'
-import { card, closeDevices, closeWorkspacePanel, device, listPanel, loadWorkspaceFile, openSample, openWorkspacePanel, ready, startSmall } from './helpers'
+import { card, closeDevices, closeWorkspacePanel, device, listPanel, loadWorkspaceFile, openSample, openWorkspacePanel, PHONE, ready, reload, startSmall } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -78,4 +78,24 @@ test('download, change, download again, discard; copy, load the second zip, past
   await page.locator('.paste').getByRole('button', { name: 'Load' }).click()
   await ready(page)
   await expect(await pill()).toHaveText('Visible')
+})
+
+test('the About note is written in the Workspace panel, saved with the workspace, and kept after a reload', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  await startSmall(page)
+  await openWorkspacePanel(page)
+  const about = page.getByTestId('workspace.about')
+  await expect(about).toContainText('not written yet')
+  await about.locator('summary').click()
+  await about.getByLabel('About this workspace').fill('## Question\nWhere is a therapy practice viable?\n\n## Sources\n- CDC PLACES: depression and distress by county.')
+  await about.locator('summary').click() // blur: the note goes into the draft
+  await expect(about).toContainText('Where is a therapy practice viable?')
+  await page.screenshot({ path: test.info().outputPath('about-phone.png') })
+  await page.getByTestId('workspace.save').click()
+  await expect(page.getByText(/All changes saved/)).toBeVisible()
+  await reload(page)
+  await openWorkspacePanel(page)
+  await expect(page.getByTestId('workspace.about')).toContainText('Where is a therapy practice viable?')
+  await page.getByTestId('workspace.about').locator('summary').click()
+  await expect(page.getByTestId('workspace.about').getByLabel('About this workspace')).toHaveValue(/CDC PLACES: depression and distress by county\./)
 })

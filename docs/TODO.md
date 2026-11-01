@@ -4,7 +4,7 @@ Track feature development, improvements, and known issues here. Move completed w
 
 ## Done
 
-- **Story voice** — the storyteller writes for a non-data reader in three acts (base data in plain words: publisher, what, where, when, how made, limits; what the steps compute and why; the maps with queried headlines: top / bottom places and states, the middle half); `tell_story` takes the assistant's `sources` notes; descriptions up to 3,000 characters reach it.
+- **Story voice** — the storyteller writes for a non-data reader in three acts (base data in plain words: publisher, what, where, when, how made, limits; what the steps compute and why; the maps with queried headlines: top / bottom places and states, the middle half); it reads only the workspace (never the chat): a new **About** note (question, framing, sources, decisions; `/about.md` for the assistant, Workspace → About for the user, saved everywhere a workspace goes) and plain-language Source lines in descriptions (up to 3,000 characters reach it).
 - **Scaffold + personalization** — template copied in, docs filled for PowerGIS.
 - **Map widgets + first dataset (utilities by county)** — reusable MapLibre widgets
   (`MapView`, `ScalarLayer`, `VectorLayer`, `FeatureTooltip`, `FeaturePanel` + `PropertyValue`,

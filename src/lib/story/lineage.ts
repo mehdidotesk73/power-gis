@@ -40,9 +40,15 @@ export function lineageOf(doc: WorkspaceDoc, visualizationIds: string[]): Lineag
 const MAX_DESCRIPTION = 3000
 
 /** The lineage as text for the storyteller: every dataset's facts and description, every transform's SQL, every visualization's settings. */
-export function lineageText(l: Lineage, record: (id: string) => DatasetRecord | undefined): string {
+export function lineageText(l: Lineage, record: (id: string) => DatasetRecord | undefined, about?: string): string {
   const name = (id: string) => record(id)?.name ?? id
-  const out: string[] = ['# What stands behind these visualizations, from the starting data to the maps', '']
+  const out: string[] = [
+    '# About the workspace',
+    about?.trim() || '(no About note: the question and framing are only what the datasets\' descriptions say)',
+    '',
+    '# What stands behind these visualizations, from the starting data to the maps',
+    '',
+  ]
   for (const s of l.steps) {
     if (s.kind === 'dataset') {
       const d = record(s.id)

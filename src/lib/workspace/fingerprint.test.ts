@@ -23,6 +23,7 @@ describe('workspace fingerprint', () => {
   it('changes with the setup', async () => {
     const a = await fingerprint(file())
     expect(await fingerprint(file({ name: 'W2' }))).not.toBe(a)
+    expect(await fingerprint(file({ about: 'The question' }))).not.toBe(a)
     expect(await fingerprint(file({ datasetIds: ['a', 'b'] }))).not.toBe(a)
     expect(await fingerprint(file({ datasets: [{ id: 'a', name: 'Renamed', store: 'local', rows: 3, origin: { kind: 'unknown' } }] as never }))).not.toBe(a)
   })
