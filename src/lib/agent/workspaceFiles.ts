@@ -469,6 +469,13 @@ export function overviewText(files: Files, doc: WorkspaceDoc, info: OverviewInfo
     const isNew = !doc.visualizations.some((x) => x.id === id)
     lines.push(`- ${id}  "${v.name}"  ${ds(v.datasetId)} · geometry ${geometry} · ${v.column}${v.aggregation ? ` (${v.aggregation})` : ''} · ${color}${v.visible === false ? ' · hidden' : ''}${isNew ? ' · new (not applied)' : ''}`)
   }
+  // Stories aren't files the agent edits (tell_story writes them), but it needs them to rewrite one with its own maps.
+  const stories = doc.stories ?? []
+  if (stories.length) {
+    lines.push('', `## Stories (${stories.length}; written by tell_story — to rewrite one, pass its storyId and the visualizations listed here unless the user asks for others)`)
+    const vizName = (id: string) => doc.visualizations.find((v) => v.id === id)?.name
+    for (const s of stories) lines.push(`- ${s.id}  "${s.name}"  ${s.scenes.length} scenes · written ${s.writtenAt.slice(0, 10)}`, `    visualizations: ${s.visualizationIds.map((id) => `${id} (${vizName(id) ?? 'no longer in the workspace'})`).join(', ')}`)
+  }
   lines.push('', `Files: ${[...files.keys()].sort().map((p) => `/${p}`).join(' · ')}`)
   return lines.join('\n')
 }

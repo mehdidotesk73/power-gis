@@ -290,7 +290,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'tell_story',
     description:
-      'Have the storyteller write a story about some visualizations, for someone who isn\'t a data person: the base data in plain words (who published it, what it measures), what the steps compute and why, then the maps and their headlines; short scenes with a figure or two (rows, a chart, a map). It reads only what the workspace keeps — the About note (/about.md), the datasets\' descriptions and the SQL, never this chat — so make sure those say what the story needs first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one). It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
+      'Have the storyteller write a story about some visualizations, for someone who isn\'t a data person: the base data in plain words (who published it, what it measures), what the steps compute and why, then the maps and their headlines; short scenes with a figure or two (rows, a chart, a map). It reads only what the workspace keeps — the About note (/about.md), the datasets\' descriptions and the SQL, never this chat — so make sure those say what the story needs first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one): a rewrite keeps the story\'s own visualizations (the overview lists them under Stories) unless the user asks for others. It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
     inputSchema: {
       type: 'object',
       properties: {
