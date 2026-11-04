@@ -494,8 +494,10 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 
 (Design improvements, accessibility, mobile issues)
 
-**Gesture rule (user, 2026-11-04): a long hold on a phone = a double-click on a PC, and the reverse.** Story maps follow it
-(hold / double-click → live map; a tap or click does nothing). Places that don't yet — noted, not fixed:
+**Gesture rule (user, 2026-11-04): a long hold on a phone = a double-click on a PC, and the reverse.** Then, trying story
+maps on the phone, the user preferred the **double-tap** there (same gesture as the PC's double-click) and had the hold
+removed: story maps are double-click / double-tap → live map on both; a tap or click does nothing. So the rule may be
+"the same gesture on both" — ask before applying it elsewhere. Places that don't match yet — noted, not fixed:
 - **List cards** (datasets, transforms, visualizations, stories; `ObjectList`): phone hold → the menu, but the PC's menu is
   a right-click, and a **double-click opens the item** (Explore / the editor), which on a phone is a double-tap. Under the
   rule, the PC's double-click should do what the phone's hold does (or the phone's hold what the double-click does).

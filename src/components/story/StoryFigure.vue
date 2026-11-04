@@ -4,10 +4,11 @@
 // says now, marked when it differs from what the narrative was written on. Maps
 // are drawn from their settings on a map of their own, off screen
 // (visualizationImage.ts), one at a time, when the figure scrolls into view; the
-// picture is kept for the visit. Holding a map's picture (touch) or
-// double-clicking it (mouse) brings it to life
-// (LiveStoryMap: pan, zoom, tap a region), raised off the page; one live map at a
-// time; Release puts the view back as a picture. None of it is stored.
+// picture is kept for the visit. The picture is drawn at the figure's own size and
+// remembers its viewport (center + zoom); double-clicking / double-tapping it brings
+// it to life on that same viewport (LiveStoryMap: pan, zoom, tap a region), raised
+// off the page; one live map at a time; Release hands the live viewport back and the
+// picture is redrawn from it. None of it is stored.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { request } from '../../client/api'
 import { runFigure, snapshotChanged, type Figure, type Snapshot } from '../../lib/story/story'
@@ -15,13 +16,14 @@ import { chartShapes, short } from '../../lib/story/chart'
 import { paletteColors } from '../../lib/palettes'
 import type { DatasetRecord } from '../../shared/records'
 import type { VisualizationSpec } from '../../lib/dataset/visualization'
-import { visualizationsPng } from '../map/visualizationImage'
-import LiveStoryMap, { type View } from './LiveStoryMap.vue'
+import { visualizationsPicture, type Viewport } from '../map/visualizationImage'
+import LiveStoryMap from './LiveStoryMap.vue'
 import { logDebug } from '../../debug'
 
 const props = defineProps<{ figure: Figure; records: Map<string, DatasetRecord> }>()
 
 const el = ref<HTMLElement>()
+const mapEl = ref<HTMLElement>()
 const live = shallowRef<Snapshot | null>(null)
 const problem = ref('')
 const image = ref('')
@@ -46,18 +48,32 @@ async function load() {
 // ── maps: drawn one at a time, kept for the visit ──────────────────────────
 
 let queue: Promise<unknown> = Promise.resolve()
+const pictureSize = () => {
+  const width = Math.round(mapEl.value?.clientWidth || 720)
+  return { width, height: Math.round((width * 2) / 3) }
+}
+/** The window the picture shows (and the live map opens on): the first fit, then wherever Release left it (this visit). */
+const viewport = shallowRef<Viewport | null>(null)
 async function drawMap(f: Extract<Figure, { kind: 'map' }>) {
   const v = { ...f.viz, id: 'story-figure', visible: true } as VisualizationSpec
-  const key = JSON.stringify([f.viz, f.hide, f.fit, props.records.get(f.viz.datasetId)?.updatedAt])
+  // Drawn at the size it's shown (3:2), so the picture and the live map match pixel for pixel.
+  const size = pictureSize()
+  const width = size.width
+  const key = JSON.stringify([f.viz, f.hide, f.fit, props.records.get(f.viz.datasetId)?.updatedAt, width])
   let p = mapCache.get(key)
   if (!p) {
-    p = (queue = queue.catch(() => undefined).then(() => visualizationsPng([v], props.records, { hide: f.hide, fit: f.fit }))).then((b) => URL.createObjectURL(b as Blob))
+    p = (queue = queue.catch(() => undefined).then(() => visualizationsPicture([v], props.records, { hide: f.hide, fit: f.fit, ...size }))).then((r) => {
+      const { png, viewport } = r as Awaited<ReturnType<typeof visualizationsPicture>>
+      return { url: URL.createObjectURL(png), viewport }
+    })
     p.catch(() => mapCache.delete(key))
     mapCache.set(key, p)
   }
   drawing.value = true
   try {
-    image.value = await p
+    const r = await p
+    image.value = r.url
+    viewport.value = r.viewport
   } catch (e) {
     problem.value = `The map couldn’t be drawn: ${(e as Error).message}`
     logDebug(`story map "${f.viz.name}": ${(e as Error).message}`, 'error')
@@ -71,36 +87,20 @@ async function drawMap(f: Extract<Figure, { kind: 'map' }>) {
 const myId = Symbol('figure')
 const mapLive = ref(false)
 const liveMap = ref<InstanceType<typeof LiveStoryMap>>()
-// Hold (touch) or double-click (mouse) — the app's one "go deeper" gesture pair. A tap or a click does
-// nothing, so scrolling past a map never wakes it.
+// Double-click / double-tap, on every device (the user's call, 2026-11-04: a double tap beats a hold on phones too).
+// A single tap or click does nothing, so scrolling past a map never wakes it.
 const canHover = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover)').matches
-const HOLD_MS = 500
-let hold: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | null = null
-const endHold = () => {
-  if (hold) clearTimeout(hold.timer)
-  hold = null
-}
-function holdDown(e: PointerEvent) {
-  if (e.pointerType === 'mouse') return
-  endHold()
-  hold = { x: e.clientX, y: e.clientY, timer: setTimeout(() => (endHold(), navigator.vibrate?.(10), goLive()), HOLD_MS) }
-}
-function holdMove(e: PointerEvent) {
-  if (hold && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 10) endHold() // a scroll, not a hold
-}
 function goLive() {
-  if (props.figure.kind !== 'map' || !image.value) return
+  if (props.figure.kind !== 'map' || !image.value || !viewport.value) return
   // Another figure's live map goes back to a picture first.
   if (activeLive.value && activeLive.value !== myId) releaseOthers.value?.()
   activeLive.value = myId
   releaseOthers.value = () => void liveMap.value?.release()
   mapLive.value = true
 }
-// Where the live map was left, this visit only: holding / double-clicking again opens it there.
-const lastView = shallowRef<View | null>(null)
-function onRelease(picture: Blob | null, view: View | null) {
+function onRelease(picture: Blob | null, at: Viewport) {
   if (picture) image.value = URL.createObjectURL(picture) // this visit only: the cache keeps the figure's own picture
-  if (view) lastView.value = view
+  viewport.value = at
   mapLive.value = false
   if (activeLive.value === myId) {
     activeLive.value = null
@@ -108,7 +108,6 @@ function onRelease(picture: Blob | null, view: View | null) {
   }
 }
 // A click or tap anywhere outside the live map puts it back to a picture. A swipe (the story scrolling) isn't a tap.
-const mapEl = ref<HTMLElement>()
 let outside: { x: number; y: number } | null = null
 function outsideDown(e: PointerEvent) {
   outside = mapEl.value && !mapEl.value.contains(e.target as Node) ? { x: e.clientX, y: e.clientY } : null
@@ -151,7 +150,7 @@ const cell = (v: unknown) => (v === null || v === undefined ? '—' : typeof v =
 <script lang="ts">
 import { ref as sharedRef } from 'vue'
 // Shared by every figure on the page: map pictures by their settings.
-const mapCache = new Map<string, Promise<string>>()
+const mapCache = new Map<string, Promise<{ url: string; viewport: Viewport }>>()
 /** The figure whose map is live now (one at a time), and how to send it back to a picture. */
 const activeLive = sharedRef<symbol | null>(null)
 const releaseOthers = sharedRef<(() => void) | null>(null)
@@ -197,23 +196,18 @@ const releaseOthers = sharedRef<(() => void) | null>(null)
 
     <!-- map: a picture drawn off screen from its settings; tap it for a live map -->
     <div v-else ref="mapEl" class="map" :class="{ lifted: mapLive }">
-      <LiveStoryMap v-if="mapLive" ref="liveMap" :figure="figure" :records="records" :view="lastView" @release="onRelease" />
+      <LiveStoryMap v-if="mapLive && viewport" ref="liveMap" :figure="figure" :records="records" :viewport="viewport!" :size="pictureSize()" @release="onRelease" />
       <button
         v-else-if="image"
         class="tap"
         data-testid="story.map"
+        :data-zoom="viewport?.zoom.toFixed(2)"
         :aria-label="`Explore the map: ${figure.viz.name}`"
         @dblclick="goLive"
         @keydown.enter="goLive"
-        @pointerdown="holdDown"
-        @pointermove="holdMove"
-        @pointerup="endHold"
-        @pointercancel="endHold"
-        @pointerleave="endHold"
-        @contextmenu.prevent
       >
         <img :src="image" :alt="figure.caption ?? figure.viz.name" draggable="false" />
-        <span class="hint">{{ canHover ? 'Double-click to explore' : 'Hold to explore' }}</span>
+        <span class="hint">{{ canHover ? 'Double-click to explore' : 'Double-tap to explore' }}</span>
       </button>
       <p v-else-if="!problem" class="muted small">{{ drawing ? 'Drawing the map…' : 'The map draws when it scrolls into view.' }}</p>
     </div>
