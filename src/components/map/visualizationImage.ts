@@ -30,6 +30,8 @@ export interface ImageOptions {
   hide?: string[]
   /** `main` (default): fit the main group of features (far-off ones out of view); `all`: every feature. */
   fit?: 'main' | 'all'
+  /** An exact view (west, south, east, north) instead of the fit: a live story map's view when it's released. */
+  view?: [number, number, number, number]
 }
 
 /** `visualizations` (first on top) drawn alone, fitted to their features, `width` × `height` page pixels. */
@@ -69,7 +71,8 @@ export async function visualizationsPng(visualizations: VisualizationSpec[], rec
     const geoms = a.shown().flatMap((r) => r.data.features.map((f) => f.geometry))
     const box = opts.fit === 'all' ? bboxOf(geoms) : focusBox(geoms)
     m.resize() // its container's size, before fitting to it
-    if (box) m.fitBounds([box[0], box[1], box[2], box[3]], { padding: 24, maxZoom: 8, animate: false })
+    if (opts.view) m.fitBounds(opts.view, { padding: 0, animate: false })
+    else if (box) m.fitBounds([box[0], box[1], box[2], box[3]], { padding: 24, maxZoom: 8, animate: false })
     await idle(m, 8000)
     return await a.map.value!.png(legendOf(a.shown()))
   } finally {

@@ -33,6 +33,8 @@ test('a story opens: scenes, a sample, charts and a map, all drawn from their co
   await figure.scrollIntoViewIfNeeded()
   await expect(figure.locator('img')).toBeVisible({ timeout: 30000 })
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
+  const imgSize = () => figure.locator('img').evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight])
+  const firstSize = await imgSize()
 
   // A click does nothing; a double-click (a hold on touch) brings a live map, raised off the page, locked to
   // the figure. Tap a state for its value and rows.
@@ -48,10 +50,21 @@ test('a story opens: scenes, a sample, charts and a map, all drawn from their co
   await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5)
   await expect(figure.getByTestId('story.featurecard')).toBeVisible({ timeout: 10000 })
   await page.screenshot({ path: test.info().outputPath('story-live-map.png') })
-  // Release: the view goes back to a picture, and the live map is gone.
+  await live.getByRole('button', { name: /zoom in/i }).click()
+  await page.waitForTimeout(800)
+  const zoomed = Number(await live.getAttribute('data-zoom'))
+  // Release: the view goes back to a picture the same size as the figure's own, and the live map is gone.
   await figure.getByTestId('story.release').click()
   await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
+  expect(await imgSize()).toEqual(firstSize)
+  // Back to live: where it was left, not the first framing.
+  await figure.getByTestId('story.map').dblclick()
+  await expect(live.locator('.maplibregl-canvas')).toBeVisible({ timeout: 30000 })
+  await page.waitForTimeout(1500)
+  expect(Math.abs(Number(await live.getAttribute('data-zoom')) - zoomed)).toBeLessThan(0.05)
+  await figure.getByTestId('story.release').click()
+  await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
   // On touch, holding the picture does the same (a quick tap does nothing).
   const touch = (type: string) =>
     figure.getByTestId('story.map').evaluate((el, t) => {

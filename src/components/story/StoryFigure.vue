@@ -16,7 +16,7 @@ import { paletteColors } from '../../lib/palettes'
 import type { DatasetRecord } from '../../shared/records'
 import type { VisualizationSpec } from '../../lib/dataset/visualization'
 import { visualizationsPng } from '../map/visualizationImage'
-import LiveStoryMap from './LiveStoryMap.vue'
+import LiveStoryMap, { type View } from './LiveStoryMap.vue'
 import { logDebug } from '../../debug'
 
 const props = defineProps<{ figure: Figure; records: Map<string, DatasetRecord> }>()
@@ -96,8 +96,11 @@ function goLive() {
   releaseOthers.value = () => void liveMap.value?.release()
   mapLive.value = true
 }
-function onRelease(picture: Blob | null) {
+// Where the live map was left, this visit only: holding / double-clicking again opens it there.
+const lastView = shallowRef<View | null>(null)
+function onRelease(picture: Blob | null, view: View | null) {
   if (picture) image.value = URL.createObjectURL(picture) // this visit only: the cache keeps the figure's own picture
+  if (view) lastView.value = view
   mapLive.value = false
   if (activeLive.value === myId) {
     activeLive.value = null
@@ -194,7 +197,7 @@ const releaseOthers = sharedRef<(() => void) | null>(null)
 
     <!-- map: a picture drawn off screen from its settings; tap it for a live map -->
     <div v-else ref="mapEl" class="map" :class="{ lifted: mapLive }">
-      <LiveStoryMap v-if="mapLive" ref="liveMap" :figure="figure" :records="records" @release="onRelease" />
+      <LiveStoryMap v-if="mapLive" ref="liveMap" :figure="figure" :records="records" :view="lastView" @release="onRelease" />
       <button
         v-else-if="image"
         class="tap"

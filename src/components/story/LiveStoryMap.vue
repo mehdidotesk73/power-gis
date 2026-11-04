@@ -10,6 +10,7 @@ import MapLegend from '../map/MapLegend.vue'
 import FeatureRows from '../dataset/FeatureRows.vue'
 import UiButton from '../ui/UiButton.vue'
 import { legendOf, useVisualizationLayers } from '../map/useVisualizationLayers'
+import { visualizationsPng } from '../map/visualizationImage'
 import { request } from '../../client/api'
 import { bboxOf, focusBox } from '../../lib/geometry'
 import { formatPrimitive } from '../../lib/format'
@@ -20,8 +21,14 @@ import type { Figure } from '../../lib/story/story'
 import type { DatasetRecord } from '../../shared/records'
 import { logDebug } from '../../debug'
 
-const props = defineProps<{ figure: Extract<Figure, { kind: 'map' }>; records: Map<string, DatasetRecord> }>()
-const emit = defineEmits<{ (e: 'release', picture: Blob | null): void }>()
+export type View = [number, number, number, number]
+const props = defineProps<{
+  figure: Extract<Figure, { kind: 'map' }>
+  records: Map<string, DatasetRecord>
+  /** Where the last release left it (this visit): it opens there again. */
+  view?: View | null
+}>()
+const emit = defineEmits<{ (e: 'release', picture: Blob | null, view: View | null): void }>()
 
 const viz = computed(() => ({ ...props.figure.viz, id: 'story-live', visible: true }) as VisualizationSpec)
 const layers = useVisualizationLayers(ref([viz.value]), toRef(props, 'records'))
@@ -35,19 +42,31 @@ const shown = computed(() =>
 const legend = computed(() => legendOf(shown.value))
 const map = ref<InstanceType<typeof VisualizationMap>>()
 
-// Framed as the picture was: the main group of features (or all of them).
+// Framed as the picture was: where the last release left it, else the main group of features (or all of them).
 let fitted = false
 function fit() {
   const m = map.value?.getMap()
   if (fitted || !m || !shown.value.length) return
+  m.resize()
+  if (props.view) {
+    fitted = true
+    m.fitBounds(props.view, { padding: 0, animate: false })
+    return
+  }
   const geoms = shown.value.flatMap((r) => r.data.features.map((f) => f.geometry))
   const box = props.figure.fit === 'all' ? bboxOf(geoms) : focusBox(geoms)
   if (!box) return
   fitted = true
-  m.resize()
   m.fitBounds([box[0], box[1], box[2], box[3]], { padding: 24, maxZoom: 8, animate: false })
 }
 watch([shown, () => map.value?.getMap()], fit, { flush: 'post' })
+// The zoom, on the element (data-zoom) for tests.
+const zoom = ref(0)
+watch(
+  () => map.value?.getMap(),
+  (m) => m?.on('moveend', () => (zoom.value = m.getZoom())),
+  { immediate: true },
+)
 onMounted(() => void layers.settled().then(fit))
 
 // ── tap a region ──────────────────────────────────────────────────────────
@@ -70,23 +89,28 @@ async function pick(key: string) {
 }
 
 // ── release: the view as it is now, as a picture ──────────────────────────
+// Redrawn off screen at the figure picture's own size (same 3:2 frame, same legend scale), so it looks like the
+// picture it replaces, only framed where you left it. The live map stays until it's ready.
 
 const releasing = ref(false)
 async function release() {
+  if (releasing.value) return
   releasing.value = true
+  const b = map.value?.getMap()?.getBounds()
+  const view: View | null = b ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()] : null
   let picture: Blob | null = null
   try {
-    picture = (await map.value?.png(legend.value)) ?? null
+    picture = view ? await visualizationsPng([viz.value], props.records, { hide: props.figure.hide, view }) : null
   } catch (e) {
     logDebug(`story map picture: ${(e as Error).message}`, 'warn')
   }
-  emit('release', picture)
+  emit('release', picture, view)
 }
 defineExpose({ release })
 </script>
 
 <template>
-  <div class="live" data-testid="story.livemap">
+  <div class="live" data-testid="story.livemap" :data-zoom="zoom.toFixed(2)">
     <VisualizationMap ref="map" :rendered="shown" cooperative @select="(_l, id) => pick(id)" @background-click="picked = null">
       <template #overlay>
         <MapLegend :entries="legend" />
