@@ -64,8 +64,10 @@ test('a story opens: scenes, a sample, charts and a map, all drawn from their co
   await live.getByRole('button', { name: /zoom in/i }).click()
   await page.waitForTimeout(800)
   const zoomed = await liveZoom()
-  // Release: the picture is redrawn from the live map's window, the same size as before, and the live map is gone.
-  await figure.getByTestId('story.release').click()
+  // Esc (like a tap outside): the picture is redrawn from the live map's window, the same size as before, and the
+  // live map is gone. There's no Release button (the user's call, 2026-11-04).
+  await expect(live.getByRole('button', { name: /release/i })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
   expect(await imgSize()).toEqual(firstSize)

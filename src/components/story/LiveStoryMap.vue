@@ -1,15 +1,14 @@
 <script setup lang="ts">
 // A story's map figure brought to life: the same visualization, locked (its
 // settings, the places it leaves out, its framing), on a live map you can pan
-// and zoom. Tap a region for its value and the rows behind it. Release puts
-// the current view back as a picture. It opens on the picture's viewport and hands its own back on Release
+// and zoom. Tap a region for its value and the rows behind it. A tap or click
+// outside it (or Esc) puts the current view back as a picture (StoryFigure calls release()). It opens on the picture's viewport and hands its own back on Release
 // (visualizationImage.ts: Viewport), so picture and live map always show the same window. Nothing here is stored: the story keeps
 // only the figure's settings, so a reload shows it as it was written.
 import { computed, ref, shallowRef, toRef, watch } from 'vue'
 import VisualizationMap from '../map/VisualizationMap.vue'
 import MapLegend from '../map/MapLegend.vue'
 import FeatureRows from '../dataset/FeatureRows.vue'
-import UiButton from '../ui/UiButton.vue'
 import { legendOf, useVisualizationLayers } from '../map/useVisualizationLayers'
 import { showViewport, viewportOf, visualizationsPicture, type Viewport } from '../map/visualizationImage'
 import { request } from '../../client/api'
@@ -106,7 +105,7 @@ defineExpose({ release })
     <VisualizationMap ref="map" :rendered="shown" cooperative fill @select="(_l, id) => pick(id)" @background-click="picked = null">
       <template #overlay>
         <MapLegend :entries="legend" />
-        <UiButton class="release" size="compact" tone="primary" data-testid="story.release" :disabled="releasing" @click="release">{{ releasing ? 'Releasing…' : 'Release' }}</UiButton>
+        <span v-if="releasing" class="releasing" data-testid="story.releasing">Back to the picture…</span>
         <div v-if="card" class="card" data-testid="story.featurecard">
           <div class="card-head">
             <strong>{{ card.title }}</strong>
@@ -132,17 +131,22 @@ defineExpose({ release })
 .live :deep(.legend) {
   max-width: 60%;
 }
-.release {
+.releasing {
   position: absolute;
   right: 0.5rem;
   bottom: 1.6rem;
   z-index: 3;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.6);
+  color: var(--text);
+  font-size: 0.7rem;
 }
 .card {
   position: absolute;
   left: 0.5rem;
   right: 0.5rem;
-  bottom: 3.6rem;
+  bottom: 1.6rem;
   max-height: 55%;
   overflow: auto;
   z-index: 3;

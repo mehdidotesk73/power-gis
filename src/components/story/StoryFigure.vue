@@ -7,7 +7,7 @@
 // picture is kept for the visit. The picture is drawn at the figure's own size and
 // remembers its viewport (center + zoom); double-clicking / double-tapping it brings
 // it to life on that same viewport (LiveStoryMap: pan, zoom, tap a region), raised
-// off the page; one live map at a time; Release hands the live viewport back and the
+// off the page; one live map at a time; a tap / click outside it (or Esc) hands the live viewport back and the
 // picture is redrawn from it. None of it is stored.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { request } from '../../client/api'
@@ -52,7 +52,7 @@ const pictureSize = () => {
   const width = Math.round(mapEl.value?.clientWidth || 720)
   return { width, height: Math.round((width * 2) / 3) }
 }
-/** The window the picture shows (and the live map opens on): the first fit, then wherever Release left it (this visit). */
+/** The window the picture shows (and the live map opens on): the first fit, then wherever the live map was left (this visit). */
 const viewport = shallowRef<Viewport | null>(null)
 async function drawMap(f: Extract<Figure, { kind: 'map' }>) {
   const v = { ...f.viz, id: 'story-figure', visible: true } as VisualizationSpec
@@ -141,14 +141,23 @@ function outsideUp(e: PointerEvent) {
   if (outside && Math.hypot(e.clientX - outside.x, e.clientY - outside.y) < 10 && mapLive.value) void liveMap.value?.release()
   outside = null
 }
+// Esc does the same (the keyboard's way out).
+function onKey(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || !mapLive.value) return
+  e.stopImmediatePropagation() // this Esc is the live map's (the page's own Esc would close the setup view)
+  e.preventDefault()
+  void liveMap.value?.release()
+}
 watch(mapLive, (on) => {
   const act = on ? document.addEventListener : document.removeEventListener
   act.call(document, 'pointerdown', outsideDown as EventListener, true)
   act.call(document, 'pointerup', outsideUp as EventListener, true)
+  act.call(document, 'keydown', onKey as EventListener, true)
 })
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', outsideDown as EventListener, true)
   document.removeEventListener('pointerup', outsideUp as EventListener, true)
+  document.removeEventListener('keydown', onKey as EventListener, true)
   if (activeLive.value === myId) (activeLive.value = null), (releaseOthers.value = null)
 })
 
