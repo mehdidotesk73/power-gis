@@ -4,7 +4,8 @@
 // says now, marked when it differs from what the narrative was written on. Maps
 // are drawn from their settings on a map of their own, off screen
 // (visualizationImage.ts), one at a time, when the figure scrolls into view; the
-// picture is kept for the visit. Tapping a map's picture brings it to life
+// picture is kept for the visit. Holding a map's picture (touch) or
+// double-clicking it (mouse) brings it to life
 // (LiveStoryMap: pan, zoom, tap a region), raised off the page; one live map at a
 // time; Release puts the view back as a picture. None of it is stored.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
@@ -70,6 +71,23 @@ async function drawMap(f: Extract<Figure, { kind: 'map' }>) {
 const myId = Symbol('figure')
 const mapLive = ref(false)
 const liveMap = ref<InstanceType<typeof LiveStoryMap>>()
+// Hold (touch) or double-click (mouse) — the app's one "go deeper" gesture pair. A tap or a click does
+// nothing, so scrolling past a map never wakes it.
+const canHover = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover)').matches
+const HOLD_MS = 500
+let hold: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | null = null
+const endHold = () => {
+  if (hold) clearTimeout(hold.timer)
+  hold = null
+}
+function holdDown(e: PointerEvent) {
+  if (e.pointerType === 'mouse') return
+  endHold()
+  hold = { x: e.clientX, y: e.clientY, timer: setTimeout(() => (endHold(), navigator.vibrate?.(10), goLive()), HOLD_MS) }
+}
+function holdMove(e: PointerEvent) {
+  if (hold && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > 10) endHold() // a scroll, not a hold
+}
 function goLive() {
   if (props.figure.kind !== 'map' || !image.value) return
   // Another figure's live map goes back to a picture first.
@@ -160,9 +178,22 @@ const releaseOthers = sharedRef<(() => void) | null>(null)
     <!-- map: a picture drawn off screen from its settings; tap it for a live map -->
     <div v-else class="map" :class="{ lifted: mapLive }">
       <LiveStoryMap v-if="mapLive" ref="liveMap" :figure="figure" :records="records" @release="onRelease" />
-      <button v-else-if="image" class="tap" data-testid="story.map" :aria-label="`Explore the map: ${figure.viz.name}`" @click="goLive">
-        <img :src="image" :alt="figure.caption ?? figure.viz.name" />
-        <span class="hint">Tap to explore</span>
+      <button
+        v-else-if="image"
+        class="tap"
+        data-testid="story.map"
+        :aria-label="`Explore the map: ${figure.viz.name}`"
+        @dblclick="goLive"
+        @keydown.enter="goLive"
+        @pointerdown="holdDown"
+        @pointermove="holdMove"
+        @pointerup="endHold"
+        @pointercancel="endHold"
+        @pointerleave="endHold"
+        @contextmenu.prevent
+      >
+        <img :src="image" :alt="figure.caption ?? figure.viz.name" draggable="false" />
+        <span class="hint">{{ canHover ? 'Double-click to explore' : 'Hold to explore' }}</span>
       </button>
       <p v-else-if="!problem" class="muted small">{{ drawing ? 'Drawing the map…' : 'The map draws when it scrolls into view.' }}</p>
     </div>
@@ -259,6 +290,8 @@ th {
 }
 .tap {
   position: relative;
+  -webkit-touch-callout: none;
+  user-select: none;
   display: block;
   width: 100%;
   padding: 0;

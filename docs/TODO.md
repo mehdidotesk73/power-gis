@@ -494,6 +494,22 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 
 (Design improvements, accessibility, mobile issues)
 
+**Gesture rule (user, 2026-11-04): a long hold on a phone = a double-click on a PC, and the reverse.** Story maps follow it
+(hold / double-click → live map; a tap or click does nothing). Places that don't yet — noted, not fixed:
+- **List cards** (datasets, transforms, visualizations, stories; `ObjectList`): phone hold → the menu, but the PC's menu is
+  a right-click, and a **double-click opens the item** (Explore / the editor), which on a phone is a double-tap. Under the
+  rule, the PC's double-click should do what the phone's hold does (or the phone's hold what the double-click does).
+- **The graph** (`dag/usePanZoom.ts`): panning is touch-and-hold-then-drag on a phone, a plain drag on a PC; the PC's
+  double-click does nothing on the graph.
+- **Graph nodes:** a tap selects on both; no hold or double-click (a double-tap raced the card's layout shift and was
+  removed). Their card's hold menu follows the list cards (above).
+- **Splitters** (panel / mini map / assistant edge): double-click resets the size on a PC; a phone has no hold (and iOS
+  Safari doesn't reliably fire `dblclick`, so the mini map bar's reset doesn't work there).
+- **The main map:** double-click / double-tap zooms (MapLibre's own); hold does nothing. Consistent with each other, but not
+  hold = double-click.
+- Not hold / double-click but related: picking several items is Ctrl/⌘- or Shift-click on a PC and **✎ → Select** then taps
+  on a phone.
+
 ## DevOps / Build
 
 (CI/CD, deployment, build process improvements)

@@ -34,8 +34,11 @@ test('a story opens: scenes, a sample, charts and a map, all drawn from their co
   await expect(figure.locator('img')).toBeVisible({ timeout: 30000 })
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
 
-  // Tap the picture: a live map, raised off the page, locked to the figure. Tap a state for its value and rows.
+  // A click does nothing; a double-click (a hold on touch) brings a live map, raised off the page, locked to
+  // the figure. Tap a state for its value and rows.
   await figure.getByTestId('story.map').click()
+  await expect(figure.getByTestId('story.livemap')).toHaveCount(0)
+  await figure.getByTestId('story.map').dblclick()
   const live = figure.getByTestId('story.livemap')
   await expect(live.locator('.maplibregl-canvas')).toBeVisible({ timeout: 30000 })
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(2)
@@ -49,6 +52,20 @@ test('a story opens: scenes, a sample, charts and a map, all drawn from their co
   await figure.getByTestId('story.release').click()
   await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
+  // On touch, holding the picture does the same (a quick tap does nothing).
+  const touch = (type: string) =>
+    figure.getByTestId('story.map').evaluate((el, t) => {
+      const r = el.getBoundingClientRect()
+      el.dispatchEvent(new PointerEvent(t, { pointerType: 'touch', bubbles: true, clientX: r.x + 20, clientY: r.y + 20 }))
+    }, type)
+  await touch('pointerdown')
+  await touch('pointerup')
+  await page.waitForTimeout(700)
+  await expect(figure.getByTestId('story.livemap')).toHaveCount(0)
+  await touch('pointerdown')
+  await expect(figure.getByTestId('story.livemap')).toBeVisible({ timeout: 3000 })
+  await figure.getByTestId('story.release').click()
+  await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
 
   // Edit a narrative: kept in the draft.
   await view.getByTestId('story.edit').click()
