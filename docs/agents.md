@@ -267,8 +267,9 @@ usage policies live **there**, not as dataset properties.
   the profile gives each job its model: the chat, the scout, the scraper and the reviewer (not built
   yet). Quick (all Haiku), Smart scout (Haiku; scout + reviewer Sonnet), Balanced (Sonnet; scraper
   Haiku), Deep research (Sonnet; scout + reviewer Opus; scraper Haiku), Planner (Opus; scout Sonnet;
-  scraper Haiku; reviewer Opus), All Sonnet. Custom later. Managed agents are kept per role and model
-  (`powergis.managed`), so switching profiles reuses them. Each finished turn updates the chat's line
+  scraper Haiku; reviewer Opus), All Sonnet. Custom later. Managed agents live on each user's own
+  Anthropic account, one per role, found there by their metadata tag (`client/agent/provision.ts`); the
+  profile's model is given per run (a session override), so switching profiles needs no other agents. Each finished turn updates the chat's line
   in a per-device log (`powergis.profileChats`, last 200 chats: profile, cost, tokens, runs), and ⚙
   shows each profile's chats and average ≈ $ a chat; the cloud table of runs comes with run records.
   **A chat keeps the profile it started with** (decided: simple, one profile per chat). The API would accept a switch
@@ -379,7 +380,8 @@ approved on a card showing the brief and the cap.
 reports, peeking at the files; scraper: a WSDOT Excel file, the earnings table in Home Depot's annual
 report PDF, and a JavaScript-built page, each needing a different way in), a cap per run, live progress,
 then elapsed time, cost, report and output files (CSVs import as datasets). The environment and the
-two agents are created once and remembered on the device (`powergis.managed`). What it answers:
+two agents are made on the user's account the first time, tagged (`metadata.app = powergis`), and found
+again by that tag from any device (`client/agent/provision.ts`). What it answers:
 whether runs work through the relay, startup time and cost, and files coming back. (First answer: not
 directly from the browser — CORS — hence the relay.) **First runs (2026-10-30, Haiku):** scout 39 s,
 $0.03, a sound report but layouts guessed from file names — so the scout now **peeks** (downloads a

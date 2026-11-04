@@ -467,7 +467,7 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 
 ### Planned (agreed 2026-11-04; order to be decided)
 
-**1. Managed agents on each user's own key.** Agents belong to the Anthropic workspace of the key that made them, so the
+**1. Managed agents on each user's own key.** ✅ Done (2026-11-04, PR #57: `client/agent/provision.ts`). Agents belong to the Anthropic workspace of the key that made them, so the
 app already creates the scout / scraper (and one environment) on each user's account from the definitions in
 `client/agent/managed.ts`. Weak spot: their ids are remembered only in this browser's storage, so a new device, a cleared
 browser or a prompt / model change creates new ones, and agents can only be archived, never deleted. To do:
