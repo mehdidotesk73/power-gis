@@ -20,6 +20,8 @@ const props = withDefaults(
     rendered: RenderedViz[]
     /** Inside a scrolling page (a story): one finger scrolls the page, two move the map. */
     cooperative?: boolean
+    /** Exactly its container's box (MapView's `fill`). */
+    fill?: boolean
     highlightFor?: (v: VisualizationSpec) => string[]
     selectedKeyFor?: (v: VisualizationSpec) => string | null
   }>(),
@@ -52,7 +54,7 @@ defineExpose({
 </script>
 
 <template>
-  <MapView ref="view" :cooperative="cooperative" @background-click="emit('background-click')">
+  <MapView ref="view" :cooperative="cooperative" :fill="fill" @background-click="emit('background-click')">
     <template v-for="r in rendered" :key="`${r.layer.id}-${r.layer.kind}`">
       <ScalarLayer
         v-if="r.layer.kind === 'scalar'"

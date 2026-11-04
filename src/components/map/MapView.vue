@@ -21,6 +21,8 @@ const props = withDefaults(
     basemap?: 'dark' | 'none'
     /** Inside a scrolling page: one finger scrolls the page, two fingers (or Ctrl + wheel) move the map. */
     cooperative?: boolean
+    /** Exactly its container's box: no minimum height, no border (story maps, whose picture and live map must match). */
+    fill?: boolean
   }>(),
   { center: () => [-96.5, 38.5], zoom: 3.2, basemap: 'dark' },
 )
@@ -152,7 +154,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="map-root">
+  <div class="map-root" :class="{ fill }">
     <div ref="el" class="map-canvas" />
     <template v-if="map"><slot /></template>
     <slot name="overlay" />
@@ -168,6 +170,10 @@ defineExpose({
   overflow: hidden;
   border-radius: 0.5rem;
   border: 1px solid var(--border);
+}
+.map-root.fill {
+  min-height: 0;
+  border: 0;
 }
 .map-canvas {
   position: absolute;

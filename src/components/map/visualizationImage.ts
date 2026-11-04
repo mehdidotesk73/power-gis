@@ -78,7 +78,7 @@ export async function visualizationsPicture(visualizations: VisualizationSpec[],
             ? layers.rendered.value.map((r) => ({ ...r, data: { ...r.data, features: r.data.features.filter((f) => !hidden.has(String(f.properties._label ?? '').trim().toLowerCase())) } }))
             : layers.rendered.value
         api = { map, layers, shown }
-        return () => h('div', { style: 'width:100%;height:100%' }, [h(VisualizationMap, { ref: map, rendered: shown() })])
+        return () => h('div', { style: 'width:100%;height:100%' }, [h(VisualizationMap, { ref: map, rendered: shown(), fill: true })])
       },
     }),
   )

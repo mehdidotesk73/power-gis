@@ -9,7 +9,7 @@
 // it to life on that same viewport (LiveStoryMap: pan, zoom, tap a region), raised
 // off the page; one live map at a time; Release hands the live viewport back and the
 // picture is redrawn from it. None of it is stored.
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { request } from '../../client/api'
 import { runFigure, snapshotChanged, type Figure, type Snapshot } from '../../lib/story/story'
 import { chartShapes, short } from '../../lib/story/chart'
@@ -90,18 +90,43 @@ const liveMap = ref<InstanceType<typeof LiveStoryMap>>()
 // Double-click / double-tap, on every device (the user's call, 2026-11-04: a double tap beats a hold on phones too).
 // A single tap or click does nothing, so scrolling past a map never wakes it.
 const canHover = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: hover)').matches
+// Swapping picture ↔ live map must not move the page: the figure stays where it was on screen (the browser
+// re-anchored the scroll when the element under it was replaced).
+function scrollerOf(n: HTMLElement | null): HTMLElement | null {
+  for (let e = n?.parentElement; e; e = e.parentElement) {
+    const o = getComputedStyle(e).overflowY
+    if ((o === 'auto' || o === 'scroll') && e.scrollHeight > e.clientHeight) return e
+  }
+  return null
+}
+function keepInPlace(change: () => void) {
+  const top = mapEl.value?.getBoundingClientRect().top
+  const box = scrollerOf(mapEl.value ?? null)
+  const before = box ? box.scrollTop : window.scrollY
+  change()
+  if (top === undefined) return
+  const settle = () => {
+    if (box) box.scrollTop = before
+    else window.scrollTo({ top: before })
+    const moved = (mapEl.value?.getBoundingClientRect().top ?? top) - top
+    if (Math.abs(moved) > 1) box ? (box.scrollTop += moved) : window.scrollBy({ top: moved })
+  }
+  void nextTick(() => (settle(), requestAnimationFrame(settle)))
+}
 function goLive() {
   if (props.figure.kind !== 'map' || !image.value || !viewport.value) return
   // Another figure's live map goes back to a picture first.
   if (activeLive.value && activeLive.value !== myId) releaseOthers.value?.()
   activeLive.value = myId
   releaseOthers.value = () => void liveMap.value?.release()
-  mapLive.value = true
+  keepInPlace(() => (mapLive.value = true))
 }
 function onRelease(picture: Blob | null, at: Viewport) {
-  if (picture) image.value = URL.createObjectURL(picture) // this visit only: the cache keeps the figure's own picture
-  viewport.value = at
-  mapLive.value = false
+  keepInPlace(() => {
+    if (picture) image.value = URL.createObjectURL(picture) // this visit only: the cache keeps the figure's own picture
+    viewport.value = at
+    mapLive.value = false
+  })
   if (activeLive.value === myId) {
     activeLive.value = null
     releaseOthers.value = null
@@ -326,6 +351,7 @@ th {
 }
 .map img {
   width: 100%;
+  aspect-ratio: 3 / 2; /* its box before it loads, and the live map's box: swapping moves nothing */
   border-radius: var(--radius);
   display: block;
 }

@@ -103,7 +103,7 @@ defineExpose({ release })
 
 <template>
   <div class="live" data-testid="story.livemap" :data-zoom="zoom.toFixed(2)">
-    <VisualizationMap ref="map" :rendered="shown" cooperative @select="(_l, id) => pick(id)" @background-click="picked = null">
+    <VisualizationMap ref="map" :rendered="shown" cooperative fill @select="(_l, id) => pick(id)" @background-click="picked = null">
       <template #overlay>
         <MapLegend :entries="legend" />
         <UiButton class="release" size="compact" tone="primary" data-testid="story.release" :disabled="releasing" @click="release">{{ releasing ? 'Releasing…' : 'Release' }}</UiButton>
