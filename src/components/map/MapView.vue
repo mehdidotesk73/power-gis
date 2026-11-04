@@ -19,6 +19,10 @@ const props = withDefaults(
     zoom?: number
     /** 'light' = OpenFreeMap Positron vector tiles (free, no API key); 'none' = plain background. */
     basemap?: 'dark' | 'none'
+    /** Inside a scrolling page: one finger scrolls the page, two fingers (or Ctrl + wheel) move the map. */
+    cooperative?: boolean
+    /** Exactly its container's box: no minimum height, no border (story maps, whose picture and live map must match). */
+    fill?: boolean
   }>(),
   { center: () => [-96.5, 38.5], zoom: 3.2, basemap: 'dark' },
 )
@@ -75,6 +79,7 @@ onMounted(() => {
     attributionControl: { compact: true },
     dragRotate: false,
     pitchWithRotate: false,
+    ...(props.cooperative ? { cooperativeGestures: true } : {}),
   })
   m.touchZoomRotate.disableRotation()
   m.addControl(new NavigationControl({ showCompass: false }), 'top-right')
@@ -149,7 +154,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="map-root">
+  <div class="map-root" :class="{ fill }">
     <div ref="el" class="map-canvas" />
     <template v-if="map"><slot /></template>
     <slot name="overlay" />
@@ -165,6 +170,10 @@ defineExpose({
   overflow: hidden;
   border-radius: 0.5rem;
   border: 1px solid var(--border);
+}
+.map-root.fill {
+  min-height: 0;
+  border: 0;
 }
 .map-canvas {
   position: absolute;

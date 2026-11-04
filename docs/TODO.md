@@ -4,6 +4,7 @@ Track feature development, improvements, and known issues here. Move completed w
 
 ## Done
 
+- **Live story maps** — tap a story map to explore it live (raised, locked to its visualization; pan / zoom with cooperative gestures; tap a region for its value and rows); Release turns the view back into a picture; one live at a time; nothing stored.
 - **Turn recovery** — a dropped connection resends the step (2–30 s backoff, live "trying again"), a failed turn offers Retry and 🩺 Diagnose, the assistant edits big files in small steps and applies as it goes, and its overview lists the stories with their maps.
 - **Story voice** — the storyteller writes for a non-data reader in three acts (base data in plain words: publisher, what, where, when, how made, limits; what the steps compute and why; the maps with queried headlines: top / bottom places and states, the middle half); it reads only the workspace (never the chat): datasets get a plain-language description, structured **metadata** (row, key, columns, source, caveats) and **notes**; transforms a plain-language **description**; the workspace an **About** note (its question and framing). All editable by the user and the assistant, saved everywhere a workspace goes (records, documents, zip, fingerprint, cloud `meta`: no SQL change).
 - **Agent runs: recovery, diagnosis, budget** — the relay gets the session's current token on every call (a stale one was misreported as a bad API key and the run lost); `RunError` phase / cause / run id, retries with backoff; run log + `list_runs` / `fetch_run` (files imported once) + `read_run` (the run as Anthropic kept it, read only; the diagnosis reads the chat's runs too); `diagnose` (approved, model chosen, red report to copy); spending cap recommended (expected × 2, with why) plus own amount.
@@ -492,6 +493,24 @@ separate Supabase project for tests (the free plan allows two) keeps test data o
 ## UI / UX
 
 (Design improvements, accessibility, mobile issues)
+
+**Gesture rule (user, 2026-11-04): a long hold on a phone = a double-click on a PC, and the reverse.** Then, trying story
+maps on the phone, the user preferred the **double-tap** there (same gesture as the PC's double-click) and had the hold
+removed: story maps are double-click / double-tap → live map on both; a tap or click does nothing. So the rule may be
+"the same gesture on both" — ask before applying it elsewhere. Places that don't match yet — noted, not fixed:
+- **List cards** (datasets, transforms, visualizations, stories; `ObjectList`): phone hold → the menu, but the PC's menu is
+  a right-click, and a **double-click opens the item** (Explore / the editor), which on a phone is a double-tap. Under the
+  rule, the PC's double-click should do what the phone's hold does (or the phone's hold what the double-click does).
+- **The graph** (`dag/usePanZoom.ts`): panning is touch-and-hold-then-drag on a phone, a plain drag on a PC; the PC's
+  double-click does nothing on the graph.
+- **Graph nodes:** a tap selects on both; no hold or double-click (a double-tap raced the card's layout shift and was
+  removed). Their card's hold menu follows the list cards (above).
+- **Splitters** (panel / mini map / assistant edge): double-click resets the size on a PC; a phone has no hold (and iOS
+  Safari doesn't reliably fire `dblclick`, so the mini map bar's reset doesn't work there).
+- **The main map:** double-click / double-tap zooms (MapLibre's own); hold does nothing. Consistent with each other, but not
+  hold = double-click.
+- Not hold / double-click but related: picking several items is Ctrl/⌘- or Shift-click on a PC and **✎ → Select** then taps
+  on a phone.
 
 ## DevOps / Build
 

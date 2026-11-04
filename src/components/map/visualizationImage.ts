@@ -30,10 +30,36 @@ export interface ImageOptions {
   hide?: string[]
   /** `main` (default): fit the main group of features (far-off ones out of view); `all`: every feature. */
   fit?: 'main' | 'all'
+  /** Exactly this view instead of the fit (a story map's viewport, shared with its live map). */
+  viewport?: Viewport
+}
+
+/**
+ * Where a map looks: its center and zoom, and the width (page pixels) it was taken at. Shown at another width the
+ * zoom moves by log2 of the ratio, so the same stretch of ground fills the frame: a story map's picture and its live
+ * map hand this back and forth, so both always show the same window.
+ */
+export interface Viewport {
+  center: [number, number]
+  zoom: number
+  width: number
+}
+export const viewportOf = (m: MlMap): Viewport => {
+  const c = m.getCenter()
+  return { center: [c.lng, c.lat], zoom: m.getZoom(), width: m.getContainer().clientWidth }
+}
+export const showViewport = (m: MlMap, v: Viewport) => {
+  const w = m.getContainer().clientWidth
+  m.jumpTo({ center: v.center, zoom: v.zoom + (w > 0 && v.width > 0 ? Math.log2(w / v.width) : 0) })
 }
 
 /** `visualizations` (first on top) drawn alone, fitted to their features, `width` × `height` page pixels. */
 export async function visualizationsPng(visualizations: VisualizationSpec[], records: Map<string, DatasetRecord>, opts: ImageOptions = {}): Promise<Blob> {
+  return (await visualizationsPicture(visualizations, records, opts)).png
+}
+
+/** The same, with the viewport the picture shows. */
+export async function visualizationsPicture(visualizations: VisualizationSpec[], records: Map<string, DatasetRecord>, opts: ImageOptions = {}): Promise<{ png: Blob; viewport: Viewport }> {
   const size = { width: opts.width ?? 720, height: opts.height ?? 480 }
   const hidden = new Set((opts.hide ?? []).map((h) => h.trim().toLowerCase()))
   const host = document.createElement('div')
@@ -52,7 +78,7 @@ export async function visualizationsPng(visualizations: VisualizationSpec[], rec
             ? layers.rendered.value.map((r) => ({ ...r, data: { ...r.data, features: r.data.features.filter((f) => !hidden.has(String(f.properties._label ?? '').trim().toLowerCase())) } }))
             : layers.rendered.value
         api = { map, layers, shown }
-        return () => h('div', { style: 'width:100%;height:100%' }, [h(VisualizationMap, { ref: map, rendered: shown() })])
+        return () => h('div', { style: 'width:100%;height:100%' }, [h(VisualizationMap, { ref: map, rendered: shown(), fill: true })])
       },
     }),
   )
@@ -69,9 +95,10 @@ export async function visualizationsPng(visualizations: VisualizationSpec[], rec
     const geoms = a.shown().flatMap((r) => r.data.features.map((f) => f.geometry))
     const box = opts.fit === 'all' ? bboxOf(geoms) : focusBox(geoms)
     m.resize() // its container's size, before fitting to it
-    if (box) m.fitBounds([box[0], box[1], box[2], box[3]], { padding: 24, maxZoom: 8, animate: false })
+    if (opts.viewport) showViewport(m, opts.viewport)
+    else if (box) m.fitBounds([box[0], box[1], box[2], box[3]], { padding: 24, maxZoom: 8, animate: false })
     await idle(m, 8000)
-    return await a.map.value!.png(legendOf(a.shown()))
+    return { png: await a.map.value!.png(legendOf(a.shown())), viewport: viewportOf(m) }
   } finally {
     app.unmount()
     host.remove()

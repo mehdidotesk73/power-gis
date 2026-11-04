@@ -33,6 +33,57 @@ test('a story opens: scenes, a sample, charts and a map, all drawn from their co
   await figure.scrollIntoViewIfNeeded()
   await expect(figure.locator('img')).toBeVisible({ timeout: 30000 })
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
+  const imgSize = () => figure.locator('img').evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight])
+  const firstSize = await imgSize()
+
+  // A click does nothing; a double-click (a double tap on touch) brings a live map, raised off the page, locked to
+  // the figure, on exactly the picture's window. Tap a state for its value and rows.
+  const pictureZoom = async () => Number(await figure.getByTestId('story.map').getAttribute('data-zoom'))
+  const liveZoom = async () => Number(await live.getAttribute('data-zoom'))
+  await figure.getByTestId('story.map').click()
+  await expect(figure.getByTestId('story.livemap')).toHaveCount(0)
+  const z0 = await pictureZoom()
+  const pictureBox = (await figure.getByTestId('story.map').locator('img').boundingBox())!
+  await figure.getByTestId('story.map').dblclick()
+  const live = figure.getByTestId('story.livemap')
+  await expect(live.locator('.maplibregl-canvas')).toBeVisible({ timeout: 30000 })
+  await expect(page.locator('.maplibregl-canvas')).toHaveCount(2)
+  await expect(figure.locator('.map.lifted')).toBeVisible()
+  await page.waitForTimeout(1500) // the layer draws
+  expect(Math.abs((await liveZoom()) - z0)).toBeLessThan(0.01)
+  // Same box as the picture, in the same place (nothing on the page moves).
+  // (layout sizes: the lift scales the live map up 1.5% on screen)
+  const liveSize = await live.evaluate((e: HTMLElement) => [e.offsetWidth, e.offsetHeight])
+  expect(Math.abs(liveSize[0] - pictureBox.width)).toBeLessThan(1.5)
+  expect(Math.abs(liveSize[1] - pictureBox.height)).toBeLessThan(1.5)
+  expect(Math.abs((await live.boundingBox())!.y - pictureBox.y)).toBeLessThan(8) // only the lift
+  const box = (await live.locator('.maplibregl-canvas').boundingBox())!
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5)
+  await expect(figure.getByTestId('story.featurecard')).toBeVisible({ timeout: 10000 })
+  await page.screenshot({ path: test.info().outputPath('story-live-map.png') })
+  await live.getByRole('button', { name: /zoom in/i }).click()
+  await page.waitForTimeout(800)
+  const zoomed = await liveZoom()
+  // Esc (like a tap outside): the picture is redrawn from the live map's window, the same size as before, and the
+  // live map is gone. There's no Release button (the user's call, 2026-11-04).
+  await expect(live.getByRole('button', { name: /release/i })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
+  await expect(page.locator('.maplibregl-canvas')).toHaveCount(1)
+  expect(await imgSize()).toEqual(firstSize)
+  const backBox = (await figure.getByTestId('story.map').locator('img').boundingBox())!
+  expect(Math.abs(backBox.y - pictureBox.y)).toBeLessThan(1.5)
+  expect(Math.abs(backBox.height - pictureBox.height)).toBeLessThan(1.5)
+  expect(Math.abs((await pictureZoom()) - zoomed)).toBeLessThan(0.01)
+  // Back to live: where it was left.
+  await figure.getByTestId('story.map').dblclick()
+  await expect(live.locator('.maplibregl-canvas')).toBeVisible({ timeout: 30000 })
+  await page.waitForTimeout(1500)
+  expect(Math.abs((await liveZoom()) - zoomed)).toBeLessThan(0.01)
+  // A tap (or click) anywhere outside the live map puts it back to a picture.
+  await view.getByTestId('story.scene').first().click()
+  await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
+  await expect(figure.getByTestId('story.livemap')).toHaveCount(0)
 
   // Edit a narrative: kept in the draft.
   await view.getByTestId('story.edit').click()
