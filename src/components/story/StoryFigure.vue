@@ -8,7 +8,7 @@
 // double-clicking it (mouse) brings it to life
 // (LiveStoryMap: pan, zoom, tap a region), raised off the page; one live map at a
 // time; Release puts the view back as a picture. None of it is stored.
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { request } from '../../client/api'
 import { runFigure, snapshotChanged, type Figure, type Snapshot } from '../../lib/story/story'
 import { chartShapes, short } from '../../lib/story/chart'
@@ -104,7 +104,24 @@ function onRelease(picture: Blob | null) {
     releaseOthers.value = null
   }
 }
+// A click or tap anywhere outside the live map puts it back to a picture. A swipe (the story scrolling) isn't a tap.
+const mapEl = ref<HTMLElement>()
+let outside: { x: number; y: number } | null = null
+function outsideDown(e: PointerEvent) {
+  outside = mapEl.value && !mapEl.value.contains(e.target as Node) ? { x: e.clientX, y: e.clientY } : null
+}
+function outsideUp(e: PointerEvent) {
+  if (outside && Math.hypot(e.clientX - outside.x, e.clientY - outside.y) < 10 && mapLive.value) void liveMap.value?.release()
+  outside = null
+}
+watch(mapLive, (on) => {
+  const act = on ? document.addEventListener : document.removeEventListener
+  act.call(document, 'pointerdown', outsideDown as EventListener, true)
+  act.call(document, 'pointerup', outsideUp as EventListener, true)
+})
 onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', outsideDown as EventListener, true)
+  document.removeEventListener('pointerup', outsideUp as EventListener, true)
   if (activeLive.value === myId) (activeLive.value = null), (releaseOthers.value = null)
 })
 
@@ -176,7 +193,7 @@ const releaseOthers = sharedRef<(() => void) | null>(null)
     </div>
 
     <!-- map: a picture drawn off screen from its settings; tap it for a live map -->
-    <div v-else class="map" :class="{ lifted: mapLive }">
+    <div v-else ref="mapEl" class="map" :class="{ lifted: mapLive }">
       <LiveStoryMap v-if="mapLive" ref="liveMap" :figure="figure" :records="records" @release="onRelease" />
       <button
         v-else-if="image"

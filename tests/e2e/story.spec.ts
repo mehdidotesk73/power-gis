@@ -64,8 +64,10 @@ test('a story opens: scenes, a sample, charts and a map, all drawn from their co
   await expect(figure.getByTestId('story.livemap')).toHaveCount(0)
   await touch('pointerdown')
   await expect(figure.getByTestId('story.livemap')).toBeVisible({ timeout: 3000 })
-  await figure.getByTestId('story.release').click()
+  // A tap (or click) anywhere outside the live map puts it back to a picture.
+  await view.getByTestId('story.scene').first().click()
   await expect(figure.getByTestId('story.map').locator('img')).toBeVisible({ timeout: 15000 })
+  await expect(figure.getByTestId('story.livemap')).toHaveCount(0)
 
   // Edit a narrative: kept in the draft.
   await view.getByTestId('story.edit').click()
