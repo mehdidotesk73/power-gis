@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { startClaude, CLAUDE_MODEL, describeError, DROP_WAITS, isDropped } from './claude'
+import { startClaude, CLAUDE_MODEL, describeError, DROP_WAITS, isDropped, RELOADED } from './claude'
 
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: unknown }
 
@@ -37,6 +37,26 @@ const tools = [
 ]
 
 describe('Claude adapter', () => {
+  it('a saved conversation carries on after a reload: images dropped, a step cut short answered', async () => {
+    const { fetchImpl, requests } = fakeApi([
+      sse([{ type: 'text', text: 'Looking. ' }, { type: 'tool_use', id: 'tu_1', name: 'get_workspace', input: {} }], 'tool_use'),
+      sse([{ type: 'text', text: 'Carrying on.' }], 'end_turn'),
+    ])
+    const s = startClaude({ apiKey: 'k', model: 'claude-sonnet-5-5', system: 'S', tools }, fetchImpl)
+    await s.send({ text: 'look at this', images: [{ mediaType: 'image/png', data: 'AAAA' }] }, {})
+    // The page reloads here, with get_workspace still running: what was kept goes into a new session.
+    const kept = JSON.parse(JSON.stringify(s.saved!()))
+    expect(kept.model).toBe('claude-sonnet-5-5')
+    expect(JSON.stringify(kept.history)).not.toContain('AAAA')
+    const again = startClaude({ apiKey: 'k', model: kept.model, system: 'S', tools, history: kept.history }, fetchImpl)
+    await again.send({ text: 'carry on' }, {})
+    const sent = requests[1].body.messages as { role: string; content: { type: string; text?: string; tool_use_id?: string; content?: string }[] }[]
+    expect(sent.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'user'])
+    expect(sent[0].content[0]).toMatchObject({ type: 'text', text: expect.stringContaining('not kept') })
+    expect(sent[2].content).toEqual([{ type: 'tool_result', tool_use_id: 'tu_1', content: RELOADED, is_error: true }])
+    expect(sent[3].content).toEqual([{ type: 'text', text: 'carry on' }])
+  })
+
   it('streams text, returns tool calls, and sends results back in Anthropic format', async () => {
     const { fetchImpl, requests } = fakeApi([
       sse([{ type: 'text', text: 'Looking. ' }, { type: 'tool_use', id: 'tu_1', name: 'get_workspace', input: {} }], 'tool_use'),

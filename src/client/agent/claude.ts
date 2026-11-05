@@ -5,7 +5,7 @@
 // loop plain text and tool calls (lib/agent/provider.ts).
 
 import Anthropic from '@anthropic-ai/sdk'
-import { emptyUsage, addUsage, type ChatProvider, type ChatSession, type ToolCall, type ToolSpec, type TurnEvents, type TurnInput, type TurnResult, type Usage } from '../../lib/agent/provider'
+import { emptyUsage, addUsage, type ChatProvider, type ChatSession, type SavedChat, type ToolCall, type ToolSpec, type TurnEvents, type TurnInput, type TurnResult, type Usage } from '../../lib/agent/provider'
 
 /** The default model: Haiku is fast and cheap, and does this work well. */
 export const CLAUDE_MODEL = 'claude-haiku-5-5'
@@ -81,6 +81,33 @@ const pause = (ms: number, signal?: AbortSignal) =>
     signal?.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true })
   })
 
+/** What a step cut short by a reload answers (its tool call needs a result before the chat goes on). */
+export const RELOADED =
+  'Interrupted: the page was reloaded while this step ran, and its result was lost. Nothing more from it was applied. A scout or scraper run carries on by itself: the app picks it up again and imports its files; list_runs / read_run show it.'
+
+/**
+ * A saved conversation made ready to carry on: only well-formed messages, and tool calls left without
+ * results (the page reloaded mid-step) answered with RELOADED.
+ */
+export function restoreHistory(saved: unknown): Msg[] {
+  if (!Array.isArray(saved)) return []
+  const history = saved.filter((m): m is Msg => !!m && typeof m === 'object' && ((m as Msg).role === 'user' || (m as Msg).role === 'assistant') && (typeof (m as Msg).content === 'string' || Array.isArray((m as Msg).content)))
+  const last = history.at(-1)
+  const pending = last?.role === 'assistant' && Array.isArray(last.content) ? last.content.flatMap((b) => (b.type === 'tool_use' ? [b.id] : [])) : []
+  if (pending.length) history.push({ role: 'user', content: pending.map((id) => ({ type: 'tool_result' as const, tool_use_id: id, content: RELOADED, is_error: true })) })
+  return history
+}
+
+/** Attached images take the most room and aren't kept: each becomes a line saying one was there. */
+const IMAGE_GONE = '[An image the user attached here; not kept on the device, so it is gone after a reload.]'
+function withoutImages(history: Msg[]): Msg[] {
+  return history.map((m) =>
+    Array.isArray(m.content) && m.content.some((b) => b.type === 'image')
+      ? ({ ...m, content: m.content.map((b) => (b.type === 'image' ? { type: 'text' as const, text: IMAGE_GONE } : b)) } as Msg)
+      : m,
+  )
+}
+
 class ClaudeSession implements ChatSession {
   private history: Msg[] = []
   private readonly tools: Anthropic.Beta.BetaToolUnion[]
@@ -90,7 +117,9 @@ class ClaudeSession implements ChatSession {
     private model: string,
     private readonly system: string,
     tools: ToolSpec[],
+    history?: unknown,
   ) {
+    this.history = restoreHistory(history)
     // No eager input streaming: the API then checks each tool input is valid JSON before it
     // reaches us (a long input once arrived with stray characters at the end). Tools still
     // validate every input (lib/agent/tools.ts).
@@ -110,6 +139,10 @@ class ClaudeSession implements ChatSession {
 
   setModel(model: string) {
     this.model = model // read on every call, so a change mid-turn applies from the next call on
+  }
+
+  saved(): SavedChat {
+    return { model: this.model, history: withoutImages(this.history) }
   }
 
   async send(input: TurnInput, events: TurnEvents, signal?: AbortSignal): Promise<TurnResult> {
@@ -197,10 +230,10 @@ class ClaudeSession implements ChatSession {
 }
 
 /** A session over the given transport (`fetchImpl` stands in for the network in tests). */
-export function startClaude(opts: { apiKey: string; model?: string; system: string; tools: ToolSpec[] }, fetchImpl?: typeof fetch): ChatSession {
+export function startClaude(opts: { apiKey: string; model?: string; system: string; tools: ToolSpec[]; history?: unknown }, fetchImpl?: typeof fetch): ChatSession {
   // The key is the user's own, entered on this device; calls go straight to Anthropic.
   const client = new Anthropic({ apiKey: opts.apiKey, dangerouslyAllowBrowser: true, maxRetries: 2, ...(fetchImpl ? { fetch: fetchImpl } : {}) })
-  return new ClaudeSession(client, opts.model ?? CLAUDE_MODEL, opts.system, opts.tools)
+  return new ClaudeSession(client, opts.model ?? CLAUDE_MODEL, opts.system, opts.tools, opts.history)
 }
 
 export const claudeProvider: ChatProvider = {

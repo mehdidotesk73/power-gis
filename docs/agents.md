@@ -337,7 +337,7 @@ is known, the scout first when it isn't (prompt: *Data from the web*). Each run 
 (brief, cap) and shows in the chat as a step like the others (`web-run`): running · time · latest step,
 expanding into the brief, steps, report / summary, files (Download, and the dataset each CSV became) and
 the console trace; **Stop this run** (or the chat's Stop) interrupts the session. One run at a time. The
-run in progress is remembered on the device (`powergis.webRun`): after a reload the card picks it up
+run in progress is remembered on the device (`powergis.webRun`; the chat itself is kept too, `powergis.chat`, until New chat): after a reload the card picks it up
 again and the scraper's CSVs are still imported (the chat itself isn't kept). The relay **requires
 sign-in**: every call carries the user's Supabase session token, which it checks with Supabase Auth
 (`/auth/v1/user`, cached a minute); signed out, the tools answer "Sign in …". UI tests fake the model
