@@ -74,7 +74,7 @@ function forgetKey() {
 }
 const maskedKey = computed(() => (apiKey.value ? `${apiKey.value.slice(0, 10)}…${apiKey.value.slice(-4)}` : ''))
 
-// ── the profile (this device; fixed for each chat) ─────────────────────────
+// ── the profile (this device; changeable mid-chat: every call takes the profile current when it starts) ─
 
 const PROFILE = 'powergis.agentProfile'
 const CHATS = 'powergis.profileChats'
@@ -92,11 +92,11 @@ const store = (key: string, value: string) => {
     /* per-device convenience */
   }
 }
-/** The profile new chats use. */
+/** The profile: every call from now on (chat, scout, scraper, storyteller) uses its models. */
 const profileId = ref(profileById(stored(PROFILE) ?? DEFAULT_PROFILE).id)
 watch(profileId, (p) => store(PROFILE, p))
-/** The profile the current chat runs on (set when it starts). */
-const chatProfile = ref<AgentProfile | null>(null)
+/** A chat whose profile changed mid-way: logged under this, out of every profile's averages. */
+const MIXED = 'mixed'
 /** The current chat's line in the log (one per New chat). */
 let chatRecord: ChatRecord | null = null
 const labelOf = (id: string) => CLAUDE_MODELS.find((m) => m.id === id)?.label.replace(/^Claude /, '') ?? id
@@ -113,16 +113,26 @@ const chatLog = ref<ChatRecord[]>(
   })(),
 )
 const stats = computed(() => profileStats(chatLog.value))
-/** The profile the next chat starts with. */
+/** The current profile (also what a new chat starts with). */
 const nextProfile = computed(() => profileById(profileId.value))
+// A change mid-chat: the chat's own model changes from its next call; running scouts, scrapers and storytellers keep
+// theirs (each step is labelled with the model it runs on). A note in the chat marks the change. The chat's line in
+// the per-profile log is moved to "mixed", so each profile's averages stay its own.
+watch(profileId, () => {
+  const p = nextProfile.value
+  if (!session) return
+  session.setModel?.(p.models.assistant)
+  items.value.push({ kind: 'note', tone: 'info', text: `Profile changed to ${p.label}: from here on, chat ${labelOf(p.models.assistant)} · scout ${labelOf(p.models.scout)} · scraper ${labelOf(p.models.scraper)} · storyteller ${labelOf(p.models.storyteller)}.` })
+  if (chatRecord) chatRecord = { ...chatRecord, profile: MIXED }
+})
 
 // ── the conversation ───────────────────────────────────────────────────────
 
 type Item =
   | { kind: 'user'; text: string; images?: string[] }
   | { kind: 'assistant'; text: string }
-  | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean }
-  | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string; /** A failed turn: offer Retry and Diagnose. */ failed?: boolean; /** The connection dropped: retrying. */ retrying?: boolean }
+  | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean; /** A step run by another agent (the storyteller): its model. */ model?: string }
+  | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string; /** A failed turn: offer Retry and Diagnose. */ failed?: boolean; /** The connection dropped: retrying. */ retrying?: boolean; /** Offer a Sign in button (the scout and scraper need an account). */ signIn?: boolean }
   | { kind: 'thinking'; text: string; open: boolean }
   | { kind: 'ask'; form: Form; answer?: FormAnswer }
   | { kind: 'diagnosis'; state: 'running' | 'ok' | 'error'; model: string; report: string; open: boolean; copied?: boolean }
@@ -133,6 +143,8 @@ interface RunItem {
   kind: 'run'
   role: WebRole
   brief: string
+  /** The model it runs on (the profile's when it started; unknown for one picked up after a reload). */
+  model?: string
   state: 'running' | 'ok' | 'error'
   startedAt: number
   sessionId?: string
@@ -187,7 +199,7 @@ watch(running, (r) => {
 })
 onBeforeUnmount(() => clearInterval(ticker))
 
-function pushRun(run: { role: WebRole; brief: string; startedAt: number; sessionId?: string }, resumed = false): RunItem {
+function pushRun(run: { role: WebRole; brief: string; startedAt: number; sessionId?: string; model?: string }, resumed = false): RunItem {
   items.value.push({ kind: 'run', ...run, state: 'running', log: [], imported: [], open: false, ...(resumed ? { resumed } : {}), stop: { stopped: false } })
   return items.value[items.value.length - 1] as RunItem
 }
@@ -214,11 +226,12 @@ async function follow(it: RunItem, run: ActiveRun, chat?: AbortSignal): Promise<
 async function web(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string> {
   if (!auth.user) return new SignInNeeded().message
   if (running.value) return 'Another scout or scraper run is still going; wait for it (or stop it) first.'
-  const it = pushRun({ role, brief, startedAt: Date.now() })
+  const model = nextProfile.value.models[role]
+  const it = pushRun({ role, brief, startedAt: Date.now(), model })
   // A run that failed after it started stays remembered: a reload picks it up again, and fetch_run can collect it.
   let keep = false
   try {
-    const run = await startRun(apiKey.value, { role, model: (chatProfile.value ?? nextProfile.value).models[role], brief, capDollars })
+    const run = await startRun(apiKey.value, { role, model, brief, capDollars })
     it.sessionId = run.sessionId
     const r = await follow(it, run, controller?.signal)
     logRun({ sessionId: r.sessionId, state: r.stop === 'end_turn' ? 'finished' : r.stop === 'stopped' ? 'stopped' : 'failed', ...(r.cost !== undefined ? { cost: r.cost } : {}), files: r.files.map((f) => f.name) })
@@ -348,6 +361,10 @@ const datasetName = (id: string) => props.host.record(id)?.name ?? id
 
 // ── the storyteller (tell_story): its own model and prompt, run inside this chat as one step ─
 
+/** The chat's own tokens, by model (the profile can change mid-chat). */
+const chatUsage = ref<{ model: string; usage: Usage }[]>([])
+const addModelUsage = (xs: { model: string; usage: Usage }[], model: string, u: Usage) =>
+  xs.some((x) => x.model === model) ? xs.map((x) => (x.model === model ? { model, usage: addUsage(x.usage, u) } : x)) : [...xs, { model, usage: u }]
 /** Tokens the storyteller used in this chat, by model (priced with the rest). */
 const storyUsage = ref<{ model: string; usage: Usage }[]>([])
 /**
@@ -355,7 +372,7 @@ const storyUsage = ref<{ model: string; usage: Usage }[]>([])
  * the story with its own tools. The chat's tell_story step shows what it's doing.
  */
 async function storyteller(req: { visualizationIds: string[]; wishes: string; storyId?: string }): Promise<{ storyId: string; name: string; scenes: string[] } | string> {
-  const p = chatProfile.value ?? nextProfile.value
+  const p = nextProfile.value
   const doc = props.host.doc()
   const l = lineageOf(doc, req.visualizationIds)
   const rewrite = req.storyId ? doc.stories?.find((x) => x.id === req.storyId) : undefined
@@ -363,6 +380,7 @@ async function storyteller(req: { visualizationIds: string[]; wishes: string; st
   const chat: StoryChat = { visualizationIds: req.visualizationIds, ...(req.storyId ? { storyId: req.storyId } : {}) }
   const step = [...items.value].reverse().find((x): x is Extract<Item, { kind: 'tool' }> => x.kind === 'tool' && x.call.name === 'tell_story' && x.state === 'running')
   const log: string[] = []
+  if (step) step.model = p.models.storyteller
   const sub = claudeProvider.start({ apiKey: apiKey.value, model: p.models.storyteller, system: STORYTELLER_PROMPT, tools: STORY_TOOLS })
   const entry = { model: p.models.storyteller, usage: emptyUsage() }
   storyUsage.value = [...storyUsage.value, entry]
@@ -371,7 +389,7 @@ async function storyteller(req: { visualizationIds: string[]; wishes: string; st
     (name, input) => runStoryTool(host, chat, name, input),
     message,
     {
-      onToolStart: (call) => step && (step.summary = `${labelOf(p.models.storyteller)} · ${call.name === 'write_story' ? 'writing the story…' : 'looking at the data…'}`),
+      onToolStart: (call) => step && (step.summary = call.name === 'write_story' ? 'writing the story…' : 'looking at the data…'),
       onToolEnd: (call, out) => log.push(`${call.name === 'write_story' ? 'Write the story' : 'Query'}: ${out.summary}${out.isError && call.name === 'write_story' ? `\n${out.content}` : ''}`),
       onUsage: (u) => {
         entry.usage = addUsage(entry.usage, u)
@@ -480,7 +498,13 @@ async function readRunById(sessionId: string): Promise<{ text: string; status: s
     return e instanceof SignInNeeded ? 'Sign in to read a run (☰ → Sign in).' : e instanceof Error ? e.message : String(e)
   }
 }
-const host: AgentHost = { ...props.host, ask, web, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
+/** The scout or scraper asked for while signed out: a note with a Sign in button (once per chat while it's still signed out). */
+function askSignIn() {
+  if (items.value.some((x) => x.kind === 'note' && x.signIn)) return
+  items.value.push({ kind: 'note', tone: 'warn', text: 'The scout and scraper need a PowerGIS account: they run through our relay, which only signed-in people may use. The chat itself works without one.', signIn: true })
+}
+const openSignIn = () => window.dispatchEvent(new CustomEvent('powergis:sign-in'))
+const host: AgentHost = { ...props.host, ask, web, signedIn: () => !!auth.user, askSignIn, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
@@ -560,7 +584,6 @@ async function send() {
   if (!session) {
     const p = nextProfile.value
     session = claudeProvider.start({ apiKey: apiKey.value, model: p.models.assistant, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
-    chatProfile.value = p
     chatRecord = { chat: crypto.randomUUID(), profile: p.id, startedAt: Date.now(), turns: 0, tokensIn: 0, tokensOut: 0, runs: 0 }
   }
   busy.value = true
@@ -597,7 +620,10 @@ async function send() {
           current.text += delta
           void scrollDown()
         },
-        onUsage: (turn) => (usage.value = addUsage(usage.value, turn)),
+        onUsage: (turn) => {
+          usage.value = addUsage(usage.value, turn)
+          chatUsage.value = addModelUsage(chatUsage.value, nextProfile.value.models.assistant, turn)
+        },
         onRetry: (r) => {
           if (!live()) return
           const at = items.value.findIndex((x) => x.kind === 'note' && x.retrying)
@@ -701,8 +727,8 @@ function newChat(confirmFirst = false) {
   forgetChat(host)
   items.value = []
   usage.value = emptyUsage()
+  chatUsage.value = []
   session = null
-  chatProfile.value = null
   chatRecord = null
   storyUsage.value = []
 }
@@ -742,7 +768,8 @@ const toolInput = (call: ToolCall) => JSON.stringify(call.input, null, 2)
 const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n))
 /** The chat's cost so far: its tokens at list prices plus its scout and scraper runs. */
 const dollars = computed(() => {
-  const tokens = chatCost(usage.value, (chatProfile.value ?? nextProfile.value).models.assistant)
+  const priced = chatUsage.value.map((x) => chatCost(x.usage, x.model))
+  const tokens = priced.some((c) => c === undefined) ? undefined : priced.reduce<number>((s, c) => s + c!, 0)
   const runs = items.value.reduce((sum, x) => sum + (x.kind === 'run' && !x.resumed ? (x.result?.cost ?? 0) : 0), 0)
   const stories = storyUsage.value.reduce((sum, x) => sum + (chatCost(x.usage, x.model) ?? 0), 0)
   return tokens === undefined ? undefined : tokens + runs + stories
@@ -762,7 +789,7 @@ const usageText = computed(() => {
       <div class="title">
         <span class="eyebrow">Assistant</span>
         <strong>Dataset processor</strong>
-        <span class="muted small" data-testid="agent.profile">{{ (chatProfile ?? nextProfile).label }} · {{ labelOf((chatProfile ?? nextProfile).models.assistant) }}</span>
+        <span class="muted small" data-testid="agent.profile">{{ nextProfile.label }} · {{ labelOf(nextProfile.models.assistant) }}</span>
       </div>
       <UiButton size="compact" title="Clear this conversation and start over" :disabled="!items.length" @click="newChat(true)">New chat</UiButton>
       <UiButton size="compact" icon="⚙" :active="settings" :aria-pressed="settings" title="API key and profile" aria-label="Settings: API key and profile" @click="settings = !settings" />
@@ -791,12 +818,8 @@ const usageText = computed(() => {
             <span v-if="stats[p.id]" class="muted small">{{ statsLine(stats[p.id]) }} on this device</span>
           </span>
         </label>
-        <p class="muted small">Prices are list prices (Haiku $0.10 / $0.50, Sonnet $2 / $10, Opus $4 / $20 per million tokens in / out). A chat keeps the profile it started with.</p>
+        <p class="muted small">Prices are list prices (Haiku $0.10 / $0.50, Sonnet $2 / $10, Opus $4 / $20 per million tokens in / out). Changing it applies from the next call, in this chat too; a scout, scraper or storyteller already running keeps its model (each step shows it).</p>
       </fieldset>
-      <div v-if="chatProfile && chatProfile.id !== profileId" class="switch">
-        <span>This chat uses {{ chatProfile.label }}; {{ nextProfile.label }} applies to the next one.</span>
-        <UiButton size="compact" :disabled="busy" @click="newChat()">Start a new chat</UiButton>
-      </div>
       <details v-if="apiKey" class="lab-wrap">
         <summary>Test: scout &amp; scraper (proof of concept)</summary>
         <LabPanel :api-key="apiKey" :models="nextProfile.models" :host="props.host" />
@@ -827,6 +850,7 @@ const usageText = computed(() => {
           <button class="tool-line" :aria-expanded="it.open" @click="it.open = !it.open">
             <span class="dot" aria-hidden="true">{{ it.state === 'running' ? '…' : it.state === 'ok' ? '✓' : '⚠' }}</span>
             <span class="name">{{ toolLabel(it.call) }}</span>
+            <span v-if="it.model" class="model" data-testid="agent.step.model">{{ labelOf(it.model) }}</span>
             <span class="sum">{{ it.summary }}</span>
           </button>
           <div v-if="it.open" class="detail">
@@ -860,6 +884,7 @@ const usageText = computed(() => {
           <button class="tool-line" :aria-expanded="it.open" @click="it.open = !it.open">
             <span class="dot" aria-hidden="true">{{ it.state === 'running' ? '…' : it.state === 'ok' ? '✓' : '⚠' }}</span>
             <span class="name">{{ ROLE_LABEL[it.role] }}</span>
+            <span v-if="it.model" class="model" data-testid="agent.step.model">{{ labelOf(it.model) }}</span>
             <span class="sum">{{ runSummary(it) }}</span>
           </button>
           <div v-if="it.open" class="detail">
@@ -895,6 +920,9 @@ const usageText = computed(() => {
         </div>
         <div v-else class="note" :class="it.tone" :data-testid="it.failed ? 'agent.failed' : undefined">
           <p>{{ it.text }}</p>
+          <div v-if="it.signIn && !auth.user" class="failed-actions">
+            <UiButton size="compact" tone="primary" data-testid="agent.signin" @click="openSignIn">Sign in</UiButton>
+          </div>
           <div v-if="it.failed && it === items[items.length - 1] && !busy" class="failed-actions">
             <UiButton size="compact" tone="primary" icon="↻" data-testid="agent.retry" @click="retryTurn">Retry</UiButton>
             <UiButton size="compact" icon="🩺" data-testid="agent.diagnose" @click="diagnoseFailure(it)">Diagnose</UiButton>
@@ -1043,14 +1071,6 @@ header {
   display: grid;
   min-width: 0;
 }
-.switch {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: var(--chat-fs-sm);
-  color: var(--warn);
-}
 .chat {
   flex: 1;
   min-height: 0;
@@ -1121,6 +1141,14 @@ header {
   font: inherit;
   font-size: var(--chat-fs-sm);
   text-align: left;
+}
+.tool-line .model {
+  flex: none;
+  padding: 0 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: var(--chat-fs-xs);
 }
 .tool-line .name {
   color: var(--text);

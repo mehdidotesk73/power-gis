@@ -77,10 +77,10 @@ const shown = (v: string | string[] | undefined) => (Array.isArray(v) ? v.join('
               :type="f.multiple ? 'checkbox' : 'radio'"
               :name="`ask-${f.id}`"
               :checked="f.multiple ? !!others[f.id].trim() : !!ownPicked[f.id]"
-              aria-label="Your own answer"
+              aria-label="Something else"
               @change="toggleOwn(f)"
             />
-            <input type="text" :value="others[f.id]" placeholder="Your own…" autocomplete="off" @input="typeOther(f, ($event.target as HTMLInputElement).value)" />
+            <input type="text" :value="others[f.id]" placeholder="Something else…" autocomplete="off" @input="typeOther(f, ($event.target as HTMLInputElement).value)" />
           </label>
         </div>
       </div>

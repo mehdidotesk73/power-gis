@@ -16,6 +16,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { SUPABASE_KEY, SUPABASE_URL } from '../../shared/supabaseConfig'
 import { supabase } from '../supabase'
+import { ensureSetup, forgetSetup, keyHash, type Account, type Setup } from './provision'
 
 export type Role = 'scout' | 'scraper'
 
@@ -35,26 +36,8 @@ Save each result as a UTF-8 CSV with a header row in /mnt/session/outputs/ (keep
 /** The container: one cloud environment with unrestricted egress (agreed for both roles for now). */
 const ENV_CONFIG = { type: 'cloud' as const, networking: { type: 'unrestricted' as const } }
 
-const STORE = 'powergis.managed'
-interface Stored {
-  environmentId?: string
-  /** By `role:model`. */
-  agents?: Record<string, { id: string; version: number; key: string }>
-}
-const readStored = (): Stored => {
-  try {
-    return JSON.parse(localStorage.getItem(STORE) ?? '{}') as Stored
-  } catch {
-    return {}
-  }
-}
-const writeStored = (s: Stored) => {
-  try {
-    localStorage.setItem(STORE, JSON.stringify(s))
-  } catch {
-    /* recreated next time */
-  }
-}
+/** The agents' tools: the full built-in toolset, every action allowed (they run in their own sandbox). */
+const TOOLS = [{ type: 'agent_toolset_20260401', default_config: { enabled: true, permission_policy: { type: 'auto' } } }]
 
 /** The relay (supabase/functions/managed-relay): the SDK's requests, sent to it instead of api.anthropic.com. */
 export const RELAY_URL = `${SUPABASE_URL}/functions/v1/managed-relay`
@@ -247,31 +230,11 @@ export function logRun(entry: Partial<RunLog> & { sessionId: string }) {
   }
 }
 
-/**
- * The environment and the role's agent, created once and remembered on this
- * device (agents again when their prompt or model changes).
- */
-async function setup(c: Anthropic, role: Role, model: string) {
-  const stored = readStored()
-  if (!stored.environmentId) {
-    const env = await c.beta.environments.create({ name: 'powergis-data', config: ENV_CONFIG })
-    stored.environmentId = env.id
-    writeStored(stored)
-  }
-  const key = `${model}|${ROLE_PROMPTS[role].length}|${ROLE_PROMPTS[role].slice(0, 40)}`
-  // One agent per role and model, so switching profiles back and forth reuses them.
-  const slot = `${role}:${model}`
-  const have = stored.agents?.[slot]
-  if (have && have.key === key) return { environmentId: stored.environmentId, agent: have }
-  const agent = await c.beta.agents.create({
-    name: `powergis-${role}`,
-    model,
-    system: ROLE_PROMPTS[role],
-    tools: [{ type: 'agent_toolset_20260401', default_config: { enabled: true, permission_policy: { type: 'auto' } } }],
-  })
-  stored.agents = { ...stored.agents, [slot]: { id: agent.id, version: agent.version, key } }
-  writeStored(stored)
-  return { environmentId: stored.environmentId, agent: stored.agents[slot]! }
+/** Ids this browser remembered that the account no longer has (archived or deleted there). */
+function staleSetup(e: unknown): boolean {
+  const status = (e as { status?: number })?.status
+  const msg = String((e as { message?: string })?.message ?? e)
+  return status === 404 || ((status === 400 || status === 409) && /archiv|not found|does not exist/i.test(msg))
 }
 
 export interface RunEvent {
@@ -331,13 +294,25 @@ export async function startRun(apiKey: string, opts: { role: Role; model: string
   let sessionId: string | undefined
   try {
     const c = await client(apiKey)
-    const { environmentId, agent } = await setup(c, opts.role, opts.model)
-    const session = await c.beta.sessions.create({
-      agent: { type: 'agent', id: agent.id, version: agent.version },
-      environment_id: environmentId,
-      title: `PowerGIS ${opts.role}`,
-      budget: { type: 'limit', max_list_cost: { amount: String(Math.round(opts.capDollars * 100)), currency: 'USD' } },
-    })
+    // The account's own agent for this role (found by its tag, made or updated if needed: provision.ts); the model is this run's.
+    const key = await keyHash(apiKey)
+    const def = { role: opts.role, system: ROLE_PROMPTS[opts.role], model: opts.model, tools: TOOLS }
+    const account = c as unknown as Account
+    const open = ({ environmentId, agent }: Setup) =>
+      c.beta.sessions.create({
+        agent: { type: 'agent_with_overrides', id: agent.id, version: agent.version, model: opts.model },
+        environment_id: environmentId,
+        title: `PowerGIS ${opts.role}`,
+        budget: { type: 'limit', max_list_cost: { amount: String(Math.round(opts.capDollars * 100)), currency: 'USD' } },
+      })
+    let session: Awaited<ReturnType<typeof open>>
+    try {
+      session = await open(await ensureSetup(account, key, def, ENV_CONFIG))
+    } catch (e) {
+      if (!staleSetup(e)) throw e
+      forgetSetup(key) // remembered ids the account no longer has: look again, once
+      session = await open(await ensureSetup(account, key, def, ENV_CONFIG))
+    }
     sessionId = session.id
     // Remembered before the brief is sent: from here on the run can always be found again by its id.
     const run: ActiveRun = { sessionId: session.id, role: opts.role, brief: opts.brief, startedAt: Date.now() }

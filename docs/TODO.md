@@ -465,6 +465,78 @@ storage), signed in as A and B, run against a deploy preview from a **manual** G
 named `e2e-…` and deleted at the end. Not part of the required `build` job. Once real users arrive, a
 separate Supabase project for tests (the free plan allows two) keeps test data out of theirs.
 
+### Planned (agreed 2026-11-04; order to be decided)
+
+**1. Managed agents on each user's own key.** ✅ Done (2026-11-04, PR #57: `client/agent/provision.ts`). Agents belong to the Anthropic workspace of the key that made them, so the
+app already creates the scout / scraper (and one environment) on each user's account from the definitions in
+`client/agent/managed.ts`. Weak spot: their ids are remembered only in this browser's storage, so a new device, a cleared
+browser or a prompt / model change creates new ones, and agents can only be archived, never deleted. To do:
+- Tag what the app creates with a signature in `metadata` (role, prompt version); before creating, list the account's
+  agents and environments and reuse a match; when a prompt changes, update the agent in place (agents are versioned).
+- Consider one agent per role with per-session overrides (`agent_with_overrides`) for the model.
+- Done when: a second device or a cleared browser adds nothing to the user's console.
+
+**2. Data framing and cheaper scouting** (three PRs, in this order):
+- **PR A — the frame, and neutral prompts.**
+  - Prompts assume no geography: the window (where, when) comes from the request, the unit (continent … city block,
+    grid cell) from the request and what data exists. Today the assistant's prompt names counties / states ~15 times and
+    the storyteller ranks "states"; the storyteller's headlines become "units and the groups they roll up into".
+  - A structured **study frame** in About, confirmed by the user on an `ask_user` card before any scouting: the measure
+    (and which way is better), the window, the target unit, the factors with direction and weight, and each factor's
+    **posture**.
+  - Postures, for any factor (core ones included): **Exact** (data at the target unit); **Anchor + proxy** (reliable
+    coarser data plus finer signals that track it); **Fermi** (a first-principles estimate as a range, assumptions
+    stated) — a valid starting input when a question has little data, not only a last-step adjustment.
+- **PR B — targeted scouting.**
+  - Briefs per factor (or a few related ones) with the unit, window, posture and a stop rule (one good source per need,
+    two when unsure); briefs can run in parallel; a cheap first pass triages search results and the expensive model
+    checks only the best few.
+  - The scout's report has a fixed shape: per factor, candidate sources with unit, coverage, period, how to get it
+    (download / API / page to scrape), terms, confidence; boundaries for the target unit when no built-in has them; a
+    reconciliation plan for anchor + proxy factors. Scraper briefs and dataset metadata are filled straight from it.
+  - Sources already found (earlier runs, the library) skip scouting **only when they're an Exact match**; otherwise the
+    scout still runs, and the assistant decides from its report whether the new finds supplement what exists or what
+    exists is enough.
+  - Done when: cost per question is measured before and after (the per-run costs are already logged).
+- **PR C — reconciliation and Fermi in the data.**
+  - Transform recipes, data-agnostic: **top-down** (spread a coarse total over fine units by proxy weights, adding back
+    up to the total) and **bottom-up** (score fine units from proxies, add them up, fit a correction curve against the
+    coarse truth, apply it back). Each transform records its method, its fit and the uncertainty (description, caveats)
+    so the story can say how far to trust it.
+  - Fermi estimates are datasets: low / likely / high columns, assumptions in the metadata, a "how it was made" source;
+    usable at any stage, from a core input to a final adjustment; maps and stories can show the range.
+  - Done when: a test workspace runs both recipes and one Fermi input end to end.
+
+**3. Sharing: workspaces and datasets, public or private** (one design, all now; a new SQL file for the user to run):
+- Workspaces and datasets each get `private` (true / false). Private = invite only; public = anyone with the id or link
+  can view, with or without an account.
+- `workspace_access` (like `dataset_access`) holds people only: user, workspace, role — owner, editor (read and write),
+  viewer (read only). Editors / viewers are added by username / email; that also grants their access to the
+  workspace's datasets.
+- Making a workspace public makes its datasets public. (Open question: does making it private again make them private,
+  when other public workspaces or people use them?)
+- Public datasets are read by id; viewing without an account goes through a small server function, since the bucket is
+  private. Later: human-readable addresses (e.g. `username/dataset_name`, the same for workspaces).
+- Two editors saving at once use the same ahead / behind checks devices already use.
+
+**4. Plans: Free, Basic, Pro.**
+- Free: no assistant. Basic: the assistant, no scout / scraper. Pro: the assistant and the agents.
+- Now: a `plan` column on each account, set by hand in Supabase; the assistant button is hidden for Free and the agent
+  tools for Basic (on screen only).
+- Later: enforcement — the relay refuses agent runs below Pro, and the assistant's chat goes through the relay so Free
+  can't use it (today it goes straight from the browser to Anthropic with the user's key); plans bought through a
+  paywall, with an expiry date.
+
+**6. Question cards and exchanges** (agreed 2026-11-05; its own PR after #57; design in `docs/agents.md`, *Question
+cards and exchanges*): cards of 1–3 questions (Answer, Pick one with Neither, Pick several), each with a folded
+comments box, ended by one button pair; exchanges defined in code (Plan, Run, Source pick now; Frame with PR A) with
+Approve / Revise (2 rounds) / Reject. New methodological questions become exchanges, not new kinds of card.
+
+**5. Map views.**
+- 3D columns: regions raised by their value (normal or log scale), with pitch and rotate (MapLibre `fill-extrusion`).
+- 3D layers: visualizations stacked at different heights over the same places (`fill-extrusion-base` per layer).
+- Map grid: several maps side by side, each with its own visualizations, optionally with their views kept in sync.
+
 ### Backlog
 
 

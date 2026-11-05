@@ -4,9 +4,16 @@ import { answerSummary, fieldValue, initialValues, missingRequired, readForm, ty
 const form = (input: Record<string, unknown>) => readForm(input) as Form
 
 describe('ask_user forms', () => {
-  it('defaults the buttons: Approve / Reject without fields, Submit with them', () => {
+  it('defaults the buttons: Approve / Reject without fields (a plan), Continue with them (a decision)', () => {
     expect(form({ question: 'Build it?' }).buttons).toEqual(['Approve', 'Reject'])
-    expect(form({ question: 'Name?', fields: [{ id: 'n', kind: 'text', label: 'Name' }] }).buttons).toEqual(['Submit'])
+    expect(form({ question: 'Name?', fields: [{ id: 'n', kind: 'text', label: 'Name' }] }).buttons).toEqual(['Continue'])
+    expect(form({ question: 'Merge them?', buttons: ['Yes', 'No'] }).buttons).toEqual(['Yes', 'No'])
+  })
+
+  it('gives every choice "Something else": the options are the agent\'s own, the way out is always there', () => {
+    const f = form({ question: 'France has overseas regions: what to do with them?', fields: [{ id: 'how', kind: 'choice', label: 'Overseas regions', options: ['Count them in France (recommended)', 'Leave them out'], other: false }] })
+    expect(f.fields[0]).toMatchObject({ other: true })
+    expect(f.buttons).toEqual(['Continue'])
   })
 
   it('checks every field and names the problem', () => {
@@ -17,8 +24,8 @@ describe('ask_user forms', () => {
     expect(readForm({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', options: ['x', 'y'], selected: ['x', 'y'] }] })).toMatch(/at most one/)
     expect(readForm({ question: 'Q', buttons: [] })).toMatch(/at least one/)
     expect(readForm({ question: 'Q', buttons: ['a', 'b', 'c', 'd', 'e'] })).toMatch(/At most 4/)
-    // Only the user's own answer is fine.
-    expect(form({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', other: true }] }).fields[0]).toMatchObject({ options: [], other: true })
+    // A choice needs the agent's own options (Something else is added to them, never alone).
+    expect(readForm({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', other: true }] })).toMatch(/needs options/)
   })
 
   it('gives an empty multiline box a hint, so it never reads as a missing draft', () => {

@@ -95,6 +95,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeMenuOutsi
 const helpDoc = ref('default')
 // The account window (☰ → Sign in / Account); a password-reset link opens it by itself.
 const showAccount = ref(false)
+// Anything can ask for it (the assistant's Sign in button): one event, no prop threading.
+const openAccount = () => (showAccount.value = true)
+onMounted(() => window.addEventListener('powergis:sign-in', openAccount))
+onBeforeUnmount(() => window.removeEventListener('powergis:sign-in', openAccount))
 watch(() => auth.recovering && !!auth.user, (r) => r && (showAccount.value = true), { immediate: true })
 </script>
 

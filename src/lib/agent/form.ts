@@ -1,8 +1,11 @@
 // What the assistant asks the user (ask_user): a question, optional details,
 // and a small form built from a few kinds of field — a text box (one line or
 // several, optionally filled in for the user to review and edit), a choice
-// (one or several of the agent's options, optionally plus the user's own
-// answer) — and the buttons that answer it. The chat shows it as a card; the
+// (one or several of the agent's options, always plus "Something else" with a
+// box for the user's own answer) — and the buttons that answer it. The shape is
+// fixed (question, why it's asked, the agent's own options, Something else); the
+// options and buttons are the agent's, except the defaults: Approve / Reject for
+// a plan (no fields), Continue for a decision. The chat shows it as a card; the
 // answer goes back to the agent as the button pressed and each field's value.
 // Pure: the card lives in components/agent/AskCard.vue.
 
@@ -25,7 +28,7 @@ export interface ChoiceField {
   options: string[]
   /** Any number of the options rather than one. */
   multiple?: boolean
-  /** The user may also write their own answer. */
+  /** The user may also write their own answer ("Something else"). Always on: the app adds it to every choice (user, 2026-11-05). */
   other?: boolean
   /** Options chosen to start with. */
   selected?: string[]
@@ -98,7 +101,7 @@ export function readForm(input: Record<string, unknown>): Form | string {
       const given = f.options ?? []
       if (!strings(given)) return `${at}: "options" must be a list of text`
       const options = given.map((o) => o.trim()).filter(nonEmpty)
-      if (!options.length && f.other !== true) return `${at}: a choice needs options (or "other": true)`
+      if (!options.length) return `${at}: a choice needs options (the card adds "Something else" itself)`
       if (options.length > LIMITS.options) return `${at}: at most ${LIMITS.options} options`
       if (new Set(options).size !== options.length) return `${at}: options must differ`
       if (f.selected !== undefined && !strings(f.selected)) return `${at}: "selected" must be a list of options`
@@ -110,13 +113,13 @@ export function readForm(input: Record<string, unknown>): Form | string {
         label: f.label.trim(),
         options,
         ...(f.multiple === true ? { multiple: true } : {}),
-        ...(f.other === true ? { other: true } : {}),
+        other: true, // every choice offers "Something else", with a box to say what
         ...(selected.length ? { selected } : {}),
         ...(required ? { required } : {}),
       })
     } else return `${at}: "kind" must be "text" or "choice"`
   }
-  const given: unknown = buttons === undefined ? (out.length ? ['Submit'] : ['Approve', 'Reject']) : buttons
+  const given: unknown = buttons === undefined ? (out.length ? ['Continue'] : ['Approve', 'Reject']) : buttons
   if (!strings(given)) return '`buttons` must be a list of text'
   const shown = given.map((b) => b.trim()).filter(nonEmpty)
   if (!shown.length) return '`buttons` needs at least one'

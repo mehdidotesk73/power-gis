@@ -69,6 +69,45 @@ button after the main answer (`withNotes`, `lib/agent/form.ts`). The answer then
 notes and edits, and ask again) or, with notes on any other button, a reminder to take them into account. The user
 steers a draft (the framing, the components to consider, a plan) in a few words instead of rewriting it.
 
+## Question cards and exchanges (agreed 2026-11-05; to build after PR #57)
+
+Replaces today's free-form `ask_user` form (fields + up to 4 buttons) and the Notes / Revise add-ons above.
+
+**A card** holds **1–3 questions** that belong together, answered at once by **one button pair** at its end, so the
+assistant gets the answers together, in context. Every question has the same frame: the question, why it's asked
+and what the answer changes, its controls, and a **comments** box (folded as "＋ Comment" until tapped, so three
+questions stay short on a phone).
+
+| Kind | Controls | Returns |
+|---|---|---|
+| **Answer** | the assistant's own considered response (or a plan, a brief) in a text area, edited by the user as it stands; never an empty box | `{edited: false, comments?}`, or `{edited: true, text, comments?}`: an unchanged draft isn't sent back in full (a long plan approved as it is costs no tokens) |
+| **Pick one** | radio buttons: the assistant's options, its recommendation first and marked; plus **Neither (see comments)** when an answer outside them is plausible, which unfolds the comments box | `{choice \| "neither", comments?}` |
+| **Pick several** | checkboxes, some may start ticked (editing a selection) | `{choices[], comments?}` |
+
+- **The button pair** ends every card, labelled by the assistant: Submit / Cancel, Yes / No, Approve / Reject,
+  Go / No-go… A plain yes / no question is a card with no controls: the framed question, a comments box, the pair.
+  The first button checks required answers; the second never does. Result: `{button, answers: [one per question]}`.
+  Stop answers an open card, as now.
+- **Example:** an Answer ("Here's how I'd frame it: …", editable), a Pick several (the components, all ticked),
+  Submit / Cancel.
+
+**Exchanges** are structured asks defined in code: their purpose, their questions, their result, and what the app
+does with it. The assistant supplies only the content; it can't change an exchange's shape. Shared loop:
+**Approve** (the result returned and saved where it belongs), **Revise with my notes** (the assistant redrafts and
+asks again; after **2 rounds** it stops redrafting and asks what's wrong), **Reject / Not now** (nothing changes; the
+assistant gets the reason). First exchanges:
+
+1. **Frame** (ships with PR A): an Answer (the framing) and a Pick several (the components, each with its posture:
+   Exact / Anchor + proxy / Fermi). On Approve: saved to the workspace's About (the study frame).
+2. **Plan**: an Answer (the build plan, stage by stage).
+3. **Run** (today's scout / scraper approval): an Answer (the brief) and a Pick one (the spending cap, recommended
+   first; Neither + comments for an own amount). Send / Not now.
+4. **Source pick**: a Pick one, one option per source the scout found (coverage, terms, fit), Neither for none of
+   them. Use it / Not now.
+
+**Rule (user, 2026-11-05):** a new methodological question is a new **exchange** defined in code, never a new kind
+of card. `ask_user` stays for one-off questions, within the same 3-question card format.
+
 ## Tools
 
 | Tool | Kind | What it does | Built on |
@@ -77,9 +116,9 @@ steers a draft (the framing, the components to consider, a plan) in a few words 
 | `get_workspace` | read | **Where the agent starts.** (Re)builds the **workspace files** (discarding unapplied edits) and returns `/overview.md`: every dataset, transform (with state and its SQL files) and visualization, one line each, with ids | The workspace draft + registry records (`lib/agent/workspaceFiles.ts`) |
 | `list_datasets` | read | Every dataset the user can use, outside the workspace too, local and remote (same fields + `inWorkspace`). Used only when the workspace lacks what's needed, **after asking** | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
 | `visualization_stats(id)` | read | The per-feature values a visualization draws (after aggregation): count, nulls, min, percentiles (p2…p98), max, mean, how many ≤ 0 / < 0, orders of magnitude of the positive values; text: distinct count and most common | `queryVisualization` |
-| `ask_user(question, details?, fields?, buttons?)` | read | Shows a **card it composes** (`lib/agent/form.ts`, `components/agent/AskCard.vue`): the question, details, any **fields** — `text` (one line or multiline; `value` fills it in to review and edit: a plan, a brief) and `choice` (options; `multiple`; `other` for the user's own answer; `selected`; `required`) — and **buttons** (first = the main answer, the only one held back by required fields; default Approve / Reject without fields, Submit with them). Waits; returns `{button, values}` | The chat panel |
+| `ask_user(question, details?, fields?, buttons?)` | read | Shows a **card it composes** (`lib/agent/form.ts`, `components/agent/AskCard.vue`): the question, details, any **fields** — `text` (one line or multiline; `value` fills it in to review and edit: a plan, a brief) and `choice` (the agent's own options, its recommendation first; `multiple`; `selected`; `required`; every choice gets **Something else** with a box, added by the app) — and **buttons** (first = the main answer, the only one held back by required fields; default Approve / Reject without fields, Continue with them). One shape for every card (user, 2026-11-05): the question, why it's asked and what each answer changes, then the answers; a decision is a choice (Continue), fixed buttons only for yes / no and approving a plan. Waits; returns `{button, values}` | The chat panel |
 | `add_builtin(table)` | gated | Adds a built-in table (state / county boundaries, the ACS county tables) to the workspace: no web. `list_datasets` lists them under `builtins` | `uploadDataset` (`builtin` source) |
-| `send_scout(brief, cap_dollars?)` / `send_scraper(brief, cap_dollars?)` | **gated** (approval card) | Shows an approval card (the brief, editable; the spending cap — the assistant's recommended amount, its expected cost × 2 with the reason, first, then $0.50 / $1 / $2 / $5 and the user's own amount; notes; Send / Not now), then runs the role on Managed Agents through the relay (signed in) and follows it to the end. Scout: returns its report. Scraper: its CSVs become new datasets (description "From the web, <date> (scraper run …), not described yet" plus the brief, until the assistant writes its own), returns its summary and each file's dataset id | `client/agent/managed.ts` (`startRun` / `followRun`), `importCsv` |
+| `send_scout(brief, cap_dollars?)` / `send_scraper(brief, cap_dollars?)` | **gated** (approval card) | Shows an approval card (the brief, editable; the spending cap — the assistant's recommended amount, its expected cost × 2 with the reason, first, then $0.50 / $1 / $2 / $5 and the user's own amount; notes; Send / Not now — only the brief and the cap: decisions are settled with `ask_user` first), then runs the role on Managed Agents through the relay (signed in) and follows it to the end. Scout: returns its report. Scraper: its CSVs become new datasets (description "From the web, <date> (scraper run …), not described yet" plus the brief, until the assistant writes its own), returns its summary and each file's dataset id | `client/agent/managed.ts` (`startRun` / `followRun`), `importCsv` |
 | `list_runs()` / `fetch_run(runId)` | free | This device's recent scout / scraper runs (`powergis.webRuns`: id, role, state, cost, files) / picks up a run by its id — follows it if it's still going, then reads its report and imports the scraper's files (each file once: `powergis.importedRunFiles`). Used instead of sending again when results didn't arrive | `client/agent/managed.ts` (`recentRuns`, `followRun`) |
 | `read_run(runId)` | free | Looks inside a run by its id, changing nothing (nothing sent to it, nothing imported): its status now, how it stopped, cost, its events condensed (status changes, tool calls, messages, errors; the first and last kept when long), its last message and files. The back channel when the app lost touch with a run: the assistant reads it before deciding to collect (`fetch_run`), explain, or send a new brief | `client/agent/managed.ts` (`readRun`, `traceText`) |
 | `diagnose(what_happened)` | **gated** (approval card, model choice) | For something expensive or unexpected (a run that failed or lost its results, a failure that repeats; not a bad SQL string). The user picks the model (Opus / Sonnet / Haiku) and approves; one call, no tools, reads the chat's steps, the runs and the debug log (`lib/agent/diagnosis.ts`) and the chat's runs read back from Anthropic by id (`readRun`: what each did even after the app lost touch), and writes an issue report shown in red (🩺 Issue diagnosis) with **Copy report** | `AgentPanel.vue` (`runDiagnosis`) |
@@ -267,13 +306,17 @@ usage policies live **there**, not as dataset properties.
   the profile gives each job its model: the chat, the scout, the scraper and the reviewer (not built
   yet). Quick (all Haiku), Smart scout (Haiku; scout + reviewer Sonnet), Balanced (Sonnet; scraper
   Haiku), Deep research (Sonnet; scout + reviewer Opus; scraper Haiku), Planner (Opus; scout Sonnet;
-  scraper Haiku; reviewer Opus), All Sonnet. Custom later. Managed agents are kept per role and model
-  (`powergis.managed`), so switching profiles reuses them. Each finished turn updates the chat's line
+  scraper Haiku; reviewer Opus), All Sonnet. Custom later. Managed agents live on each user's own
+  Anthropic account, one per role, found there by their metadata tag (`client/agent/provision.ts`); the
+  profile's model is given per run (a session override), so switching profiles needs no other agents. Each finished turn updates the chat's line
   in a per-device log (`powergis.profileChats`, last 200 chats: profile, cost, tokens, runs), and ⚙
   shows each profile's chats and average ≈ $ a chat; the cloud table of runs comes with run records.
-  **A chat keeps the profile it started with** (decided: simple, one profile per chat). The API would accept a switch
-  mid-chat (same history, new `model`; earlier thinking a model can't read is skipped), but a new
-  choice applies to the next chat ("Start a new chat"). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
+  **The profile can change mid-chat** (user, 2026-11-04, once managed agents were one per role on the account): every
+  call takes the profile current when it starts — the chat's own model from its next call (`ChatSession.setModel`;
+  same history, and earlier thinking a model can't read is just skipped by the API, never an error), a new scout,
+  scraper or storyteller the new profile's model, while ones already running keep theirs. Each of those steps shows
+  its model; a note marks the change; the chat's tokens are priced per model, and a changed chat is logged as `mixed`
+  (out of every profile's averages). Earlier: one profile per chat. **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
   with `dangerouslyAllowBrowser`, `fallbacks: "default"` on the models that have it (Opus 5.5,
   Opus 5, Sonnet 5.5; beta `server-side-fallback-2026-07-01`: a declined request is retried on
   Anthropic's recommended fallback model), automatic prompt
@@ -379,7 +422,8 @@ approved on a card showing the brief and the cap.
 reports, peeking at the files; scraper: a WSDOT Excel file, the earnings table in Home Depot's annual
 report PDF, and a JavaScript-built page, each needing a different way in), a cap per run, live progress,
 then elapsed time, cost, report and output files (CSVs import as datasets). The environment and the
-two agents are created once and remembered on the device (`powergis.managed`). What it answers:
+two agents are made on the user's account the first time, tagged (`metadata.app = powergis`), and found
+again by that tag from any device (`client/agent/provision.ts`). What it answers:
 whether runs work through the relay, startup time and cost, and files coming back. (First answer: not
 directly from the browser — CORS — hence the relay.) **First runs (2026-10-30, Haiku):** scout 39 s,
 $0.03, a sound report but layouts guessed from file names — so the scout now **peeks** (downloads a
