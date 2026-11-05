@@ -4,6 +4,7 @@ Track feature development, improvements, and known issues here. Move completed w
 
 ## Done
 
+- **Data described on arrival** (user, 2026-11-05) — the assistant describes each dataset from the web right away (description + metadata source), from the scout's and scraper's reports and its own queries; `apply_workspace` refuses other changes until it has; before a story it fills only what's missing and never rewrites; the storyteller changes nothing.
 - **Chat kept on the device** (user, 2026-11-05) — the assistant chat survives a reload until New chat: the steps, the conversation the model sees, a scout / scraper run carrying on in its own card (and no longer forgotten when the reload cuts its requests); images aren't kept.
 - **Live story maps** — tap a story map to explore it live (raised, locked to its visualization; pan / zoom with cooperative gestures; tap a region for its value and rows); Release turns the view back into a picture; one live at a time; nothing stored.
 - **Turn recovery** — a dropped connection resends the step (2–30 s backoff, live "trying again"), a failed turn offers Retry and 🩺 Diagnose, the assistant edits big files in small steps and applies as it goes, and its overview lists the stories with their maps.

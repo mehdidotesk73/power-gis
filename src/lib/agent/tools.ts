@@ -390,7 +390,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'tell_story',
     description:
-      'Have the storyteller write a story about some visualizations, for someone who isn\'t a data person: the base data in plain words (who published it, what it measures), what the steps compute and why, then the maps and their headlines; short scenes with a figure or two (rows, a chart, a map). It reads only what the workspace keeps — the About note (/about.md), the datasets\' descriptions and the SQL, never this chat — so make sure those say what the story needs first. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one): a rewrite keeps the story\'s own visualizations (the overview lists them under Stories) unless the user asks for others. It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
+      'Have the storyteller write a story (it only writes the story: it changes nothing else in the workspace) about some visualizations, for someone who isn\'t a data person: the base data in plain words (who published it, what it measures), what the steps compute and why, then the maps and their headlines; short scenes with a figure or two (rows, a chart, a map). It reads only what the workspace keeps — the About note (/about.md), the datasets\' descriptions and the SQL, never this chat. Before calling it, fill in only what is missing (no About, a dataset without a description or source); never rewrite descriptions or metadata that are already there for the story\'s sake. Give the visualizations\' ids, the user\'s wishes for it ("" if none), and storyId to rewrite an existing story ("" for a new one): a rewrite keeps the story\'s own visualizations (the overview lists them under Stories) unless the user asks for others. It returns the story\'s id, title and scenes; the story is in the workspace draft (Stories in the list view). It changes nothing else.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -510,6 +510,27 @@ function undescribed(host: AgentHost): Obj {
   return {
     describe: `${list.map((d) => `"${d.name}" (${d.id})${!d.description ? '' : d.description.includes(PLACEHOLDER) ? ': only the import note' : ': only a line'}`).join(', ')} — datasets you made that still need a description: describe them in /datasets.json (see Describing datasets), then apply_workspace.`,
   }
+}
+
+/**
+ * Datasets brought in from the web (the import note says "not described yet") that this apply leaves without a
+ * description of their own and a source in their metadata: why each one is refused. Gone from the workspace = fine.
+ */
+export function notDescribed(host: Pick<AgentHost, 'record'>, ids: string[], edits: Record<string, DatasetEdit>): string[] {
+  return ids.flatMap((id) => {
+    const d = host.record(id)
+    if (!d?.description?.includes(PLACEHOLDER)) return []
+    const e = edits[id] ?? {}
+    const description = (e.description ?? d.description ?? '').trim()
+    const metadata = e.metadata === undefined ? d.metadata : e.metadata
+    const missing = [
+      (!description || description.includes(PLACEHOLDER)) && 'a description (plain language, replacing the import note)',
+      !metadata?.source?.publisher && 'its metadata with the source (publisher, title, urls, period, coverage, terms, method)',
+    ].filter(Boolean)
+    return missing.length
+      ? [`"${d.name}" (${id}) came from the web and isn't described yet: give it ${missing.join(' and ')} in /datasets.json, from the scout's and scraper's reports and your own queries of it (see Describing datasets), in this apply or before it. Or take it out of /workspace.json.`]
+      : []
+  })
 }
 
 /** A new chat starts afresh: no staged files, nothing made yet. */
@@ -901,6 +922,9 @@ async function applyWorkspace(host: AgentHost, input: Obj): Promise<ToolOutcome>
     return refused([e.message])
   }
   if (built.errors.length) return refused(built.errors)
+  // Data from the web is described before anything is built on it: by the assistant, which has the runs' reports and can query it.
+  const waiting = notDescribed(host, built.doc.datasetIds, datasetEdits)
+  if (waiting.length) return refused(waiting)
   const doc = about === undefined ? built.doc : (setAbout(built.doc, about) as { ok: true; doc: WorkspaceDoc }).doc
   // Only what this chat made may go unasked: the user's own items stay unless they asked.
   need(input.userAsked === undefined || (Array.isArray(input.userAsked) && input.userAsked.every(str)), '`userAsked` must be a list of ids')
