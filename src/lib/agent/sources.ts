@@ -4,10 +4,9 @@
 // candidate sources — what each measures exactly (units, money basis, mean or
 // median, period), at which unit and coverage, how to get it, terms, and how
 // confident it is — and, when several answer a need together, how they could be
-// combined. parseScoutReport splits that line from the prose. The sources go into
-// a ledger kept on this device, so later chats check what was already found
-// (list_sources) before sending the scout again; only an exact match skips it.
-// Pure: the page stores the ledger (AgentPanel, `powergis.sources`).
+// combined. parseScoutReport splits that line from the prose; the assistant gets
+// both. (What's already on the device or in the account is checked before any
+// scouting with list_datasets: descriptions, metadata, a sample query.) Pure.
 
 export type Confidence = 'high' | 'medium' | 'low'
 
@@ -83,39 +82,4 @@ export function parseScoutReport(report: string): ScoutReport {
   } catch {
     return { text }
   }
-}
-
-// ── the ledger: sources found earlier, on this device ──────────────────────
-
-export interface LedgerEntry extends FoundSource {
-  /** The need it was found for. */
-  need: string
-  /** The scout run that found it, and when (YYYY-MM-DD). */
-  runId: string
-  found: string
-}
-
-/** Most recent first, at most this many. */
-export const LEDGER_SIZE = 200
-
-/** The ledger with a run's sources added: one entry per URL and need, the newest finding kept. */
-export function addToLedger(ledger: LedgerEntry[], needs: FoundNeed[], runId: string, found: string): LedgerEntry[] {
-  const fresh = needs.flatMap((n) => n.sources.map((s) => ({ ...s, need: n.need, runId, found })))
-  const key = (e: LedgerEntry) => `${e.url}|${e.need.toLowerCase()}`
-  const seen = new Set(fresh.map(key))
-  return [...fresh, ...ledger.filter((e) => !seen.has(key(e)))].slice(0, LEDGER_SIZE)
-}
-
-const words = (t: string) => t.toLowerCase().match(/[a-z0-9]+/g) ?? []
-
-/** Entries whose need, name or measure share words with the query, best match first. */
-export function searchLedger(ledger: LedgerEntry[], query: string, limit = 12): LedgerEntry[] {
-  const q = new Set(words(query).filter((w) => w.length > 2))
-  if (!q.size) return ledger.slice(0, limit)
-  return ledger
-    .map((e) => ({ e, score: words(`${e.need} ${e.name} ${e.measures} ${e.coverage}`).filter((w) => q.has(w)).length }))
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((x) => x.e)
 }

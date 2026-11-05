@@ -24,7 +24,7 @@ import type { ToolOutcome } from './loop'
 import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type DatasetFacts, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
 import { answerForAgent, answerSummary, commentsOf, LIMITS, readCard, type Card, type CardAnswer } from './form'
-import { parseScoutReport, searchLedger, type FoundNeed, type LedgerEntry } from './sources'
+import { parseScoutReport } from './sources'
 import { frameCard, frameOutcome, frameSection, planCard, planOutcome, POSTURES, runCard, runOutcome, sourceCard, sourceOutcome, withFrame, type FrameComponent, type Posture, type Rounds, type SourceOption } from './exchanges'
 
 /** What the tools act through: the page's workspace copy and the server. */
@@ -53,10 +53,6 @@ export interface AgentHost {
   importCsv?(file: File, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
   /** Sends the scout or the scraper with a brief and a spending cap, and follows it to the end (the chat shows its progress); a message when it can't. */
   web?(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string>
-  /** Sources the scout found in earlier runs on this device (lib/agent/sources.ts). */
-  sources?(): LedgerEntry[]
-  /** Keeps a scout run's sources in that ledger. */
-  rememberSources?(needs: FoundNeed[], runId: string): void
   /** Whether the user is signed in to PowerGIS (the scout and scraper need it; the chat doesn't). */
   signedIn?(): boolean
   /** Shows the user a way to sign in (the chat's Sign in button). */
@@ -113,7 +109,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'list_datasets',
     description:
-      "Every dataset the user can use, including those outside the workspace, local and cloud: id, name, description, store, origin, row count, inWorkspace; and the built-in geographic tables that ship with the app (US state and county boundaries), under builtins: add one with add_builtin, no web needed. Use it only when the workspace doesn't hold what the request needs, and after asking the user (ask_user) whether to look beyond the workspace.",
+      "Every dataset the user can use, including those outside the workspace, local and cloud: id, name, description, what a row is, source, period, coverage and caveats, store, origin, row count, inWorkspace; and the built-in geographic tables that ship with the app (US state and county boundaries), under builtins: add one with add_builtin, no web needed. Use it when the workspace doesn't hold what the request needs, and before any scouting: a dataset that is exactly the data a need asks for (judge from these facts, then query a sample) is used instead of a web run. Reading needs no OK; say so when you add one to the workspace.",
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -241,7 +237,7 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'send_scout',
     description:
-      "Send the scout to find out what data exists on the web: it searches, follows links to where data actually lives, peeks at files' layouts, reads terms of use, and reports back (it extracts nothing). It runs in a container on Anthropic's servers, takes a minute or a few and costs cents. The user approves (and may edit) the brief and the spending cap first. Check list_sources first. Keep each run narrow: one need, or a few related ones, listed in \"needs\" (each with its measure, unit and window, and posture); the scout stops once each need has one good source (two when it isn't sure). Returns its report and the sources it found per need (also kept for later chats).",
+      "Send the scout to find out what data exists on the web: it searches, follows links to where data actually lives, peeks at files' layouts, reads terms of use, and reports back (it extracts nothing). It runs in a container on Anthropic's servers, takes a minute or a few and costs cents. The user approves (and may edit) the brief and the spending cap first. Check list_datasets first (descriptions, sources, caveats, a sample with query_sql): a dataset that is exactly the data needed is used instead. Keep each run narrow: one need, or a few related ones, listed in \"needs\" (each with its measure, unit and window, and posture); the scout stops once each need has one good source (two when it isn't sure). Returns its report and the sources it found per need.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -265,12 +261,6 @@ export const TOOLS: ToolSpec[] = [
       },
       required: ['brief'],
     },
-  },
-  {
-    name: 'list_sources',
-    description:
-      'Sources the scout found in earlier runs on this device, matching a need ("average wage per country"): each with what it measures, coverage, period, how to get it, terms, and the run that found it. Check before sending the scout: only a source that is an exact match for the need (the same measure, unit and window) skips the scout; anything less, send the scout anyway and weigh both afterwards.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'The need, in a few words.' } }, required: ['query'] },
   },
   {
     name: 'send_scraper',
@@ -457,6 +447,20 @@ function cell(v: unknown, type: string | undefined): unknown {
 
 // ── list_datasets / get_workspace ──────────────────────────────────────────
 
+/** A dataset's metadata, in brief: what a row is, its source, period and coverage, its caveats. */
+function metadataFacts(m: DatasetRecord['metadata']): Record<string, unknown> {
+  if (!m) return {}
+  const src = m.source ?? {}
+  const source = [src.publisher, src.title].filter(Boolean).join(': ')
+  return {
+    ...(m.row ? { row: m.row } : {}),
+    ...(source ? { source } : {}),
+    ...(src.period ? { period: src.period } : {}),
+    ...(src.coverage ? { coverage: src.coverage } : {}),
+    ...(m.caveats?.length ? { caveats: m.caveats } : {}),
+  }
+}
+
 async function listDatasets(host: AgentHost): Promise<ToolOutcome> {
   const inWorkspace = new Set(host.doc().datasetIds)
   const all = await host.listDatasets()
@@ -464,6 +468,8 @@ async function listDatasets(host: AgentHost): Promise<ToolOutcome> {
     id: d.id,
     name: d.name,
     ...(d.description ? { description: d.description } : {}),
+    // Enough to judge whether it's exactly the data a need asks for (then query a sample to be sure).
+    ...metadataFacts(d.metadata),
     store: storeLabel(d),
     origin: d.origin,
     rows: d.rowCount,
@@ -1082,14 +1088,6 @@ async function proposePlan(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   return ok({ decision: out.decision, ...out.value, ...(out.comments.length ? { comments: out.comments } : {}), next: out.next }, answerSummary(card, a))
 }
 
-function listSources(host: AgentHost, input: Obj): ToolOutcome {
-  need(str(input.query) && input.query.trim(), '`query` is required: the need, in a few words')
-  const ledger = host.sources?.() ?? []
-  if (!ledger.length) return ok({ sources: [] }, 'none found earlier on this device')
-  const hits = searchLedger(ledger, input.query)
-  return ok({ sources: hits }, hits.length ? plural(hits.length, 'earlier source') : 'no match')
-}
-
 async function pickSource(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(str(input.need) && input.need.trim(), '`need` is required')
   const sources = (Array.isArray(input.sources) ? input.sources : []).filter((x): x is SourceOption => !!x && typeof x === 'object' && str((x as Obj).name) && str((x as Obj).detail))
@@ -1212,7 +1210,6 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
   const head = `${run.stop === 'end_turn' ? 'finished' : run.stop} · ${Math.round(run.elapsedSeconds)} s${run.cost !== undefined ? ` · $${run.cost.toFixed(2)}` : ''}`
   if (role === 'scout') {
     const parsed = parseScoutReport(run.report)
-    if (parsed.needs?.length) host.rememberSources?.(parsed.needs, run.sessionId)
     const found = parsed.needs?.reduce((n, x) => n + x.sources.length, 0) ?? 0
     return ok({ report: parsed.text, ...(parsed.needs ? { sources: parsed.needs } : {}), ...facts }, `${head}${found ? ` · ${plural(found, 'source')}` : ''}`)
   }
@@ -1317,8 +1314,6 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await proposePlan(host, input)
       case 'pick_source':
         return await pickSource(host, input)
-      case 'list_sources':
-        return listSources(host, input)
       case 'propose_frame':
         return await proposeFrame(host, input)
       case 'ask_user':

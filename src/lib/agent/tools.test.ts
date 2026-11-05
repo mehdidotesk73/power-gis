@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { documentFiles } from '../workspace/files'
 import { toWorkspaceFile } from '../workspace/file'
 import { cardAnswer, initialState, NEITHER, type Card, type QuestionState } from './form'
-import { addToLedger, type LedgerEntry } from './sources'
 
 /** Answers a card as a user would: change its state, press a button (default: the first). */
 const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string | void, comments = '') => async (card: Card) => {
@@ -696,12 +695,8 @@ describe('agent loop', () => {
     expect(TOOLS.filter((t) => t.strict).map((t) => t.name).sort()).toEqual(['apply_workspace', 'ask_user', 'pick_source', 'propose_frame', 'query_sql'])
   })
 
-  it('the scout: the brief carries its needs; the sources it found come back and go into the ledger; list_sources finds them', async () => {
+  it('the scout: the brief carries its needs; the sources it found come back structured', async () => {
     const { host } = fakeHost()
-    const remembered: string[] = []
-    let ledger: LedgerEntry[] = []
-    host.sources = () => ledger
-    host.rememberSources = (needs, runId) => void (remembered.push(`${runId}: ${needs.map((n) => n.need).join(', ')}`), (ledger = addToLedger(ledger, needs, runId, '2026-11-05')))
     let shown: Card | undefined
     host.ask = async (card) => ((shown = card), answering(() => {})(card))
     host.web = async () => ({
@@ -716,14 +711,25 @@ describe('agent loop', () => {
     expect((shown!.questions[0] as { text: string }).text).toBe('Best paid countries.\n\nNeeds:\n- average annual wage per country — annual, USD PPP; every country, latest year (anchor + proxy)')
     expect(json(out.content)).toMatchObject({ report: 'One good source.', sources: [{ need: 'average annual wage per country', sources: [{ name: 'OECD' }] }] })
     expect(out.summary).toBe('finished · 50 s · $0.12 · 1 source')
-    expect(remembered).toEqual(['sesn_7: average annual wage per country'])
-    expect(json((await runTool(host, 'list_sources', { query: 'wage per country' })).content).sources).toMatchObject([{ name: 'OECD', runId: 'sesn_7' }])
-    expect((await runTool(host, 'list_sources', { query: 'county rents' })).summary).toBe('no match')
   })
 
   it('a brief without needs is sent as written', () => {
     expect(briefWithNeeds('  Find rents. ', undefined)).toBe('Find rents.')
     expect(briefWithNeeds('Find rents.', [{ need: '' }, 3])).toBe('Find rents.')
+  })
+
+  it('list_datasets gives each dataset\'s source, period, coverage and caveats, to judge a match before scouting', async () => {
+    const { host } = fakeHost()
+    const all = await host.listDatasets()
+    host.listDatasets = async () => [
+      {
+        ...all[0],
+        metadata: { row: 'one per country and year', source: { publisher: 'OECD', title: 'Average annual wages', period: '2000-2024', coverage: '38 OECD countries' }, caveats: ['USD PPP, constant prices'] },
+      },
+    ]
+    const out = json((await runTool(host, 'list_datasets', {})).content)
+    const first = (Array.isArray(out) ? out : out.datasets)[0]
+    expect(first).toMatchObject({ row: 'one per country and year', source: 'OECD: Average annual wages', period: '2000-2024', coverage: '38 OECD countries', caveats: ['USD PPP, constant prices'] })
   })
 })
 

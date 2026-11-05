@@ -488,7 +488,8 @@ browser or a prompt / model change creates new ones, and agents can only be arch
     coarser data plus finer signals that track it); **Fermi** (a first-principles estimate as a range, assumptions
     stated) — a valid starting input when a question has little data, not only a last-step adjustment.
 - **PR B — targeted scouting.** ✅ Done in part (2026-11-05, PR #60): narrow briefs with their needs and a stop rule, the
-  structured report (SOURCES line), the source ledger with list_sources (only exact matches skip the scout), scouting cost
+  structured report (SOURCES line), list_datasets checked first (each dataset's source, period, coverage and caveats, then a
+  sample: only an exact match skips the scout; no separate source ledger, user 2026-11-05), scouting cost
   logged per chat. **Still to do:** parallel scout runs (the app follows one run at a time today) and the cheap first pass
   that triages search results before the expensive model checks the best few (a two-model run). Then measure: a few
   open questions before / after on the same profile (⚙ shows each profile's average scouting cost).

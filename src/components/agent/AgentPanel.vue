@@ -21,7 +21,6 @@ import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
 import { forgetChat, IMPORTABLE, runTool, webFileDescription, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
 import { STOPPED, type Card, type CardAnswer } from '../../lib/agent/form'
 import type { Rounds } from '../../lib/agent/exchanges'
-import { addToLedger, type FoundNeed, type LedgerEntry } from '../../lib/agent/sources'
 import { activeRun, downloadFile, followRun, forgetRun, logRun, readRun, recentRuns, RunError, SignInNeeded, startRun, traceText, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
 import { DIAGNOSIS_MODELS, DIAGNOSIS_PROMPT, diagnosisInput, type DiagnosisStep } from '../../lib/agent/diagnosis'
 import { logAsText } from '../../debug'
@@ -501,17 +500,6 @@ async function readRunById(sessionId: string): Promise<{ text: string; status: s
     return e instanceof SignInNeeded ? 'Sign in to read a run (☰ → Sign in).' : e instanceof Error ? e.message : String(e)
   }
 }
-/** Sources the scout found, kept on this device for later chats (lib/agent/sources.ts). */
-const SOURCES = 'powergis.sources'
-const readSources = (): LedgerEntry[] => {
-  try {
-    const v = JSON.parse(stored(SOURCES) ?? '[]') as unknown
-    return Array.isArray(v) ? (v as LedgerEntry[]) : []
-  } catch {
-    return []
-  }
-}
-const rememberSources = (needs: FoundNeed[], runId: string) => store(SOURCES, JSON.stringify(addToLedger(readSources(), needs, runId, new Date().toISOString().slice(0, 10))))
 /** The scout or scraper asked for while signed out: a note with a Sign in button (once per chat while it's still signed out). */
 function askSignIn() {
   if (items.value.some((x) => x.kind === 'note' && x.signIn)) return
@@ -520,7 +508,7 @@ function askSignIn() {
 const openSignIn = () => window.dispatchEvent(new CustomEvent('powergis:sign-in'))
 /** The exchanges' revision rounds in this chat (exchanges.ts). */
 let rounds: Rounds = new Map()
-const host: AgentHost = { ...props.host, sources: readSources, rememberSources, ask, get rounds() { return rounds }, set rounds(r) { rounds = r ?? new Map() }, web, signedIn: () => !!auth.user, askSignIn, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
+const host: AgentHost = { ...props.host, ask, get rounds() { return rounds }, set rounds(r) { rounds = r ?? new Map() }, web, signedIn: () => !!auth.user, askSignIn, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
@@ -529,7 +517,6 @@ const TOOL_LABEL: Record<string, string> = {
   propose_frame: 'Frame the question',
   propose_plan: 'Propose the plan',
   pick_source: 'Pick a source',
-  list_sources: 'Sources found earlier',
   send_scout: 'Send the scout',
   send_scraper: 'Send the scraper',
   query_sql: 'Query',
