@@ -181,9 +181,13 @@ whatever they're actually asking about.
   cloudId, rows, structured origin, sameAs read-only), `transforms/<id>.json` + `<id>.<key>.sql`,
   `visualizations/<id>.json`, generated `overview.md`; SQL never inside JSON) and commits with
   `apply_workspace` (checks everything, returns new ids; `lib/agent/workspaceFiles.ts`). Everything
-  existing is targeted by id. Our tools are `strict`. It asks with `ask_user`: a card it composes (`lib/agent/form.ts`, `agent/AskCard.vue`: text fields — prefilled to
-  review —, single / multiple choices of the agent's own options, always with **Something else** + a box (the app adds it), and buttons — one shape for every card: question, why it's asked, the answers; a decision is a choice with Continue, fixed buttons only for yes / no and approving a plan (user, 2026-11-05); returns `{button, values}`; the app adds an optional **Notes** box to
-  every card and, on one with a draft to review, a **Revise with my notes** button — the assistant redrafts and asks again: `withNotes`), and looks beyond
+  existing is targeted by id. Our tools are `strict`. It asks on **question cards** (`lib/agent/form.ts`, `agent/AskCard.vue`; `docs/agents.md`, *Question cards and exchanges*, user
+  2026-11-05): a title, then **1–3 questions** answered together by **one button pair** — each question framed (question, why), of a kind:
+  **answer** (its own drafted response to edit, never an empty box), **one** (radio buttons, recommended first, **Neither (see comments)** when
+  an answer outside is plausible), **several** (checkboxes); each with a folded ＋ Comment box; a card without questions is a plain yes / no. An
+  unchanged answer returns `edited: false` (not the text). One-offs with `ask_user`; fixed **exchanges** (`lib/agent/exchanges.ts`): Plan
+  (`propose_plan`), Source pick (`pick_source`), Run (the scout / scraper card), Frame with PR A — Approve / **Revise with my notes** (2 rounds,
+  then it asks what's wrong; `rounds` per chat) / Reject. A new methodological question is a new exchange, never a new kind of card. It looks beyond
   the workspace only with the user's OK, through `list_datasets`, which reads the app's one
   **dataset finder** (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry
   later); the prompt names no datasets. **Scout and scraper** (`send_scout` / `send_scraper`; `client/agent/managed.ts`):

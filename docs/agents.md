@@ -61,17 +61,10 @@ refuse `caller: 'agent'`).
 device (built-in copy, upload, transform output, a linked copy); it never touches the cloud. A
 linked copy it changes shows ↑ until the user pushes it, and the agent says which ones it changed.
 
-## Notes and revising (every question card)
+## Question cards and exchanges (agreed and built 2026-11-05)
 
-The app adds an optional **Notes** box to every `ask_user` card (unless the assistant made its own, or the card is
-full), and — on a card with something to review (a drafted text, a multiple choice) — a **Revise with my notes**
-button after the main answer (`withNotes`, `lib/agent/form.ts`). The answer then carries `revise` (redraft from the
-notes and edits, and ask again) or, with notes on any other button, a reminder to take them into account. The user
-steers a draft (the framing, the components to consider, a plan) in a few words instead of rewriting it.
-
-## Question cards and exchanges (agreed 2026-11-05; to build after PR #57)
-
-Replaces today's free-form `ask_user` form (fields + up to 4 buttons) and the Notes / Revise add-ons above.
+In `lib/agent/form.ts` (the card), `lib/agent/exchanges.ts` (the exchanges), `components/agent/AskCard.vue`. Replaced the
+free-form `ask_user` form (fields + up to 4 buttons, a Notes box and Revise added to every card).
 
 **A card** holds **1–3 questions** that belong together, answered at once by **one button pair** at its end, so the
 assistant gets the answers together, in context. Every question has the same frame: the question, why it's asked
@@ -93,16 +86,16 @@ questions stay short on a phone).
 
 **Exchanges** are structured asks defined in code: their purpose, their questions, their result, and what the app
 does with it. The assistant supplies only the content; it can't change an exchange's shape. Shared loop:
-**Approve** (the result returned and saved where it belongs), **Revise with my notes** (the assistant redrafts and
+**Approve** (the result returned and used), **Revise with my notes** (the assistant redrafts and
 asks again; after **2 rounds** it stops redrafting and asks what's wrong), **Reject / Not now** (nothing changes; the
 assistant gets the reason). First exchanges:
 
-1. **Frame** (ships with PR A): an Answer (the framing) and a Pick several (the components, each with its posture:
+1. **Frame** (ships with PR A; until then a framing is an `ask_user` card): an Answer (the framing) and a Pick several (the components, each with its posture:
    Exact / Anchor + proxy / Fermi). On Approve: saved to the workspace's About (the study frame).
-2. **Plan**: an Answer (the build plan, stage by stage).
-3. **Run** (today's scout / scraper approval): an Answer (the brief) and a Pick one (the spending cap, recommended
+2. **Plan** (`propose_plan`): an Answer (the build plan, stage by stage). Approve / Reject + Revise.
+3. **Run** (the card of `send_scout` / `send_scraper`): an Answer (the brief) and a Pick one (the spending cap, recommended
    first; Neither + comments for an own amount). Send / Not now.
-4. **Source pick**: a Pick one, one option per source the scout found (coverage, terms, fit), Neither for none of
+4. **Source pick** (`pick_source`): a Pick one, one option per source the scout found (coverage, terms, fit), Neither for none of
    them. Use it / Not now.
 
 **Rule (user, 2026-11-05):** a new methodological question is a new **exchange** defined in code, never a new kind
@@ -116,7 +109,8 @@ of card. `ask_user` stays for one-off questions, within the same 3-question card
 | `get_workspace` | read | **Where the agent starts.** (Re)builds the **workspace files** (discarding unapplied edits) and returns `/overview.md`: every dataset, transform (with state and its SQL files) and visualization, one line each, with ids | The workspace draft + registry records (`lib/agent/workspaceFiles.ts`) |
 | `list_datasets` | read | Every dataset the user can use, outside the workspace too, local and remote (same fields + `inWorkspace`). Used only when the workspace lacks what's needed, **after asking** | The app's **dataset finder**, `listDatasets()` (`client/datasets.ts`), the same list the pickers use |
 | `visualization_stats(id)` | read | The per-feature values a visualization draws (after aggregation): count, nulls, min, percentiles (p2…p98), max, mean, how many ≤ 0 / < 0, orders of magnitude of the positive values; text: distinct count and most common | `queryVisualization` |
-| `ask_user(question, details?, fields?, buttons?)` | read | Shows a **card it composes** (`lib/agent/form.ts`, `components/agent/AskCard.vue`): the question, details, any **fields** — `text` (one line or multiline; `value` fills it in to review and edit: a plan, a brief) and `choice` (the agent's own options, its recommendation first; `multiple`; `selected`; `required`; every choice gets **Something else** with a box, added by the app) — and **buttons** (first = the main answer, the only one held back by required fields; default Approve / Reject without fields, Continue with them). One shape for every card (user, 2026-11-05): the question, why it's asked and what each answer changes, then the answers; a decision is a choice (Continue), fixed buttons only for yes / no and approving a plan. Waits; returns `{button, values}` | The chat panel |
+| `ask_user(title, context?, questions, buttons?)` | read | A **question card** (see *Question cards and exchanges*): up to 3 questions (answer / one / several), each with a comments box, answered by one button pair (default Submit / Cancel, Yes / No without questions). Returns `{button, answers, comments?}` (an unchanged answer as `edited: false`) | The chat panel |
+| `propose_plan(plan, why?)` / `pick_source(need, sources, recommended?, why?)` | read | The **Plan** and **Source pick** exchanges: fixed cards; return `{decision: approved \| revise \| declined, …, comments, next}`; Plan's Revise at most 2 rounds | `lib/agent/exchanges.ts` |
 | `add_builtin(table)` | gated | Adds a built-in table (state / county boundaries, the ACS county tables) to the workspace: no web. `list_datasets` lists them under `builtins` | `uploadDataset` (`builtin` source) |
 | `send_scout(brief, cap_dollars?)` / `send_scraper(brief, cap_dollars?)` | **gated** (approval card) | Shows an approval card (the brief, editable; the spending cap — the assistant's recommended amount, its expected cost × 2 with the reason, first, then $0.50 / $1 / $2 / $5 and the user's own amount; notes; Send / Not now — only the brief and the cap: decisions are settled with `ask_user` first), then runs the role on Managed Agents through the relay (signed in) and follows it to the end. Scout: returns its report. Scraper: its CSVs become new datasets (description "From the web, <date> (scraper run …), not described yet" plus the brief, until the assistant writes its own), returns its summary and each file's dataset id | `client/agent/managed.ts` (`startRun` / `followRun`), `importCsv` |
 | `list_runs()` / `fetch_run(runId)` | free | This device's recent scout / scraper runs (`powergis.webRuns`: id, role, state, cost, files) / picks up a run by its id — follows it if it's still going, then reads its report and imports the scraper's files (each file once: `powergis.importedRunFiles`). Used instead of sending again when results didn't arrive | `client/agent/managed.ts` (`recentRuns`, `followRun`) |

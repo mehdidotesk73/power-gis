@@ -23,7 +23,8 @@ import { datasetFact, snapshot } from '../workspace/file'
 import type { ToolOutcome } from './loop'
 import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type DatasetFacts, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
-import { answerSummary, LIMITS, NOTES, readForm, REVISE, withNotes, type Form, type FormAnswer } from './form'
+import { answerForAgent, answerSummary, commentsOf, LIMITS, readCard, type Card, type CardAnswer } from './form'
+import { planCard, planOutcome, runCard, runOutcome, sourceCard, sourceOutcome, type Rounds, type SourceOption } from './exchanges'
 
 /** What the tools act through: the page's workspace copy and the server. */
 export interface AgentHost {
@@ -44,7 +45,9 @@ export interface AgentHost {
   /** Drafts a dataset's new name / description (written to it when the user saves). */
   updateDataset(id: string, patch: DatasetEdit): { ok: true } | { ok: false; message: string }
   /** Shows the user a question card (details, fields, buttons); resolves with their answer. */
-  ask(form: Form): Promise<FormAnswer>
+  ask(card: Card): Promise<CardAnswer>
+  /** The exchanges' revision rounds, kept for the chat (exchanges.ts). */
+  rounds?: Rounds
   /** Adds a file (a scraper's CSV or GeoJSON) as a new dataset in the workspace, with a description. */
   importCsv?(file: File, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
   /** Sends the scout or the scraper with a brief and a spending cap, and follows it to the end (the chat shows its progress); a message when it can't. */
@@ -111,41 +114,74 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'ask_user',
     description: [
-      'Ask the user something that needs a well-defined answer, and wait for it. Shows a card in the chat: your question, optional details, any fields, and buttons. Returns {button, values} (values by field id; a choice gives a list of the chosen options, with the user\'s own answer last).',
-      'Every card has the same shape: "question" (one sentence), "details" (why you ask and what each answer changes, in a few lines), then the answers. A decision (what to do next, which way to handle something): one "choice" whose options are the courses of action you see — your own words for this case, each short with its consequence, your recommendation first and marked "(recommended)"; the card always adds "Something else" with a box for the user\'s own answer, so don\'t add one. Leave "buttons" out for a decision (the card shows Continue). Buttons are for answers that aren\'t options: a yes / no question (["Yes", "No"], no fields) and confirming a plan (no fields: Approve / Reject by default, the plan in details). Other fields: "text" (one line, or multiline; "value" fills it in for the user to review and edit — a plan, a name, a brief) and "choice" with "multiple" for picking any number (years, sources). The first button is the main answer (only it needs the required fields).',
-      'Use it to confirm a plan before building, to ask before looking outside the workspace or on the web, and whenever the answer is a pick from options or an edit of something you drafted. Keep labels to a few words. For an open question, ask in plain text and end your turn instead.',
+      'Ask the user a one-off question and wait for the answer. A card: "title" (what you ask, one sentence), "context" (what you found, a few lines), then up to 3 related "questions", answered together by one pair of "buttons" — so the user can answer interconnected questions in one go.',
+      'Each question: "question" (one sentence), "why" (why you ask and what the answer changes), and a kind. "answer": your own considered response (or a draft) in "text", which the user edits — never ask for an empty box. "one": radio buttons — your "options" (2+), "recommended" = one of them (shown first, marked); "neither": true adds "Neither (see comments)" when an answer outside your options is plausible (false only when they cover every case). "several": checkboxes — "options", "selected" = those ticked to start (to edit a selection). Every question gets a comments box from the app.',
+      '"buttons": a pair, what goes ahead first: Submit / Cancel (default with questions), Yes / No (default with none: a plain yes / no question), Approve / Reject, Go / No-go. Returns {button, answers: [one per question: an unchanged answer comes back as just edited: false; a choice as choice / choices; neither: true when the user picked none; comments]}.',
+      'For a plan use propose_plan, for a source after the scout pick_source, and the scout / scraper card comes with send_scout / send_scraper: those are fixed exchanges. For a truly open question, ask in plain text and end your turn instead.',
     ].join(' '),
     inputSchema: {
       type: 'object',
       properties: {
-        question: { type: 'string', description: 'One short question.' },
-        details: { type: 'string', description: 'Optional: what you found and what you propose, in a few short lines.' },
-        fields: {
+        title: { type: 'string', description: 'What the card asks, one sentence.' },
+        context: { type: 'string', description: 'What you found or propose, a few short lines; "" for none.' },
+        questions: {
           type: 'array',
-          description: `Optional, at most ${LIMITS.fields}.`,
-          // Every property required (empty when unused): under strict tool use, optional text and lists
-          // inside the items came through missing (a framing box and its options arrived empty).
+          description: `0–${LIMITS.questions} questions that belong together; [] for a plain yes / no.`,
+          // Every property required (empty when unused): under strict tool use, optional ones inside items came through missing.
           items: {
             type: 'object',
             properties: {
-              id: { type: 'string', description: 'Key of this field in the answer.' },
-              kind: { type: 'string', enum: ['text', 'choice'] },
-              label: { type: 'string', description: 'A few words.' },
-              value: { type: 'string', description: 'text: filled in for the user to review and edit — a draft you mention must be here in full (the box shows only this); "" for a blank box or a choice.' },
-              placeholder: { type: 'string', description: 'text: a hint shown while empty; "" for none.' },
-              multiline: { type: 'boolean', description: 'text: several lines.' },
-              options: { type: 'array', items: { type: 'string' }, description: `choice: every option, at most ${LIMITS.options}; [] for text.` },
-              multiple: { type: 'boolean', description: 'choice: any number of options rather than one.' },
-              other: { type: 'boolean', description: 'choice: ignored — every choice gets "Something else" with a box.' },
-              selected: { type: 'array', items: { type: 'string' }, description: 'choice: options chosen to start with; [] for none.' },
-              required: { type: 'boolean' },
+              kind: { type: 'string', enum: ['answer', 'one', 'several'] },
+              question: { type: 'string', description: 'One sentence.' },
+              why: { type: 'string', description: 'Why you ask and what the answer changes.' },
+              text: { type: 'string', description: 'answer: your response or draft, in full (the box shows only this); "" for a choice.' },
+              options: { type: 'array', items: { type: 'string' }, description: `one / several: the options, at most ${LIMITS.options}; [] for an answer.` },
+              recommended: { type: 'string', description: 'one: the option you recommend; "" for none.' },
+              neither: { type: 'boolean', description: 'one: offer "Neither (see comments)".' },
+              selected: { type: 'array', items: { type: 'string' }, description: 'several: the options ticked to start; [] otherwise.' },
+              required: { type: 'boolean', description: 'The first button waits for it.' },
             },
-            required: ['id', 'kind', 'label', 'value', 'placeholder', 'multiline', 'options', 'multiple', 'other', 'selected', 'required'],
+            required: ['kind', 'question', 'why', 'text', 'options', 'recommended', 'neither', 'selected', 'required'],
           },
         },
-        buttons: { type: 'array', items: { type: 'string' }, description: `The answers, main one first; at most ${LIMITS.buttons}. Leave out for a decision (Continue). ["Yes", "No"] for a yes / no question; Approve, Reject (the default without fields) to confirm a plan.` },
+        buttons: { type: 'array', items: { type: 'string' }, description: 'The pair: goes ahead first, then doesn\'t. [] for the default (Submit / Cancel, or Yes / No without questions).' },
       },
-      required: ['question'],
+      required: ['title', 'questions'],
+    },
+  },
+  {
+    name: 'propose_plan',
+    description:
+      'The Plan exchange: show the user your build plan, stage by stage (what you\'ll make, from what, and why), to edit and approve before you build. Approve / Reject, plus Revise with my notes (at most 2 rounds: redraft from their comments and edits and call this again). Returns {decision: approved | revise | declined, plan (only if the user edited it), comments, next}.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        plan: { type: 'string', description: 'The plan in full, stage by stage, in plain words.' },
+        why: { type: 'string', description: 'A line on what to check in it; "" for none.' },
+      },
+      required: ['plan'],
+    },
+  },
+  {
+    name: 'pick_source',
+    description:
+      'The Source pick exchange: after the scout, let the user choose the source for one need among those it found (each with its coverage, terms and fit, in a line), or none of them. Use it / Not now. Returns {decision, source (the name picked, or null with neither), comments, next}.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        need: { type: 'string', description: 'The need, in a few words ("county rents, 2023").' },
+        why: { type: 'string', description: 'A line on what the choice changes; "" for none.' },
+        sources: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { name: { type: 'string' }, detail: { type: 'string', description: 'Coverage, terms and fit, in one line.' } },
+            required: ['name', 'detail'],
+          },
+        },
+        recommended: { type: 'string', description: 'The name of the source you recommend; "" for none.' },
+      },
+      required: ['need', 'sources'],
     },
   },
   {
@@ -956,18 +992,34 @@ async function deleteDataset(host: AgentHost, input: Obj): Promise<ToolOutcome> 
 // ── ask_user ───────────────────────────────────────────────────────────────
 
 async function askUser(host: AgentHost, input: Obj): Promise<ToolOutcome> {
-  const read = readForm(input)
-  need(typeof read !== 'string', read as string)
-  const form = withNotes(read)
-  const a = await host.ask(form)
-  const notes = typeof a.values[NOTES] === 'string' && a.values[NOTES].trim()
-  const next =
-    a.button === REVISE
-      ? { revise: 'The user asks for your draft again, revised: apply their notes and any edits they made in the fields, then show the revised card with ask_user before going on.' }
-      : notes
-        ? { notes: 'Take the user\'s notes into account in what you do next.' }
-        : {}
-  return ok({ ...a, ...next }, answerSummary(form, a))
+  const card = readCard(input)
+  need(typeof card !== 'string', card as string)
+  const c = card as Card
+  const a = await host.ask(c)
+  const note = commentsOf(a).length ? { note: 'Take the user\'s comments into account in what you do next.' } : {}
+  return ok({ ...answerForAgent(c, a), ...note }, answerSummary(c, a))
+}
+
+// ── exchanges: Plan, Source pick (Run is in send_scout / send_scraper) ─────
+
+const roundsOf = (host: AgentHost): Rounds => (host.rounds ??= new Map())
+
+async function proposePlan(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.plan) && input.plan.trim(), '`plan` is required: the plan in full, stage by stage')
+  const card = planCard({ plan: input.plan.trim(), ...(str(input.why) && input.why.trim() ? { why: input.why.trim() } : {}) }, roundsOf(host))
+  const a = await host.ask(card)
+  const out = planOutcome(card, a, roundsOf(host))
+  return ok({ decision: out.decision, ...out.value, ...(out.comments.length ? { comments: out.comments } : {}), next: out.next }, answerSummary(card, a))
+}
+
+async function pickSource(host: AgentHost, input: Obj): Promise<ToolOutcome> {
+  need(str(input.need) && input.need.trim(), '`need` is required')
+  const sources = (Array.isArray(input.sources) ? input.sources : []).filter((x): x is SourceOption => !!x && typeof x === 'object' && str((x as Obj).name) && str((x as Obj).detail))
+  need(sources.length >= 1, '`sources` needs at least one source (name, detail)')
+  const card = sourceCard({ need: input.need.trim(), sources, ...(str(input.why) && input.why.trim() ? { why: input.why.trim() } : {}), ...(str(input.recommended) && input.recommended ? { recommended: input.recommended } : {}) })
+  const a = await host.ask(card)
+  const out = sourceOutcome(card, a, sources)
+  return ok({ decision: out.decision, ...out.value, ...(out.comments.length ? { comments: out.comments } : {}), next: out.next }, answerSummary(card, a))
 }
 
 // ── add_builtin ────────────────────────────────────────────────────────────
@@ -1017,25 +1069,13 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
   const why = str(input.cap_reason) && input.cap_reason.trim() ? input.cap_reason.trim() : ''
   const recommended = `Recommended: ${money(cap)}`
   const Role = role === 'scout' ? 'scout' : 'scraper'
-  const form: Form = {
-    question: `Send the ${Role}?`,
-    details:
-      role === 'scout'
-        ? 'It looks on the web and reports what data exists and how to get it; it fetches nothing. Edit the brief if you like.'
-        : 'It fetches the data and makes the CSVs below; they become new datasets in your workspace. Edit the brief if you like.',
-    fields: [
-      { id: 'brief', kind: 'text', label: 'Brief', value: input.brief.trim(), multiline: true, required: true },
-      // The assistant's recommendation first, the usual amounts after it, and the user's own amount (other).
-      { id: 'cap', kind: 'choice', label: why ? `Spending cap (${why})`.slice(0, 120) : 'Spending cap', options: [recommended, ...WEB_CAPS.filter((c) => c !== cap).map(money)], selected: [recommended], other: true, required: true },
-      { id: 'notes', kind: 'text', label: 'Notes for the assistant', placeholder: 'Optional' },
-    ],
-    buttons: [`Send the ${Role}`, 'Not now'],
-  }
-  const a = await host.ask(form)
-  const notes = typeof a.values.notes === 'string' && a.values.notes ? { notes: a.values.notes } : {}
-  if (a.button !== form.buttons[0]) return ok({ sent: false, button: a.button, ...notes }, 'not sent')
-  const brief = String(a.values.brief ?? '').trim() || input.brief.trim()
-  const capDollars = readCap(a.values.cap) ?? cap
+  const card = runCard({ role, brief: input.brief.trim(), caps: WEB_CAPS.filter((c) => c !== cap).map(money), recommended, ...(why ? { capWhy: `How it was sized: ${why}.` } : {}) })
+  const a = await host.ask(card)
+  const out = runOutcome(card, a, (v) => readCap(v))
+  const notes = out.comments.length ? { comments: out.comments } : {}
+  if (out.decision !== 'approved') return ok({ sent: false, decision: out.decision, ...notes, next: out.next }, 'not sent')
+  const brief = out.value!.brief
+  const capDollars = out.value!.cap ?? cap
   const run = await host.web(role, brief, capDollars)
   if (typeof run === 'string') return err(run, `${Role} not sent`)
   const edited = brief !== input.brief.trim() ? { briefEditedByUser: brief } : {}
@@ -1139,6 +1179,10 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await listDatasets(host)
       case 'get_workspace':
         return await getWorkspace(host)
+      case 'propose_plan':
+        return await proposePlan(host, input)
+      case 'pick_source':
+        return await pickSource(host, input)
       case 'ask_user':
         return await askUser(host, input)
       case 'add_builtin':

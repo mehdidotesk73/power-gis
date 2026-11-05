@@ -1,184 +1,218 @@
-// What the assistant asks the user (ask_user): a question, optional details,
-// and a small form built from a few kinds of field — a text box (one line or
-// several, optionally filled in for the user to review and edit), a choice
-// (one or several of the agent's options, always plus "Something else" with a
-// box for the user's own answer) — and the buttons that answer it. The shape is
-// fixed (question, why it's asked, the agent's own options, Something else); the
-// options and buttons are the agent's, except the defaults: Approve / Reject for
-// a plan (no fields), Continue for a decision. The chat shows it as a card; the
-// answer goes back to the agent as the button pressed and each field's value.
-// Pure: the card lives in components/agent/AskCard.vue.
+// Question cards (docs/agents.md, *Question cards and exchanges*; user, 2026-11-05).
+//
+// A card holds 1–3 questions that belong together and ends with one pair of
+// buttons that answers it all at once, so the agent gets the answers together,
+// in context. Every question has the same frame — the question, why it's asked
+// and what the answer changes, its controls, a comments box — and is one of
+// three kinds:
+//   answer  — the agent's own considered response (or a plan, a brief), edited by
+//             the user as it stands; never an empty box
+//   one     — radio buttons, the agent's options, its recommendation first and
+//             marked; plus "Neither (see comments)" when an answer outside them
+//             is plausible
+//   several — checkboxes, some may start ticked (editing a selection)
+// A card with no questions is a plain yes / no (or go / no-go…) question with one
+// comments box. Exchanges (exchanges.ts) build cards from fixed shapes and may
+// add "Revise with my notes" between the pair. Pure: the card is
+// components/agent/AskCard.vue.
 
-export interface TextField {
+interface QuestionBase {
   id: string
-  kind: 'text'
-  label: string
-  /** Filled in for the user to review and edit (a plan, a brief). */
-  value?: string
-  placeholder?: string
-  /** Several lines (a plan, notes) rather than one. */
-  multiline?: boolean
-  required?: boolean
-}
-
-export interface ChoiceField {
-  id: string
-  kind: 'choice'
-  label: string
-  options: string[]
-  /** Any number of the options rather than one. */
-  multiple?: boolean
-  /** The user may also write their own answer ("Something else"). Always on: the app adds it to every choice (user, 2026-11-05). */
-  other?: boolean
-  /** Options chosen to start with. */
-  selected?: string[]
-  required?: boolean
-}
-
-export type FormField = TextField | ChoiceField
-
-export interface Form {
+  /** The question, one sentence. */
   question: string
-  details?: string
-  fields: FormField[]
-  /** The answers, first = the main one (it alone needs the required fields). */
-  buttons: string[]
+  /** Why it's asked and what the answer changes. */
+  why?: string
+  /** The first button waits for it (an answer must keep some text, a choice needs a pick). */
+  required?: boolean
+}
+export interface AnswerQuestion extends QuestionBase {
+  kind: 'answer'
+  /** The drafted response the user edits. */
+  text: string
+}
+export interface OneQuestion extends QuestionBase {
+  kind: 'one'
+  /** The options, the recommended one first. */
+  options: string[]
+  /** One of the options, shown first and marked. */
+  recommended?: string
+  /** Offer "Neither (see comments)". */
+  neither?: boolean
+  /** The option picked to start with (the recommended one by default). */
+  selected?: string
+}
+export interface SeveralQuestion extends QuestionBase {
+  kind: 'several'
+  options: string[]
+  /** Options ticked to start with. */
+  selected?: string[]
+}
+export type Question = AnswerQuestion | OneQuestion | SeveralQuestion
+
+export interface Card {
+  /** What the card asks, one sentence (the whole question when there are no questions). */
+  title: string
+  /** What the agent found or proposes, in a few lines. */
+  context?: string
+  questions: Question[]
+  /** The pair that answers the card: the first goes ahead, the second doesn't. */
+  buttons: [string, string]
+  /** An exchange's "Revise with my notes", shown between the pair. */
+  revise?: boolean
 }
 
-export interface FormAnswer {
-  /** The button pressed (or "Stopped" when the user stopped the assistant). */
+/** One question's reply. An unchanged answer isn't sent back in full (a long plan approved as it is costs no tokens). */
+export type Reply =
+  | { kind: 'answer'; edited: boolean; text?: string; comments?: string }
+  | { kind: 'one'; choice: string | null; neither?: true; comments?: string }
+  | { kind: 'several'; choices: string[]; comments?: string }
+
+export interface CardAnswer {
+  /** The button pressed: one of the pair, REVISE, or STOPPED. */
   button: string
-  /** Each field's value: text, or the chosen options (with the user's own answer last). */
-  values: Record<string, string | string[]>
+  /** By question id. */
+  replies: Record<string, Reply>
+  /** The card's own comments box (a card with no questions). */
+  comments?: string
 }
 
-/** Answers the user's Stop gives a waiting question. */
+/** What the user's Stop answers a waiting card with. */
 export const STOPPED = 'Stopped'
+/** The exchanges' third button. */
+export const REVISE = 'Revise with my notes'
+export const NEITHER = 'Neither (see comments)'
 
-export const LIMITS = { fields: 8, options: 20, buttons: 4, label: 120, text: 8000 }
+export const LIMITS = { questions: 3, options: 20, text: 8000, line: 300 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string')
-const nonEmpty = (s: string) => s.trim().length > 0
+const filled = (s: unknown): s is string => typeof s === 'string' && s.trim().length > 0
 
-/** The tool input as a form, or the first problem with it. */
-export function readForm(input: Record<string, unknown>): Form | string {
-  const { question, details, fields = [], buttons } = input
-  if (typeof question !== 'string' || !nonEmpty(question)) return '`question` is required'
-  if (details !== undefined && typeof details !== 'string') return '`details` must be text'
-  if (!Array.isArray(fields)) return '`fields` must be a list'
-  if (fields.length > LIMITS.fields) return `At most ${LIMITS.fields} fields`
-  const out: FormField[] = []
-  const ids = new Set<string>()
-  for (const [i, f] of fields.entries()) {
-    const at = `fields[${i}]`
-    if (!isObj(f)) return `${at} must be an object`
-    if (typeof f.id !== 'string' || !nonEmpty(f.id)) return `${at}: "id" is required`
-    if (ids.has(f.id)) return `${at}: id "${f.id}" is used twice`
-    ids.add(f.id)
-    if (typeof f.label !== 'string' || !nonEmpty(f.label)) return `${at}: "label" is required`
-    if (f.label.length > LIMITS.label) return `${at}: "label" is too long (a few words; put explanations in details)`
-    const required = f.required === true
-    if (f.kind === 'text') {
-      if (f.value !== undefined && typeof f.value !== 'string') return `${at}: "value" must be text`
-      if (typeof f.value === 'string' && f.value.length > LIMITS.text) return `${at}: "value" is too long`
-      if (f.placeholder !== undefined && typeof f.placeholder !== 'string') return `${at}: "placeholder" must be text`
-      out.push({
-        id: f.id,
-        kind: 'text',
-        label: f.label.trim(),
-        ...(typeof f.value === 'string' ? { value: f.value } : {}),
-        ...(typeof f.placeholder === 'string' && f.placeholder.trim()
-          ? { placeholder: f.placeholder }
-          : // A big empty box needs a hint, or it reads as a draft that never arrived.
-            f.multiline === true && !(typeof f.value === 'string' && nonEmpty(f.value))
-            ? { placeholder: 'Write here…' }
-            : {}),
-        ...(f.multiline === true ? { multiline: true } : {}),
-        ...(required ? { required } : {}),
-      })
-    } else if (f.kind === 'choice') {
-      const given = f.options ?? []
-      if (!strings(given)) return `${at}: "options" must be a list of text`
-      const options = given.map((o) => o.trim()).filter(nonEmpty)
-      if (!options.length) return `${at}: a choice needs options (the card adds "Something else" itself)`
-      if (options.length > LIMITS.options) return `${at}: at most ${LIMITS.options} options`
-      if (new Set(options).size !== options.length) return `${at}: options must differ`
-      if (f.selected !== undefined && !strings(f.selected)) return `${at}: "selected" must be a list of options`
-      const selected = (f.selected ?? []).filter((s) => options.includes(s))
-      if (f.multiple !== true && selected.length > 1) return `${at}: a single choice can start with at most one option selected`
-      out.push({
-        id: f.id,
-        kind: 'choice',
-        label: f.label.trim(),
-        options,
-        ...(f.multiple === true ? { multiple: true } : {}),
-        other: true, // every choice offers "Something else", with a box to say what
-        ...(selected.length ? { selected } : {}),
-        ...(required ? { required } : {}),
-      })
-    } else return `${at}: "kind" must be "text" or "choice"`
+/** The options with the recommended one first (if any). */
+const ordered = (options: string[], recommended?: string) => (recommended ? [recommended, ...options.filter((o) => o !== recommended)] : options)
+
+/** ask_user's input as a card, or the first problem with it. */
+export function readCard(input: Record<string, unknown>): Card | string {
+  const { title, context, questions = [], buttons } = input
+  if (!filled(title)) return '`title` is required: the question the card asks, one sentence'
+  if (context !== undefined && typeof context !== 'string') return '`context` must be text'
+  if (!Array.isArray(questions)) return '`questions` must be a list'
+  if (questions.length > LIMITS.questions) return `At most ${LIMITS.questions} questions on a card: ask the rest on the next one`
+  const out: Question[] = []
+  for (const [i, q] of questions.entries()) {
+    const at = `questions[${i}]`
+    if (!isObj(q)) return `${at} must be an object`
+    if (!filled(q.question)) return `${at}: "question" is required`
+    if (q.question.length > LIMITS.line) return `${at}: "question" is too long (one sentence; the rest goes in "why")`
+    const base = { id: `q${i + 1}`, question: q.question.trim(), ...(filled(q.why) ? { why: q.why.trim() } : {}), ...(q.required === true ? { required: true } : {}) }
+    if (q.kind === 'answer') {
+      // Never an empty box: the agent writes its own response for the user to edit.
+      if (!filled(q.text)) return `${at}: an "answer" needs "text": your own considered response (or the plan, the brief) for the user to edit`
+      if (q.text.length > LIMITS.text) return `${at}: "text" is too long`
+      out.push({ ...base, kind: 'answer', text: q.text.trim() })
+      continue
+    }
+    if (q.kind !== 'one' && q.kind !== 'several') return `${at}: "kind" must be "answer", "one" or "several"`
+    if (!strings(q.options)) return `${at}: "options" must be a list of text`
+    const options = q.options.map((o) => o.trim()).filter(Boolean)
+    if (options.length < 2) return `${at}: a choice needs at least two options`
+    if (options.length > LIMITS.options) return `${at}: at most ${LIMITS.options} options`
+    if (new Set(options).size !== options.length) return `${at}: options must differ`
+    if (q.kind === 'one') {
+      const recommended = filled(q.recommended) && options.includes(q.recommended.trim()) ? q.recommended.trim() : undefined
+      const selected = filled(q.selected) && options.includes(q.selected.trim()) ? q.selected.trim() : recommended
+      out.push({ ...base, kind: 'one', options: ordered(options, recommended), ...(recommended ? { recommended } : {}), ...(q.neither === false ? {} : { neither: true }), ...(selected ? { selected } : {}) })
+    } else {
+      const selected = strings(q.selected) ? q.selected.map((s) => s.trim()).filter((s) => options.includes(s)) : []
+      out.push({ ...base, kind: 'several', options, ...(selected.length ? { selected } : {}) })
+    }
   }
-  const given: unknown = buttons === undefined ? (out.length ? ['Continue'] : ['Approve', 'Reject']) : buttons
-  if (!strings(given)) return '`buttons` must be a list of text'
-  const shown = given.map((b) => b.trim()).filter(nonEmpty)
-  if (!shown.length) return '`buttons` needs at least one'
-  if (shown.length > LIMITS.buttons) return `At most ${LIMITS.buttons} buttons`
-  if (new Set(shown).size !== shown.length) return 'Buttons must differ'
-  return { question: question.trim(), ...(typeof details === 'string' && nonEmpty(details) ? { details: details.trim() } : {}), fields: out, buttons: shown }
+  const pair = buttons === undefined || (Array.isArray(buttons) && buttons.length === 0) ? (out.length ? ['Submit', 'Cancel'] : ['Yes', 'No']) : buttons
+  if (!strings(pair) || pair.length !== 2 || !pair.every(filled)) return '`buttons` must be a pair: what goes ahead first, then what doesn\'t (Submit / Cancel, Yes / No, Approve / Reject, Go / No-go)'
+  if (pair[0].trim() === pair[1].trim()) return 'The two buttons must differ'
+  return { title: title.trim(), ...(filled(context) ? { context: context.trim() } : {}), questions: out, buttons: [pair[0].trim(), pair[1].trim()] }
 }
 
-/** What each field starts as on the card. */
-export function initialValues(form: Form): Record<string, string | string[]> {
-  return Object.fromEntries(form.fields.map((f) => [f.id, f.kind === 'text' ? (f.value ?? '') : [...(f.selected ?? [])]]))
+// ── the card's state, and the answer it makes ──────────────────────────────
+
+/** What a question's controls hold while the user works on the card. */
+export interface QuestionState {
+  text: string
+  /** One: the option picked, NEITHER, or null. */
+  choice: string | null
+  choices: string[]
+  comments: string
+}
+export function initialState(card: Card): Record<string, QuestionState> {
+  return Object.fromEntries(
+    card.questions.map((q) => [
+      q.id,
+      { text: q.kind === 'answer' ? q.text : '', choice: q.kind === 'one' ? (q.selected ?? null) : null, choices: q.kind === 'several' ? [...(q.selected ?? [])] : [], comments: '' },
+    ]),
+  )
 }
 
-/** The value a field answers with: text trimmed; chosen options in their order, the user's own answer last. */
-export function fieldValue(f: FormField, value: string | string[], other = ''): string | string[] {
-  if (f.kind === 'text') return typeof value === 'string' ? value.trim() : ''
-  const chosen = (Array.isArray(value) ? value : []).filter((v) => f.options.includes(v))
-  const own = f.other ? other.trim() : ''
-  const ordered = f.options.filter((o) => chosen.includes(o))
-  return f.multiple ? (own ? [...ordered, own] : ordered) : own && !ordered.length ? [own] : ordered.slice(0, 1)
+/** The questions the first button still waits for, by their question. */
+export function missingRequired(card: Card, state: Record<string, QuestionState>): string[] {
+  return card.questions
+    .filter((q) => {
+      const s = state[q.id]
+      if (!q.required || !s) return false
+      if (q.kind === 'answer') return !s.text.trim()
+      // Neither counts as answered once its comments say what instead.
+      if (q.kind === 'one') return s.choice === null || (s.choice === NEITHER && !s.comments.trim())
+      return !s.choices.length
+    })
+    .map((q) => q.question)
 }
 
-/** The required fields still empty, by label (they hold back the main button only). */
-export function missingRequired(form: Form, values: Record<string, string | string[]>): string[] {
-  return form.fields.filter((f) => f.required && !(Array.isArray(values[f.id]) ? (values[f.id] as string[]).length : String(values[f.id] ?? '').trim())).map((f) => f.label)
+/** The card's answer from its state. */
+export function cardAnswer(card: Card, state: Record<string, QuestionState>, button: string, comments = ''): CardAnswer {
+  const replies: Record<string, Reply> = {}
+  for (const q of card.questions) {
+    const s = state[q.id]
+    const note = s?.comments.trim() ? { comments: s.comments.trim() } : {}
+    if (q.kind === 'answer') {
+      const text = (s?.text ?? q.text).trim()
+      replies[q.id] = text === q.text.trim() ? { kind: 'answer', edited: false, ...note } : { kind: 'answer', edited: true, text, ...note }
+    } else if (q.kind === 'one') {
+      const neither = s?.choice === NEITHER
+      replies[q.id] = { kind: 'one', choice: neither || !s?.choice ? null : s.choice, ...(neither ? { neither: true as const } : {}), ...note }
+    } else replies[q.id] = { kind: 'several', choices: q.options.filter((o) => s?.choices.includes(o)), ...note }
+  }
+  return { button, replies, ...(comments.trim() ? { comments: comments.trim() } : {}) }
 }
 
-/** One line for the chat's step and the answered card: the button, then each answer. */
-export function answerSummary(form: Form, a: FormAnswer): string {
-  const parts = form.fields.flatMap((f) => {
-    const v = a.values[f.id]
-    const text = Array.isArray(v) ? v.join(', ') : (v ?? '')
-    if (!text) return []
-    // A long text answer (a reviewed plan) is summed up by whether it changed.
-    if (f.kind === 'text' && f.value !== undefined && text.length > 60) return [`${f.label}: ${text === f.value.trim() ? 'as proposed' : 'edited'}`]
-    return [`${f.label}: ${text.length > 60 ? `${text.slice(0, 60)}…` : text}`]
+/** The answer as the agent reads it: each reply next to its question; an unchanged draft as just "edited: false". */
+export function answerForAgent(card: Card, a: CardAnswer): Record<string, unknown> {
+  return {
+    button: a.button,
+    ...(card.questions.length
+      ? {
+          answers: card.questions.map((q) => {
+            const r = a.replies[q.id]
+            if (!r) return { question: q.question, answered: false }
+            const { kind: _kind, ...rest } = r
+            return { question: q.question, ...rest }
+          }),
+        }
+      : {}),
+    ...(a.comments ? { comments: a.comments } : {}),
+  }
+}
+
+/** One line for the chat's step: the button, then each reply in a few words. */
+export function answerSummary(card: Card, a: CardAnswer): string {
+  const parts = card.questions.flatMap((q) => {
+    const r = a.replies[q.id]
+    if (!r) return []
+    const label = q.question.length > 40 ? `${q.question.slice(0, 40)}…` : q.question
+    const said =
+      r.kind === 'answer' ? (r.edited ? 'edited' : 'as proposed') : r.kind === 'one' ? (r.neither ? 'neither' : (r.choice ?? '—')) : r.choices.join(', ') || 'none'
+    return [`${label} ${said.length > 60 ? `${said.slice(0, 60)}…` : said}${r.comments ? ' (+ comments)' : ''}`]
   })
-  return [a.button, ...parts].join(' · ')
+  return [a.button, ...parts, ...(a.comments ? ['comments'] : [])].join(' · ')
 }
 
-// ── notes and revising (added by the app to every card the assistant composes) ──
-
-/** The notes box's id, and the button that asks for the draft again with the notes applied. */
-export const NOTES = 'notes'
-export const REVISE = 'Revise with my notes'
-
-/**
- * The card as the user sees it: an optional Notes box at the end (unless the assistant made its own,
- * or there's no room), and — on a card with something to review (a drafted text, a multiple choice) —
- * a Revise with my notes button after the main answer, so the user can steer a draft in a few words
- * instead of rewriting it.
- */
-export function withNotes(form: Form): Form {
-  const fields =
-    form.fields.some((f) => f.id === NOTES) || form.fields.length >= LIMITS.fields
-      ? form.fields
-      : [...form.fields, { id: NOTES, kind: 'text' as const, label: 'Notes', placeholder: 'Optional: what to change, add or tighten, in a few words', multiline: true }]
-  const reviews = form.fields.some((f) => (f.kind === 'text' && !!f.value?.trim()) || (f.kind === 'choice' && f.multiple))
-  const buttons =
-    reviews && !form.buttons.includes(REVISE) && form.buttons.length < LIMITS.buttons ? [form.buttons[0], REVISE, ...form.buttons.slice(1)] : form.buttons
-  return { ...form, fields, buttons }
-}
+/** Every comment on the card, for the agent's attention. */
+export const commentsOf = (a: CardAnswer): string[] => [...Object.values(a.replies).flatMap((r) => (r.comments ? [r.comments] : [])), ...(a.comments ? [a.comments] : [])]
