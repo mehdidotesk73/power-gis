@@ -210,19 +210,23 @@ textarea {
 }
 .options {
   display: grid;
-  gap: 0.15rem;
 }
 .option {
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* the box sits on the option's first line, not halfway down a long one */
   gap: 0.45rem;
   min-height: 2rem; /* tappable */
+  padding: 0.35rem 0;
   cursor: pointer;
+}
+/* A faint line between options: where one long option ends and the next begins. */
+.option + .option {
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 .option input[type='radio'],
 .option input[type='checkbox'] {
   flex: none;
-  margin: 0;
+  margin: 0.2em 0 0; /* level with the first line of text */
   accent-color: var(--accent-blue);
 }
 .option.own input[type='text'] {
