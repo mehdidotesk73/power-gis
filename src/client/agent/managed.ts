@@ -1,4 +1,4 @@
-// Scout and scraper sessions on Anthropic Managed Agents (proof of concept).
+// Scout and scraper sessions on Anthropic Managed Agents.
 // The agent loop runs on Anthropic's side and its tools (bash, Python, web
 // search / fetch) in a container there, so a run doesn't depend on this page
 // staying awake. Those endpoints refuse calls straight from a web page (CORS),
@@ -23,10 +23,11 @@ export type Role = 'scout' | 'scraper'
 const FALLBACK_LADDER = `If a page can't be read with web_fetch (blocked, or empty because JavaScript builds it), fetch the same URL from a Python script in the container (requests, with a normal browser User-Agent); if the content only appears after JavaScript runs, try a headless browser from Python (pip install playwright, then playwright install chromium). This container's network path re-signs TLS certificates with its own certificate authority: Python's requests already trusts it, Chromium doesn't until you add it. Before launching, find the CA bundle Python trusts (the REQUESTS_CA_BUNDLE or SSL_CERT_FILE environment variable, else /etc/ssl/certs/ca-certificates.crt) and import its certificates into Chromium's NSS database (apt-get install -y libnss3-tools; certutil -d sql:$HOME/.pki/nssdb -N --empty-password < /dev/null; then for each certificate split out of the bundle: timeout 10 certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n <name> -i <file> < /dev/null — certutil can wait forever on a prompt otherwise; the whole bundle takes a few seconds). Keep certificate checks on: never disable TLS verification. In general, give any command that might wait for input or the network a timeout and no stdin, so one stuck step can't eat the run. If it's still blocked, report it as blocked with the reason instead of retrying. Keep requests polite (a few per site, no hammering) and respect the site's terms.`
 
 export const ROLE_PROMPTS: Record<Role, string> = {
-  scout: `You are a data scout. You get a brief to explore, broad and shallow: find out what data exists, where, and in what form. Search, open the likely pages, follow links to where the data actually lives (it is often on another platform than the site that points to it), and look at each dataset lightly: its format (HTML table, CSV, Excel, PDF, API), its coverage (years, areas), how to get it, and its terms of use (read the terms page itself when there is one).
+  scout: `You are a data scout. You get a brief to explore, broad and shallow: find out what data exists, where, and in what form. The brief lists its needs; work through them one by one. Search and open as many pages as it takes to find a source that truly fits a need (the right measure, coverage and terms, confirmed by peeking at the data); once a need has one such source, move on — or two, when you can't tell which is better or one only partly covers it. Don't keep searching for a marginally better source after that: the user sees what you found and can ask for more. Search, open the likely pages, follow links to where the data actually lives (it is often on another platform than the site that points to it), and look at each dataset lightly: its format (HTML table, CSV, Excel, PDF, API), its coverage (years, areas), how to get it, and its terms of use (read the terms page itself when there is one).
 Peek, don't guess: for each distinct kind of file, download one (if it is under about 20 MB) in the container and read only its layout with Python: sheet names, the header rows, column names and the first 5 rows (CSV / Excel), or the page count and which pages hold tables plus one table's header (PDF). Report the layout you saw, not what file names suggest. Never extract or save a whole dataset; nothing goes to /mnt/session/outputs/.
 ${FALLBACK_LADDER}
-Finish with a short report, as your last message, in plain text: one entry per source with the URL, what it holds and exactly what it measures (units, money basis such as market exchange rates or purchasing power, mean or median, per year or month, period), format and the layout you saw, coverage (which places, at which unit, which years), how to get it, terms, and how confident you are. When candidates for the same need measure different things, say so plainly, and how they could be combined (one anchoring, another filling in, calibrated where both have data). Then what you could not find or reach.`,
+Finish with a short report, as your last message, in plain text: one entry per source with the URL, what it holds and exactly what it measures (units, money basis such as market exchange rates or purchasing power, mean or median, per year or month, period), format and the layout you saw, coverage (which places, at which unit, which years), how to get it, terms, and how confident you are. When candidates for the same need measure different things, say so plainly, and how they could be combined (one anchoring, another filling in, calibrated where both have data). Then what you could not find or reach.
+End with one line that starts with SOURCES: followed by JSON on that same line, so the app can keep what you found: {"needs":[{"need":"<the need as the brief names it>","sources":[{"name":"…","url":"…","measures":"<exactly what: units, money basis, mean or median, per year or month>","coverage":"<which places, at which unit>","period":"…","access":"<how to get it, and the layout you saw>","terms":"…","confidence":"high|medium|low"}],"combination":"<how sources for this need could be combined, or omit>","boundaries":"<where the shapes for the unit are, when they are needed, or omit>"}]}`,
   scraper: `You are a data scraper. You get a precise brief: which sources to read, what to extract, and the columns of the result. Write Python in the container (pandas is a pip install away; use pdfplumber for PDFs, pandas.read_html for HTML tables) and run it to fetch, parse and combine the data into the requested table(s). Keep the source's units and scales (thousands, millions, percent) unless the brief asks for others, and state each value column's unit in your final message. Check your result: row counts, one row per key where the brief expects it, totals against the source's own totals where it has them, no columns empty by mistake.
 ${FALLBACK_LADDER}
 Accuracy: keys and identifiers (codes, FIPS, ids, names you join on) must be exact: never substitute or guess them. For values, follow the brief's tolerance for each measure (which substitutes it accepts: a nearby year, another source, an estimate; how much error). Where the brief says nothing, a close substitute with an obviously small error is fine (an adjacent year for a slow-moving figure such as population) and better than an empty cell; anything more is left empty. Mark every substituted value on its row (a source_year or note column) and list the substitutions in your report; never substitute silently.
@@ -429,20 +430,6 @@ export async function followRun(
   }
 }
 
-/** Starts a brief and follows it to the end (the test panel). */
-export async function runBrief(
-  apiKey: string,
-  opts: { role: Role; model: string; brief: string; capDollars: number; onEvent: (e: RunEvent) => void; signal?: { stopped: boolean } },
-): Promise<RunResult> {
-  const run = await startRun(apiKey, opts)
-  opts.onEvent({ kind: 'status', text: `Session ${run.sessionId} started` })
-  try {
-    return await followRun(apiKey, run, opts)
-  } finally {
-    forgetRun()
-  }
-}
-
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** The files the session wrote to /mnt/session/outputs/ (they appear a moment after it stops). */
@@ -561,11 +548,6 @@ export function traceText(t: RunTrace): string {
   const files = `files: ${t.files.map((f) => `${f.name} (${f.bytes} bytes)`).join(', ') || 'none'}`
   const lines = t.events.map((e, i) => `${i === Math.floor(t.events.length / 4) && t.omitted ? `… ${t.omitted} events left out …\n` : ''}${e.at ? `${e.at} ` : ''}[${e.kind}] ${e.text}`)
   return [head, files, ...lines, ...(t.lastMessage ? [`last message:\n${t.lastMessage}`] : [])].join('\n')
-}
-
-/** Answers a paused tool call (an `ask` event). */
-export async function confirm(apiKey: string, sessionId: string, toolUseId: string, allow: boolean) {
-  await (await client(apiKey)).beta.sessions.events.send(sessionId, { events: [{ type: 'user.tool_confirmation', tool_use_id: toolUseId, result: allow ? 'allow' : 'deny' }] })
 }
 
 /** One output file's contents. */

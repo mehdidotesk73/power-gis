@@ -9,7 +9,7 @@ const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string 
   const button = fn(card, s) || card.buttons[0]
   return cardAnswer(card, s, button, comments)
 }
-import { forgetChat, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
+import { briefWithNeeds, forgetChat, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
@@ -694,4 +694,42 @@ describe('agent loop', () => {
     // and a malformed one really hurts; the rest validate their own input. Adding one here is a deliberate choice.
     expect(TOOLS.filter((t) => t.strict).map((t) => t.name).sort()).toEqual(['apply_workspace', 'ask_user', 'pick_source', 'propose_frame', 'query_sql'])
   })
+
+  it('the scout: the brief carries its needs; the sources it found come back structured', async () => {
+    const { host } = fakeHost()
+    let shown: Card | undefined
+    host.ask = async (card) => ((shown = card), answering(() => {})(card))
+    host.web = async () => ({
+      sessionId: 'sesn_7',
+      report: 'One good source.\nSOURCES: {"needs":[{"need":"average annual wage per country","sources":[{"name":"OECD","url":"https://oecd.org/w","measures":"USD PPP","coverage":"38 countries"}]}]}',
+      files: [],
+      cost: 0.12,
+      elapsedSeconds: 50,
+      stop: 'end_turn',
+    })
+    const out = await runTool(host, 'send_scout', { brief: 'Best paid countries.', needs: [{ need: 'average annual wage per country', measure: 'annual, USD PPP', where: 'every country, latest year', posture: 'anchor + proxy' }] })
+    expect((shown!.questions[0] as { text: string }).text).toBe('Best paid countries.\n\nNeeds:\n- average annual wage per country — annual, USD PPP; every country, latest year (anchor + proxy)')
+    expect(json(out.content)).toMatchObject({ report: 'One good source.', sources: [{ need: 'average annual wage per country', sources: [{ name: 'OECD' }] }] })
+    expect(out.summary).toBe('finished · 50 s · $0.12 · 1 source')
+  })
+
+  it('a brief without needs is sent as written', () => {
+    expect(briefWithNeeds('  Find rents. ', undefined)).toBe('Find rents.')
+    expect(briefWithNeeds('Find rents.', [{ need: '' }, 3])).toBe('Find rents.')
+  })
+
+  it('list_datasets gives each dataset\'s source, period, coverage and caveats, to judge a match before scouting', async () => {
+    const { host } = fakeHost()
+    const all = await host.listDatasets()
+    host.listDatasets = async () => [
+      {
+        ...all[0],
+        metadata: { row: 'one per country and year', source: { publisher: 'OECD', title: 'Average annual wages', period: '2000-2024', coverage: '38 OECD countries' }, caveats: ['USD PPP, constant prices'] },
+      },
+    ]
+    const out = json((await runTool(host, 'list_datasets', {})).content)
+    const first = (Array.isArray(out) ? out : out.datasets)[0]
+    expect(first).toMatchObject({ row: 'one per country and year', source: 'OECD: Average annual wages', period: '2000-2024', coverage: '38 OECD countries', caveats: ['USD PPP, constant prices'] })
+  })
 })
+

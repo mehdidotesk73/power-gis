@@ -487,7 +487,12 @@ browser or a prompt / model change creates new ones, and agents can only be arch
   - Postures, for any factor (core ones included): **Exact** (data at the target unit); **Anchor + proxy** (reliable
     coarser data plus finer signals that track it); **Fermi** (a first-principles estimate as a range, assumptions
     stated) — a valid starting input when a question has little data, not only a last-step adjustment.
-- **PR B — targeted scouting.**
+- **PR B — targeted scouting.** ✅ Done in part (2026-11-05, PR #60): narrow briefs with their needs and a stop rule, the
+  structured report (SOURCES line), list_datasets checked first (each dataset's source, period, coverage and caveats, then a
+  sample: only an exact match skips the scout; no separate source ledger, user 2026-11-05), scouting cost
+  logged per chat. **Still to do:** parallel scout runs (the app follows one run at a time today) and the cheap first pass
+  that triages search results before the expensive model checks the best few (a two-model run). Then measure: a few
+  open questions before / after on the same profile (⚙ shows each profile's average scouting cost).
   - Briefs per factor (or a few related ones) with the unit, window, posture and a stop rule (one good source per need,
     two when unsure); briefs can run in parallel; a cheap first pass triages search results and the expensive model
     checks only the best few.
@@ -549,6 +554,14 @@ sources are picked. Pairs with the anchor + proxy posture (2, PR A / PR C).
 - 3D columns: regions raised by their value (normal or log scale), with pitch and rotate (MapLibre `fill-extrusion`).
 - 3D layers: visualizations stacked at different heights over the same places (`fill-extrusion-base` per layer).
 - Map grid: several maps side by side, each with its own visualizations, optionally with their views kept in sync.
+
+**8. Agent usage charts and shared cost metrics** (user, 2026-11-05).
+- An active bar chart of what each agent used, grouped by model and stacked by agent (chat, scout, scraper, storyteller,
+  reviewer): agents by colour, models by shade (darker = more expensive, lighter = cheaper). Two charts, tokens and cost,
+  or one with a toggle.
+- Now: kept per session (or per prompt-to-result loop) on this device, gone after a reload.
+- Later: each session's usage is sent to Supabase and aggregated into its own agent metrics table; the profile picker
+  shows those averages, so people can see what a profile is likely to cost before choosing it.
 
 ### Backlog
 

@@ -11,7 +11,6 @@
 // Screenshots can be pasted into the message box or attached (📎); they're
 // shrunk before sending (images.ts).
 import UiButton from '../ui/UiButton.vue'
-import LabPanel from './LabPanel.vue'
 import AskCard from './AskCard.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { chatCost, claudeProvider, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
@@ -50,6 +49,8 @@ const readKey = () => {
 }
 const apiKey = ref(readKey())
 const keyDraft = ref('')
+/** The key field is open to enter a new key (a saved key otherwise shows as one masked line). */
+const changingKey = ref(false)
 const settings = ref(!apiKey.value)
 function saveKey() {
   const k = keyDraft.value.trim()
@@ -61,6 +62,7 @@ function saveKey() {
   }
   apiKey.value = k
   keyDraft.value = ''
+  changingKey.value = false
   settings.value = false
   session = null
 }
@@ -702,6 +704,11 @@ function diagnoseFailure(it: Extract<Item, { kind: 'note' }>) {
   busy.value = true
   void runDiagnosis(`The assistant's turn failed and the chat stopped. Error shown: "${it.text}"${it.detail ? ` (raw: ${it.detail})` : ''}. The user's last message: "${(last?.text ?? '').slice(0, 600)}". The user started this diagnosis from the error card.`).finally(() => (busy.value = false))
 }
+/** This chat's scout runs and what they cost. */
+function scouting(): { scoutRuns: number; scoutCost: number } {
+  const runs = items.value.filter((x): x is RunItem => x.kind === 'run' && !x.resumed && x.role === 'scout')
+  return { scoutRuns: runs.length, scoutCost: runs.reduce((s, r) => s + (r.result?.cost ?? 0), 0) }
+}
 /** Updates this chat's line in the per-profile log (after each finished turn). */
 function logChat() {
   if (!chatRecord) return
@@ -713,6 +720,8 @@ function logChat() {
     tokensIn: u.input + u.cacheRead + u.cacheWrite,
     tokensOut: u.output,
     runs: items.value.filter((x) => x.kind === 'run' && !x.resumed).length,
+    // Scouting is the costly step: kept apart, so a change to how it's done can be measured (before / after).
+    ...scouting(),
     ...(cost === undefined ? {} : { cost }),
   }
   chatLog.value = recordChat(chatLog.value, chatRecord)
@@ -805,33 +814,39 @@ const usageText = computed(() => {
     </header>
 
     <section v-if="settings" class="settings">
-      <p v-if="apiKey" class="muted">Using key <code>{{ maskedKey }}</code> on this device.</p>
-      <label for="agent-key">Anthropic API key</label>
-      <input id="agent-key" v-model="keyDraft" type="password" autocomplete="off" placeholder="sk-ant-…" @keydown.enter="saveKey" />
-      <div class="row">
-        <UiButton v-if="apiKey" size="compact" @click="forgetKey">Remove key</UiButton>
-        <UiButton size="compact" tone="primary" :disabled="!keyDraft.trim()" @click="saveKey">Save key</UiButton>
+      <!-- A saved key is one line (masked, Change, Remove); the field opens only to enter or change it. -->
+      <div v-if="apiKey && !changingKey" class="key-line" data-testid="agent.key">
+        <span class="muted">Key <code>{{ maskedKey }}</code></span>
+        <UiButton size="compact" data-testid="agent.key.change" @click="changingKey = true">Change</UiButton>
+        <UiButton size="compact" @click="forgetKey">Remove</UiButton>
       </div>
-      <p class="muted small">
-        The key stays on this device and is sent only to Anthropic; usage is billed to your Anthropic account (create a key at console.anthropic.com, and set a spending limit there).
-      </p>
+      <template v-else>
+        <label for="agent-key">Anthropic API key</label>
+        <input id="agent-key" v-model="keyDraft" type="password" autocomplete="off" placeholder="sk-ant-…" @keydown.enter="saveKey" />
+        <div class="row">
+          <UiButton v-if="apiKey" size="compact" @click="(changingKey = false), (keyDraft = '')">Cancel</UiButton>
+          <UiButton size="compact" tone="primary" :disabled="!keyDraft.trim()" @click="saveKey">Save key</UiButton>
+        </div>
+        <p class="muted small">
+          The key stays on this device and is sent only to Anthropic; usage is billed to your Anthropic account (create a key at console.anthropic.com, and set a spending limit there).
+        </p>
+      </template>
       <fieldset class="profiles">
         <legend>Profile</legend>
-        <p class="muted small">Which model does each job: the chat itself, the scout (finds data on the web), the scraper (fetches it), the reviewer (checks the work; coming) and the storyteller (Stories → ＋ Story).</p>
+        <!-- One line per profile; the chosen one also shows which model does each job. -->
         <label v-for="p in PROFILES" :key="p.id" class="profile" :class="{ on: p.id === profileId }" :data-testid="`profile.${p.id}`">
           <input v-model="profileId" type="radio" name="agent-profile" :value="p.id" />
           <span class="p-text">
-            <b>{{ p.label }}</b> <span class="muted">· {{ p.note }}</span>
-            <span class="muted small p-models">{{ modelsLine(p) }}</span>
+            <span><b>{{ p.label }}</b> <span class="muted small">{{ p.note }}</span></span>
             <span v-if="stats[p.id]" class="muted small">{{ statsLine(stats[p.id]) }} on this device</span>
+            <span v-if="p.id === profileId" class="muted small p-models">{{ modelsLine(p) }}</span>
           </span>
         </label>
-        <p class="muted small">Prices are list prices (Haiku $0.10 / $0.50, Sonnet $2 / $10, Opus $4 / $20 per million tokens in / out). Changing it applies from the next call, in this chat too; a scout, scraper or storyteller already running keeps its model (each step shows it).</p>
+        <details class="muted small p-about">
+          <summary>About profiles and prices</summary>
+          <p>Which model does each job: the chat itself, the scout (finds data on the web), the scraper (fetches it), the reviewer (checks the work; coming) and the storyteller (Stories → ＋ Story). Prices are list prices (Haiku $0.10 / $0.50, Sonnet $2 / $10, Opus $4 / $20 per million tokens in / out). Changing it applies from the next call, in this chat too; a scout, scraper or storyteller already running keeps its model (each step shows it).</p>
+        </details>
       </fieldset>
-      <details v-if="apiKey" class="lab-wrap">
-        <summary>Test: scout &amp; scraper (proof of concept)</summary>
-        <LabPanel :api-key="apiKey" :models="nextProfile.models" :host="props.host" />
-      </details>
     </section>
 
     <div ref="scroller" class="chat">
@@ -1043,11 +1058,6 @@ header {
   font: inherit; /* the panel's text size; iOS's zoom-on-focus is turned off in main.ts */
   padding: 0.35rem 0.45rem;
 }
-.lab-wrap summary {
-  cursor: pointer;
-  font-size: var(--chat-fs-sm);
-  color: var(--text-muted);
-}
 .profiles {
   display: grid;
   gap: 0.3rem;
@@ -1060,23 +1070,45 @@ header {
   padding: 0;
   font-weight: 600;
 }
+.profiles {
+  gap: 0;
+}
 .profile {
   display: flex;
-  gap: 0.45rem;
+  gap: 0.5rem;
   align-items: flex-start;
-  padding: 0.35rem 0.45rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 0.3rem 0.1rem;
   cursor: pointer;
 }
-.profile.on {
-  border-color: var(--accent-blue);
+.profile + .profile {
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 .profile input {
-  margin-top: 0.2rem;
+  flex: none;
+  width: auto; /* not the full-width field style: the radio sits at the start of its line */
+  margin: 0.25em 0 0;
+  accent-color: var(--accent-blue);
 }
 .p-text {
   display: grid;
+  min-width: 0;
+  gap: 0.05rem;
+}
+.p-about summary {
+  cursor: pointer;
+  margin-top: 0.3rem;
+}
+.p-about p {
+  margin: 0.2rem 0 0;
+}
+.key-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.key-line > span {
+  flex: 1;
   min-width: 0;
 }
 .chat {

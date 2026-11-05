@@ -41,4 +41,16 @@ describe('the chat log', () => {
     expect(statsLine(s.balanced)).toBe('1 chat')
     expect(statsLine(undefined)).toBe('')
   })
+
+  it('averages scouting on its own, over the chats that recorded it', () => {
+    const base = { profile: 'quick', startedAt: 0, turns: 2, tokensIn: 0, tokensOut: 0, runs: 1 }
+    const stats = profileStats([
+      { ...base, chat: 'a', cost: 0.5, scoutRuns: 1, scoutCost: 0.3 },
+      { ...base, chat: 'b', cost: 0.2, scoutRuns: 1, scoutCost: 0.1 },
+      { ...base, chat: 'c', cost: 0.1 }, // before scouting was recorded
+    ])
+    expect(stats.quick.avgScoutCost).toBeCloseTo(0.2)
+    expect(statsLine(stats.quick)).toContain('(scouting ≈ $0.20)')
+  })
 })
+
