@@ -9,7 +9,7 @@ const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string 
   const button = fn(card, s) || card.buttons[0]
   return cardAnswer(card, s, button, comments)
 }
-import { briefWithNeeds, forgetChat, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
+import { briefWithNeeds, forgetChat, notDescribed, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
@@ -730,6 +730,16 @@ describe('agent loop', () => {
     const out = json((await runTool(host, 'list_datasets', {})).content)
     const first = (Array.isArray(out) ? out : out.datasets)[0]
     expect(first).toMatchObject({ row: 'one per country and year', source: 'OECD: Average annual wages', period: '2000-2024', coverage: '38 OECD countries', caveats: ['USD PPP, constant prices'] })
+  })
+
+  it('data from the web is described by the assistant before the workspace changes: description and source both', () => {
+    const scraped = { id: 'web', name: 'rents', description: webFileDescription('2026-11-05', 'sesn_1', 'Fetch rents'), metadata: undefined } as unknown as DatasetRecord
+    const host = { record: (id: string) => (id === 'web' ? scraped : undefined) }
+    expect(notDescribed(host, ['web'], {})[0]).toMatch(/"rents" \(web\) came from the web and isn't described yet: give it a description .* and its metadata with the source/)
+    // A description alone isn't enough; with the source too, it goes through. Taken out of the workspace, nothing is asked.
+    expect(notDescribed(host, ['web'], { web: { description: 'Median rent per county, from the Census Bureau.' } })[0]).not.toContain('a description')
+    expect(notDescribed(host, ['web'], { web: { description: 'Median rent per county, from the Census Bureau.', metadata: { source: { publisher: 'US Census Bureau' } } } })).toEqual([])
+    expect(notDescribed(host, [], {})).toEqual([])
   })
 })
 

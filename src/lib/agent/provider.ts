@@ -83,13 +83,21 @@ export interface ChatSession {
   send(input: TurnInput, events: TurnEvents, signal?: AbortSignal): Promise<TurnResult>
   /** Changes the model for the calls from now on (the history stays as it is: a model that can't read earlier reasoning just goes without it). */
   setModel?(model: string): void
+  /** The conversation so far, to keep on the device and start again from (`start({history})`) after a reload. */
+  saved?(): SavedChat
+}
+
+/** A conversation as kept on the device: the provider's own messages (opaque here) and the model it was on. */
+export interface SavedChat {
+  model: string
+  history: unknown
 }
 
 export interface ChatProvider {
   id: string
   label: string
   /** A session on a model (changeable between calls: setModel). */
-  start(opts: { apiKey: string; model: string; system: string; tools: ToolSpec[] }): ChatSession
+  start(opts: { apiKey: string; model: string; system: string; tools: ToolSpec[]; /** A saved conversation to carry on (SavedChat.history). */ history?: unknown }): ChatSession
 }
 
 export const emptyUsage = (): Usage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
