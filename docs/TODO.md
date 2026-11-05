@@ -4,6 +4,7 @@ Track feature development, improvements, and known issues here. Move completed w
 
 ## Done
 
+- **Reconciliation and Fermi recipes** (PR C) — top-down, bottom-up and Fermi SQL for any places and measure (the assistant's `recipe` tool), estimate metadata (method, range, assumptions, fit), stories that give ranges and say how values were estimated.
 - **Data described on arrival** (user, 2026-11-05) — the assistant describes each dataset from the web right away (description + metadata source), from the scout's and scraper's reports and its own queries; `apply_workspace` refuses other changes until it has; before a story it fills only what's missing and never rewrites; the storyteller changes nothing.
 - **Chat kept on the device** (user, 2026-11-05) — the assistant chat survives a reload until New chat: the steps, the conversation the model sees, a scout / scraper run carrying on in its own card (and no longer forgotten when the reload cuts its requests); images aren't kept.
 - **Live story maps** — tap a story map to explore it live (raised, locked to its visualization; pan / zoom with cooperative gestures; tap a region for its value and rows); Release turns the view back into a picture; one live at a time; nothing stored.
@@ -467,7 +468,10 @@ storage), signed in as A and B, run against a deploy preview from a **manual** G
 named `e2e-…` and deleted at the end. Not part of the required `build` job. Once real users arrive, a
 separate Supabase project for tests (the free plan allows two) keeps test data out of theirs.
 
-### Planned (agreed 2026-11-04; order to be decided)
+### Planned (agreed 2026-11-04)
+
+**Order (user, 2026-11-05):** PR C (2) → sharing workspaces (3) → plans (4) → PR B's rest: parallel scouts and a cheap
+first pass (2) → agent usage charts (8) → map views (5).
 
 **1. Managed agents on each user's own key.** ✅ Done (2026-11-04, PR #57: `client/agent/provision.ts`). Agents belong to the Anthropic workspace of the key that made them, so the
 app already creates the scout / scraper (and one environment) on each user's account from the definitions in
@@ -505,7 +509,10 @@ browser or a prompt / model change creates new ones, and agents can only be arch
     scout still runs, and the assistant decides from its report whether the new finds supplement what exists or what
     exists is enough.
   - Done when: cost per question is measured before and after (the per-run costs are already logged).
-- **PR C — reconciliation and Fermi in the data.**
+- **PR C — reconciliation and Fermi in the data.** ✅ Done (2026-11-05): `lib/dataset/recipes.ts` (top-down, bottom-up with
+  fit and low / high, Fermi low / likely / high), the assistant's `recipe` tool, `metadata.estimate` (method, value, range,
+  assumptions, fit), the storyteller giving ranges and how values were estimated; `server/recipes.test.ts` runs a Fermi
+  input feeding a top-down spread, and a bottom-up fit, in DuckDB.
   - Transform recipes, data-agnostic: **top-down** (spread a coarse total over fine units by proxy weights, adding back
     up to the total) and **bottom-up** (score fine units from proxies, add them up, fit a correction curve against the
     coarse truth, apply it back). Each transform records its method, its fit and the uncertainty (description, caveats)

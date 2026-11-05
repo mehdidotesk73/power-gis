@@ -7,7 +7,7 @@ describe('dataset metadata', () => {
     expect(readMetadata({ row: ' ', caveats: [] })).toEqual({ value: undefined, errors: [] })
     const r = readMetadata({ row: 'one county', color: 'x', columns: [{ name: 'a', unit: '$', note: 1 }, { meaning: 'no name' }], source: { publisher: 'CDC', urls: 'x' } })
     expect(r.value).toEqual({ row: 'one county', columns: [{ name: 'a', unit: '$' }], source: { publisher: 'CDC' } })
-    expect(r.errors).toEqual(['metadata: unknown field "color" (fields: row, key, columns, source, caveats)', 'metadata.columns[0]: unknown field "note" (fields: name, meaning, unit)', 'metadata.columns[1] needs a "name"', 'metadata.source.urls must be a list of text'])
+    expect(r.errors).toEqual(['metadata: unknown field "color" (fields: row, key, columns, source, caveats, estimate)', 'metadata.columns[0]: unknown field "note" (fields: name, meaning, unit)', 'metadata.columns[1] needs a "name"', 'metadata.source.urls must be a list of text'])
   })
 
   it('compares and writes it out', () => {
@@ -18,4 +18,13 @@ describe('dataset metadata', () => {
     expect(sourceLine(m.source)).toBe('CDC (the federal public-health agency): PLACES, 2023')
     expect(metadataLines(m)).toEqual(['Row: one per county · key fips', 'Source: CDC (the federal public-health agency): PLACES, 2023', 'How it was made: a model over a survey', 'Fetched: 2026-10-31', 'Caveats: No KY or PA'])
   })
+
+  it('reads an estimate (method, value, range, assumptions, fit) and writes it out for people and the storyteller', () => {
+    const r = readMetadata({ estimate: { method: 'fermi', value: 'likely', range: { low: 'low', likely: 'likely', high: 'high' }, assumptions: ['20% heat with oil (10–30%)'], fit: '' } })
+    expect(r).toEqual({ value: { estimate: { method: 'fermi', value: 'likely', range: { low: 'low', likely: 'likely', high: 'high' }, assumptions: ['20% heat with oil (10–30%)'] } }, errors: [] })
+    expect(metadataLines(r.value)).toEqual(['Estimated (Fermi, from first principles): likely, range low – high', 'Assumptions: 20% heat with oil (10–30%)'])
+    expect(readMetadata({ estimate: { method: 'guess', range: { low: 'a' }, extra: 1 } }).errors).toEqual(['metadata.estimate: unknown field "extra" (fields: method, value, range, assumptions, fit)', 'metadata.estimate.method must be one of fermi, top-down, bottom-up'])
+    expect(readMetadata({ estimate: { method: 'bottom-up', range: { low: 'a' } } }).errors).toEqual(['metadata.estimate.range must name its columns: {low, likely, high}'])
+  })
 })
+

@@ -86,6 +86,22 @@ export interface DatasetMetadata {
   source?: DatasetSource
   /** Gaps and limits, one per line. */
   caveats?: string[]
+  /** Values estimated rather than measured: how, on what assumptions, and how far to trust them. */
+  estimate?: DatasetEstimate
+}
+
+/** How a dataset's values were estimated (lib/dataset/recipes.ts makes the SQL for each method). */
+export interface DatasetEstimate {
+  /** fermi: from first principles; top-down: a coarse total shared out by a proxy; bottom-up: proxy scores fitted to a coarse truth. */
+  method: 'fermi' | 'top-down' | 'bottom-up'
+  /** The column holding the estimate. */
+  value?: string
+  /** The columns of its range, when it has one. */
+  range?: { low: string; likely: string; high: string }
+  /** What it takes for granted, one per line ("a household spends 4% of income on energy, 2–6%"). */
+  assumptions?: string[]
+  /** How well it fits, in words ("r² 0.83 over 48 states; states sit 0.8–1.2× the line"). */
+  fit?: string
 }
 
 export interface DatasetSource {

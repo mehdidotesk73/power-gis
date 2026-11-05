@@ -442,6 +442,26 @@ container's CA in Chromium), $0.03; certutil hung ~5 min on a prompt until given
 (now in the prompt). Its units changed between runs (VMT in thousands, then × 1,000), so the scraper now
 keeps source units unless the brief says otherwise and states them.
 
+## Estimates: reconciliation and Fermi (PR C, 2026-11-05)
+
+The frame's postures are built with the `recipe` tool (`lib/dataset/recipes.ts`), which writes a transform output's SQL
+for any places and measure, from table and column names only:
+- **top-down** (anchor + proxy): a coarse unit's total shared out over its finer units by a proxy weight; they add back
+  up to the total. Output: the weight, `share`, `parent_total`, the estimate.
+- **bottom-up** (anchor + proxy): the finer units' proxy scores summed per coarse unit and fitted against the coarse
+  truth (a line, least squares); applied back by score, raked to the truth where it's known and following the line
+  where it isn't. Output: `fitted`, the estimate, `low` / `high` (the fitted value × the coarse units' 10th / 90th
+  percentile ratio to the line), `parent_known`, `parent_ratio`, `fit_r2`, `fit_units`.
+- **fermi**: a base quantity per unit times factors, each low / likely / high (numbers or the base's columns). Output:
+  `low`, `likely`, `high`. A Fermi dataset is a dataset like any other: a core input, a coarse total to share out, or a
+  final adjustment.
+
+The tool returns the SQL, its columns, and the metadata the output carries: `estimate` (`method`, `value`, `range`) and
+caveats; the assistant adds `assumptions` and `fit` (from the output: `fit_r2`, `fit_units`, how far `parent_ratio`
+spreads) and says in the transform's description which method and why. The storyteller says when values are estimated
+and how, and gives the range, never only the middle value. `server/recipes.test.ts` runs a Fermi input feeding a
+top-down spread, and a bottom-up fit, in DuckDB.
+
 ## Storyteller (agreed 2026-10-31)
 
 **Who describes what** (user, 2026-11-05): the scout and the scraper report what they found and how they extracted

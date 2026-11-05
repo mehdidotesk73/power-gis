@@ -4,13 +4,15 @@
 // free notes sit beside it on the record; "Made by" and "Feeds" come from the
 // workspace graph.
 
-import type { DatasetMetadata, DatasetSource } from '../../shared/records'
+import type { DatasetEstimate, DatasetMetadata, DatasetSource } from '../../shared/records'
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 export const SOURCE_KEYS = ['publisher', 'publisherAbout', 'title', 'urls', 'coverage', 'period', 'fetched', 'method', 'terms'] as const
-export const METADATA_KEYS = ['row', 'key', 'columns', 'source', 'caveats'] as const
+export const METADATA_KEYS = ['row', 'key', 'columns', 'source', 'caveats', 'estimate'] as const
+export const ESTIMATE_KEYS = ['method', 'value', 'range', 'assumptions', 'fit'] as const
+export const ESTIMATE_METHODS = ['fermi', 'top-down', 'bottom-up'] as const
 const COLUMN_KEYS = ['name', 'meaning', 'unit']
 
 const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
@@ -72,6 +74,30 @@ export function readMetadata(v: unknown, where = 'metadata'): { value: DatasetMe
   }
   const caveats = list('caveats', v, where)
   if (caveats.length) m.caveats = caveats
+  if (v.estimate !== undefined) {
+    const w = `${where}.estimate`
+    const o = v.estimate
+    if (!isObj(o)) errors.push(`${w} must be an object (${ESTIMATE_KEYS.join(', ')})`)
+    else {
+      for (const k of Object.keys(o)) if (!(ESTIMATE_KEYS as readonly string[]).includes(k)) errors.push(`${w}: unknown field "${k}" (fields: ${ESTIMATE_KEYS.join(', ')})`)
+      if (!(ESTIMATE_METHODS as readonly unknown[]).includes(o.method)) errors.push(`${w}.method must be one of ${ESTIMATE_METHODS.join(', ')}`)
+      else {
+        const e: DatasetEstimate = { method: o.method as DatasetEstimate['method'] }
+        const value = str('value', o, w)
+        if (value) e.value = value
+        if (o.range !== undefined) {
+          const r = o.range
+          if (!isObj(r) || !['low', 'likely', 'high'].every((k) => text(r[k]))) errors.push(`${w}.range must name its columns: {low, likely, high}`)
+          else e.range = { low: text(r.low)!, likely: text(r.likely)!, high: text(r.high)! }
+        }
+        const assumptions = list('assumptions', o, w)
+        if (assumptions.length) e.assumptions = assumptions
+        const fit = str('fit', o, w)
+        if (fit) e.fit = fit
+        m.estimate = e
+      }
+    }
+  }
   return { value: Object.keys(m).length ? m : undefined, errors }
 }
 
@@ -87,6 +113,12 @@ export function sourceLine(s: DatasetSource | undefined): string | undefined {
   const who = s.publisher ? `${s.publisher}${s.publisherAbout ? ` (${s.publisherAbout})` : ''}` : undefined
   const what = [s.title, s.period].filter(Boolean).join(', ')
   return [who, what].filter(Boolean).join(': ') || undefined
+}
+
+const ESTIMATE_WORDS: Record<DatasetEstimate['method'], string> = {
+  fermi: 'Fermi, from first principles',
+  'top-down': 'top-down, a coarse total shared out by a proxy',
+  'bottom-up': 'bottom-up, proxy scores fitted to a coarse truth',
 }
 
 /** Metadata as labelled lines (cards, the storyteller, overviews). */
@@ -107,5 +139,11 @@ export function metadataLines(m: DatasetMetadata | undefined): string[] {
     if (s.urls?.length) out.push(`URLs: ${s.urls.join(' ')}`)
   }
   if (m.caveats?.length) out.push(`Caveats: ${m.caveats.join(' · ')}`)
+  const e = m.estimate
+  if (e) {
+    out.push(`Estimated (${ESTIMATE_WORDS[e.method]})${e.value ? `: ${e.value}` : ''}${e.range ? `, range ${e.range.low} – ${e.range.high}` : ''}`)
+    if (e.assumptions?.length) out.push(`Assumptions: ${e.assumptions.join(' · ')}`)
+    if (e.fit) out.push(`Fit: ${e.fit}`)
+  }
   return out
 }

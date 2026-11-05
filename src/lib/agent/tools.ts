@@ -25,6 +25,7 @@ import { agentColor, agentTransform, agentVisualization, assembleFiles, canonica
 import type { ToolSpec } from './provider'
 import { answerForAgent, answerSummary, commentsOf, LIMITS, readCard, type Card, type CardAnswer } from './form'
 import { parseScoutReport } from './sources'
+import { recipeSql, type Recipe, type RecipeSql } from '../dataset/recipes'
 import { frameCard, frameOutcome, frameSection, planCard, planOutcome, POSTURES, runCard, runOutcome, sourceCard, sourceOutcome, withFrame, type FrameComponent, type Posture, type Rounds, type SourceOption } from './exchanges'
 
 /** What the tools act through: the page's workspace copy and the server. */
@@ -292,6 +293,35 @@ export const TOOLS: ToolSpec[] = [
     inputSchema: { type: 'object', properties: { runId: { type: 'string', description: 'The run (session) id, e.g. sesn_….' } }, required: ['runId'] },
   },
   {
+    name: 'recipe',
+    description:
+      "The SQL for an estimate, for any places and measure, to put in a transform's output (one SELECT, the tables named by their input aliases). top-down: a coarse unit's total (a country's, a state's) shared out over the finer units inside it in proportion to a proxy weight (population, area…); they add back up to the total. bottom-up: the finer units' proxy scores summed per coarse unit, fitted against a coarse truth (a line), applied back — raked to the truth where it's known, the fitted line elsewhere, with low / high from how far the coarse units sit from the line, and the fit (fit_r2). fermi: a first-principles estimate per unit, a base quantity times factors each given as low / likely / high (numbers or the base table's columns); out come low / likely / high. Returns the SQL, its columns, and the estimate and caveats the output's metadata should carry: add the assumptions (Fermi: every factor and why that range) and the fit you read from the output (bottom-up: fit_r2, fit_units, the spread of parent_ratio) before apply_workspace. Names only, never SQL: tables and columns as plain names.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['top-down', 'bottom-up', 'fermi'] },
+        fine: { type: 'string', description: 'top-down / bottom-up: the fine table (input alias), one row per finer unit.' },
+        unit: { type: 'string', description: "The unit's column (in fine, or in base for fermi)." },
+        parent: { type: 'string', description: 'top-down / bottom-up: the fine column naming the coarse unit each fine unit is in.' },
+        weight: { type: 'string', description: 'top-down: the proxy column the total is shared out by.' },
+        score: { type: 'string', description: "bottom-up: the fine units' proxy score column (any scale)." },
+        coarse: { type: 'string', description: 'top-down / bottom-up: the coarse table (input alias), one row per coarse unit.' },
+        coarseParent: { type: 'string', description: "The coarse table's column for the coarse unit, when it isn't named like parent." },
+        total: { type: 'string', description: 'top-down: the coarse total column.' },
+        truth: { type: 'string', description: 'bottom-up: the coarse truth column the scores are fitted to.' },
+        as: { type: 'string', description: 'top-down / bottom-up: the estimate column\'s name (default "estimate").' },
+        base: { type: 'string', description: 'fermi: the table (input alias) whose rows are the units estimated.' },
+        quantity: { type: 'string', description: 'fermi: the base quantity column, multiplied by every factor (omit for factors alone).' },
+        factors: {
+          type: 'array',
+          description: 'fermi: each factor with its low / likely / high, each a number or a column of base.',
+          items: { type: 'object', properties: { name: { type: 'string' }, low: { type: ['number', 'string'] }, likely: { type: ['number', 'string'] }, high: { type: ['number', 'string'] } }, required: ['name', 'low', 'likely', 'high'] },
+        },
+      },
+      required: ['kind'],
+    },
+  },
+  {
     name: 'read_run',
     description:
       "Look inside a scout or scraper run by its run id, changing nothing: its status now (still running, finished, stopped), how it stopped, its cost, what it did step by step (pages fetched, commands, its messages, errors), its last message and the files it made. Free; nothing is imported. Use it to see where a run got to and why it failed before deciding what to do (fetch_run to collect its results, or a new brief that fixes what went wrong).",
@@ -531,6 +561,25 @@ export function notDescribed(host: Pick<AgentHost, 'record'>, ids: string[], edi
       ? [`"${d.name}" (${id}) came from the web and isn't described yet: give it ${missing.join(' and ')} in /datasets.json, from the scout's and scraper's reports and your own queries of it (see Describing datasets), in this apply or before it. Or take it out of /workspace.json.`]
       : []
   })
+}
+
+/** The recipe tool: SQL for a top-down, bottom-up or Fermi estimate, and what its output's metadata should say. */
+function recipe(input: Obj): ToolOutcome {
+  let r: RecipeSql
+  try {
+    r = recipeSql(input as unknown as Recipe)
+  } catch (e) {
+    return err(`${(e as Error).message}. Nothing was made.`, 'refused: bad recipe')
+  }
+  return ok(
+    {
+      sql: r.sql,
+      columns: r.columns,
+      metadata: { estimate: r.estimate, caveats: r.caveats },
+      next: `Put the SQL in a transform's output (its inputs aliased as named here), run it and query the output; then give the output a description and this metadata, adding the estimate's assumptions${r.estimate.method === 'bottom-up' ? ' and its fit (fit_r2, fit_units and how far parent_ratio spreads)' : ''}, and say in the transform's description which method it uses and why.`,
+    },
+    `${input.kind} recipe`,
+  )
 }
 
 /** A new chat starts afresh: no staged files, nothing made yet. */
@@ -1364,6 +1413,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return listRuns(host)
       case 'fetch_run':
         return await fetchRun(host, input)
+      case 'recipe':
+        return recipe(input)
       case 'read_run':
         return await readRun(host, input)
       case 'diagnose':

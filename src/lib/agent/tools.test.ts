@@ -741,5 +741,17 @@ describe('agent loop', () => {
     expect(notDescribed(host, ['web'], { web: { description: 'Median rent per county, from the Census Bureau.', metadata: { source: { publisher: 'US Census Bureau' } } } })).toEqual([])
     expect(notDescribed(host, [], {})).toEqual([])
   })
+
+  it('recipe: the SQL for an estimate and the metadata its output carries; plain names only', async () => {
+    const { host } = fakeHost()
+    const r = await runTool(host, 'recipe', { kind: 'bottom-up', fine: 'towns', unit: 'town', parent: 'region', score: 'lights', coarse: 'regions', truth: 'gdp' })
+    expect(r.isError).toBe(false)
+    const out = json(r.content)
+    expect(out.sql).toContain('regr_slope')
+    expect(out.metadata.estimate).toEqual({ method: 'bottom-up', value: 'estimate', range: { low: 'low', likely: 'estimate', high: 'high' } })
+    expect(out.next).toContain('fit_r2')
+    const bad = await runTool(host, 'recipe', { kind: 'top-down', fine: 'x"; drop', unit: 'u', parent: 'p', weight: 'w', coarse: 'c', total: 't' })
+    expect(bad).toMatchObject({ isError: true, content: expect.stringContaining('must be a table or column name') })
+  })
 })
 

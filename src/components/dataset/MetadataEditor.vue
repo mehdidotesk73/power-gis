@@ -27,6 +27,8 @@ interface Draft {
   columns: { name: string; meaning: string; unit: string }[]
   source: Record<keyof Omit<DatasetSource, 'urls'>, string> & { urls: string }
   caveats: string
+  /** An estimated dataset's assumptions, one per line (the rest of its estimate is kept as it is). */
+  assumptions: string
 }
 const SOURCE_FIELDS: { k: keyof Draft['source']; label: string; hint: string; long?: boolean }[] = [
   { k: 'publisher', label: 'Publisher', hint: 'CDC' },
@@ -47,6 +49,7 @@ const toDraft = (m: DatasetMetadata | undefined): Draft => {
     columns: (m?.columns ?? []).map((c) => ({ name: c.name, meaning: c.meaning ?? '', unit: c.unit ?? '' })),
     source: { publisher: s.publisher ?? '', publisherAbout: s.publisherAbout ?? '', title: s.title ?? '', urls: (s.urls ?? []).join('\n'), coverage: s.coverage ?? '', period: s.period ?? '', fetched: s.fetched ?? '', method: s.method ?? '', terms: s.terms ?? '' },
     caveats: (m?.caveats ?? []).join('\n'),
+    assumptions: (m?.estimate?.assumptions ?? []).join('\n'),
   }
 }
 const draft = ref<Draft>(toDraft(props.metadata))
@@ -65,6 +68,7 @@ function send() {
     columns: d.columns.filter((c) => c.name.trim()),
     source: { ...d.source, urls: linesOf(d.source.urls) },
     caveats: linesOf(d.caveats),
+    ...(props.metadata?.estimate ? { estimate: { ...props.metadata.estimate, assumptions: linesOf(d.assumptions) } } : {}),
   })
   emit('change', m ?? null)
 }
@@ -124,6 +128,7 @@ function done() {
       </fieldset>
 
       <label>Caveats <textarea v-model="draft.caveats" rows="3" placeholder="one per line: gaps, proxies, estimates" /></label>
+      <label v-if="metadata?.estimate">Assumptions <textarea v-model="draft.assumptions" rows="3" placeholder="one per line: what the estimate takes for granted" /></label>
     </div>
   </section>
 </template>

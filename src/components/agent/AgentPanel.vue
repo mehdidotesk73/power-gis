@@ -538,6 +538,7 @@ const TOOL_LABEL: Record<string, string> = {
   tell_story: 'The storyteller',
   list_runs: 'Recent runs',
   fetch_run: 'Collect a run',
+  recipe: 'Estimate recipe',
   read_run: 'Look inside a run',
   diagnose: 'Diagnosis',
 }
