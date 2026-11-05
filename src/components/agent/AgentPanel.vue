@@ -28,7 +28,7 @@ import { logDebug } from '../../debug'
 import { auth } from '../../client/auth'
 import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
 import { MAX_IMAGES, pastedImages, prepareImage, type Attached } from './images'
-import { addUsage, emptyUsage, type ChatSession, type ToolCall, type Usage } from '../../lib/agent/provider'
+import { addUsage, emptyUsage, type ChatSession, type SavedChat, type ToolCall, type Usage } from '../../lib/agent/provider'
 import { STORYTELLER_PROMPT } from '../../lib/story/storyPrompt'
 import { runStoryTool, STORY_TOOLS, storyRequest, type StoryChat } from '../../lib/story/storyTools'
 import { lineageOf, lineageText } from '../../lib/story/lineage'
@@ -64,7 +64,7 @@ function saveKey() {
   keyDraft.value = ''
   changingKey.value = false
   settings.value = false
-  session = null
+  keepSession()
 }
 function forgetKey() {
   try {
@@ -73,7 +73,7 @@ function forgetKey() {
     /* nothing stored */
   }
   apiKey.value = ''
-  session = null
+  keepSession()
 }
 const maskedKey = computed(() => (apiKey.value ? `${apiKey.value.slice(0, 10)}…${apiKey.value.slice(-4)}` : ''))
 
@@ -132,7 +132,7 @@ watch(profileId, () => {
 // ── the conversation ───────────────────────────────────────────────────────
 
 type Item =
-  | { kind: 'user'; text: string; images?: string[] }
+  | { kind: 'user'; text: string; images?: string[]; /** Images attached here, not kept after a reload. */ imagesGone?: number }
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean; /** A step run by another agent (the storyteller): its model. */ model?: string }
   | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string; /** A failed turn: offer Retry and Diagnose. */ failed?: boolean; /** The connection dropped: retrying. */ retrying?: boolean; /** Offer a Sign in button (the scout and scraper need an account). */ signIn?: boolean }
@@ -240,6 +240,11 @@ async function web(role: WebRole, brief: string, capDollars: number): Promise<We
     logRun({ sessionId: r.sessionId, state: r.stop === 'end_turn' ? 'finished' : r.stop === 'stopped' ? 'stopped' : 'failed', ...(r.cost !== undefined ? { cost: r.cost } : {}), files: r.files.map((f) => f.name) })
     return { sessionId: r.sessionId, report: r.report, files: r.files, ...(r.missing ? { missing: r.missing } : {}), ...(r.cost !== undefined ? { cost: r.cost } : {}), elapsedSeconds: r.elapsedSeconds, stop: r.stop }
   } catch (e) {
+    // The page is going (a reload cuts the run's requests): the run itself carries on, and the next load picks it up.
+    if (leaving) {
+      keep = true
+      return 'The page was reloaded while this ran.'
+    }
     it.state = 'error'
     it.error = describeRunError(e)
     if (e instanceof RunError && e.sessionId) {
@@ -315,9 +320,13 @@ async function importWebFile(fileId: string, name: string, description: string):
 onMounted(async () => {
   const run = activeRun()
   if (!run || !apiKey.value) return
-  const it = pushRun(run, true)
+  // The chat kept on the device has this run's card: it carries on there, and the assistant is told how it ended.
+  const restored = items.value.find((x): x is RunItem => x.kind === 'run' && x.state === 'running' && x.sessionId === run.sessionId)
+  const it = restored ?? pushRun(run, true)
   try {
     const r = await follow(it, run)
+    if (restored && !draft.value.trim())
+      draft.value = `The ${run.role} run ${run.sessionId} ${r.stop === 'end_turn' ? 'finished' : 'ended'} while the page was reloaded${r.files.length ? `; its files: ${r.files.map((f) => f.name).join(', ')}` : ''}. Read it (read_run) and carry on.`
     if (run.role === 'scraper') {
       const day = new Date(run.startedAt).toISOString().slice(0, 10)
       for (const f of r.files) if (IMPORTABLE.test(f.name)) await importWebFile(f.id, f.name, webFileDescription(day, r.sessionId, run.brief))
@@ -592,8 +601,9 @@ async function send() {
   items.value.push({ kind: 'user', text, ...(images.length ? { images: images.map((im) => im.url) } : {}) })
   if (!session) {
     const p = nextProfile.value
-    session = claudeProvider.start({ apiKey: apiKey.value, model: p.models.assistant, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS })
-    chatRecord = { chat: crypto.randomUUID(), profile: p.id, startedAt: Date.now(), turns: 0, tokensIn: 0, tokensOut: 0, runs: 0 }
+    session = claudeProvider.start({ apiKey: apiKey.value, model: p.models.assistant, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS, ...(kept ? { history: kept.history } : {}) })
+    kept = null
+    chatRecord ??= { chat: crypto.randomUUID(), profile: p.id, startedAt: Date.now(), turns: 0, tokensIn: 0, tokensOut: 0, runs: 0 }
   }
   busy.value = true
   const ctl = (controller = new AbortController())
@@ -746,9 +756,135 @@ function newChat(confirmFirst = false) {
   chatUsage.value = []
   rounds = new Map()
   session = null
+  kept = null
   chatRecord = null
   storyUsage.value = []
+  forgetKeptChat()
 }
+
+// ── the chat, kept on this device until New chat (a reload brings it back) ──
+
+const CHAT = 'powergis.chat'
+interface KeptChat {
+  v: 1
+  items: Item[]
+  usage: Usage
+  chatUsage: { model: string; usage: Usage }[]
+  storyUsage: { model: string; usage: Usage }[]
+  rounds: [string, number][]
+  chatRecord: ChatRecord | null
+  /** The conversation the assistant had (null when it was too big to keep). */
+  session: SavedChat | null
+  /** The assistant was working when it was kept. */
+  busy: boolean
+}
+/** A kept conversation, until the next message starts a session from it. */
+let kept: SavedChat | null = null
+/** Keeps the conversation when the session goes (a changed key): the next message carries it on. */
+function keepSession() {
+  kept = session?.saved?.() ?? kept
+  session = null
+}
+/** Less of each step, for a chat too big for the device's storage. */
+const slimItems = (list: Item[]): Item[] =>
+  list.map((x) =>
+    x.kind === 'tool' ? { ...x, result: x.result?.slice(0, 2000) } : x.kind === 'thinking' ? { ...x, text: x.text.slice(0, 600) } : x.kind === 'run' ? { ...x, log: x.log.slice(-30) } : x,
+  )
+function keepChat() {
+  try {
+    if (!items.value.length) return localStorage.removeItem(CHAT)
+  } catch {
+    return
+  }
+  const shown = items.value.map((x): Item => (x.kind === 'user' && x.images?.length ? { kind: 'user', text: x.text, imagesGone: x.images.length } : x))
+  const base = { v: 1 as const, usage: usage.value, chatUsage: chatUsage.value, storyUsage: storyUsage.value, rounds: [...rounds], chatRecord, busy: busy.value }
+  const conversation = session?.saved?.() ?? kept
+  // Everything; then each step shortened; then the steps without the assistant's conversation (it starts afresh).
+  for (const k of [
+    { ...base, items: shown, session: conversation },
+    { ...base, items: slimItems(shown), session: conversation },
+    { ...base, items: slimItems(shown), session: null },
+  ] satisfies KeptChat[]) {
+    try {
+      localStorage.setItem(CHAT, JSON.stringify(k))
+      return
+    } catch {
+      /* too big: try with less */
+    }
+  }
+  logDebug('assistant: this chat is too big to keep on the device; a reload will lose it', 'warn')
+}
+function forgetKeptChat() {
+  try {
+    localStorage.removeItem(CHAT)
+  } catch {
+    /* nothing kept */
+  }
+}
+/** Brings back the chat kept on the device; steps cut short by the reload are marked so. */
+function restoreChat() {
+  let k: KeptChat | null = null
+  try {
+    k = JSON.parse(localStorage.getItem(CHAT) ?? 'null') as KeptChat | null
+  } catch {
+    /* unreadable: start empty */
+  }
+  if (!k || k.v !== 1 || !Array.isArray(k.items) || !k.items.length) return
+  const live = activeRun()?.sessionId
+  items.value = k.items.flatMap((x): Item[] => {
+    if (x.kind === 'note' && x.retrying) return []
+    if (x.kind === 'tool' && x.state === 'running') return [{ ...x, state: 'error', summary: 'cut short by a reload' }]
+    if (x.kind === 'ask' && !x.answer) return [{ ...x, answer: { button: STOPPED, replies: {} } }]
+    if (x.kind === 'diagnosis' && x.state === 'running') return [{ ...x, state: 'error', report: x.report || 'Cut short by a reload.' }]
+    if (x.kind === 'run') {
+      const stop = { stopped: false }
+      // Still going: picked up again on mount. Otherwise how it ended is with Anthropic (list_runs / read_run).
+      if (x.state === 'running' && !(x.sessionId && x.sessionId === live)) return [{ ...x, stop, state: 'error', error: x.error ?? 'The page was reloaded while this ran; list_runs / read_run show how it ended.' }]
+      return [{ ...x, stop }]
+    }
+    return [x]
+  })
+  usage.value = k.usage ?? emptyUsage()
+  chatUsage.value = k.chatUsage ?? []
+  storyUsage.value = k.storyUsage ?? []
+  rounds = new Map(k.rounds ?? [])
+  chatRecord = k.chatRecord ?? null
+  kept = k.session
+  if (!k.session) items.value.push({ kind: 'note', tone: 'warn', text: 'This chat was too long to keep in full on this device: its steps are shown, but the assistant starts afresh from here.' })
+  else if (k.busy) items.value.push({ kind: 'note', tone: 'warn', text: 'The page was reloaded while the assistant was working, so that step stopped. Say “continue” to carry on.' })
+  logDebug(`assistant: chat restored (${k.items.length} steps)`)
+}
+restoreChat()
+/** Kept at most once a second while it changes, and when the page goes to the background or closes. */
+let keepTimer: ReturnType<typeof setTimeout> | undefined
+watch([items, usage, busy], () => {
+  keepTimer ??= setTimeout(() => {
+    keepTimer = undefined
+    keepChat()
+  }, 1000)
+}, { deep: true })
+const keepNow = () => {
+  clearTimeout(keepTimer)
+  keepTimer = undefined
+  keepChat()
+}
+/** Set when the page goes: what fails after that was cut by the reload, not by the run. */
+let leaving = false
+const onLeave = () => {
+  keepNow()
+  leaving = true
+}
+const onShow = (e: PageTransitionEvent) => e.persisted && (leaving = false)
+const onHidden = () => document.visibilityState === 'hidden' && keepNow()
+window.addEventListener('pagehide', onLeave)
+window.addEventListener('pageshow', onShow)
+document.addEventListener('visibilitychange', onHidden)
+onBeforeUnmount(() => {
+  keepNow()
+  window.removeEventListener('pagehide', onLeave)
+  window.removeEventListener('pageshow', onShow)
+  document.removeEventListener('visibilitychange', onHidden)
+})
 
 /**
  * Tell a story / Rewrite (Stories): asks in this chat — the assistant hands it to the storyteller
@@ -866,6 +1002,7 @@ const usageText = computed(() => {
             <img v-for="(src, j) in it.images" :key="j" :src="src" alt="Attached image" />
           </div>
           <span v-if="it.text">{{ it.text }}</span>
+          <span v-if="it.imagesGone" class="muted small">{{ it.imagesGone === 1 ? 'An image' : `${it.imagesGone} images` }} attached here (not kept after a reload)</span>
         </div>
         <!-- eslint-disable-next-line vue/no-v-html -- format() escapes everything first -->
         <p v-else-if="it.kind === 'assistant'" class="msg bot" v-html="format(it.text)" />

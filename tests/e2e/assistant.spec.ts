@@ -178,7 +178,8 @@ test('the Frame exchange: the framing, components with postures and the measure;
 })
 
 /** Anthropic's Managed Agents, as the relay would answer: one scraper session (sesn_1) that fetched a page and wrote rents.csv. */
-async function fakeRelay(page: Page) {
+/** `held.on`: the run stays running (its last events withheld) until the test lets it finish. */
+async function fakeRelay(page: Page, held = { on: false }) {
   const relay = new URL(`${process.env.SUPABASE_TEST_URL ?? 'http://127.0.0.1:54321'}/functions/v1/managed-relay/`).href
   const asked: string[] = []
   const agentModels: string[] = []
@@ -208,6 +209,7 @@ async function fakeRelay(page: Page) {
       return json({ id: 'sesn_1' })
     }
     if (path === '/v1/sessions/sesn_1/events' && req.method() === 'POST') return json({ data: [] })
+    if (path === '/v1/sessions/sesn_1/events' && held.on) return json({ data: [{ id: 'e1', type: 'session.status_running', processed_at: at }], next_page: null })
     if (path === '/v1/sessions/sesn_1/events')
       return json({
         data: [
@@ -218,6 +220,7 @@ async function fakeRelay(page: Page) {
         ],
         next_page: null,
       })
+    if (path === '/v1/sessions/sesn_1' && held.on) return json({ id: 'sesn_1', status: 'running' })
     if (path === '/v1/sessions/sesn_1') return json({ id: 'sesn_1', status: 'idle', usage: { list_cost: { amount: '3', currency: 'USD' }, active_seconds: 30 } })
     if (path === '/v1/files') return json({ data: [{ id: 'file_csv', filename: 'rents.csv', size_bytes: 40 }, { id: 'file_py', filename: 'script.py', size_bytes: 20 }], next_page: null })
     if (path === '/v1/files/file_csv/content') return route.fulfill({ status: 200, headers: { 'content-type': 'text/csv', 'access-control-allow-origin': '*' }, body: 'fips,rent\n01001,980\n01003,1210\n' })
@@ -394,4 +397,68 @@ test('a turn that fails shows Retry and Diagnose: Retry carries on, Diagnose ask
   await expect(page.getByTestId('ask-card').last()).toContainText('Run a diagnosis of what went wrong?')
   await page.getByTestId('ask-card').last().getByTestId('ask.button-0').click()
   await expect(page.getByTestId('agent.diagnosis')).toContainText('The request was refused with a 400.')
+})
+
+test('the chat is kept on the device: a reload brings it back and the assistant carries on; New chat clears it', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  const seen: unknown[] = []
+  await fakeModel(page, [{ text: 'Reading it.', tools: [{ name: 'get_workspace', input: {} }] }, { text: 'Your workspace is empty.' }, { text: 'Still here.' }], seen)
+  await openAssistant(page)
+  await say(page, 'What is in my workspace?')
+  await expect(page.getByText('Your workspace is empty.')).toBeVisible()
+
+  await reload(page)
+  await page.getByRole('button', { name: 'Assistant' }).click()
+  await expect(page.getByText('What is in my workspace?')).toBeVisible()
+  await expect(page.getByText('Your workspace is empty.')).toBeVisible()
+  await expect(page.getByText('Read the workspace')).toBeVisible()
+
+  // The assistant carries on with the whole conversation, not from scratch.
+  await say(page, 'And now?')
+  await expect(page.getByText('Still here.')).toBeVisible()
+  const sent = JSON.stringify((seen[seen.length - 1] as { messages: unknown[] }).messages)
+  expect(sent).toContain('What is in my workspace?')
+  expect(sent).toContain('Your workspace is empty.')
+
+  await page.getByRole('button', { name: 'New chat' }).click()
+  await expect(page.getByText('What is in my workspace?')).toHaveCount(0)
+  await reload(page)
+  await page.getByRole('button', { name: 'Assistant' }).click()
+  await expect(page.getByText('What is in my workspace?')).toHaveCount(0)
+})
+
+test('a reload in the middle of a scraper run: the chat comes back, the run carries on in its card, and the assistant is told', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  const seen: unknown[] = []
+  const brief = 'Fetch median rent per county from example.gov as rents.csv: fips (5-digit text), rent (dollars).'
+  const held = { on: true }
+  await fakeRelay(page, held)
+  await fakeModel(page, [{ text: 'I can fetch rents.', tools: [{ name: 'send_scraper', input: { brief, cap_dollars: 2 } }] }, { text: 'Reading the run.' }], seen)
+  await openAssistant(page)
+  await signIn(page, await account('reload-run'))
+  await say(page, 'Add rents per county')
+  await page.getByTestId('ask-card').getByTestId('ask.button-0').click()
+  await expect(page.getByTestId('web-run')).toContainText('running')
+  // Started at Anthropic (not still setting up): the device remembers it.
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('powergis.webRun'))).toContain('sesn_1')
+
+  await reload(page)
+  await page.getByRole('button', { name: 'Assistant' }).click()
+  await expect(page.getByText('Add rents per county')).toBeVisible()
+  await expect(page.getByText('I can fetch rents.')).toBeVisible()
+  await expect(page.getByText('The page was reloaded while the assistant was working')).toBeVisible()
+  const run = page.getByTestId('web-run')
+  await expect(run).toHaveCount(1) // the same card, carrying on
+  await expect(run).toContainText('running')
+
+  held.on = false
+  await expect(run).toContainText('finished')
+  await expect(run).toContainText('1 dataset')
+  // The message box offers to tell the assistant; sent, the assistant has the whole chat and how the step ended.
+  await expect(page.getByLabel('Message')).toHaveValue(/The scraper run sesn_1 finished while the page was reloaded; its files: rents\.csv/)
+  await page.getByRole('button', { name: 'Send' }).click()
+  await expect(page.getByText('Reading the run.')).toBeVisible()
+  const sent = JSON.stringify((seen[seen.length - 1] as { messages: unknown[] }).messages)
+  expect(sent).toContain('Add rents per county')
+  expect(sent).toContain('the page was reloaded while this step ran')
 })
