@@ -11,7 +11,6 @@
 // Screenshots can be pasted into the message box or attached (📎); they're
 // shrunk before sending (images.ts).
 import UiButton from '../ui/UiButton.vue'
-import LabPanel from './LabPanel.vue'
 import AskCard from './AskCard.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { chatCost, claudeProvider, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
@@ -848,10 +847,6 @@ const usageText = computed(() => {
           <p>Which model does each job: the chat itself, the scout (finds data on the web), the scraper (fetches it), the reviewer (checks the work; coming) and the storyteller (Stories → ＋ Story). Prices are list prices (Haiku $0.10 / $0.50, Sonnet $2 / $10, Opus $4 / $20 per million tokens in / out). Changing it applies from the next call, in this chat too; a scout, scraper or storyteller already running keeps its model (each step shows it).</p>
         </details>
       </fieldset>
-      <details v-if="apiKey" class="lab-wrap">
-        <summary>Test: scout &amp; scraper (proof of concept)</summary>
-        <LabPanel :api-key="apiKey" :models="nextProfile.models" :host="props.host" />
-      </details>
     </section>
 
     <div ref="scroller" class="chat">
@@ -1062,11 +1057,6 @@ header {
   box-sizing: border-box;
   font: inherit; /* the panel's text size; iOS's zoom-on-focus is turned off in main.ts */
   padding: 0.35rem 0.45rem;
-}
-.lab-wrap summary {
-  cursor: pointer;
-  font-size: var(--chat-fs-sm);
-  color: var(--text-muted);
 }
 .profiles {
   display: grid;

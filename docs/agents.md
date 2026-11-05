@@ -415,8 +415,8 @@ the source is known, the scout first when it isn't (one scout run for several so
 per source), stopping early when there's nothing usable or the existing data is enough. Each run is
 approved on a card showing the brief and the cap.
 
-**Proof of concept** (`client/agent/managed.ts`, `components/agent/LabPanel.vue`: the assistant's ⚙ →
-*Test: scout & scraper*): two editable briefs (scout: the WSDOT mileage page and Home Depot's annual
+**Proof of concept** (2026-10-30; its test panel in ⚙, *Test: scout & scraper*, was removed 2026-11-05 —
+runs are tested through the assistant's chat now): two editable briefs (scout: the WSDOT mileage page and Home Depot's annual
 reports, peeking at the files; scraper: a WSDOT Excel file, the earnings table in Home Depot's annual
 report PDF, and a JavaScript-built page, each needing a different way in), a cap per run, live progress,
 then elapsed time, cost, report and output files (CSVs import as datasets). The environment and the

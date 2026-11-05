@@ -1,4 +1,4 @@
-// Scout and scraper sessions on Anthropic Managed Agents (proof of concept).
+// Scout and scraper sessions on Anthropic Managed Agents.
 // The agent loop runs on Anthropic's side and its tools (bash, Python, web
 // search / fetch) in a container there, so a run doesn't depend on this page
 // staying awake. Those endpoints refuse calls straight from a web page (CORS),
@@ -430,20 +430,6 @@ export async function followRun(
   }
 }
 
-/** Starts a brief and follows it to the end (the test panel). */
-export async function runBrief(
-  apiKey: string,
-  opts: { role: Role; model: string; brief: string; capDollars: number; onEvent: (e: RunEvent) => void; signal?: { stopped: boolean } },
-): Promise<RunResult> {
-  const run = await startRun(apiKey, opts)
-  opts.onEvent({ kind: 'status', text: `Session ${run.sessionId} started` })
-  try {
-    return await followRun(apiKey, run, opts)
-  } finally {
-    forgetRun()
-  }
-}
-
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** The files the session wrote to /mnt/session/outputs/ (they appear a moment after it stops). */
@@ -562,11 +548,6 @@ export function traceText(t: RunTrace): string {
   const files = `files: ${t.files.map((f) => `${f.name} (${f.bytes} bytes)`).join(', ') || 'none'}`
   const lines = t.events.map((e, i) => `${i === Math.floor(t.events.length / 4) && t.omitted ? `… ${t.omitted} events left out …\n` : ''}${e.at ? `${e.at} ` : ''}[${e.kind}] ${e.text}`)
   return [head, files, ...lines, ...(t.lastMessage ? [`last message:\n${t.lastMessage}`] : [])].join('\n')
-}
-
-/** Answers a paused tool call (an `ask` event). */
-export async function confirm(apiKey: string, sessionId: string, toolUseId: string, allow: boolean) {
-  await (await client(apiKey)).beta.sessions.events.send(sessionId, { events: [{ type: 'user.tool_confirmation', tool_use_id: toolUseId, result: allow ? 'allow' : 'deny' }] })
 }
 
 /** One output file's contents. */
