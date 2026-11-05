@@ -168,7 +168,7 @@ whatever they're actually asking about.
   dataset processor agent (`components/agent/AgentPanel.vue`). The user's own Anthropic API key
   stays on the device (localStorage `powergis.anthropicKey`); calls go straight to Anthropic
   (`client/agent/claude.ts`, streaming; a **profile** is picked in ⚙ — `lib/agent/profiles.ts`: the model for the chat,
-  scout, scraper and reviewer; default Quick, all Haiku; fixed for each chat; average ≈ $ a chat per profile from a
+  scout, scraper and reviewer; default Quick, all Haiku; changeable mid-chat — each call takes the profile current when it starts, the chat's own model via `setModel`, and every scout / scraper / storyteller step is labelled with its model; a changed chat is logged as `mixed`; average ≈ $ a chat per profile from a
   per-device log, `powergis.profileChats`). Provider-neutral loop and tools in
   `src/lib/agent/` (`provider.ts`, `loop.ts`, `tools.ts`, `prompt.ts`). On desktop the assistant is
   a column **docked on the right** of the page, resizable (`useSplitter`, `powergis.assistantWidth`;

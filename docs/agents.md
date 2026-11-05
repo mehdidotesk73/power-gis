@@ -272,9 +272,12 @@ usage policies live **there**, not as dataset properties.
   profile's model is given per run (a session override), so switching profiles needs no other agents. Each finished turn updates the chat's line
   in a per-device log (`powergis.profileChats`, last 200 chats: profile, cost, tokens, runs), and ⚙
   shows each profile's chats and average ≈ $ a chat; the cloud table of runs comes with run records.
-  **A chat keeps the profile it started with** (decided: simple, one profile per chat). The API would accept a switch
-  mid-chat (same history, new `model`; earlier thinking a model can't read is skipped), but a new
-  choice applies to the next chat ("Start a new chat"). **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
+  **The profile can change mid-chat** (user, 2026-11-04, once managed agents were one per role on the account): every
+  call takes the profile current when it starts — the chat's own model from its next call (`ChatSession.setModel`;
+  same history, and earlier thinking a model can't read is just skipped by the API, never an error), a new scout,
+  scraper or storyteller the new profile's model, while ones already running keep theirs. Each of those steps shows
+  its model; a note marks the change; the chat's tokens are priced per model, and a changed chat is logged as `mixed`
+  (out of every profile's averages). Earlier: one profile per chat. **(built)** `@anthropic-ai/sdk` `client.beta.messages.stream`
   with `dangerouslyAllowBrowser`, `fallbacks: "default"` on the models that have it (Opus 5.5,
   Opus 5, Sonnet 5.5; beta `server-side-fallback-2026-07-01`: a declined request is retried on
   Anthropic's recommended fallback model), automatic prompt

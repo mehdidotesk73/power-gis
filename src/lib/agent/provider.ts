@@ -74,12 +74,14 @@ export type TurnInput = UserMessage | { toolResults: ToolResult[] }
 export interface ChatSession {
   /** Sends the user's message (or the results of the last turn's tool calls); resolves with the model's next turn. */
   send(input: TurnInput, events: TurnEvents, signal?: AbortSignal): Promise<TurnResult>
+  /** Changes the model for the calls from now on (the history stays as it is: a model that can't read earlier reasoning just goes without it). */
+  setModel?(model: string): void
 }
 
 export interface ChatProvider {
   id: string
   label: string
-  /** A session on one model for its whole length (changing models starts a new chat). */
+  /** A session on a model (changeable between calls: setModel). */
   start(opts: { apiKey: string; model: string; system: string; tools: ToolSpec[] }): ChatSession
 }
 

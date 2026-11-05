@@ -87,7 +87,7 @@ class ClaudeSession implements ChatSession {
 
   constructor(
     private readonly client: Anthropic,
-    private readonly model: string,
+    private model: string,
     private readonly system: string,
     tools: ToolSpec[],
   ) {
@@ -106,6 +106,10 @@ class ClaudeSession implements ChatSession {
             input_schema: strictSchema(t.inputSchema) as Anthropic.Beta.BetaTool.InputSchema,
           },
     )
+  }
+
+  setModel(model: string) {
+    this.model = model // read on every call, so a change mid-turn applies from the next call on
   }
 
   async send(input: TurnInput, events: TurnEvents, signal?: AbortSignal): Promise<TurnResult> {

@@ -4,7 +4,7 @@
 // storyteller (tells how the workspace gets to its maps) each get
 // the model that suits the profile. Scrapers mostly follow instructions, so most
 // profiles keep them on Haiku; scouting and reviewing are where judgement pays.
-// A chat keeps the profile it started with.
+// The profile can change mid-chat: each call takes the one current when it starts.
 //
 // Each finished chat turn also updates the chat's line in a small log on this
 // device (cost, tokens, scout / scraper runs), so a profile's average cost per

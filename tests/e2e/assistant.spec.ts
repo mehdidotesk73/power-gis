@@ -119,6 +119,8 @@ async function fakeRelay(page: Page) {
   const relay = new URL(`${process.env.SUPABASE_TEST_URL ?? 'http://127.0.0.1:54321'}/functions/v1/managed-relay/`).href
   const asked: string[] = []
   const agentModels: string[] = []
+  const agents: { id: string; version: number }[] = []
+  const envs: { id: string }[] = []
   const at = new Date().toISOString()
   await page.context().route(`${relay}**`, async (route) => {
     const req = route.request()
@@ -126,12 +128,22 @@ async function fakeRelay(page: Page) {
     asked.push(`${req.method()} ${path} ${req.headers().authorization ? 'signed' : 'anonymous'}`)
     const json = (body: object) => route.fulfill({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' }, body: JSON.stringify(body) })
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } })
-    if (path === '/v1/environments') return json({ id: 'env_1' })
-    if (path === '/v1/agents') {
-      agentModels.push(JSON.stringify(req.postDataJSON()?.model))
-      return json({ id: 'agent_1', version: 1 })
+    // The user's account: what the app finds there by its tag, makes (once) and updates (provision.ts).
+    if (path === '/v1/environments' && req.method() === 'GET') return json({ data: envs, next_page: null })
+    if (path === '/v1/environments') {
+      envs.push({ id: `env_${envs.length + 1}`, ...req.postDataJSON() })
+      return json(envs[envs.length - 1])
     }
-    if (path === '/v1/sessions') return json({ id: 'sesn_1' })
+    if (path === '/v1/agents' && req.method() === 'GET') return json({ data: agents, next_page: null })
+    if (path === '/v1/agents') {
+      agents.push({ id: `agent_${agents.length + 1}`, version: 1, ...req.postDataJSON() })
+      return json(agents[agents.length - 1])
+    }
+    if (path === '/v1/sessions') {
+      // The model is the run's own (a session override), the agent the account's one for the role.
+      agentModels.push(JSON.stringify(req.postDataJSON()?.agent?.model))
+      return json({ id: 'sesn_1' })
+    }
     if (path === '/v1/sessions/sesn_1/events' && req.method() === 'POST') return json({ data: [] })
     if (path === '/v1/sessions/sesn_1/events')
       return json({
@@ -148,7 +160,7 @@ async function fakeRelay(page: Page) {
     if (path === '/v1/files/file_csv/content') return route.fulfill({ status: 200, headers: { 'content-type': 'text/csv', 'access-control-allow-origin': '*' }, body: 'fips,rent\n01001,980\n01003,1210\n' })
     return route.fulfill({ status: 404, body: 'not faked' })
   })
-  return { asked, agentModels }
+  return { asked, agentModels, agents, envs }
 }
 
 test('the scraper: signed in, the brief approved, its run followed, its CSV a new dataset', async ({ browser }) => {
@@ -157,7 +169,7 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   const brief = 'Fetch median rent per county from example.gov as rents.csv: fips (5-digit text), rent (dollars).'
   await fakeModel(page, [{ text: 'I can fetch rents.', tools: [{ name: 'send_scraper', input: { brief, cap_dollars: 2 } }] }, { text: 'Rents are in.' }], seen)
 
-  const { asked, agentModels } = await fakeRelay(page)
+  const { asked, agentModels, agents, envs } = await fakeRelay(page)
 
   await openAssistant(page)
   // Signed out, the tool refuses and says why.
@@ -202,6 +214,29 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   await expect(run).toContainText('rents.csv → dataset “rents”')
   // The chat's cost: its tokens at list prices plus the run's $0.03.
   await expect(page.getByText(/≈ \$0\.03/)).toBeVisible()
+  // The step shows the model it ran on.
+  await expect(run.getByTestId('agent.step.model')).toHaveText('Haiku 5.5')
+
+  // The profile changes mid-chat: a note says so; the chat's next call and the next run use the new models, the
+  // finished run keeps its label, and the account's agent is reused (made once, never twice).
+  await page.getByRole('button', { name: /Settings/ }).click()
+  await page.getByTestId('profile.all-sonnet').click()
+  await page.getByRole('button', { name: /Settings/ }).click()
+  await expect(page.getByTestId('agent.profile')).toHaveText('All Sonnet · Sonnet 5.5')
+  await expect(page.getByText('Profile changed to All Sonnet')).toBeVisible()
+  seen.length = 0
+  await fakeModel(page, [{ text: 'Again.', tools: [{ name: 'send_scraper', input: { brief, cap_dollars: 2 } }] }, { text: 'Rents again.' }], seen)
+  await say(page, 'Fetch them again')
+  await page.getByTestId('ask-card').last().getByTestId('ask.button-0').click()
+  await expect(page.getByText('Rents again.')).toBeVisible()
+  expect((seen[0] as { model: string }).model).toBe('claude-sonnet-5-5')
+  const runs = page.getByTestId('web-run')
+  await expect(runs).toHaveCount(2)
+  await expect(runs.nth(0).getByTestId('agent.step.model')).toHaveText('Haiku 5.5')
+  await expect(runs.nth(1).getByTestId('agent.step.model')).toHaveText('Sonnet 5.5')
+  expect(agentModels[agentModels.length - 1]).toContain('claude-sonnet-5-5')
+  expect(agents).toHaveLength(1)
+  expect(envs).toHaveLength(1)
 })
 
 test('a diagnosis: asked first with its model, then a red report in the chat to copy', async ({ browser }) => {
