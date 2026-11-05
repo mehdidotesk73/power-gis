@@ -4,7 +4,7 @@
 // real is everything in the app: the cards, the answer sent back to the model,
 // the run's card, and the scraper's CSV becoming a dataset.
 import { expect, test, type Page, type Route } from '@playwright/test'
-import { account, closeDevices, device, PHONE, reload, signIn } from './helpers'
+import { account, closeDevices, device, openWorkspacePanel, PHONE, reload, signIn } from './helpers'
 
 test.afterEach(closeDevices)
 
@@ -127,6 +127,54 @@ test('the assistant asks a card of up to three questions, answered together by o
     note: "Take the user's comments into account in what you do next.",
   })
   await expect(askCard.getByText('✓ Build it')).toBeVisible()
+})
+
+test('the Frame exchange: the framing, components with postures and the measure; approved, it is the Study frame in About', async ({ browser }) => {
+  const page = await device(browser, PHONE)
+  const seen: unknown[] = []
+  await fakeModel(
+    page,
+    [
+      {
+        text: 'Here is how I read it.',
+        tools: [
+          {
+            name: 'propose_frame',
+            input: {
+              framing: 'The countries where a typical full-time worker earns the most in a year.',
+              why: '',
+              components: [
+                { name: 'Average annual wage', posture: 'anchor + proxy', note: 'OECD, filled in from ILOSTAT', key: true },
+                { name: 'Hours worked', posture: 'exact', note: '', key: false },
+              ],
+              decision: { question: 'In what money?', why: 'Market rates and buying power rank countries differently.', options: ['Market exchange rates', 'Buying power (PPP)'], recommended: 'Buying power (PPP)' },
+            },
+          },
+        ],
+      },
+      { text: 'Framed. Next, the data.' },
+    ],
+    seen,
+  )
+  await openAssistant(page)
+  await say(page, 'What are the best paid countries?')
+
+  const card = page.getByTestId('ask-card')
+  await expect(card).toContainText('Is this the question to answer?')
+  await expect(card.getByTestId('ask.q2')).toContainText('Average annual wage — anchor + proxy: OECD, filled in from ILOSTAT')
+  await expect(card.getByTestId('ask.q2').getByLabel(/Hours worked/)).not.toBeChecked()
+  await expect(card.getByTestId('ask.q3').getByLabel('Buying power (PPP)')).toBeChecked()
+  await expect(card.getByTestId('ask.revise')).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('frame-card-phone.png') })
+  await card.getByTestId('ask.button-0').click()
+
+  await expect(page.getByText('Framed. Next, the data.')).toBeVisible()
+  expect(lastToolResult(seen)).toMatchObject({ decision: 'approved', edited: false, measure: { question: 'In what money?', choice: 'Buying power (PPP)' }, kept: ['Average annual wage (anchor + proxy)'], leftOut: ['Hours worked'] })
+  await page.getByLabel('Assistant').getByRole('button', { name: 'Close', exact: true }).click()
+  await openWorkspacePanel(page)
+  const about = page.getByTestId('workspace.about')
+  await about.locator('summary').click()
+  await expect(about.getByLabel('About this workspace')).toHaveValue(/^## Study frame\n\nThe countries where a typical full-time worker[\s\S]*\*\*In what money\?\*\* Buying power \(PPP\)/)
 })
 
 /** Anthropic's Managed Agents, as the relay would answer: one scraper session (sesn_1) that fetched a page and wrote rents.csv. */

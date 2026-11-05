@@ -90,13 +90,17 @@ does with it. The assistant supplies only the content; it can't change an exchan
 asks again; after **2 rounds** it stops redrafting and asks what's wrong), **Reject / Not now** (nothing changes; the
 assistant gets the reason). First exchanges:
 
-1. **Frame** (ships with PR A; until then a framing is an `ask_user` card): an Answer (the framing) and a Pick several (the components, each with its posture:
-   Exact / Anchor + proxy / Fermi). On Approve: saved to the workspace's About (the study frame).
+1. **Frame** (`propose_frame`): an Answer (the framing: the question as asked, exactly what is measured — units, money basis,
+   mean or median, period —, the window and the unit of analysis, which way is better), a Pick several (the components, each with
+   its posture: exact / anchor + proxy / fermi; key ones ticked) and, when there is one, a Pick one for the open choice about the
+   measure that would change the answer. On Approve: written into About as its **Study frame** section (replacing an older one; the
+   rest of About kept).
 2. **Plan** (`propose_plan`): an Answer (the build plan, stage by stage). Approve / Reject + Revise.
 3. **Run** (the card of `send_scout` / `send_scraper`): an Answer (the brief) and a Pick one (the spending cap, recommended
    first; Neither + comments for an own amount). Send / Not now.
-4. **Source pick** (`pick_source`): a Pick one, one option per source the scout found (coverage, terms, fit), Neither for none of
-   them. Use it / Not now.
+4. **Source pick** (`pick_source`): a Pick several, one option per source the scout found (coverage, terms, fit, and what exactly
+   it measures), the recommended ones ticked; plus an Answer with the agent's **combination** method when it recommends several (what
+   anchors, what fills in, how they're calibrated where they overlap). None ticked = say what instead in the comments. Use these / Not now.
 
 **Rule (user, 2026-11-05):** a new methodological question is a new **exchange** defined in code, never a new kind
 of card. `ask_user` stays for one-off questions, within the same 3-question card format.

@@ -477,7 +477,7 @@ browser or a prompt / model change creates new ones, and agents can only be arch
 - Done when: a second device or a cleared browser adds nothing to the user's console.
 
 **2. Data framing and cheaper scouting** (three PRs, in this order):
-- **PR A — the frame, and neutral prompts.**
+- **PR A — the frame, and neutral prompts.** ✅ Done (2026-11-05, PR #59).
   - Prompts assume no geography: the window (where, when) comes from the request, the unit (continent … city block,
     grid cell) from the request and what data exists. Today the assistant's prompt names counties / states ~15 times and
     the storyteller ranks "states"; the storyteller's headlines become "units and the groups they roll up into".
@@ -532,7 +532,7 @@ cards and exchanges*): cards of 1–3 questions (Answer, Pick one with Neither, 
 comments box, ended by one button pair; exchanges defined in code (Plan, Run, Source pick now; Frame with PR A) with
 Approve / Revise (2 rounds) / Reject. New methodological questions become exchanges, not new kinds of card.
 
-**7. Source pick: several sources, and how they combine** (user, 2026-11-05). The exchange offers one source (a Pick one);
+**7. Source pick: several sources, and how they combine** ✅ Done (2026-11-05, PR #59) (user, 2026-11-05). The exchange offers one source (a Pick one);
 it should allow several: a Pick several of the sources the scout found (the recommendation pre-ticked), plus an Answer
 holding the assistant's **combination method** whenever more than one is ticked or recommended — what anchors, what fills
 in, how they're calibrated on the overlap, and any extra data that needs — so a combined answer is a choice the user can
