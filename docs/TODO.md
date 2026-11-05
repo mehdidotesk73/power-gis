@@ -527,6 +527,11 @@ browser or a prompt / model change creates new ones, and agents can only be arch
   can't use it (today it goes straight from the browser to Anthropic with the user's key); plans bought through a
   paywall, with an expiry date.
 
+**6. Question cards and exchanges** (agreed 2026-11-05; its own PR after #57; design in `docs/agents.md`, *Question
+cards and exchanges*): cards of 1–3 questions (Answer, Pick one with Neither, Pick several), each with a folded
+comments box, ended by one button pair; exchanges defined in code (Plan, Run, Source pick now; Frame with PR A) with
+Approve / Revise (2 rounds) / Reject. New methodological questions become exchanges, not new kinds of card.
+
 **5. Map views.**
 - 3D columns: regions raised by their value (normal or log scale), with pitch and rotate (MapLibre `fill-extrusion`).
 - 3D layers: visualizations stacked at different heights over the same places (`fill-extrusion-base` per layer).

@@ -69,6 +69,45 @@ button after the main answer (`withNotes`, `lib/agent/form.ts`). The answer then
 notes and edits, and ask again) or, with notes on any other button, a reminder to take them into account. The user
 steers a draft (the framing, the components to consider, a plan) in a few words instead of rewriting it.
 
+## Question cards and exchanges (agreed 2026-11-05; to build after PR #57)
+
+Replaces today's free-form `ask_user` form (fields + up to 4 buttons) and the Notes / Revise add-ons above.
+
+**A card** holds **1–3 questions** that belong together, answered at once by **one button pair** at its end, so the
+assistant gets the answers together, in context. Every question has the same frame: the question, why it's asked
+and what the answer changes, its controls, and a **comments** box (folded as "＋ Comment" until tapped, so three
+questions stay short on a phone).
+
+| Kind | Controls | Returns |
+|---|---|---|
+| **Answer** | the assistant's own considered response (or a plan, a brief) in a text area, edited by the user as it stands; never an empty box | `{edited: false, comments?}`, or `{edited: true, text, comments?}`: an unchanged draft isn't sent back in full (a long plan approved as it is costs no tokens) |
+| **Pick one** | radio buttons: the assistant's options, its recommendation first and marked; plus **Neither (see comments)** when an answer outside them is plausible, which unfolds the comments box | `{choice \| "neither", comments?}` |
+| **Pick several** | checkboxes, some may start ticked (editing a selection) | `{choices[], comments?}` |
+
+- **The button pair** ends every card, labelled by the assistant: Submit / Cancel, Yes / No, Approve / Reject,
+  Go / No-go… A plain yes / no question is a card with no controls: the framed question, a comments box, the pair.
+  The first button checks required answers; the second never does. Result: `{button, answers: [one per question]}`.
+  Stop answers an open card, as now.
+- **Example:** an Answer ("Here's how I'd frame it: …", editable), a Pick several (the components, all ticked),
+  Submit / Cancel.
+
+**Exchanges** are structured asks defined in code: their purpose, their questions, their result, and what the app
+does with it. The assistant supplies only the content; it can't change an exchange's shape. Shared loop:
+**Approve** (the result returned and saved where it belongs), **Revise with my notes** (the assistant redrafts and
+asks again; after **2 rounds** it stops redrafting and asks what's wrong), **Reject / Not now** (nothing changes; the
+assistant gets the reason). First exchanges:
+
+1. **Frame** (ships with PR A): an Answer (the framing) and a Pick several (the components, each with its posture:
+   Exact / Anchor + proxy / Fermi). On Approve: saved to the workspace's About (the study frame).
+2. **Plan**: an Answer (the build plan, stage by stage).
+3. **Run** (today's scout / scraper approval): an Answer (the brief) and a Pick one (the spending cap, recommended
+   first; Neither + comments for an own amount). Send / Not now.
+4. **Source pick**: a Pick one, one option per source the scout found (coverage, terms, fit), Neither for none of
+   them. Use it / Not now.
+
+**Rule (user, 2026-11-05):** a new methodological question is a new **exchange** defined in code, never a new kind
+of card. `ask_user` stays for one-off questions, within the same 3-question card format.
+
 ## Tools
 
 | Tool | Kind | What it does | Built on |
