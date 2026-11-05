@@ -95,7 +95,9 @@ test('the assistant asks with a form: choices, its own answer, a drafted plan, a
   const askCard = page.getByTestId('ask-card')
   await expect(askCard.getByText('Which years should the map cover?')).toBeVisible()
   await askCard.getByLabel('2023').check()
-  await askCard.getByPlaceholder('Your own…').fill('2019')
+  // Every choice offers "Something else" (the level too, though the model didn't ask for it).
+  await expect(askCard.getByPlaceholder('Something else…')).toHaveCount(2)
+  await askCard.getByPlaceholder('Something else…').first().fill('2019')
   await askCard.getByLabel('State').check()
   await askCard.getByLabel('Plan').fill('Clean the income table, then map it by state.')
   await page.screenshot({ path: test.info().outputPath('ask-card-phone.png'), fullPage: false })
@@ -172,12 +174,16 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   const { asked, agentModels, agents, envs } = await fakeRelay(page)
 
   await openAssistant(page)
-  // Signed out, the tool refuses and says why.
+  // Signed out, the tool refuses before asking anything (no approval card), says why, and the chat offers Sign in.
   await say(page, 'Add rents per county')
-  await page.getByTestId('ask.button-0').click()
   await expect(page.getByText('Rents are in.')).toBeVisible() // the fake model's next turn
+  await expect(page.getByTestId('ask-card')).toHaveCount(0)
   expect(JSON.stringify(seen[seen.length - 1])).toContain('Sign in')
   expect(asked).toEqual([])
+  await page.getByTestId('agent.signin').click()
+  const accountWindow = page.getByRole('dialog', { name: 'Account' })
+  await expect(accountWindow).toBeVisible()
+  await accountWindow.getByRole('button', { name: 'Close' }).click()
 
   // Signed in, it runs.
   await signIn(page, await account('scraper'))

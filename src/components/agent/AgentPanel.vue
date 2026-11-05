@@ -132,7 +132,7 @@ type Item =
   | { kind: 'user'; text: string; images?: string[] }
   | { kind: 'assistant'; text: string }
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean; /** A step run by another agent (the storyteller): its model. */ model?: string }
-  | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string; /** A failed turn: offer Retry and Diagnose. */ failed?: boolean; /** The connection dropped: retrying. */ retrying?: boolean }
+  | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string; /** A failed turn: offer Retry and Diagnose. */ failed?: boolean; /** The connection dropped: retrying. */ retrying?: boolean; /** Offer a Sign in button (the scout and scraper need an account). */ signIn?: boolean }
   | { kind: 'thinking'; text: string; open: boolean }
   | { kind: 'ask'; form: Form; answer?: FormAnswer }
   | { kind: 'diagnosis'; state: 'running' | 'ok' | 'error'; model: string; report: string; open: boolean; copied?: boolean }
@@ -498,7 +498,13 @@ async function readRunById(sessionId: string): Promise<{ text: string; status: s
     return e instanceof SignInNeeded ? 'Sign in to read a run (☰ → Sign in).' : e instanceof Error ? e.message : String(e)
   }
 }
-const host: AgentHost = { ...props.host, ask, web, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
+/** The scout or scraper asked for while signed out: a note with a Sign in button (once per chat while it's still signed out). */
+function askSignIn() {
+  if (items.value.some((x) => x.kind === 'note' && x.signIn)) return
+  items.value.push({ kind: 'note', tone: 'warn', text: 'The scout and scraper need a PowerGIS account: they run through our relay, which only signed-in people may use. The chat itself works without one.', signIn: true })
+}
+const openSignIn = () => window.dispatchEvent(new CustomEvent('powergis:sign-in'))
+const host: AgentHost = { ...props.host, ask, web, signedIn: () => !!auth.user, askSignIn, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
@@ -914,6 +920,9 @@ const usageText = computed(() => {
         </div>
         <div v-else class="note" :class="it.tone" :data-testid="it.failed ? 'agent.failed' : undefined">
           <p>{{ it.text }}</p>
+          <div v-if="it.signIn && !auth.user" class="failed-actions">
+            <UiButton size="compact" tone="primary" data-testid="agent.signin" @click="openSignIn">Sign in</UiButton>
+          </div>
           <div v-if="it.failed && it === items[items.length - 1] && !busy" class="failed-actions">
             <UiButton size="compact" tone="primary" icon="↻" data-testid="agent.retry" @click="retryTurn">Retry</UiButton>
             <UiButton size="compact" icon="🩺" data-testid="agent.diagnose" @click="diagnoseFailure(it)">Diagnose</UiButton>

@@ -49,6 +49,10 @@ export interface AgentHost {
   importCsv?(file: File, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
   /** Sends the scout or the scraper with a brief and a spending cap, and follows it to the end (the chat shows its progress); a message when it can't. */
   web?(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string>
+  /** Whether the user is signed in to PowerGIS (the scout and scraper need it; the chat doesn't). */
+  signedIn?(): boolean
+  /** Shows the user a way to sign in (the chat's Sign in button). */
+  askSignIn?(): void
   /** Follows a run started earlier (by its session id) to its end, or reads it if it has ended; its result, or why not. */
   fetchRun?(sessionId: string): Promise<(WebRun & { role: WebRole; brief: string }) | string>
   /** Reads a run back by its id, changing nothing: its status, cost, events (condensed), last message and files, as text; or why not. */
@@ -108,7 +112,7 @@ export const TOOLS: ToolSpec[] = [
     name: 'ask_user',
     description: [
       'Ask the user something that needs a well-defined answer, and wait for it. Shows a card in the chat: your question, optional details, any fields, and buttons. Returns {button, values} (values by field id; a choice gives a list of the chosen options, with the user\'s own answer last).',
-      'Without fields, the buttons default to Approve / Reject: use that to confirm a plan, with the plan in details. Fields: "text" (one line, or multiline; "value" fills it in for the user to review and edit — a plan, a name, a brief) and "choice" (options; "multiple" for any number of them; "other" to let the user add their own answer). Buttons: the first is the main answer (only it needs the required fields); add others for the alternatives, e.g. ["Use this source", "Skip this data", "Find another source"].',
+      'Every card has the same shape: "question" (one sentence), "details" (why you ask and what each answer changes, in a few lines), then the answers. A decision (what to do next, which way to handle something): one "choice" whose options are the courses of action you see — your own words for this case, each short with its consequence, your recommendation first and marked "(recommended)"; the card always adds "Something else" with a box for the user\'s own answer, so don\'t add one. Leave "buttons" out for a decision (the card shows Continue). Buttons are for answers that aren\'t options: a yes / no question (["Yes", "No"], no fields) and confirming a plan (no fields: Approve / Reject by default, the plan in details). Other fields: "text" (one line, or multiline; "value" fills it in for the user to review and edit — a plan, a name, a brief) and "choice" with "multiple" for picking any number (years, sources). The first button is the main answer (only it needs the required fields).',
       'Use it to confirm a plan before building, to ask before looking outside the workspace or on the web, and whenever the answer is a pick from options or an edit of something you drafted. Keep labels to a few words. For an open question, ask in plain text and end your turn instead.',
     ].join(' '),
     inputSchema: {
@@ -132,14 +136,14 @@ export const TOOLS: ToolSpec[] = [
               multiline: { type: 'boolean', description: 'text: several lines.' },
               options: { type: 'array', items: { type: 'string' }, description: `choice: every option, at most ${LIMITS.options}; [] for text.` },
               multiple: { type: 'boolean', description: 'choice: any number of options rather than one.' },
-              other: { type: 'boolean', description: 'choice: the user may add their own answer.' },
+              other: { type: 'boolean', description: 'choice: ignored — every choice gets "Something else" with a box.' },
               selected: { type: 'array', items: { type: 'string' }, description: 'choice: options chosen to start with; [] for none.' },
               required: { type: 'boolean' },
             },
             required: ['id', 'kind', 'label', 'value', 'placeholder', 'multiline', 'options', 'multiple', 'other', 'selected', 'required'],
           },
         },
-        buttons: { type: 'array', items: { type: 'string' }, description: `The answers, main one first; at most ${LIMITS.buttons}. Default: Approve, Reject without fields; Submit with them.` },
+        buttons: { type: 'array', items: { type: 'string' }, description: `The answers, main one first; at most ${LIMITS.buttons}. Leave out for a decision (Continue). ["Yes", "No"] for a yes / no question; Approve, Reject (the default without fields) to confirm a plan.` },
       },
       required: ['question'],
     },
@@ -1004,6 +1008,11 @@ export function readCap(v: unknown): number | undefined {
 async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<ToolOutcome> {
   need(str(input.brief) && input.brief.trim(), '`brief` is required')
   if (!host.web) return err('Sending the scout or scraper isn\'t available here.')
+  // Before the approval card: asking to approve a run that then can't start wastes the user's time.
+  if (host.signedIn && !host.signedIn()) {
+    host.askSignIn?.()
+    return err('The scout and scraper need the user signed in to PowerGIS (☰ → Sign in; a Sign in button is now in the chat); the chat itself works without. Nothing was sent. Tell the user, and carry on with what the workspace has, or wait for them to sign in and ask again.')
+  }
   const cap = recommendedCap(input.cap_dollars, role === 'scout' ? 1 : 2)
   const why = str(input.cap_reason) && input.cap_reason.trim() ? input.cap_reason.trim() : ''
   const recommended = `Recommended: ${money(cap)}`
