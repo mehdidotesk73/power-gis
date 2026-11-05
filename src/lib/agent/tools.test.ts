@@ -9,7 +9,7 @@ const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string 
   const button = fn(card, s) || card.buttons[0]
   return cardAnswer(card, s, button, comments)
 }
-import { forgetChat, runTool, webFileDescription, workspaceVersion, type AgentHost } from './tools'
+import { forgetChat, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
@@ -269,20 +269,44 @@ describe('agent tools', () => {
     expect(shown?.revise).toBeUndefined()
   })
 
-  it('Source pick: the user picks one of the sources the scout found, or neither', async () => {
+  it('Source pick: the user keeps one or several sources, with the combination as edited', async () => {
     const { host } = fakeHost()
     const sources = [
       { name: 'Census ACS', detail: 'every county, 2023' },
       { name: 'HUD FMR', detail: 'every county, 2024' },
     ]
     host.ask = answering(() => {})
-    expect(json((await runTool(host, 'pick_source', { need: 'county rents', sources, recommended: 'HUD FMR' })).content)).toMatchObject({ decision: 'approved', source: 'HUD FMR' })
-    host.ask = answering((_c, s) => {
-      s.source.choice = NEITHER
-      s.source.comments = 'Zillow'
-    })
-    expect(json((await runTool(host, 'pick_source', { need: 'county rents', sources })).content)).toMatchObject({ source: null, neither: true, comments: ['Zillow'] })
-    expect(await runTool(host, 'pick_source', { need: 'x', sources: [] })).toMatchObject({ isError: true })
+    expect(json((await runTool(host, 'pick_source', { need: 'county rents', sources, recommended: ['HUD FMR'], combination: '' })).content)).toMatchObject({ decision: 'approved', sources: ['HUD FMR'] })
+    const both = json((await runTool(host, 'pick_source', { need: 'county rents', sources, recommended: ['HUD FMR', 'Census ACS'], combination: 'HUD anchors; ACS fills in.' })).content)
+    expect(both).toMatchObject({ sources: ['Census ACS', 'HUD FMR'], combination: 'HUD anchors; ACS fills in.', combinationEdited: false })
+    expect(await runTool(host, 'pick_source', { need: 'x', sources: [], recommended: [], combination: '' })).toMatchObject({ isError: true })
+  })
+
+  it('Frame: approved, it is written into About as the Study frame (the rest of About kept)', async () => {
+    const { host, state } = fakeHost()
+    state.doc = { ...state.doc, about: '## Notes\nMine.' }
+    host.ask = answering(() => {})
+    const out = json(
+      (
+        await runTool(host, 'propose_frame', {
+          framing: 'Where a typical worker earns the most in a year, in buying power.',
+          why: '',
+          components: [
+            { name: 'Average wage', posture: 'anchor + proxy', note: 'OECD + ILOSTAT', key: true },
+            { name: 'Taxes', posture: 'fermi', note: '', key: false },
+          ],
+          decision: { question: '', why: '', options: [], recommended: '' },
+        })
+      ).content,
+    )
+    expect(out).toMatchObject({ decision: 'approved', edited: false, kept: ['Average wage (anchor + proxy)'], leftOut: ['Taxes'], savedTo: expect.stringContaining('Study frame') })
+    expect(state.doc.about).toMatch(/^## Study frame\n\nWhere a typical worker/)
+    expect(state.doc.about).toContain('## Notes\nMine.')
+    // Rejected: About stays as it is.
+    host.ask = answering(() => 'Reject')
+    const before = state.doc.about
+    await runTool(host, 'propose_frame', { framing: 'Other', why: '', components: [{ name: 'X', posture: 'exact', note: '', key: true }], decision: { question: '', why: '', options: [], recommended: '' } })
+    expect(state.doc.about).toBe(before)
   })
 
   it('Run: sends the scout after the user approves the brief, and returns its report', async () => {
@@ -663,5 +687,11 @@ describe('agent loop', () => {
     expect(await runTool(host, 'add_builtin', { table: 'mars' })).toMatchObject({ isError: true, content: expect.stringContaining('us_states') })
     // Made in this chat: it may delete it again.
     expect((await runTool(host, 'delete_dataset', { id: 'ds-us_states' })).summary).not.toBe('refused: not yours')
+  })
+
+  it('keeps strict tools few: every strict schema is compiled into one grammar, and too large a one is refused', () => {
+    // 19 strict tools gave "The compiled grammar is too large" (2026-11-05). Strict only where the input is nested
+    // and a malformed one really hurts; the rest validate their own input. Adding one here is a deliberate choice.
+    expect(TOOLS.filter((t) => t.strict).map((t) => t.name).sort()).toEqual(['apply_workspace', 'ask_user', 'pick_source', 'propose_frame', 'query_sql'])
   })
 })

@@ -514,6 +514,7 @@ const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
   get_workspace: 'Read the workspace',
   ask_user: 'Ask you',
+  propose_frame: 'Frame the question',
   propose_plan: 'Propose the plan',
   pick_source: 'Pick a source',
   send_scout: 'Send the scout',
@@ -652,7 +653,7 @@ async function send() {
           // The scout and scraper: their approval card, then their run card, are the step. ask_user gets a step
           // too (what it sent, in full), above its card.
           // What a question card was sent, in the log (View logs): a card that arrives emptier than the assistant meant is found here.
-          if (call.name === 'ask_user' || call.name === 'propose_plan' || call.name === 'pick_source') logDebug(`${call.name} input: ${JSON.stringify(call.input).slice(0, 4000)}`)
+          if (['ask_user', 'propose_frame', 'propose_plan', 'pick_source'].includes(call.name)) logDebug(`${call.name} input: ${JSON.stringify(call.input).slice(0, 4000)}`)
           if (!live() || call.name === 'send_scout' || call.name === 'send_scraper') return
           items.value.push({ kind: 'tool', call, state: 'running', summary: '', open: false })
         },

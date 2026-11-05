@@ -14,6 +14,13 @@ export interface ToolSpec {
    * ordinary tool with `inputSchema`.
    */
   builtin?: 'text_editor'
+  /**
+   * The API guarantees the input matches the schema (constrained decoding). Costly: every strict schema
+   * in a request is compiled into one grammar, and past an undisclosed size the request is refused ("The
+   * compiled grammar is too large"; 19 strict tools did it, 2026-11-05). Only for tools with nested lists
+   * or objects, where a malformed input really hurts; the rest validate their own input (lib/agent/tools.ts).
+   */
+  strict?: boolean
 }
 
 export interface ToolCall {

@@ -43,6 +43,7 @@ export const STORY_TOOLS: ToolSpec[] = [
   TOOLS.find((t) => t.name === 'query_sql')!,
   {
     name: 'write_story',
+    strict: true, // nested scenes and figures: a malformed one would be a broken story
     description: `Write the story (or rewrite it: in this chat, the same story is replaced). Scenes in order from the starting data to the maps, at most ${MAX_SCENES}; each a title, a narrative of about ${NARRATIVE_WORDS} words (plain text, **bold** sparingly) and at most ${MAX_FIGURES} figures. Every figure is run before saving; anything wrong comes back as a list to fix, and nothing is saved until all of it is right.`,
     inputSchema: {
       type: 'object',
