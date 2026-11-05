@@ -113,6 +113,7 @@ export const TOOLS: ToolSpec[] = [
   },
   {
     name: 'ask_user',
+    strict: true,
     description: [
       'Ask the user a one-off question and wait for the answer. A card: "title" (what you ask, one sentence), "context" (what you found, a few lines), then up to 3 related "questions", answered together by one pair of "buttons" — so the user can answer interconnected questions in one go.',
       'Each question: "question" (one sentence), "why" (why you ask and what the answer changes), and a kind. "answer": your own considered response (or a draft) in "text", which the user edits — never ask for an empty box. "one": radio buttons — your "options" (2+), "recommended" = one of them (shown first, marked); "neither": true adds "Neither (see comments)" when an answer outside your options is plausible (false only when they cover every case). "several": checkboxes — "options", "selected" = those ticked to start (to edit a selection). Every question gets a comments box from the app.',
@@ -164,6 +165,7 @@ export const TOOLS: ToolSpec[] = [
   },
   {
     name: 'pick_source',
+    strict: true,
     description:
       'The Source pick exchange: after the scout, let the user choose the source(s) for one need among those it found — each with its coverage, terms and fit, and what exactly it measures (units, money basis, mean or median, period), in a line. Several may answer a need together (one anchors, another fills in): recommend every source you would use, and when that is more than one, give "combination": how they combine (what anchors, what fills in, how they are calibrated where they overlap, and any extra data that needs) — the user edits it. When candidates measure different things, say so in their lines. Use these / Not now. Returns {decision, sources (the names kept), combination (as edited), comments, next}.',
     inputSchema: {
@@ -187,6 +189,7 @@ export const TOOLS: ToolSpec[] = [
   },
   {
     name: 'propose_frame',
+    strict: true,
     description: [
       'The Frame exchange: before looking for any data on an open or value-laden request, show the user how you read it and what you will measure, to edit and approve. Approve / Reject, plus Revise with my notes (at most 2 rounds). On Approve the frame is written into the workspace\'s About note (its "Study frame" section) for every later step and the storyteller.',
       '"framing": a short paragraph — the question as the user asked it (not an easier neighbour: when a proxy stands in, say so), exactly what is measured (what, in which units and money basis, mean or median, which period), the window (where, when) and the unit of analysis as the request and the data allow, and which way is better. "components": the measures or facets that make it up, each with its posture — "exact" (data at the unit wanted), "anchor + proxy" (reliable coarser data, refined or extended by finer signals), "fermi" (a first-principles range, low / likely / high) — a few words of note, and key: true for the core ones (optional ones start unticked). "decision": the one open choice about the measure that would change the answer (two readings, market vs purchasing-power money, mean vs median…), or {"question": ""} when there is none.',
@@ -291,6 +294,7 @@ export const TOOLS: ToolSpec[] = [
   },
   {
     name: 'query_sql',
+    strict: true,
     description:
       'Run one read-only SELECT (DuckDB) over datasets and get the first rows plus the total row count. Nothing is stored. Each input dataset is a table named by its alias. Geometry cells come back as "<region>" etc. Use it to profile (FROM (SUMMARIZE t)), check values and join coverage, and test transform SQL before writing it. CTEs (WITH …) chain steps. Spatial functions (ST_…) work: the engine loads its spatial extension on first use. Works on any dataset, local or remote, in the workspace or not.',
     inputSchema: {
@@ -329,6 +333,7 @@ export const TOOLS: ToolSpec[] = [
   },
   {
     name: 'apply_workspace',
+    strict: true,
     description: [
       "Make your edits to the workspace files the workspace (the user's unsaved draft: they Save or Discard it). Everything is checked together; nothing changes if anything is wrong, and every problem is listed with its file.",
       'How the files work: an item exists when its id is listed in /workspace.json (transforms; visualizations, whose order is draw order, first on top); its file is /transforms/<id>.json or /visualizations/<id>.json, and the file name is the id. To add an item, create its file under a short name you choose (e.g. by_state) and add that name to the list; it gets a real id when applied (the reply says which). To remove one, take its id out of the list. Datasets join the workspace through "datasetIds".',

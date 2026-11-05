@@ -32,6 +32,7 @@ function fakeApi(responses: string[]) {
 
 const tools = [
   { name: 'get_workspace', description: 'Read it', inputSchema: { type: 'object', properties: {} } },
+  { name: 'ask_user', description: 'Ask', strict: true, inputSchema: { type: 'object', properties: {} } },
   { name: 'str_replace_based_edit_tool', description: 'Edit files', builtin: 'text_editor' as const, inputSchema: { type: 'object', properties: {} } },
 ]
 
@@ -55,9 +56,10 @@ describe('Claude adapter', () => {
     expect(r1.headers.get('anthropic-dangerous-direct-browser-access')).toBe('true')
     expect(r1.headers.get('anthropic-beta')).toContain('server-side-fallback-2026-07-01')
     expect(r1.body).toMatchObject({ model: 'claude-opus-5-5', fallbacks: 'default', stream: true, system: 'SYSTEM', cache_control: { type: 'ephemeral' } })
-    // Our tools go strict (every object closed); the text editor is declared by its type.
+    // Every object closed; only the tools marked strict go strict (the grammar has a size limit); the text editor is declared by its type.
     expect(r1.body.tools).toEqual([
-      { name: 'get_workspace', description: 'Read it', strict: true, input_schema: { type: 'object', properties: {}, additionalProperties: false } },
+      { name: 'get_workspace', description: 'Read it', input_schema: { type: 'object', properties: {}, additionalProperties: false } },
+      { name: 'ask_user', description: 'Ask', strict: true, input_schema: { type: 'object', properties: {}, additionalProperties: false } },
       { type: 'text_editor_20250728', name: 'str_replace_based_edit_tool' },
     ])
     expect(r2.body.messages).toEqual([

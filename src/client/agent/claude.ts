@@ -94,15 +94,15 @@ class ClaudeSession implements ChatSession {
     // No eager input streaming: the API then checks each tool input is valid JSON before it
     // reaches us (a long input once arrived with stray characters at the end). Tools still
     // validate every input (lib/agent/tools.ts).
-    // Strict tools: the API guarantees every input matches its schema (a list can't arrive as a
-    // string). The text editor is Anthropic's own tool: declared by type, its schema built in.
+    // Strict tools (ToolSpec.strict, a few with nested inputs): the API guarantees their input matches
+    // the schema (a list can't arrive as a string). The text editor is Anthropic's own tool: declared by type, its schema built in.
     this.tools = tools.map((t) =>
       t.builtin === 'text_editor'
         ? ({ type: 'text_editor_20250728', name: 'str_replace_based_edit_tool' } as Anthropic.Beta.BetaToolUnion)
         : {
             name: t.name,
             description: t.description,
-            strict: true,
+            ...(t.strict ? { strict: true } : {}),
             input_schema: strictSchema(t.inputSchema) as Anthropic.Beta.BetaTool.InputSchema,
           },
     )

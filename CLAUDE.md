@@ -181,7 +181,7 @@ whatever they're actually asking about.
   cloudId, rows, structured origin, sameAs read-only), `transforms/<id>.json` + `<id>.<key>.sql`,
   `visualizations/<id>.json`, generated `overview.md`; SQL never inside JSON) and commits with
   `apply_workspace` (checks everything, returns new ids; `lib/agent/workspaceFiles.ts`). Everything
-  existing is targeted by id. Our tools are `strict`. It asks on **question cards** (`lib/agent/form.ts`, `agent/AskCard.vue`; `docs/agents.md`, *Question cards and exchanges*, user
+  existing is targeted by id. Only tools with nested inputs are `strict` (`ToolSpec.strict`: ask_user, propose_frame, pick_source, query_sql, apply_workspace; the storyteller's write_story) — every strict schema is compiled into one grammar, and 19 strict tools hit the API's undisclosed size limit ("The compiled grammar is too large", 2026-11-05); a test pins the list; the rest validate their own input. It asks on **question cards** (`lib/agent/form.ts`, `agent/AskCard.vue`; `docs/agents.md`, *Question cards and exchanges*, user
   2026-11-05): a title, then **1–3 questions** answered together by **one button pair** — each question framed (question, why), of a kind:
   **answer** (its own drafted response to edit, never an empty box), **one** (radio buttons, recommended first, **Neither (see comments)** when
   an answer outside is plausible), **several** (checkboxes); each with a folded ＋ Comment box; a card without questions is a plain yes / no. An

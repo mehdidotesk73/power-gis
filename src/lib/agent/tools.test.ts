@@ -9,7 +9,7 @@ const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string 
   const button = fn(card, s) || card.buttons[0]
   return cardAnswer(card, s, button, comments)
 }
-import { forgetChat, runTool, webFileDescription, workspaceVersion, type AgentHost } from './tools'
+import { forgetChat, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
@@ -687,5 +687,11 @@ describe('agent loop', () => {
     expect(await runTool(host, 'add_builtin', { table: 'mars' })).toMatchObject({ isError: true, content: expect.stringContaining('us_states') })
     // Made in this chat: it may delete it again.
     expect((await runTool(host, 'delete_dataset', { id: 'ds-us_states' })).summary).not.toBe('refused: not yours')
+  })
+
+  it('keeps strict tools few: every strict schema is compiled into one grammar, and too large a one is refused', () => {
+    // 19 strict tools gave "The compiled grammar is too large" (2026-11-05). Strict only where the input is nested
+    // and a malformed one really hurts; the rest validate their own input. Adding one here is a deliberate choice.
+    expect(TOOLS.filter((t) => t.strict).map((t) => t.name).sort()).toEqual(['apply_workspace', 'ask_user', 'pick_source', 'propose_frame', 'query_sql'])
   })
 })
