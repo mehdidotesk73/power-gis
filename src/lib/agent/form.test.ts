@@ -1,78 +1,74 @@
 import { describe, expect, it } from 'vitest'
-import { answerSummary, fieldValue, initialValues, missingRequired, readForm, type Form } from './form'
+import { answerForAgent, answerSummary, cardAnswer, initialState, missingRequired, NEITHER, readCard, type Card } from './form'
 
-const form = (input: Record<string, unknown>) => readForm(input) as Form
+const card = (input: Record<string, unknown>) => readCard(input) as Card
+const q = (x: Record<string, unknown>) => ({ why: '', text: '', options: [], recommended: '', neither: false, selected: [], required: false, ...x })
 
-describe('ask_user forms', () => {
-  it('defaults the buttons: Approve / Reject without fields (a plan), Continue with them (a decision)', () => {
-    expect(form({ question: 'Build it?' }).buttons).toEqual(['Approve', 'Reject'])
-    expect(form({ question: 'Name?', fields: [{ id: 'n', kind: 'text', label: 'Name' }] }).buttons).toEqual(['Continue'])
-    expect(form({ question: 'Merge them?', buttons: ['Yes', 'No'] }).buttons).toEqual(['Yes', 'No'])
+describe('question cards', () => {
+  it('default pairs: Submit / Cancel with questions, Yes / No without', () => {
+    expect(card({ title: 'Count the overseas regions in France?' }).buttons).toEqual(['Yes', 'No'])
+    expect(card({ title: 'Settle the plan', questions: [q({ kind: 'answer', question: 'The plan', text: 'Clean, join, map.' })] }).buttons).toEqual(['Submit', 'Cancel'])
+    expect(card({ title: 'Go?', buttons: ['Go', 'No-go'] }).buttons).toEqual(['Go', 'No-go'])
   })
 
-  it('gives every choice "Something else": the options are the agent\'s own, the way out is always there', () => {
-    const f = form({ question: 'France has overseas regions: what to do with them?', fields: [{ id: 'how', kind: 'choice', label: 'Overseas regions', options: ['Count them in France (recommended)', 'Leave them out'], other: false }] })
-    expect(f.fields[0]).toMatchObject({ other: true })
-    expect(f.buttons).toEqual(['Continue'])
+  it('refuses what the format rules out, and says how to fix it', () => {
+    expect(readCard({})).toMatch(/title/)
+    expect(readCard({ title: 'T', questions: [1, 2, 3, 4].map(() => q({ kind: 'answer', question: 'Q', text: 'x' })) })).toMatch(/At most 3/)
+    expect(readCard({ title: 'T', questions: [q({ kind: 'answer', question: 'Explain?', text: '' })] })).toMatch(/your own considered response/)
+    expect(readCard({ title: 'T', questions: [q({ kind: 'one', question: 'Pick', options: ['only'] })] })).toMatch(/at least two/)
+    expect(readCard({ title: 'T', questions: [q({ kind: 'slider', question: 'Q' })] })).toMatch(/"kind"/)
+    expect(readCard({ title: 'T', buttons: ['Yes', 'No', 'Maybe'] })).toMatch(/pair/)
+    expect(readCard({ title: 'T', buttons: ['Yes', 'Yes'] })).toMatch(/differ/)
   })
 
-  it('checks every field and names the problem', () => {
-    expect(readForm({})).toBe('`question` is required')
-    expect(readForm({ question: 'Q', fields: [{ id: 'a', kind: 'text', label: 'A' }, { id: 'a', kind: 'text', label: 'B' }] })).toMatch(/used twice/)
-    expect(readForm({ question: 'Q', fields: [{ id: 'a', kind: 'slider', label: 'A' }] })).toMatch(/"kind"/)
-    expect(readForm({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', options: ['x', 'x'] }] })).toMatch(/differ/)
-    expect(readForm({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', options: ['x', 'y'], selected: ['x', 'y'] }] })).toMatch(/at most one/)
-    expect(readForm({ question: 'Q', buttons: [] })).toMatch(/at least one/)
-    expect(readForm({ question: 'Q', buttons: ['a', 'b', 'c', 'd', 'e'] })).toMatch(/At most 4/)
-    // A choice needs the agent's own options (Something else is added to them, never alone).
-    expect(readForm({ question: 'Q', fields: [{ id: 'a', kind: 'choice', label: 'A', other: true }] })).toMatch(/needs options/)
+  it('puts the recommended option first, picks it to start, and offers Neither unless told not to', () => {
+    const c = card({ title: 'Overseas regions', questions: [q({ kind: 'one', question: 'What to do with them?', options: ['Leave them out', 'Count them in France'], recommended: 'Count them in France', neither: true })] })
+    expect(c.questions[0]).toMatchObject({ options: ['Count them in France', 'Leave them out'], recommended: 'Count them in France', selected: 'Count them in France', neither: true })
+    const exhaustive = card({ title: 'T', questions: [q({ kind: 'one', question: 'Q', options: ['a', 'b'], neither: false })] })
+    expect(exhaustive.questions[0]).not.toHaveProperty('neither')
   })
 
-  it('gives an empty multiline box a hint, so it never reads as a missing draft', () => {
-    expect(form({ question: 'Approve?', fields: [{ id: 'n', kind: 'text', label: 'Notes', multiline: true }] }).fields[0]).toMatchObject({ placeholder: 'Write here…' })
-    expect(form({ question: 'Notes?', fields: [{ id: 'n', kind: 'text', label: 'Notes', multiline: true, placeholder: 'Anything else' }] }).fields[0]).toMatchObject({ placeholder: 'Anything else' })
-    expect(form({ question: 'Plan?', fields: [{ id: 'p', kind: 'text', label: 'Plan', multiline: true, value: 'Clean, then map.' }] }).fields[0]).not.toHaveProperty('placeholder')
-  })
-
-  it('answers with the chosen options in order and the own answer last; a single choice prefers an option', () => {
-    const multi = form({ question: 'Q', fields: [{ id: 'y', kind: 'choice', label: 'Years', options: ['2022', '2023', '2024'], multiple: true, other: true }] }).fields[0]
-    expect(fieldValue(multi, ['2024', '2022', 'nope'], ' 2019 ')).toEqual(['2022', '2024', '2019'])
-    const single = form({ question: 'Q', fields: [{ id: 's', kind: 'choice', label: 'Source', options: ['Census', 'Zillow'], other: true }] }).fields[0]
-    expect(fieldValue(single, ['Zillow'], 'my own')).toEqual(['Zillow'])
-    expect(fieldValue(single, [], 'my own')).toEqual(['my own'])
-    const text = form({ question: 'Q', fields: [{ id: 't', kind: 'text', label: 'T' }] }).fields[0]
-    expect(fieldValue(text, '  hi  ')).toBe('hi')
-  })
-
-  it('starts from the given values, holds back the main button for required fields, and sums up the answer', () => {
-    const f = form({
-      question: 'Review the plan',
-      fields: [
-        { id: 'plan', kind: 'text', label: 'Plan', value: 'Clean, join, then map the median rent per county.', multiline: true, required: true },
-        { id: 'level', kind: 'choice', label: 'Level', options: ['County', 'State'], multiple: true, selected: ['County'] },
+  it('answers a three-question card in one go; an unchanged draft comes back as just edited: false', () => {
+    const c = card({
+      title: 'Frame it',
+      questions: [
+        q({ kind: 'answer', question: 'How I would frame it', text: 'Where therapy practices are viable.' }),
+        q({ kind: 'several', question: 'Components', options: ['Demand', 'Fees', 'Providers'], selected: ['Demand', 'Fees', 'Providers'] }),
+        q({ kind: 'one', question: 'Level', options: ['County', 'State'], recommended: 'County', neither: true }),
       ],
-      buttons: ['Build it', 'Not now'],
     })
-    const start = initialValues(f)
-    expect(start).toEqual({ plan: 'Clean, join, then map the median rent per county.', level: ['County'] })
-    expect(missingRequired(f, { ...start, plan: '  ' })).toEqual(['Plan'])
-    expect(answerSummary(f, { button: 'Build it', values: { plan: start.plan, level: ['County', 'State'] } })).toBe('Build it · Plan: Clean, join, then map the median rent per county. · Level: County, State')
-    const long = 'x'.repeat(80)
-    const g = form({ question: 'Q', fields: [{ id: 'p', kind: 'text', label: 'Plan', value: long }] })
-    expect(answerSummary(g, { button: 'Submit', values: { p: long } })).toBe('Submit · Plan: as proposed')
-    expect(answerSummary(g, { button: 'Submit', values: { p: `${long}!` } })).toBe('Submit · Plan: edited')
+    const s = initialState(c)
+    s.q2.choices = ['Demand', 'Providers']
+    s.q2.comments = 'Fees are a proxy at best'
+    s.q3.choice = NEITHER
+    s.q3.comments = 'Metro areas'
+    const a = cardAnswer(c, s, 'Submit')
+    expect(answerForAgent(c, a)).toEqual({
+      button: 'Submit',
+      answers: [
+        { question: 'How I would frame it', edited: false },
+        { question: 'Components', choices: ['Demand', 'Providers'], comments: 'Fees are a proxy at best' },
+        { question: 'Level', choice: null, neither: true, comments: 'Metro areas' },
+      ],
+    })
+    expect(answerSummary(c, a)).toContain('as proposed')
+    s.q1.text = 'Where a new practice would find clients.'
+    expect(cardAnswer(c, s, 'Submit').replies.q1).toEqual({ kind: 'answer', edited: true, text: 'Where a new practice would find clients.' })
   })
 
-  it('adds a Notes box to every card, and Revise with my notes to one with a draft', async () => {
-    const { withNotes, REVISE } = await import('./form')
-    const plain = withNotes({ question: 'Go?', fields: [], buttons: ['Approve', 'Reject'] })
-    expect(plain.fields.map((f) => f.id)).toEqual(['notes'])
-    expect(plain.buttons).toEqual(['Approve', 'Reject']) // nothing drafted to revise
-    const draft = withNotes({ question: 'Framing', fields: [{ id: 'framing', kind: 'text', label: 'Framing', value: 'A retirement score…', multiline: true }], buttons: ['Approve'] })
-    expect(draft.buttons).toEqual(['Approve', REVISE])
-    // The assistant's own notes box is kept; a full card gets none; four buttons leave no room for Revise.
-    expect(withNotes({ question: 'Q', fields: [{ id: 'notes', kind: 'text', label: 'Mine' }], buttons: ['OK'] }).fields).toHaveLength(1)
-    const full = Array.from({ length: 8 }, (_, i) => ({ id: `f${i}`, kind: 'text' as const, label: 'x', value: 'y' }))
-    expect(withNotes({ question: 'Q', fields: full, buttons: ['A', 'B', 'C', 'D'] })).toMatchObject({ fields: full, buttons: ['A', 'B', 'C', 'D'] })
+  it('holds back only the first button for required questions; Neither needs its comments', () => {
+    const c = card({ title: 'T', questions: [q({ kind: 'one', question: 'Pick', options: ['a', 'b'], neither: true, required: true })] })
+    const s = initialState(c)
+    expect(missingRequired(c, s)).toEqual(['Pick'])
+    s.q1.choice = NEITHER
+    expect(missingRequired(c, s)).toEqual(['Pick'])
+    s.q1.comments = 'c instead'
+    expect(missingRequired(c, s)).toEqual([])
+  })
+
+  it('a plain yes / no card carries its own comments', () => {
+    const c = card({ title: 'Merge the overseas regions into France?' })
+    const a = cardAnswer(c, {}, 'No', 'Keep Guadeloupe separate')
+    expect(answerForAgent(c, a)).toEqual({ button: 'No', comments: 'Keep Guadeloupe separate' })
   })
 })

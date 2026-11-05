@@ -60,9 +60,10 @@ async function say(page: Page, text: string) {
   await page.getByRole('button', { name: 'Send' }).click()
 }
 
-test('the assistant asks with a form: choices, its own answer, a drafted plan, and buttons', async ({ browser }) => {
+test('the assistant asks a card of up to three questions, answered together by one button pair', async ({ browser }) => {
   const page = await device(browser, PHONE)
   const seen: unknown[] = []
+  const q = (x: Record<string, unknown>) => ({ why: '', text: '', options: [], recommended: '', neither: false, selected: [], required: false, ...x })
   await fakeModel(
     page,
     [
@@ -73,14 +74,14 @@ test('the assistant asks with a form: choices, its own answer, a drafted plan, a
           {
             name: 'ask_user',
             input: {
-              question: 'Which years should the map cover?',
-              details: 'Income is there for 2022; rents would need the web.',
-              fields: [
-                { id: 'years', kind: 'choice', label: 'Years', options: ['2021', '2022', '2023'], multiple: true, other: true, selected: ['2022'] },
-                { id: 'level', kind: 'choice', label: 'Level', options: ['County', 'State'] },
-                { id: 'plan', kind: 'text', label: 'Plan', value: 'Clean the income table, then map it by county.', multiline: true, required: true },
+              title: 'How should the income map be built?',
+              context: 'Income is there for 2022; rents would need the web.',
+              questions: [
+                q({ kind: 'answer', question: 'The plan', why: 'What I would build', text: 'Clean the income table, then map it by county.', required: true }),
+                q({ kind: 'several', question: 'Which years?', options: ['2021', '2022', '2023'], selected: ['2022'] }),
+                q({ kind: 'one', question: 'At what level?', why: 'Counties show more detail; states read faster.', options: ['State', 'County'], recommended: 'County', neither: true }),
               ],
-              buttons: ['Build it', 'Skip rents', 'Not now'],
+              buttons: ['Build it', 'Not now'],
             },
           },
         ],
@@ -93,13 +94,17 @@ test('the assistant asks with a form: choices, its own answer, a drafted plan, a
   await say(page, 'Map income and rent per county')
 
   const askCard = page.getByTestId('ask-card')
-  await expect(askCard.getByText('Which years should the map cover?')).toBeVisible()
+  await expect(askCard.getByText('How should the income map be built?')).toBeVisible()
+  // The recommended option comes first, marked, and picked to start; a radio set offers Neither.
+  await expect(askCard.getByTestId('ask.q3').locator('.option').first()).toContainText('County (recommended)')
+  await expect(askCard.getByTestId('ask.q3').getByLabel('County')).toBeChecked()
+  await askCard.getByLabel('The plan').fill('Clean the income table, then map it by state.')
   await askCard.getByLabel('2023').check()
-  // Every choice offers "Something else" (the level too, though the model didn't ask for it).
-  await expect(askCard.getByPlaceholder('Something else…')).toHaveCount(2)
-  await askCard.getByPlaceholder('Something else…').first().fill('2019')
-  await askCard.getByLabel('State').check()
-  await askCard.getByLabel('Plan').fill('Clean the income table, then map it by state.')
+  // Comments stay folded until asked for; Neither opens them.
+  await askCard.getByTestId('ask.comment-2').click()
+  await askCard.getByLabel('Comments: Which years?').fill('2019 too, if it exists')
+  await askCard.getByTestId('ask.q3').getByLabel('Neither (see comments)').check()
+  await askCard.getByLabel('Comments: At what level?').fill('Metro areas')
   await page.screenshot({ path: test.info().outputPath('ask-card-phone.png'), fullPage: false })
   await askCard.getByTestId('ask.button-0').click()
 
@@ -111,8 +116,16 @@ test('the assistant asks with a form: choices, its own answer, a drafted plan, a
   await expect(reasoning).toContainText('Check which years the workspace has first.')
   const step = page.locator('.tool', { hasText: 'Ask you' })
   await step.getByRole('button').click()
-  await expect(step).toContainText('"question": "Which years should the map cover?"')
-  expect(lastToolResult(seen)).toEqual({ button: 'Build it', values: { years: ['2022', '2023', '2019'], level: ['State'], plan: 'Clean the income table, then map it by state.', notes: '' } })
+  await expect(step).toContainText('"title": "How should the income map be built?"')
+  expect(lastToolResult(seen)).toEqual({
+    button: 'Build it',
+    answers: [
+      { question: 'The plan', edited: true, text: 'Clean the income table, then map it by state.' },
+      { question: 'Which years?', choices: ['2022', '2023'], comments: '2019 too, if it exists' },
+      { question: 'At what level?', choice: null, neither: true, comments: 'Metro areas' },
+    ],
+    note: "Take the user's comments into account in what you do next.",
+  })
   await expect(askCard.getByText('✓ Build it')).toBeVisible()
 })
 
@@ -197,7 +210,7 @@ test('the scraper: signed in, the brief approved, its run followed, its CSV a ne
   await fakeModel(page, [{ text: 'I can fetch rents.', tools: [{ name: 'send_scraper', input: { brief, cap_dollars: 2 } }] }, { text: 'Rents are in.' }], seen)
   await say(page, 'Add rents per county')
   const approval = page.getByTestId('ask-card')
-  await expect(approval.getByLabel('Brief')).toHaveValue(brief)
+  await expect(approval.getByLabel('The brief')).toHaveValue(brief)
   await approval.getByLabel('$1', { exact: true }).check()
   await page.screenshot({ path: test.info().outputPath('scraper-approval-phone.png') })
   await approval.getByTestId('ask.button-0').click()

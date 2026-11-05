@@ -19,7 +19,8 @@ import { DEFAULT_PROFILE, PROFILES, profileById, profileStats, recordChat, stats
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
 import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
 import { forgetChat, IMPORTABLE, runTool, webFileDescription, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
-import { STOPPED, type Form, type FormAnswer } from '../../lib/agent/form'
+import { STOPPED, type Card, type CardAnswer } from '../../lib/agent/form'
+import type { Rounds } from '../../lib/agent/exchanges'
 import { activeRun, downloadFile, followRun, forgetRun, logRun, readRun, recentRuns, RunError, SignInNeeded, startRun, traceText, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
 import { DIAGNOSIS_MODELS, DIAGNOSIS_PROMPT, diagnosisInput, type DiagnosisStep } from '../../lib/agent/diagnosis'
 import { logAsText } from '../../debug'
@@ -134,7 +135,7 @@ type Item =
   | { kind: 'tool'; call: ToolCall; state: 'running' | 'ok' | 'error'; summary: string; result?: string; open: boolean; /** A step run by another agent (the storyteller): its model. */ model?: string }
   | { kind: 'note'; text: string; tone: 'info' | 'warn' | 'error'; detail?: string; /** A failed turn: offer Retry and Diagnose. */ failed?: boolean; /** The connection dropped: retrying. */ retrying?: boolean; /** Offer a Sign in button (the scout and scraper need an account). */ signIn?: boolean }
   | { kind: 'thinking'; text: string; open: boolean }
-  | { kind: 'ask'; form: Form; answer?: FormAnswer }
+  | { kind: 'ask'; card: Card; answer?: CardAnswer }
   | { kind: 'diagnosis'; state: 'running' | 'ok' | 'error'; model: string; report: string; open: boolean; copied?: boolean }
   | RunItem
 
@@ -171,11 +172,11 @@ const scroller = ref<HTMLElement>()
 // ── asking the user (the ask_user tool) ────────────────────────────────────
 
 /** Resolves the question the agent is waiting on. */
-let answerPending: ((a: FormAnswer) => void) | null = null
+let answerPending: ((a: CardAnswer) => void) | null = null
 const waiting = ref(false)
-function ask(form: Form): Promise<FormAnswer> {
+function ask(card: Card): Promise<CardAnswer> {
   return new Promise((resolve) => {
-    items.value.push({ kind: 'ask', form })
+    items.value.push({ kind: 'ask', card })
     const it = items.value[items.value.length - 1] as Extract<Item, { kind: 'ask' }>
     waiting.value = true
     answerPending = (a) => {
@@ -412,7 +413,7 @@ function chatSteps(): DiagnosisStep[] {
     if (x.kind === 'assistant') return [{ kind: 'assistant message', text: x.text }]
     if (x.kind === 'note') return [{ kind: `note (${x.tone})`, text: `${x.text}${x.detail ? `\n${x.detail}` : ''}` }]
     if (x.kind === 'tool') return [{ kind: `tool ${x.call.name} (${x.state}${x.summary ? `: ${x.summary}` : ''})`, text: `input: ${JSON.stringify(x.call.input)}\nresult: ${x.result ?? '(none)'}` }]
-    if (x.kind === 'ask') return [{ kind: 'question card', text: `${x.form.question}\nanswer: ${JSON.stringify(x.answer ?? null)}` }]
+    if (x.kind === 'ask') return [{ kind: 'question card', text: `${x.card.title}\nanswer: ${JSON.stringify(x.answer ?? null)}` }]
     if (x.kind === 'run')
       return [
         {
@@ -439,13 +440,14 @@ function chatSteps(): DiagnosisStep[] {
 async function runDiagnosis(whatHappened: string): Promise<{ report: string; model: string; cost?: number } | string> {
   const labels = DIAGNOSIS_MODELS.map((m) => m.label)
   const a = await ask({
-    question: 'Run a diagnosis of what went wrong?',
-    details: `${whatHappened}\n\nA separate agent reads this chat's steps, the runs and the app's log, and writes an issue report you can send to the developers. One call; on Opus it may cost around $0.20–0.60.`,
-    fields: [{ id: 'model', kind: 'choice', label: 'Model', options: labels, selected: [labels[0]], required: true }],
+    title: 'Run a diagnosis of what went wrong?',
+    context: `${whatHappened}\n\nA separate agent reads this chat's steps, the runs and the app's log, and writes an issue report you can send to the developers. One call; on Opus it may cost around $0.20–0.60.`,
+    questions: [{ id: 'model', kind: 'one', question: 'Which model writes it?', why: 'A stronger model reads the log more carefully, for more.', options: labels, recommended: labels[0], selected: labels[0], required: true }],
     buttons: ['Diagnose', 'Not now'],
   })
   if (a.button !== 'Diagnose') return `The user didn't want a diagnosis now (${a.button}).`
-  const picked = Array.isArray(a.values.model) ? a.values.model[0] : undefined
+  const r = a.replies.model
+  const picked = r?.kind === 'one' ? (r.choice ?? undefined) : undefined
   const model = DIAGNOSIS_MODELS.find((m) => m.label === picked)?.id ?? DIAGNOSIS_MODELS[0].id
   items.value.push({ kind: 'diagnosis', state: 'running', model, report: '', open: true })
   const it = items.value[items.value.length - 1] as Extract<Item, { kind: 'diagnosis' }>
@@ -504,12 +506,16 @@ function askSignIn() {
   items.value.push({ kind: 'note', tone: 'warn', text: 'The scout and scraper need a PowerGIS account: they run through our relay, which only signed-in people may use. The chat itself works without one.', signIn: true })
 }
 const openSignIn = () => window.dispatchEvent(new CustomEvent('powergis:sign-in'))
-const host: AgentHost = { ...props.host, ask, web, signedIn: () => !!auth.user, askSignIn, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
+/** The exchanges' revision rounds in this chat (exchanges.ts). */
+let rounds: Rounds = new Map()
+const host: AgentHost = { ...props.host, ask, get rounds() { return rounds }, set rounds(r) { rounds = r ?? new Map() }, web, signedIn: () => !!auth.user, askSignIn, importWebFile, tellStory: storyteller, fetchRun: fetchRunById, readRun: readRunById, runs: recentRuns, diagnose: runDiagnosis }
 
 const TOOL_LABEL: Record<string, string> = {
   list_datasets: 'List datasets',
   get_workspace: 'Read the workspace',
   ask_user: 'Ask you',
+  propose_plan: 'Propose the plan',
+  pick_source: 'Pick a source',
   send_scout: 'Send the scout',
   send_scraper: 'Send the scraper',
   query_sql: 'Query',
@@ -646,7 +652,7 @@ async function send() {
           // The scout and scraper: their approval card, then their run card, are the step. ask_user gets a step
           // too (what it sent, in full), above its card.
           // What a question card was sent, in the log (View logs): a card that arrives emptier than the assistant meant is found here.
-          if (call.name === 'ask_user') logDebug(`ask_user input: ${JSON.stringify(call.input).slice(0, 4000)}`)
+          if (call.name === 'ask_user' || call.name === 'propose_plan' || call.name === 'pick_source') logDebug(`${call.name} input: ${JSON.stringify(call.input).slice(0, 4000)}`)
           if (!live() || call.name === 'send_scout' || call.name === 'send_scraper') return
           items.value.push({ kind: 'tool', call, state: 'running', summary: '', open: false })
         },
@@ -713,7 +719,7 @@ function logChat() {
 }
 /** Stops the run at once, whatever it's waiting on (runAgent races every step against the signal). */
 function stop() {
-  answerPending?.({ button: STOPPED, values: {} })
+  answerPending?.({ button: STOPPED, replies: {} })
   controller?.abort()
 }
 /**
@@ -728,6 +734,7 @@ function newChat(confirmFirst = false) {
   items.value = []
   usage.value = emptyUsage()
   chatUsage.value = []
+  rounds = new Map()
   session = null
   chatRecord = null
   storyUsage.value = []
@@ -879,7 +886,7 @@ const usageText = computed(() => {
             <UiButton v-if="it.state === 'ok'" size="compact" icon="⧉" data-testid="agent.diagnosis.copy" @click="copyDiagnosis(it)">{{ it.copied ? 'Copied ✓' : 'Copy report' }}</UiButton>
           </div>
         </div>
-        <AskCard v-else-if="it.kind === 'ask'" :form="it.form" :answer="it.answer" @answer="(a) => answerPending?.(a)" />
+        <AskCard v-else-if="it.kind === 'ask'" :card="it.card" :answer="it.answer" @answer="(a) => answerPending?.(a)" />
         <div v-else-if="it.kind === 'run'" class="tool run" :class="it.state" data-testid="web-run">
           <button class="tool-line" :aria-expanded="it.open" @click="it.open = !it.open">
             <span class="dot" aria-hidden="true">{{ it.state === 'running' ? '…' : it.state === 'ok' ? '✓' : '⚠' }}</span>
