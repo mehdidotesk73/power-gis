@@ -487,7 +487,11 @@ browser or a prompt / model change creates new ones, and agents can only be arch
   - Postures, for any factor (core ones included): **Exact** (data at the target unit); **Anchor + proxy** (reliable
     coarser data plus finer signals that track it); **Fermi** (a first-principles estimate as a range, assumptions
     stated) — a valid starting input when a question has little data, not only a last-step adjustment.
-- **PR B — targeted scouting.**
+- **PR B — targeted scouting.** ✅ Done in part (2026-11-05, PR #60): narrow briefs with their needs and a stop rule, the
+  structured report (SOURCES line), the source ledger with list_sources (only exact matches skip the scout), scouting cost
+  logged per chat. **Still to do:** parallel scout runs (the app follows one run at a time today) and the cheap first pass
+  that triages search results before the expensive model checks the best few (a two-model run). Then measure: a few
+  open questions before / after on the same profile (⚙ shows each profile's average scouting cost).
   - Briefs per factor (or a few related ones) with the unit, window, posture and a stop rule (one good source per need,
     two when unsure); briefs can run in parallel; a cheap first pass triages search results and the expensive model
     checks only the best few.

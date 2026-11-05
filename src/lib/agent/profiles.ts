@@ -53,6 +53,9 @@ export interface ChatRecord {
   tokensOut: number
   /** Scout and scraper runs sent. */
   runs: number
+  /** Of those, scout runs, and what they cost (dollars): the costly step, measured on its own. */
+  scoutRuns?: number
+  scoutCost?: number
 }
 
 /** The log keeps the most recent chats only. */
@@ -69,8 +72,11 @@ export interface ProfileStats {
   /** Average dollars per chat, over chats with a known cost. */
   avgCost?: number
   avgRuns: number
+  /** Average scouting dollars per chat, over chats that recorded it (from 2026-11-05): before / after a change to scouting. */
+  avgScoutCost?: number
 }
 
+const scouted = (rows: ChatRecord[]) => rows.filter((r) => r.scoutCost !== undefined)
 /** Per profile: how many chats, their average cost and runs. Chats with no finished turn don't count. */
 export function profileStats(log: ChatRecord[]): Record<string, ProfileStats> {
   const out: Record<string, ProfileStats> = {}
@@ -82,6 +88,7 @@ export function profileStats(log: ChatRecord[]): Record<string, ProfileStats> {
       chats: rows.length,
       ...(priced.length ? { avgCost: priced.reduce((s, r) => s + r.cost!, 0) / priced.length } : {}),
       avgRuns: rows.reduce((s, r) => s + r.runs, 0) / rows.length,
+      ...(scouted(rows).length ? { avgScoutCost: scouted(rows).reduce((s, r) => s + (r.scoutCost ?? 0), 0) / scouted(rows).length } : {}),
     }
   }
   return out
@@ -91,5 +98,6 @@ export function profileStats(log: ChatRecord[]): Record<string, ProfileStats> {
 export function statsLine(s: ProfileStats | undefined): string {
   if (!s) return ''
   const cost = s.avgCost === undefined ? '' : ` · ≈ $${s.avgCost < 0.995 ? s.avgCost.toFixed(2) : s.avgCost.toFixed(s.avgCost < 10 ? 2 : 1)} a chat`
-  return `${s.chats} chat${s.chats === 1 ? '' : 's'}${cost}`
+  const scout = s.avgScoutCost === undefined ? '' : ` (scouting ≈ $${s.avgScoutCost.toFixed(2)})`
+  return `${s.chats} chat${s.chats === 1 ? '' : 's'}${cost}${scout}`
 }

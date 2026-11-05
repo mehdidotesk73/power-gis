@@ -24,6 +24,7 @@ import type { ToolOutcome } from './loop'
 import { agentColor, agentTransform, agentVisualization, assembleFiles, canonical, EDITOR_TOOL, OVERVIEW, overviewText, runEditor, sqlPath, transformPath, vizPath, workspaceFiles, type DatasetFacts, type Files } from './workspaceFiles'
 import type { ToolSpec } from './provider'
 import { answerForAgent, answerSummary, commentsOf, LIMITS, readCard, type Card, type CardAnswer } from './form'
+import { parseScoutReport, searchLedger, type FoundNeed, type LedgerEntry } from './sources'
 import { frameCard, frameOutcome, frameSection, planCard, planOutcome, POSTURES, runCard, runOutcome, sourceCard, sourceOutcome, withFrame, type FrameComponent, type Posture, type Rounds, type SourceOption } from './exchanges'
 
 /** What the tools act through: the page's workspace copy and the server. */
@@ -52,6 +53,10 @@ export interface AgentHost {
   importCsv?(file: File, description: string): Promise<{ ok: true; id: string } | { ok: false; message: string }>
   /** Sends the scout or the scraper with a brief and a spending cap, and follows it to the end (the chat shows its progress); a message when it can't. */
   web?(role: WebRole, brief: string, capDollars: number): Promise<WebRun | string>
+  /** Sources the scout found in earlier runs on this device (lib/agent/sources.ts). */
+  sources?(): LedgerEntry[]
+  /** Keeps a scout run's sources in that ledger. */
+  rememberSources?(needs: FoundNeed[], runId: string): void
   /** Whether the user is signed in to PowerGIS (the scout and scraper need it; the chat doesn't). */
   signedIn?(): boolean
   /** Shows the user a way to sign in (the chat's Sign in button). */
@@ -236,16 +241,36 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'send_scout',
     description:
-      "Send the scout to find out what data exists on the web for a question: it searches, follows links to where data actually lives, peeks at files' layouts, reads terms of use, and reports back (it extracts nothing). It runs in a container on Anthropic's servers, takes a minute or a few and costs cents. The user approves (and may edit) the brief and the spending cap first. Returns its report. Use it when the source isn't known; then propose a scraper brief from the report.",
+      "Send the scout to find out what data exists on the web: it searches, follows links to where data actually lives, peeks at files' layouts, reads terms of use, and reports back (it extracts nothing). It runs in a container on Anthropic's servers, takes a minute or a few and costs cents. The user approves (and may edit) the brief and the spending cap first. Check list_sources first. Keep each run narrow: one need, or a few related ones, listed in \"needs\" (each with its measure, unit and window, and posture); the scout stops once each need has one good source (two when it isn't sure). Returns its report and the sources it found per need (also kept for later chats).",
     inputSchema: {
       type: 'object',
       properties: {
-        brief: { type: 'string', description: 'What to look for: the question, what the data must cover (what, where, when, level of detail), candidate sources if any, and what to report.' },
-        cap_dollars: { type: 'number', description: `The spending cap you recommend, in dollars (${CAP_RANGE.min}–${CAP_RANGE.max}): what you expect the run to cost, times a safety factor of about 2 (a scout: about $0.20–0.50 a source; a scraper: about $0.50–1.50 a source, more for PDFs or pages built by JavaScript). Default 1.` },
+        brief: { type: 'string', description: 'The question and anything the needs don\'t say: candidate sources, what is already known and ruled out, the shapes for the unit if none is built in.' },
+        needs: {
+          type: 'array',
+          description: 'What to find, one entry per need (a few related ones per run at most).',
+          items: {
+            type: 'object',
+            properties: {
+              need: { type: 'string', description: 'In a few words ("average annual wage per country").' },
+              measure: { type: 'string', description: 'Exactly what: units, money basis, mean or median, per year or month.' },
+              where: { type: 'string', description: 'The window and unit of analysis ("every country, latest year").' },
+              posture: { type: 'string', enum: ['exact', 'anchor + proxy', 'fermi'], description: 'exact: data at the unit; anchor + proxy: a coarser anchor and finer signals; fermi: inputs for an estimate.' },
+            },
+            required: ['need', 'measure', 'where', 'posture'],
+          },
+        },
+        cap_dollars: { type: 'number', description: `The spending cap you recommend, in dollars (${CAP_RANGE.min}–${CAP_RANGE.max}): what you expect the run to cost, times a safety factor of about 2 (a scout: about $0.20–0.50 a need; a scraper: about $0.50–1.50 a source, more for PDFs or pages built by JavaScript). Default 1.` },
         cap_reason: { type: 'string', description: 'A few words on how you sized it ("3 sources, PDFs; ×2"), shown on the card; "" for none.' },
       },
       required: ['brief'],
     },
+  },
+  {
+    name: 'list_sources',
+    description:
+      'Sources the scout found in earlier runs on this device, matching a need ("average wage per country"): each with what it measures, coverage, period, how to get it, terms, and the run that found it. Check before sending the scout: only a source that is an exact match for the need (the same measure, unit and window) skips the scout; anything less, send the scout anyway and weigh both afterwards.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'The need, in a few words.' } }, required: ['query'] },
   },
   {
     name: 'send_scraper',
@@ -1057,6 +1082,14 @@ async function proposePlan(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   return ok({ decision: out.decision, ...out.value, ...(out.comments.length ? { comments: out.comments } : {}), next: out.next }, answerSummary(card, a))
 }
 
+function listSources(host: AgentHost, input: Obj): ToolOutcome {
+  need(str(input.query) && input.query.trim(), '`query` is required: the need, in a few words')
+  const ledger = host.sources?.() ?? []
+  if (!ledger.length) return ok({ sources: [] }, 'none found earlier on this device')
+  const hits = searchLedger(ledger, input.query)
+  return ok({ sources: hits }, hits.length ? plural(hits.length, 'earlier source') : 'no match')
+}
+
 async function pickSource(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(str(input.need) && input.need.trim(), '`need` is required')
   const sources = (Array.isArray(input.sources) ? input.sources : []).filter((x): x is SourceOption => !!x && typeof x === 'object' && str((x as Obj).name) && str((x as Obj).detail))
@@ -1144,8 +1177,17 @@ export function readCap(v: unknown): number | undefined {
   return m ? clampCap(Number(m[1])) : undefined
 }
 
+/** The brief with its needs written out, one per line, for the scout to work through. */
+export function briefWithNeeds(brief: string, needs: unknown): string {
+  const list = (Array.isArray(needs) ? needs : []).filter((n): n is Obj => isObj(n) && str(n.need) && !!n.need.trim())
+  if (!list.length) return brief.trim()
+  const line = (n: Obj) => `- ${String(n.need).trim()}${str(n.measure) && n.measure.trim() ? ` — ${n.measure.trim()}` : ''}${str(n.where) && n.where.trim() ? `; ${n.where.trim()}` : ''}${str(n.posture) ? ` (${n.posture})` : ''}`
+  return `${brief.trim()}\n\nNeeds:\n${list.map(line).join('\n')}`
+}
+
 async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<ToolOutcome> {
   need(str(input.brief) && input.brief.trim(), '`brief` is required')
+  const given = role === 'scout' ? briefWithNeeds(input.brief, input.needs) : input.brief.trim()
   if (!host.web) return err('Sending the scout or scraper isn\'t available here.')
   // Before the approval card: asking to approve a run that then can't start wastes the user's time.
   if (host.signedIn && !host.signedIn()) {
@@ -1156,7 +1198,7 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
   const why = str(input.cap_reason) && input.cap_reason.trim() ? input.cap_reason.trim() : ''
   const recommended = `Recommended: ${money(cap)}`
   const Role = role === 'scout' ? 'scout' : 'scraper'
-  const card = runCard({ role, brief: input.brief.trim(), caps: WEB_CAPS.filter((c) => c !== cap).map(money), recommended, ...(why ? { capWhy: `How it was sized: ${why}.` } : {}) })
+  const card = runCard({ role, brief: given, caps: WEB_CAPS.filter((c) => c !== cap).map(money), recommended, ...(why ? { capWhy: `How it was sized: ${why}.` } : {}) })
   const a = await host.ask(card)
   const out = runOutcome(card, a, (v) => readCap(v))
   const notes = out.comments.length ? { comments: out.comments } : {}
@@ -1165,10 +1207,15 @@ async function sendWeb(host: AgentHost, role: WebRole, input: Obj): Promise<Tool
   const capDollars = out.value!.cap ?? cap
   const run = await host.web(role, brief, capDollars)
   if (typeof run === 'string') return err(run, `${Role} not sent`)
-  const edited = brief !== input.brief.trim() ? { briefEditedByUser: brief } : {}
+  const edited = brief !== given ? { briefEditedByUser: brief } : {}
   const facts = { stop: run.stop, cost: run.cost, elapsedSeconds: run.elapsedSeconds, ...(run.missing?.length ? { filesThatNeverCameBack: run.missing } : {}), ...edited, ...notes }
   const head = `${run.stop === 'end_turn' ? 'finished' : run.stop} · ${Math.round(run.elapsedSeconds)} s${run.cost !== undefined ? ` · $${run.cost.toFixed(2)}` : ''}`
-  if (role === 'scout') return ok({ report: run.report, ...facts }, head)
+  if (role === 'scout') {
+    const parsed = parseScoutReport(run.report)
+    if (parsed.needs?.length) host.rememberSources?.(parsed.needs, run.sessionId)
+    const found = parsed.needs?.reduce((n, x) => n + x.sources.length, 0) ?? 0
+    return ok({ report: parsed.text, ...(parsed.needs ? { sources: parsed.needs } : {}), ...facts }, `${head}${found ? ` · ${plural(found, 'source')}` : ''}`)
+  }
   const files = await importRunFiles(host, run, brief, new Date())
   const imported = files.filter((f) => 'datasetId' in f).length
   return ok({ summary: run.report, files, ...facts }, `${head} · ${plural(imported, 'dataset')} added`)
@@ -1270,6 +1317,8 @@ export async function runTool(host: AgentHost, name: string, input: unknown): Pr
         return await proposePlan(host, input)
       case 'pick_source':
         return await pickSource(host, input)
+      case 'list_sources':
+        return listSources(host, input)
       case 'propose_frame':
         return await proposeFrame(host, input)
       case 'ask_user':
