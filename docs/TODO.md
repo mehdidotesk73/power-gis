@@ -555,6 +555,14 @@ sources are picked. Pairs with the anchor + proxy posture (2, PR A / PR C).
 - 3D layers: visualizations stacked at different heights over the same places (`fill-extrusion-base` per layer).
 - Map grid: several maps side by side, each with its own visualizations, optionally with their views kept in sync.
 
+**8. Agent usage charts and shared cost metrics** (user, 2026-11-05).
+- An active bar chart of what each agent used, grouped by model and stacked by agent (chat, scout, scraper, storyteller,
+  reviewer): agents by colour, models by shade (darker = more expensive, lighter = cheaper). Two charts, tokens and cost,
+  or one with a toggle.
+- Now: kept per session (or per prompt-to-result loop) on this device, gone after a reload.
+- Later: each session's usage is sent to Supabase and aggregated into its own agent metrics table; the profile picker
+  shows those averages, so people can see what a profile is likely to cost before choosing it.
+
 ### Backlog
 
 
