@@ -442,25 +442,36 @@ container's CA in Chromium), $0.03; certutil hung ~5 min on a prompt until given
 (now in the prompt). Its units changed between runs (VMT in thousands, then × 1,000), so the scraper now
 keeps source units unless the brief says otherwise and states them.
 
-## Estimates: reconciliation and Fermi (PR C, 2026-11-05)
+## Estimation pieces (PR C, user 2026-11-05 / 06)
 
-The frame's postures are built with the `recipe` tool (`lib/dataset/recipes.ts`), which writes a transform output's SQL
-for any places and measure, from table and column names only:
-- **top-down** (anchor + proxy): a coarse unit's total shared out over its finer units by a proxy weight; they add back
-  up to the total. Output: the weight, `share`, `parent_total`, the estimate.
-- **bottom-up** (anchor + proxy): the finer units' proxy scores summed per coarse unit and fitted against the coarse
-  truth (a line, least squares); applied back by score, raked to the truth where it's known and following the line
-  where it isn't. Output: `fitted`, the estimate, `low` / `high` (the fitted value × the coarse units' 10th / 90th
-  percentile ratio to the line), `parent_known`, `parent_ratio`, `fit_r2`, `fit_units`.
-- **fermi**: a base quantity per unit times factors, each low / likely / high (numbers or the base's columns). Output:
-  `low`, `likely`, `high`. A Fermi dataset is a dataset like any other: a core input, a coarse total to share out, or a
-  final adjustment.
+The assistant gets from the data it has to what the request asks by estimating from what relates. The key is thinking
+about factors that move together in a predictable direction, and why; either side of a relationship can be a measure or a
+composite of several, and a relationship can bend with broader properties of places (urban / rural, elevation,
+industrialized, tech-savvy — themselves composites), so a side may need adjusting first. A relationship is then used in
+breadth (fill the places missing a measure, at the same scale) or depth (carry a coarse total to finer units, or finer
+signals up). Where nothing relates, deduce: a chain of steps from what is known, kept honest by physical limits, ideally
+from two sides that meet; its result can feed a relationship in turn.
 
-The tool returns the SQL, its columns, and the metadata the output carries: `estimate` (`method`, `value`, `range`) and
-caveats; the assistant adds `assumptions` and `fit` (from the output: `fit_r2`, `fit_units`, how far `parent_ratio`
-spreads) and says in the transform's description which method and why. The storyteller says when values are estimated
-and how, and gives the range, never only the middle value. `server/recipes.test.ts` runs a Fermi input feeding a
-top-down spread, and a bottom-up fit, in DuckDB.
+The `recipe` tool (`lib/dataset/recipes.ts`) has small pieces that chain; complexity comes from composing them. Each
+gives a transform output's SQL (correlate: a query) from table and column names only:
+
+| Piece | Does | Output |
+|---|---|---|
+| composite | several measures → one index: each a percentile with its direction, a weighted mean | each part's percentile, the index (0–1) |
+| adjust | a measure × a multiplier from a class (`factors`) or an index (`strength` around its mean) | `multiplier`, the adjusted measure |
+| correlate | how well x tracks y, optionally per class | `n`, `r`, `r2`, `slope`, `intercept` |
+| fill (breadth) | y's gaps from the line against x where both are known | `fitted`, the filled value, `estimated`, `low` / `high`, `fit_r2`, `fit_n` |
+| scale (depth) | coarse totals to finer units through a proxy: shared out where known, the fitted line where not | `share`, `parent_total`, the value, `estimated`, `low` / `high`, `fit_r2`, `fit_n` |
+| deduce (Fermi) | steps: assumptions (low / likely / high) or arithmetic (`+ − × ÷ ( )`, `min`, `max`) over steps, columns, numbers, carried as intervals; `meet` two steps | each step's low / likely / high; met: overlap range, geometric mean, `agreement`, `overlap` |
+
+They are supplements, not the only way (user): strong models write their own SQL when it fits better; the pieces and the
+prompt's examples give weaker ones good habits. Estimates (fill, scale, deduce) come with the metadata their output
+carries — `estimate` (`method`, `value`, `range`) and caveats; the assistant adds `assumptions` and `fit`, and each step's
+transform description says what it assumes and why. The storyteller says when and how values were estimated and gives
+the range. `server/recipes.test.ts` runs, in DuckDB: tech-savviness (composite) adjusting population, which correlates
+better with TV revenue than raw population and fills the missing state; state Medicare users scaled to counties through
+65+ population adjusted by area type; and maid services deduced from demand and supply under a 12-hour cap, meeting.
+New deduction patterns join as tool pieces or written patterns depending on that balance.
 
 ## Storyteller (agreed 2026-10-31)
 

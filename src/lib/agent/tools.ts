@@ -295,28 +295,35 @@ export const TOOLS: ToolSpec[] = [
   {
     name: 'recipe',
     description:
-      "The SQL for an estimate, for any places and measure, to put in a transform's output (one SELECT, the tables named by their input aliases). top-down: a coarse unit's total (a country's, a state's) shared out over the finer units inside it in proportion to a proxy weight (population, area…); they add back up to the total. bottom-up: the finer units' proxy scores summed per coarse unit, fitted against a coarse truth (a line), applied back — raked to the truth where it's known, the fitted line elsewhere, with low / high from how far the coarse units sit from the line, and the fit (fit_r2). fermi: a first-principles estimate per unit, a base quantity times factors each given as low / likely / high (numbers or the base table's columns); out come low / likely / high. Returns the SQL, its columns, and the estimate and caveats the output's metadata should carry: add the assumptions (Fermi: every factor and why that range) and the fit you read from the output (bottom-up: fit_r2, fit_units, the spread of parent_ratio) before apply_workspace. Names only, never SQL: tables and columns as plain names.",
+      "Small estimation pieces that compose, for any places and measure: each gives the SQL for a transform output (correlate: a query to run with query_sql), from table and column names (input aliases), never SQL text. Chain them, or write your own SQL when that fits better. composite: several measures into one index (each a percentile with its direction, then a weighted mean): 'tech-savvy' from education, tech jobs and exports. adjust: a measure scaled by a broader property of each place, a class (factors: {urban: 1.2, rural: 0.9}; elevation band; industrialized) or an index (strength): population adjusted for tech-savviness. correlate: how well x tracks y at the same unit (r², the line, n), optionally per class: compare candidate sides before using one. fill (breadth): y's gaps filled from the line it follows against x, same unit (Netflix revenue for states that don't report it, from adjusted population). scale (depth): a coarse unit's total carried to its finer units through a proxy, shared out where the total is known and from the line totals follow against the summed proxy where it isn't. deduce (Fermi): a chain of steps, each an assumption (low / likely / high: numbers or columns) or arithmetic over earlier steps, columns and numbers (+ - * / ( ), min, max for physical limits), carried as ranges; meet: two steps reaching the same unknown from two sides (demand and supply) — their overlap and agreement. Estimates (fill, scale, deduce) come with the metadata their output carries: add the assumptions and the fit you read.",
     inputSchema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['top-down', 'bottom-up', 'fermi'] },
-        fine: { type: 'string', description: 'top-down / bottom-up: the fine table (input alias), one row per finer unit.' },
-        unit: { type: 'string', description: "The unit's column (in fine, or in base for fermi)." },
-        parent: { type: 'string', description: 'top-down / bottom-up: the fine column naming the coarse unit each fine unit is in.' },
-        weight: { type: 'string', description: 'top-down: the proxy column the total is shared out by.' },
-        score: { type: 'string', description: "bottom-up: the fine units' proxy score column (any scale)." },
-        coarse: { type: 'string', description: 'top-down / bottom-up: the coarse table (input alias), one row per coarse unit.' },
-        coarseParent: { type: 'string', description: "The coarse table's column for the coarse unit, when it isn't named like parent." },
-        total: { type: 'string', description: 'top-down: the coarse total column.' },
-        truth: { type: 'string', description: 'bottom-up: the coarse truth column the scores are fitted to.' },
-        as: { type: 'string', description: 'top-down / bottom-up: the estimate column\'s name (default "estimate").' },
-        base: { type: 'string', description: 'fermi: the table (input alias) whose rows are the units estimated.' },
-        quantity: { type: 'string', description: 'fermi: the base quantity column, multiplied by every factor (omit for factors alone).' },
-        factors: {
+        kind: { type: 'string', enum: ['composite', 'adjust', 'correlate', 'fill', 'scale', 'deduce'] },
+        table: { type: 'string', description: 'composite / adjust / correlate / fill: the table (input alias).' },
+        unit: { type: 'string', description: "The unit's column (in table, fine or base)." },
+        as: { type: 'string', description: "The output column's name (optional)." },
+        parts: { type: 'array', description: 'composite: the measures combined.', items: { type: 'object', properties: { column: { type: 'string' }, weight: { type: 'number' }, direction: { type: 'string', enum: ['up', 'down'] } }, required: ['column'] } },
+        measure: { type: 'string', description: 'adjust: the measure adjusted.' },
+        by: { type: 'string', description: 'adjust: the class or index column it is adjusted by.' },
+        factors: { type: 'object', description: 'adjust (class): each class\'s multiplier, e.g. {"urban": 1.2, "rural": 0.9}; others keep 1.', additionalProperties: { type: 'number' } },
+        strength: { type: 'number', description: 'adjust (index): measure × (1 + strength × (index − its mean)).' },
+        x: { type: 'string', description: 'correlate / fill: the side known everywhere (a measure or a composite / adjusted one).' },
+        y: { type: 'string', description: 'correlate / fill: the measure tracked, with gaps for fill.' },
+        group: { type: 'string', description: 'correlate: one line per class instead of one overall.' },
+        fine: { type: 'string', description: 'scale: the fine table, one row per finer unit.' },
+        parent: { type: 'string', description: 'scale: the fine column naming the coarse unit each is in.' },
+        proxy: { type: 'string', description: "scale: the finer units' proxy." },
+        coarse: { type: 'string', description: 'scale: the coarse table, one row per coarse unit.' },
+        coarseParent: { type: 'string', description: "scale: the coarse table's column for the coarse unit, when not named like parent." },
+        total: { type: 'string', description: 'scale: the coarse total column.' },
+        base: { type: 'string', description: 'deduce: the table whose rows are the units deduced for.' },
+        steps: {
           type: 'array',
-          description: 'fermi: each factor with its low / likely / high, each a number or a column of base.',
-          items: { type: 'object', properties: { name: { type: 'string' }, low: { type: ['number', 'string'] }, likely: { type: ['number', 'string'] }, high: { type: ['number', 'string'] } }, required: ['name', 'low', 'likely', 'high'] },
+          description: 'deduce: in order; each {name, expr} or {name, low, likely, high}.',
+          items: { type: 'object', properties: { name: { type: 'string' }, expr: { type: 'string' }, low: { type: ['number', 'string'] }, likely: { type: ['number', 'string'] }, high: { type: ['number', 'string'] } }, required: ['name'] },
         },
+        meet: { type: 'object', description: 'deduce: two steps estimating the same unknown from two sides.', properties: { a: { type: 'string' }, b: { type: 'string' }, as: { type: 'string' } }, required: ['a', 'b'] },
       },
       required: ['kind'],
     },
@@ -575,8 +582,11 @@ function recipe(input: Obj): ToolOutcome {
     {
       sql: r.sql,
       columns: r.columns,
-      metadata: { estimate: r.estimate, caveats: r.caveats },
-      next: `Put the SQL in a transform's output (its inputs aliased as named here), run it and query the output; then give the output a description and this metadata, adding the estimate's assumptions${r.estimate.method === 'bottom-up' ? ' and its fit (fit_r2, fit_units and how far parent_ratio spreads)' : ''}, and say in the transform's description which method it uses and why.`,
+      ...(r.estimate ? { metadata: { estimate: r.estimate, caveats: r.caveats } } : r.caveats.length ? { caveats: r.caveats } : {}),
+      next:
+        input.kind === 'correlate'
+          ? 'Run this with query_sql (it changes nothing). Compare candidate sides the same way (a raw measure, an adjusted one, a composite) and keep the one that tracks best and makes sense; say which and why.'
+          : `Put the SQL in a transform's output (its inputs aliased as named here), run it and query the output.${r.estimate ? ` Give the output a description and this metadata, adding the estimate's assumptions${r.estimate.method === 'deduce' ? ' (every assumed step and why that range)' : ' and its fit (fit_r2 over fit_n, how wide low–high runs)'}` : ' Put these caveats in its metadata'}, and say in the transform's description what this step does and why.`,
     },
     `${input.kind} recipe`,
   )

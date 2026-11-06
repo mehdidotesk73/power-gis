@@ -90,10 +90,10 @@ export interface DatasetMetadata {
   estimate?: DatasetEstimate
 }
 
-/** How a dataset's values were estimated (lib/dataset/recipes.ts makes the SQL for each method). */
+/** How a dataset's values were estimated (lib/dataset/recipes.ts has a piece for each method). */
 export interface DatasetEstimate {
-  /** fermi: from first principles; top-down: a coarse total shared out by a proxy; bottom-up: proxy scores fitted to a coarse truth. */
-  method: 'fermi' | 'top-down' | 'bottom-up'
+  /** fill: gaps filled from what the measure correlates with (same unit); scale: carried from coarse units to finer ones through a proxy; deduce: a chain of steps from first principles (Fermi). */
+  method: 'fill' | 'scale' | 'deduce'
   /** The column holding the estimate. */
   value?: string
   /** The columns of its range, when it has one. */

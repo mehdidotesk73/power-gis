@@ -20,11 +20,11 @@ describe('dataset metadata', () => {
   })
 
   it('reads an estimate (method, value, range, assumptions, fit) and writes it out for people and the storyteller', () => {
-    const r = readMetadata({ estimate: { method: 'fermi', value: 'likely', range: { low: 'low', likely: 'likely', high: 'high' }, assumptions: ['20% heat with oil (10–30%)'], fit: '' } })
-    expect(r).toEqual({ value: { estimate: { method: 'fermi', value: 'likely', range: { low: 'low', likely: 'likely', high: 'high' }, assumptions: ['20% heat with oil (10–30%)'] } }, errors: [] })
-    expect(metadataLines(r.value)).toEqual(['Estimated (Fermi, from first principles): likely, range low – high', 'Assumptions: 20% heat with oil (10–30%)'])
-    expect(readMetadata({ estimate: { method: 'guess', range: { low: 'a' }, extra: 1 } }).errors).toEqual(['metadata.estimate: unknown field "extra" (fields: method, value, range, assumptions, fit)', 'metadata.estimate.method must be one of fermi, top-down, bottom-up'])
-    expect(readMetadata({ estimate: { method: 'bottom-up', range: { low: 'a' } } }).errors).toEqual(['metadata.estimate.range must name its columns: {low, likely, high}'])
+    const r = readMetadata({ estimate: { method: 'deduce', value: 'likely', range: { low: 'low', likely: 'likely', high: 'high' }, assumptions: ['20% heat with oil (10–30%)'], fit: '' } })
+    expect(r).toEqual({ value: { estimate: { method: 'deduce', value: 'likely', range: { low: 'low', likely: 'likely', high: 'high' }, assumptions: ['20% heat with oil (10–30%)'] } }, errors: [] })
+    expect(metadataLines(r.value)).toEqual(['Estimated (deduced step by step from first principles): likely, range low – high', 'Assumptions: 20% heat with oil (10–30%)'])
+    expect(readMetadata({ estimate: { method: 'guess', range: { low: 'a' }, extra: 1 } }).errors).toEqual(['metadata.estimate: unknown field "extra" (fields: method, value, range, assumptions, fit)', 'metadata.estimate.method must be one of fill, scale, deduce'])
+    expect(readMetadata({ estimate: { method: 'scale', range: { low: 'a' } } }).errors).toEqual(['metadata.estimate.range must name its columns: {low, likely, high}'])
   })
 })
 

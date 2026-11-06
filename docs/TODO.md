@@ -4,7 +4,7 @@ Track feature development, improvements, and known issues here. Move completed w
 
 ## Done
 
-- **Reconciliation and Fermi recipes** (PR C) — top-down, bottom-up and Fermi SQL for any places and measure (the assistant's `recipe` tool), estimate metadata (method, range, assumptions, fit), stories that give ranges and say how values were estimated.
+- **Estimation pieces** (PR C) — small composable SQL pieces for any places and measure (composite, adjust, correlate, fill for breadth, scale for depth, deduce for Fermi chains that can meet from two sides), estimate metadata (method, range, assumptions, fit), stories that give ranges and say how values were estimated.
 - **Data described on arrival** (user, 2026-11-05) — the assistant describes each dataset from the web right away (description + metadata source), from the scout's and scraper's reports and its own queries; `apply_workspace` refuses other changes until it has; before a story it fills only what's missing and never rewrites; the storyteller changes nothing.
 - **Chat kept on the device** (user, 2026-11-05) — the assistant chat survives a reload until New chat: the steps, the conversation the model sees, a scout / scraper run carrying on in its own card (and no longer forgotten when the reload cuts its requests); images aren't kept.
 - **Live story maps** — tap a story map to explore it live (raised, locked to its visualization; pan / zoom with cooperative gestures; tap a region for its value and rows); Release turns the view back into a picture; one live at a time; nothing stored.
@@ -509,17 +509,17 @@ browser or a prompt / model change creates new ones, and agents can only be arch
     scout still runs, and the assistant decides from its report whether the new finds supplement what exists or what
     exists is enough.
   - Done when: cost per question is measured before and after (the per-run costs are already logged).
-- **PR C — reconciliation and Fermi in the data.** ✅ Done (2026-11-05): `lib/dataset/recipes.ts` (top-down, bottom-up with
-  fit and low / high, Fermi low / likely / high), the assistant's `recipe` tool, `metadata.estimate` (method, value, range,
-  assumptions, fit), the storyteller giving ranges and how values were estimated; `server/recipes.test.ts` runs a Fermi
-  input feeding a top-down spread, and a bottom-up fit, in DuckDB.
-  - Transform recipes, data-agnostic: **top-down** (spread a coarse total over fine units by proxy weights, adding back
-    up to the total) and **bottom-up** (score fine units from proxies, add them up, fit a correction curve against the
-    coarse truth, apply it back). Each transform records its method, its fit and the uncertainty (description, caveats)
-    so the story can say how far to trust it.
-  - Fermi estimates are datasets: low / likely / high columns, assumptions in the metadata, a "how it was made" source;
-    usable at any stage, from a core input to a final adjustment; maps and stories can show the range.
-  - Done when: a test workspace runs both recipes and one Fermi input end to end.
+- **PR C — estimation pieces.** ✅ Done (2026-11-06; reworked with the user from fixed top-down / bottom-up recipes into small
+  pieces that compose). Estimating from what relates, in small steps (`lib/dataset/recipes.ts`, the `recipe` tool):
+  **composite** (several measures → an index: "tech-savvy" from education, tech jobs, exports), **adjust** (a measure by a
+  broader property of places, a class or an index: urban / rural, elevation, industrialized, tech-savvy), **correlate**
+  (compare candidate sides), **fill** (breadth: gaps at the same scale), **scale** (depth: coarse totals to finer units
+  through a proxy), **deduce** (Fermi: a chain of ranges with physical limits, optionally from two sides that meet).
+  `metadata.estimate` (method fill / scale / deduce, range, assumptions, fit); the storyteller gives ranges and how.
+  The pieces are supplements, not the only way (user): the prompt asks the assistant to think about what moves with what,
+  in which direction and why, and to write its own SQL when it fits better.
+  - Later: more deduction patterns as we find them; each becomes a tool piece or a written pattern depending on the
+    balance — supplemental for strong models, guiding for weaker ones (user, 2026-11-06).
 
 **3. Sharing: workspaces and datasets, public or private** (one design, all now; a new SQL file for the user to run):
 - Workspaces and datasets each get `private` (true / false). Private = invite only; public = anyone with the id or link

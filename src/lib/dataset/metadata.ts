@@ -12,7 +12,7 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 export const SOURCE_KEYS = ['publisher', 'publisherAbout', 'title', 'urls', 'coverage', 'period', 'fetched', 'method', 'terms'] as const
 export const METADATA_KEYS = ['row', 'key', 'columns', 'source', 'caveats', 'estimate'] as const
 export const ESTIMATE_KEYS = ['method', 'value', 'range', 'assumptions', 'fit'] as const
-export const ESTIMATE_METHODS = ['fermi', 'top-down', 'bottom-up'] as const
+export const ESTIMATE_METHODS = ['fill', 'scale', 'deduce'] as const
 const COLUMN_KEYS = ['name', 'meaning', 'unit']
 
 const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
@@ -116,9 +116,9 @@ export function sourceLine(s: DatasetSource | undefined): string | undefined {
 }
 
 const ESTIMATE_WORDS: Record<DatasetEstimate['method'], string> = {
-  fermi: 'Fermi, from first principles',
-  'top-down': 'top-down, a coarse total shared out by a proxy',
-  'bottom-up': 'bottom-up, proxy scores fitted to a coarse truth',
+  fill: 'gaps filled from what it correlates with',
+  scale: 'carried from larger areas through a proxy',
+  deduce: 'deduced step by step from first principles',
 }
 
 /** Metadata as labelled lines (cards, the storyteller, overviews). */
