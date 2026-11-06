@@ -355,7 +355,8 @@ export function deduceSql(r: Deduce): RecipeSql {
   if (!Array.isArray(r.steps) || !r.steps.length) throw new Error('A deduction needs at least one step')
   const steps = new Map<string, Iv>()
   const cols: string[] = []
-  const lines: string[] = []
+  /** One layer per step: each reads the finished columns of the steps before it (an alias chain in one SELECT is inlined by DuckDB and grows exponentially). */
+  const layers: string[][] = []
   const col = (name: string, part: 'low' | 'likely' | 'high') => `"${name}_${part}"`
   r.steps.forEach((s, i) => {
     const w = `steps[${i}]`
@@ -366,7 +367,7 @@ export function deduceSql(r: Deduce): RecipeSql {
       const known = steps.get(name)
       if (known) return known
       ident(name, 'a name in a step')
-      const c = dbl(`b."${name}"`)
+      const c = dbl(`"${name}"`)
       return { lo: c, mid: c, hi: c }
     }
     const leaf = (v: unknown, what: string): string => (typeof v === 'number' ? num(v, what) : typeof v === 'string' && v.trim() ? compile(parseArithmetic(v), resolve).mid : (() => { throw new Error(`${what} must be a number, a column or arithmetic`) })())
@@ -378,7 +379,7 @@ export function deduceSql(r: Deduce): RecipeSql {
       if (s.likely === undefined) throw new Error(`${w} needs expr, or low / likely / high`)
       iv = { lo: leaf(s.low ?? s.likely, `${w}.low`), mid: leaf(s.likely, `${w}.likely`), hi: leaf(s.high ?? s.likely, `${w}.high`) }
     }
-    lines.push(`  ${iv.lo} AS ${col(s.name, 'low')}`, `  ${iv.mid} AS ${col(s.name, 'likely')}`, `  ${iv.hi} AS ${col(s.name, 'high')}`)
+    layers.push([`${iv.lo} AS ${col(s.name, 'low')}`, `${iv.mid} AS ${col(s.name, 'likely')}`, `${iv.hi} AS ${col(s.name, 'high')}`])
     cols.push(`${s.name}_low`, `${s.name}_likely`, `${s.name}_high`)
     // Later steps read this one's columns (DuckDB lets a column refer to one named before it).
     steps.set(s.name, { lo: col(s.name, 'low'), mid: col(s.name, 'likely'), hi: col(s.name, 'high') })
@@ -390,20 +391,20 @@ export function deduceSql(r: Deduce): RecipeSql {
     if (!steps.has(a) || !steps.has(b)) throw new Error(`meet must name two of the steps (got ${JSON.stringify(a)} and ${JSON.stringify(b)})`)
     const as = outName(r.meet.as, 'met', 'meet.as')
     const [A, B] = [steps.get(a)!, steps.get(b)!]
-    lines.push(
+    layers.push([
       `  greatest(${A.lo}, ${B.lo}) AS "${as}_low"`,
       `  CASE WHEN ${A.mid} > 0 AND ${B.mid} > 0 THEN sqrt(${A.mid} * ${B.mid}) ELSE (${A.mid} + ${B.mid}) / 2 END AS "${as}_likely"`,
       `  least(${A.hi}, ${B.hi}) AS "${as}_high"`,
       `  ${A.mid} / nullif(${B.mid}, 0) AS agreement`,
       `  greatest(${A.lo}, ${B.lo}) <= least(${A.hi}, ${B.hi}) AS overlap`,
-    )
+    ])
     cols.push(`${as}_low`, `${as}_likely`, `${as}_high`, 'agreement', 'overlap')
     estimate = { method: 'deduce', value: `${as}_likely`, range: { low: `${as}_low`, likely: `${as}_likely`, high: `${as}_high` } }
   } else estimate = { method: 'deduce', value: `${last}_likely`, range: { low: `${last}_low`, likely: `${last}_likely`, high: `${last}_high` } }
   const sql = `-- Deduce: ${r.steps.map((s) => (s.expr ? `${s.name} = ${s.expr}` : `${s.name} (assumed)`)).join('; ')}${r.meet ? `; ${r.meet.a} and ${r.meet.b} meet` : ''}. Each low / likely / high.
-SELECT b.${unit} AS ${unit},
-${lines.join(',\n')}
-FROM ${base} AS b`
+WITH s0 AS (SELECT * FROM ${base}),
+${layers.map((l, i) => `s${i + 1} AS (SELECT *, ${l.map((x) => x.trim()).join(', ')} FROM s${i})`).join(',\n')}
+SELECT ${unit}, ${cols.map((c) => `"${c}"`).join(', ')} FROM s${layers.length}`
   return {
     sql,
     columns: [plain(r.unit), ...cols],
