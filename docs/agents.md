@@ -446,6 +446,27 @@ container's CA in Chromium), $0.03; certutil hung ~5 min on a prompt until given
 (now in the prompt). Its units changed between runs (VMT in thousands, then × 1,000), so the scraper now
 keeps source units unless the brief says otherwise and states them.
 
+## Framing in rounds, and the framing handbook (user, 2026-11-06)
+
+The assistant doesn't rush to a Frame card or a scout: framing is cheap, the web is not (scouting was about 75% of a
+chat's cost). It frames **with** the user, in rounds of ask_user cards: its reading of the request; the components it sees,
+asking which others the user would add; for each component, what the user thinks drives it. The user's answers are a
+**roadmap, not the whole tree**: the assistant works out why they named those components and factors, applies the same
+reasoning to find ones they didn't, and brings those back. Only when every part has been shown and shaped, and nothing
+needs clarifying, does it say there is a roadmap and present the Frame card (components as checkboxes, postures).
+
+The **framing handbook** (a prompt section, used when framing and whenever a framing is revisited) joins the postures
+(exact / anchor + proxy / fermi) and the estimation patterns into one: relationships (either side a measure or a
+composite, adjusted for broader properties of places), breadth, depth, deduction from two sides, what to do when data is
+missing, and how to keep it honest. Supplements, not limits.
+
+**Scouting is slow and bundled; scraping quicker.** Scout runs bundle needs by where they likely sit together on the web
+(same agency or portal), one at a time and never back to back; after each report the assistant weighs how it changes the
+framing and, if much, revisits it with the user before the next bundle. Once sources are chosen, scraper runs bundle by
+site or portal, and larger bundles are fine. A scout run's instructions and tools live with the agent on Anthropic's side
+(the app sends only the brief); within a run the agent's growing context — mostly the pages it reads and its searches — is
+what costs, which is why bundling related needs (shared searches and pages) is cheaper than many small runs.
+
 ## Estimation pieces (PR C, user 2026-11-05 / 06)
 
 The assistant gets from the data it has to what the request asks by estimating from what relates. The key is thinking
