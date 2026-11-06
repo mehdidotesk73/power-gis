@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { documentFiles } from '../workspace/files'
-import { toWorkspaceFile } from '../workspace/file'
-import { cardAnswer, initialState, NEITHER, type Card, type QuestionState } from './form'
+import { documentFiles } from '../../lib/workspace/files'
+import { toWorkspaceFile } from '../../lib/workspace/file'
+import { cardAnswer, initialState, NEITHER, type Card, type QuestionState } from '../../lib/agent/form'
 
 /** Answers a card as a user would: change its state, press a button (default: the first). */
 const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string | void, comments = '') => async (card: Card) => {
@@ -9,13 +9,14 @@ const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string 
   const button = fn(card, s) || card.buttons[0]
   return cardAnswer(card, s, button, comments)
 }
-import { briefWithNeeds, forgetChat, notDescribed, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
-import { runAgent } from './loop'
-import { EDITOR_TOOL } from './workspaceFiles'
-import type { ChatSession, TurnInput, TurnResult } from './provider'
-import { emptyWorkspace, type WorkspaceDoc } from '../workspace/workspace'
+import { briefWithNeeds, forgetChat, notDescribed, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './index'
+import { USER_NOTES } from '../../lib/agent/exchanges'
+import { runAgent } from '../../lib/agent/loop'
+import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
+import type { ChatSession, TurnInput, TurnResult } from '../../lib/agent/provider'
+import { emptyWorkspace, type WorkspaceDoc } from '../../lib/workspace/workspace'
 import type { DatasetRecord } from '../../shared/records'
-import type { ColumnInfo } from '../dataset/columns'
+import type { ColumnInfo } from '../../lib/dataset/columns'
 
 const t0 = '2026-01-01T00:00:00.000Z'
 const record = (id: string, columns: ColumnInfo[], store: 'local' | 'remote' = 'local'): DatasetRecord => ({
@@ -217,7 +218,7 @@ describe('agent tools', () => {
   it('asks a plain yes / no (no questions) and hands the answer and its comments back', async () => {
     const { host, calls } = fakeHost()
     const out = await runTool(host, 'ask_user', { title: 'Join prices onto counties?', context: 'Both are by county FIPS.', questions: [] })
-    expect(json(out.content)).toEqual({ button: 'No', comments: 'Use 2024 only', note: "Take the user's comments into account in what you do next." })
+    expect(json(out.content)).toEqual({ button: 'No', comments: 'Use 2024 only', note: USER_NOTES })
     expect(out.summary).toBe('No · comments')
     expect(calls).toEqual(['ask Join prices onto counties? | Both are by county FIPS.'])
     expect(await runTool(host, 'ask_user', {})).toMatchObject({ isError: true })
@@ -740,6 +741,21 @@ describe('agent loop', () => {
     expect(notDescribed(host, ['web'], { web: { description: 'Median rent per county, from the Census Bureau.' } })[0]).not.toContain('a description')
     expect(notDescribed(host, ['web'], { web: { description: 'Median rent per county, from the Census Bureau.', metadata: { source: { publisher: 'US Census Bureau' } } } })).toEqual([])
     expect(notDescribed(host, [], {})).toEqual([])
+  })
+
+  it('recipe: a piece\'s SQL, with the metadata an estimate carries; correlate is a query to compare sides; plain names only', async () => {
+    const { host } = fakeHost()
+    const r = await runTool(host, 'recipe', { kind: 'fill', table: 'tv', unit: 'state', x: 'savvy_population', y: 'tv_revenue' })
+    expect(r.isError).toBe(false)
+    const out = json(r.content)
+    expect(out.sql).toContain('regr_slope')
+    expect(out.metadata.estimate).toEqual({ method: 'fill', value: 'tv_revenue_filled', range: { low: 'low', likely: 'tv_revenue_filled', high: 'high' } })
+    expect(out.next).toContain('fit_r2')
+    const c = json((await runTool(host, 'recipe', { kind: 'correlate', table: 'tv', x: 'population', y: 'tv_revenue' })).content)
+    expect(c.metadata).toBeUndefined()
+    expect(c.next).toContain('query_sql')
+    const bad = await runTool(host, 'recipe', { kind: 'scale', fine: 'x"; drop', unit: 'u', parent: 'p', proxy: 'w', coarse: 'c', total: 't' })
+    expect(bad).toMatchObject({ isError: true, content: expect.stringContaining('must be a table or column name') })
   })
 })
 

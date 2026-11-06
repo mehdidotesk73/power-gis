@@ -12,8 +12,8 @@ scraping (finding data on the web) come next.
 |---|---|
 | Provider-neutral contract: `ChatProvider` / `ChatSession` (text + tool calls in, turn out) | `src/lib/agent/provider.ts` |
 | The loop: send, run tool calls, send results, until a text answer; stop, step limit | `src/lib/agent/loop.ts` |
-| The tools: definitions, input validation, the store gate, over an `AgentHost` | `src/lib/agent/tools.ts` |
-| Instructions (built-ins listed from `shared/builtins.ts`) | `src/lib/agent/prompt.ts` |
+| The tools: definitions, input validation, the store gate, over an `AgentHost` | `src/agents/tools/` (one file per tool or bundle; `index.ts` lists the assistant's and dispatches) |
+| Each agent's config and prompt | `src/agents/<agent>/agent.ts` + `prompt.md` (assistant, scout, scraper, storyteller, diagnosis) |
 | Claude adapter: Messages API from the browser, streaming, keeps Anthropic-format history | `src/client/agent/claude.ts` |
 | Chat panel: API key (this device), messages, tool steps, Stop, token use | `src/components/agent/AgentPanel.vue` |
 | The host: the page's own functions (draft, `runTransform`, `deleteForGood`, `describeBinding`) | `MapPage.vue` → `agentHost` |
@@ -88,7 +88,11 @@ questions stay short on a phone).
 does with it. The assistant supplies only the content; it can't change an exchange's shape. Shared loop:
 **Approve** (the result returned and used), **Revise with my notes** (the assistant redrafts and
 asks again; after **2 rounds** it stops redrafting and asks what's wrong), **Reject / Not now** (nothing changes; the
-assistant gets the reason). First exchanges:
+assistant gets the reason). Every exchange has all three, Source pick included (user, 2026-11-06). **Notes are instructions**: approved with notes, the
+assistant says in a line how each changes what it does (or why it can't), carries it into every later step it touches (plan,
+briefs, transforms and their SQL, descriptions) and adds method notes to About's study frame (`APPROVED_WITH_NOTES`; a
+one-off `ask_user` answer with notes gets the same, `USER_NOTES`). A card with notes says what Revise and Approve do with them.
+First exchanges:
 
 1. **Frame** (`propose_frame`): an Answer (the framing: the question as asked, exactly what is measured — units, money basis,
    mean or median, period —, the window and the unit of analysis, which way is better), a Pick several (the components, each with
@@ -147,7 +151,7 @@ cloud ones refused), applied like any edit — a draft (`WorkspaceDoc.datasetEdi
   `{kind, name, datasetId, visible, binding: {kind: geometry, column, label?}, column, aggregation,
   style}`. A new one needs only name, datasetId, binding and column: the rest comes from the app's
   defaults (`makeVisualization`; a kept id keeps its style, `retarget`). Each style part given is
-  checked (`readStyle` in `tools.ts`: color, opacity, pattern, outline, size; arrows' size) and
+  checked (`readStyle` in `agents/tools/workspace.ts`: color, opacity, pattern, outline, size; arrows' size) and
   replaces the default's; the encodings' `field` is always the drawn value, and `kind` must match
   what the column draws as. `datasets.json` holds the document's facts (`datasetFact`): name and
   description editable, store / cloudId / rows / structured origin / sameAs read-only.
@@ -442,12 +446,64 @@ container's CA in Chromium), $0.03; certutil hung ~5 min on a prompt until given
 (now in the prompt). Its units changed between runs (VMT in thousands, then × 1,000), so the scraper now
 keeps source units unless the brief says otherwise and states them.
 
+## Framing in rounds, and the framing handbook (user, 2026-11-06)
+
+The assistant doesn't rush to a Frame card or a scout: framing is cheap, the web is not (scouting was about 75% of a
+chat's cost). It frames **with** the user, in rounds of ask_user cards: its reading of the request; the components it sees,
+asking which others the user would add; for each component, what the user thinks drives it. The user's answers are a
+**roadmap, not the whole tree**: the assistant works out why they named those components and factors, applies the same
+reasoning to find ones they didn't, and brings those back. Only when every part has been shown and shaped, and nothing
+needs clarifying, does it say there is a roadmap and present the Frame card (components as checkboxes, postures).
+
+The **framing handbook** (a prompt section, used when framing and whenever a framing is revisited) joins the postures
+(exact / anchor + proxy / fermi) and the estimation patterns into one: relationships (either side a measure or a
+composite, adjusted for broader properties of places), breadth, depth, deduction from two sides, what to do when data is
+missing, and how to keep it honest. Supplements, not limits.
+
+**Scouting is slow and bundled; scraping quicker.** Scout runs bundle needs by where they likely sit together on the web
+(same agency or portal), one at a time and never back to back; after each report the assistant weighs how it changes the
+framing and, if much, revisits it with the user before the next bundle. Once sources are chosen, scraper runs bundle by
+site or portal, and larger bundles are fine. A scout run's instructions and tools live with the agent on Anthropic's side
+(the app sends only the brief); within a run the agent's growing context — mostly the pages it reads and its searches — is
+what costs, which is why bundling related needs (shared searches and pages) is cheaper than many small runs.
+
+## Estimation pieces (PR C, user 2026-11-05 / 06)
+
+The assistant gets from the data it has to what the request asks by estimating from what relates. The key is thinking
+about factors that move together in a predictable direction, and why; either side of a relationship can be a measure or a
+composite of several, and a relationship can bend with broader properties of places (urban / rural, elevation,
+industrialized, tech-savvy — themselves composites), so a side may need adjusting first. A relationship is then used in
+breadth (fill the places missing a measure, at the same scale) or depth (carry a coarse total to finer units, or finer
+signals up). Where nothing relates, deduce: a chain of steps from what is known, kept honest by physical limits, ideally
+from two sides that meet; its result can feed a relationship in turn.
+
+The `recipe` tool (`lib/dataset/recipes.ts`) has small pieces that chain; complexity comes from composing them. Each
+gives a transform output's SQL (correlate: a query) from table and column names only:
+
+| Piece | Does | Output |
+|---|---|---|
+| composite | several measures → one index: each a percentile with its direction, a weighted mean | each part's percentile, the index (0–1) |
+| adjust | a measure × a multiplier from a class (`factors`) or an index (`strength` around its mean) | `multiplier`, the adjusted measure |
+| correlate | how well x tracks y, optionally per class | `n`, `r`, `r2`, `slope`, `intercept` |
+| fill (breadth) | y's gaps from the line against x where both are known | `fitted`, the filled value, `estimated`, `low` / `high`, `fit_r2`, `fit_n` |
+| scale (depth) | coarse totals to finer units through a proxy: shared out where known, the fitted line where not | `share`, `parent_total`, the value, `estimated`, `low` / `high`, `fit_r2`, `fit_n` |
+| deduce (Fermi) | steps: assumptions (low / likely / high) or arithmetic (`+ − × ÷ ( )`, `min`, `max`) over steps, columns, numbers, carried as intervals; `meet` two steps | each step's low / likely / high; met: overlap range, geometric mean, `agreement`, `overlap` |
+
+They are supplements, not the only way (user): strong models write their own SQL when it fits better; the pieces and the
+prompt's examples give weaker ones good habits. Estimates (fill, scale, deduce) come with the metadata their output
+carries — `estimate` (`method`, `value`, `range`) and caveats; the assistant adds `assumptions` and `fit`, and each step's
+transform description says what it assumes and why. The storyteller says when and how values were estimated and gives
+the range. `server/recipes.test.ts` runs, in DuckDB: tech-savviness (composite) adjusting population, which correlates
+better with TV revenue than raw population and fills the missing state; state Medicare users scaled to counties through
+65+ population adjusted by area type; and maid services deduced from demand and supply under a 12-hour cap, meeting.
+New deduction patterns join as tool pieces or written patterns depending on that balance.
+
 ## Storyteller (agreed 2026-10-31)
 
 **Who describes what** (user, 2026-11-05): the scout and the scraper report what they found and how they extracted
 it; they don't describe datasets or judge their gaps. The **assistant** describes each dataset that arrives, right
 away: it has the reasons behind the request, the runs' reports and the data to query (`apply_workspace` refuses other
-changes until each dataset from the web has a description and a source, `notDescribed` in `lib/agent/tools.ts`). The
+changes until each dataset from the web has a description and a source, `notDescribed` in `agents/tools/workspace.ts`). The
 **storyteller** only writes the story: it changes nothing in the workspace. Before a story the assistant fills in only
 what's missing (no About, a dataset without a description or source), never rewrites what's there.
 
@@ -479,7 +535,7 @@ priced into the chat's cost), and the assistant hears back the story's id, title
 - **What it reads**: `lib/story/lineage.ts` walks from the visualizations back to the starting data (each dataset and
   transform once, inputs first) and writes it out — every dataset's facts and **description** (why descriptions must
   carry the reasoning: `docs/agents.md` *Describing datasets*), every transform's SQL, the visualizations' settings.
-- **Tools** (`lib/story/storyTools.ts`): `query_sql` (the assistant's) and `write_story`, which checks every scene
+- **Tools** (`agents/tools/storyteller.ts`): `query_sql` (the assistant's) and `write_story`, which checks every scene
   (words, figures) and runs every figure before saving anything; refusals list what to fix. It never changes datasets,
   transforms or visualizations: the story lands in the workspace draft.
 - **Figures are code** (`lib/story/story.ts`): `sample` (SQL, 8 rows), `chart` (SQL + bar / pie / line / scatter /

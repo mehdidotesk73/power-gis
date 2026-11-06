@@ -16,12 +16,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { chatCost, claudeProvider, CLAUDE_MODELS, describeError } from '../../client/agent/claude'
 import { DEFAULT_PROFILE, PROFILES, profileById, profileStats, recordChat, statsLine, type AgentProfile, type ChatRecord } from '../../lib/agent/profiles'
 import { runAgent, type ToolOutcome } from '../../lib/agent/loop'
-import { DATASET_PROCESSOR_PROMPT } from '../../lib/agent/prompt'
-import { forgetChat, IMPORTABLE, runTool, webFileDescription, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../lib/agent/tools'
+import { ASSISTANT, DIAGNOSIS, STORYTELLER } from '../../agents'
+import { forgetChat, IMPORTABLE, runTool, webFileDescription, TOOLS, type AgentHost, type WebRole, type WebRun } from '../../agents/tools'
 import { STOPPED, type Card, type CardAnswer } from '../../lib/agent/form'
 import type { Rounds } from '../../lib/agent/exchanges'
 import { activeRun, downloadFile, followRun, forgetRun, logRun, readRun, recentRuns, RunError, SignInNeeded, startRun, traceText, traceUrl, type ActiveRun, type RunEvent, type RunResult } from '../../client/agent/managed'
-import { DIAGNOSIS_MODELS, DIAGNOSIS_PROMPT, diagnosisInput, type DiagnosisStep } from '../../lib/agent/diagnosis'
+import { DIAGNOSIS_MODELS, diagnosisInput, type DiagnosisStep } from '../../lib/agent/diagnosis'
 import { logAsText } from '../../debug'
 import { saveFile } from '../../client/saveFile'
 import { logDebug } from '../../debug'
@@ -29,8 +29,7 @@ import { auth } from '../../client/auth'
 import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
 import { MAX_IMAGES, pastedImages, prepareImage, type Attached } from './images'
 import { addUsage, emptyUsage, type ChatSession, type SavedChat, type ToolCall, type Usage } from '../../lib/agent/provider'
-import { STORYTELLER_PROMPT } from '../../lib/story/storyPrompt'
-import { runStoryTool, STORY_TOOLS, storyRequest, type StoryChat } from '../../lib/story/storyTools'
+import { runStoryTool, storyRequest, type StoryChat } from '../../agents/tools/storyteller'
 import { lineageOf, lineageText } from '../../lib/story/lineage'
 
 /** The page's side of the tools; the panel adds asking the user and the web runs. */
@@ -393,7 +392,7 @@ async function storyteller(req: { visualizationIds: string[]; wishes: string; st
   const step = [...items.value].reverse().find((x): x is Extract<Item, { kind: 'tool' }> => x.kind === 'tool' && x.call.name === 'tell_story' && x.state === 'running')
   const log: string[] = []
   if (step) step.model = p.models.storyteller
-  const sub = claudeProvider.start({ apiKey: apiKey.value, model: p.models.storyteller, system: STORYTELLER_PROMPT, tools: STORY_TOOLS })
+  const sub = claudeProvider.start({ apiKey: apiKey.value, model: p.models.storyteller, system: STORYTELLER.prompt, tools: STORYTELLER.tools })
   const entry = { model: p.models.storyteller, usage: emptyUsage() }
   storyUsage.value = [...storyUsage.value, entry]
   const { end } = await runAgent(
@@ -465,7 +464,7 @@ async function runDiagnosis(whatHappened: string): Promise<{ report: string; mod
   const entry = { model, usage: emptyUsage() }
   storyUsage.value = [...storyUsage.value, entry]
   try {
-    const sub = claudeProvider.start({ apiKey: apiKey.value, model, system: DIAGNOSIS_PROMPT, tools: [] })
+    const sub = claudeProvider.start({ apiKey: apiKey.value, model, system: DIAGNOSIS.prompt, tools: DIAGNOSIS.tools })
     // The chat's runs read back from Anthropic: what each did, even after the app lost touch with it.
     const ids = [...new Set(items.value.flatMap((x) => (x.kind === 'run' && x.sessionId ? [x.sessionId] : [])))].slice(-3)
     const traces = await Promise.all(ids.map((id) => readRun(apiKey.value, id).then(traceText, (e) => `run ${id}: couldn't be read back (${e instanceof Error ? e.message : String(e)})`)))
@@ -538,6 +537,7 @@ const TOOL_LABEL: Record<string, string> = {
   tell_story: 'The storyteller',
   list_runs: 'Recent runs',
   fetch_run: 'Collect a run',
+  recipe: 'Estimate recipe',
   read_run: 'Look inside a run',
   diagnose: 'Diagnosis',
 }
@@ -601,7 +601,7 @@ async function send() {
   items.value.push({ kind: 'user', text, ...(images.length ? { images: images.map((im) => im.url) } : {}) })
   if (!session) {
     const p = nextProfile.value
-    session = claudeProvider.start({ apiKey: apiKey.value, model: p.models.assistant, system: DATASET_PROCESSOR_PROMPT, tools: TOOLS, ...(kept ? { history: kept.history } : {}) })
+    session = claudeProvider.start({ apiKey: apiKey.value, model: p.models.assistant, system: ASSISTANT.prompt, tools: ASSISTANT.tools, ...(kept ? { history: kept.history } : {}) })
     kept = null
     chatRecord ??= { chat: crypto.randomUUID(), profile: p.id, startedAt: Date.now(), turns: 0, tokensIn: 0, tokensOut: 0, runs: 0 }
   }

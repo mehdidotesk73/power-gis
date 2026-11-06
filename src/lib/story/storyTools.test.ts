@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { lineageOf, lineageText } from './lineage'
 import { chartData, chartShapes, ticks } from './chart'
-import { runStoryTool, STORY_TOOLS, storyRequest, type StoryChat } from './storyTools'
-import type { AgentHost } from '../agent/tools'
+import { runStoryTool, STORYTELLER_TOOLS, storyRequest, type StoryChat } from '../../agents/tools/storyteller'
+import type { AgentHost } from '../../agents/tools'
 import { emptyWorkspace, type WorkspaceDoc } from '../workspace/workspace'
 import { defaultScalarStyle, type VisualizationSpec } from '../dataset/visualization'
 import type { DatasetRecord } from '../../shared/records'
@@ -103,8 +103,8 @@ describe('write_story', () => {
   const scene = (figures: object[], narrative = 'Each row is a county, and incomes are in dollars.') => ({ title: 'Start', narrative, about_kind: 'dataset', about_id: 'raw', figures })
 
   it('is the only tool besides query_sql, and every figure property is required (strict tools)', () => {
-    expect(STORY_TOOLS.map((t) => t.name)).toEqual(['query_sql', 'write_story'])
-    const fig = ((STORY_TOOLS[1].inputSchema.properties as any).scenes.items.properties.figures.items) as { properties: object; required: string[] }
+    expect(STORYTELLER_TOOLS.map((t) => t.name)).toEqual(['query_sql', 'write_story'])
+    const fig = ((STORYTELLER_TOOLS[1].inputSchema.properties as any).scenes.items.properties.figures.items) as { properties: object; required: string[] }
     expect(fig.required.sort()).toEqual(Object.keys(fig.properties).sort())
   })
 

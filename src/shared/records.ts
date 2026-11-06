@@ -86,6 +86,22 @@ export interface DatasetMetadata {
   source?: DatasetSource
   /** Gaps and limits, one per line. */
   caveats?: string[]
+  /** Values estimated rather than measured: how, on what assumptions, and how far to trust them. */
+  estimate?: DatasetEstimate
+}
+
+/** How a dataset's values were estimated (lib/dataset/recipes.ts has a piece for each method). */
+export interface DatasetEstimate {
+  /** fill: gaps filled from what the measure correlates with (same unit); scale: carried from coarse units to finer ones through a proxy; deduce: a chain of steps from first principles (Fermi). */
+  method: 'fill' | 'scale' | 'deduce'
+  /** The column holding the estimate. */
+  value?: string
+  /** The columns of its range, when it has one. */
+  range?: { low: string; likely: string; high: string }
+  /** What it takes for granted, one per line ("a household spends 4% of income on energy, 2–6%"). */
+  assumptions?: string[]
+  /** How well it fits, in words ("r² 0.83 over 48 states; states sit 0.8–1.2× the line"). */
+  fit?: string
 }
 
 export interface DatasetSource {

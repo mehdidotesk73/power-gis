@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { frameCard, frameOutcome, frameSection, planCard, planOutcome, REVISION_ROUNDS, runCard, runOutcome, sourceCard, sourceOutcome, withFrame, type Rounds } from './exchanges'
+import { APPROVED_WITH_NOTES, frameCard, frameOutcome, frameSection, planCard, planOutcome, REVISION_ROUNDS, runCard, runOutcome, sourceCard, sourceOutcome, withFrame, type Rounds } from './exchanges'
 import { cardAnswer, initialState, NEITHER, REVISE } from './form'
 
 describe('exchanges', () => {
@@ -51,6 +51,23 @@ describe('exchanges', () => {
     b.sources.choices = []
     b.sources.comments = 'Use the World Bank instead'
     expect(sourceOutcome(bare, cardAnswer(bare, b, 'Use these'), sources)).toMatchObject({ value: { sources: [] }, next: expect.stringMatching(/None of these/) })
+  })
+
+  it('Source pick offers Revise with my notes (2 rounds), and an approval with notes makes them instructions', () => {
+    const sources = [{ name: 'EIA SEDS', detail: 'state CO2, 2023' }, { name: 'Census', detail: 'state population, 2023' }]
+    const rounds: Rounds = new Map()
+    const card = sourceCard({ need: 'CO2 per person', sources, recommended: ['EIA SEDS', 'Census'], combination: 'EIA total CO2 divided by Census population.' }, rounds)
+    expect(card.revise).toBe(true)
+    const s = initialState(card)
+    s.combination.comments = 'Rural and urban areas contribute differently: weigh population by area type before carrying state values to counties.'
+    expect(sourceOutcome(card, cardAnswer(card, s, REVISE), sources, rounds)).toMatchObject({ decision: 'revise', comments: [expect.stringContaining('Rural and urban')] })
+    expect(sourceOutcome(card, cardAnswer(card, s, REVISE), sources, rounds).next).toMatch(/last revision round/)
+    expect(sourceCard({ need: 'CO2 per person', sources }, rounds).revise).toBeUndefined()
+    // Approved with the note: it comes before what was proposed, is answered, and carried on (and kept in About).
+    const ok = sourceOutcome(card, cardAnswer(card, s, 'Use these'), sources, new Map())
+    expect(ok).toMatchObject({ decision: 'approved', next: APPROVED_WITH_NOTES })
+    expect(APPROVED_WITH_NOTES).toMatch(/come before what you proposed/)
+    expect(APPROVED_WITH_NOTES).toMatch(/about\.md/)
   })
 
   it('Frame: the framing, components with postures, the measure decision; saved as About\'s Study frame', () => {

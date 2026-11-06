@@ -124,7 +124,8 @@ test('the assistant asks a card of up to three questions, answered together by o
       { question: 'Which years?', choices: ['2022', '2023'], comments: '2019 too, if it exists' },
       { question: 'At what level?', choice: null, neither: true, comments: 'Metro areas' },
     ],
-    note: "Take the user's comments into account in what you do next.",
+    // Notes are instructions, ahead of the assistant's own draft (exchanges.ts USER_NOTES).
+    note: expect.stringContaining("The user's notes are instructions and come before what you proposed"),
   })
   await expect(askCard.getByText('✓ Build it')).toBeVisible()
 })

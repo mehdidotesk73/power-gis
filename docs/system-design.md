@@ -435,7 +435,7 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   returns `{text, toolCalls, stop, usage}`; the adapter keeps the provider's own history.
 - `lib/agent/loop.ts`: `runAgent(session, runTool, text, events, signal)`: runs tool calls and sends
   results until the model answers in text; Stop (`AbortSignal`) and a 40-turn limit.
-- `lib/agent/tools.ts`: `TOOLS` (JSON Schema definitions) and `runTool(host, name, input)`: validates
+- `agents/tools/` (one file per tool or bundle, spec next to handler; `index.ts`): `TOOLS` (JSON Schema definitions) and `runTool(host, name, input)`: validates
   input, applies the store gate, acts through an `AgentHost` (the page supplies it: the draft,
   `readDb`, the dataset finder `listDatasets()` (`client/datasets.ts`: local datasets today, plus the
   remote registry later), `request(…, 'agent')`, `describeBinding`, `runTransform`, `deleteForGood`). Never throws;
@@ -446,11 +446,11 @@ The design, tools and gate are in **`docs/agents.md`**; in short:
   on them (`runEditor`: view / create / str_replace / insert, only the workspace paths, overview.md
   read-only), `assembleFiles` (files → a full workspace description, file-level problems listed, new
   items given ids), `overviewText`, and the item forms (`agentTransform` / `agentVisualization`, also
-  used to keep untouched items exactly). Staging per chat host lives in `tools.ts`.
+  used to keep untouched items exactly). Staging per chat host lives in `agents/tools/workspace.ts`.
 - `client/agent/claude.ts` declares the editor as `{type: 'text_editor_20250728', name:
   'str_replace_based_edit_tool'}` (`ToolSpec.builtin`) and our own tools `strict: true`
   (`strictSchema`).
-- `lib/agent/prompt.ts`: the dataset processor's instructions.
+- `agents/<agent>/agent.ts` + `prompt.md`: each agent's config and prompt (the assistant's instructions in `agents/assistant/prompt.md`).
 - `client/agent/claude.ts`: the Anthropic adapter (`startClaude`, `claudeProvider`, `describeError`).
   Browser-direct with the user's key, streaming, `fallbacks: "default"`, prompt caching.
 - `components/agent/AgentPanel.vue`: the chat, opened by **✦ Assistant** in the header (teleported
