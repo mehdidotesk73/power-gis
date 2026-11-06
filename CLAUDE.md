@@ -189,7 +189,7 @@ whatever they're actually asking about.
   (`propose_frame`: the framing, the components each with a **posture** — exact / anchor + proxy / fermi —, the one open choice about the measure;
   on Approve written into About's **Study frame** section, `withFrame`), Plan (`propose_plan`), Source pick (`pick_source`: **several** sources,
   the recommended ones ticked, plus the agent's **combination** method to edit), Run (the scout / scraper card) — Approve / **Revise with my notes** (2 rounds,
-  then it asks what's wrong; `rounds` per chat) / Reject. A new methodological question is a new exchange, never a new kind of card. It looks beyond
+  then it asks what's wrong; `rounds` per chat; Source pick too, user 2026-11-06) / Reject. **Notes are instructions** (`USER_NOTES` / `APPROVED_WITH_NOTES` in `exchanges.ts`): approved with notes, the assistant answers each note in a line, carries it into the plan, briefs and SQL, and puts method notes in About's study frame; the card says what Revise and Approve do with notes (`ask.notes-hint`). A new methodological question is a new exchange, never a new kind of card. It looks beyond
   the workspace through `list_datasets` (reading needs no OK, and it checks there before any scouting; adding one to the workspace is said; user 2026-11-05), which reads the app's one
   **dataset finder** (`listDatasets()`, `client/datasets.ts`: local today, + the remote registry
   later); the prompt names no datasets. **Scout and scraper** (`send_scout` / `send_scraper`; `client/agent/managed.ts`):

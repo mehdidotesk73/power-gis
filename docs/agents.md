@@ -88,7 +88,11 @@ questions stay short on a phone).
 does with it. The assistant supplies only the content; it can't change an exchange's shape. Shared loop:
 **Approve** (the result returned and used), **Revise with my notes** (the assistant redrafts and
 asks again; after **2 rounds** it stops redrafting and asks what's wrong), **Reject / Not now** (nothing changes; the
-assistant gets the reason). First exchanges:
+assistant gets the reason). Every exchange has all three, Source pick included (user, 2026-11-06). **Notes are instructions**: approved with notes, the
+assistant says in a line how each changes what it does (or why it can't), carries it into every later step it touches (plan,
+briefs, transforms and their SQL, descriptions) and adds method notes to About's study frame (`APPROVED_WITH_NOTES`; a
+one-off `ask_user` answer with notes gets the same, `USER_NOTES`). A card with notes says what Revise and Approve do with them.
+First exchanges:
 
 1. **Frame** (`propose_frame`): an Answer (the framing: the question as asked, exactly what is measured — units, money basis,
    mean or median, period —, the window and the unit of analysis, which way is better), a Pick several (the components, each with

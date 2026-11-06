@@ -10,6 +10,7 @@ const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string 
   return cardAnswer(card, s, button, comments)
 }
 import { briefWithNeeds, forgetChat, notDescribed, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
+import { USER_NOTES } from './exchanges'
 import { runAgent } from './loop'
 import { EDITOR_TOOL } from './workspaceFiles'
 import type { ChatSession, TurnInput, TurnResult } from './provider'
@@ -217,7 +218,7 @@ describe('agent tools', () => {
   it('asks a plain yes / no (no questions) and hands the answer and its comments back', async () => {
     const { host, calls } = fakeHost()
     const out = await runTool(host, 'ask_user', { title: 'Join prices onto counties?', context: 'Both are by county FIPS.', questions: [] })
-    expect(json(out.content)).toEqual({ button: 'No', comments: 'Use 2024 only', note: "Take the user's comments into account in what you do next." })
+    expect(json(out.content)).toEqual({ button: 'No', comments: 'Use 2024 only', note: USER_NOTES })
     expect(out.summary).toBe('No · comments')
     expect(calls).toEqual(['ask Join prices onto counties? | Both are by county FIPS.'])
     expect(await runTool(host, 'ask_user', {})).toMatchObject({ isError: true })

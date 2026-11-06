@@ -29,6 +29,8 @@ function toggle(q: Question, option: string) {
 const rows = (text: string) => Math.min(14, Math.max(3, text.split('\n').length + 1))
 
 /** The buttons: the pair, with Revise between them on an exchange that allows it. */
+/** Notes written anywhere on the card (each question's comments, or the card's own). */
+const hasNotes = computed(() => !!cardComments.value.trim() || props.card.questions.some((q) => !!state[q.id]?.comments?.trim()))
 const buttons = computed(() => (props.card.revise ? [props.card.buttons[0], REVISE, props.card.buttons[1]] : [...props.card.buttons]))
 function press(button: string) {
   if (button === props.card.buttons[0] && missing.value.length) return
@@ -90,6 +92,9 @@ const editedText = (q: Question) => {
 
       <textarea v-if="!card.questions.length" v-model="cardComments" class="comments" rows="2" aria-label="Comments" placeholder="Comments (optional)" />
 
+      <p v-if="card.revise && hasNotes" class="hint notes" data-testid="ask.notes-hint">
+        You wrote notes: <b>{{ REVISE }}</b> has it redraft from them first; <b>{{ card.buttons[0] }}</b> goes ahead with them.
+      </p>
       <p v-if="missing.length" class="hint">Needed for “{{ card.buttons[0] }}”: {{ missing.join(' · ') }}</p>
       <div class="buttons">
         <UiButton

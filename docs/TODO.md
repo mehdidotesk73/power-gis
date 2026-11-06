@@ -4,6 +4,7 @@ Track feature development, improvements, and known issues here. Move completed w
 
 ## Done
 
+- **Notes on cards are instructions** (user, 2026-11-06) — Source pick gets Revise with my notes; a card approved with notes tells the assistant to answer each note, carry it into every later step and keep method notes in About; the card says what Revise and Approve do with them.
 - **Estimation pieces** (PR C) — small composable SQL pieces for any places and measure (composite, adjust, correlate, fill for breadth, scale for depth, deduce for Fermi chains that can meet from two sides), estimate metadata (method, range, assumptions, fit), stories that give ranges and say how values were estimated.
 - **Data described on arrival** (user, 2026-11-05) — the assistant describes each dataset from the web right away (description + metadata source), from the scout's and scraper's reports and its own queries; `apply_workspace` refuses other changes until it has; before a story it fills only what's missing and never rewrites; the storyteller changes nothing.
 - **Chat kept on the device** (user, 2026-11-05) — the assistant chat survives a reload until New chat: the steps, the conversation the model sees, a scout / scraper run carrying on in its own card (and no longer forgotten when the reload cuts its requests); images aren't kept.

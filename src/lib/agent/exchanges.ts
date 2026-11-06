@@ -27,6 +27,14 @@ export interface Outcome<T> {
 /** The Revise button, while rounds are left. */
 const withRevise = (card: Card, rounds: Rounds, name: string): Card => ((rounds.get(name) ?? 0) < REVISION_ROUNDS ? { ...card, revise: true } : card)
 
+/**
+ * Approved, with notes: the notes come first (user, 2026-11-06: a note on how sources combine went ahead as
+ * "as proposed" beside it). They change what was approved; each is answered and carried on.
+ */
+export const USER_NOTES =
+  "The user's notes are instructions and come before what you proposed. Before anything else, say in a line for each note how it changes what you do (or why it can't, and what you'll do instead), then carry it into every later step it touches: the plan, the briefs, the transforms and their SQL, the descriptions. Where a note is about method (how to weigh, adjust, combine or estimate), add it to /about.md's study frame so it outlasts this chat. If a note can't be followed within what was answered, ask before going on."
+export const APPROVED_WITH_NOTES = `Approved, with notes. ${USER_NOTES}`
+
 function settle<T>(name: string, rounds: Rounds, card: Card, a: CardAnswer, approved: () => T): Outcome<T> {
   const comments = commentsOf(a)
   if (a.button === REVISE) {
@@ -42,7 +50,7 @@ function settle<T>(name: string, rounds: Rounds, card: Card, a: CardAnswer, appr
     }
   }
   rounds.delete(name)
-  if (a.button === card.buttons[0]) return { decision: 'approved', value: approved(), comments, next: comments.length ? 'Go ahead, taking the comments into account.' : 'Go ahead.' }
+  if (a.button === card.buttons[0]) return { decision: 'approved', value: approved(), comments, next: comments.length ? APPROVED_WITH_NOTES : 'Go ahead.' }
   if (a.button === 'Stopped') return { decision: 'stopped', comments, next: 'The user stopped the assistant.' }
   return { decision: 'declined', comments, next: comments.length ? 'Nothing changes: read the comments for why, and ask before trying another way.' : 'Nothing changes: ask the user what they would rather do.' }
 }
@@ -81,10 +89,10 @@ const sourceLabel = (s: SourceOption) => `${s.name} — ${s.detail}`
  * Several sources may answer a need together (one anchors, another fills in), so it's a Pick several with the
  * recommendation ticked, plus the agent's combination method to edit whenever it proposes one (user, 2026-11-05).
  */
-export function sourceCard(input: { need: string; why?: string; sources: SourceOption[]; recommended?: string[]; combination?: string }): Card {
+export function sourceCard(input: { need: string; why?: string; sources: SourceOption[]; recommended?: string[]; combination?: string }, rounds: Rounds = new Map()): Card {
   const recommended = new Set(input.recommended ?? [])
   const options = input.sources.map(sourceLabel)
-  return {
+  const card: Card = {
     title: `Which source${input.sources.length > 1 ? 's' : ''} for ${input.need}?`,
     questions: [
       {
@@ -101,18 +109,19 @@ export function sourceCard(input: { need: string; why?: string; sources: SourceO
     ],
     buttons: ['Use these', 'Not now'],
   }
+  return withRevise(card, rounds, 'source')
 }
-export function sourceOutcome(card: Card, a: CardAnswer, sources: SourceOption[]): Outcome<{ sources: string[]; combination?: string; combinationEdited?: boolean }> {
+export function sourceOutcome(card: Card, a: CardAnswer, sources: SourceOption[], rounds: Rounds = new Map()): Outcome<{ sources: string[]; combination?: string; combinationEdited?: boolean }> {
   const r = a.replies.sources
   const c = a.replies.combination
   const comb = card.questions.find((q) => q.id === 'combination') as { text: string } | undefined
-  const out = settle('source', new Map(), card, a, () => ({
+  const out = settle('source', rounds, card, a, () => ({
     sources: r?.kind === 'several' ? r.choices.map((label) => sources.find((s) => sourceLabel(s) === label)?.name ?? label) : [],
     ...(comb ? { combination: answerText(comb, c), combinationEdited: c?.kind === 'answer' && c.edited } : {}),
   }))
   if (out.decision === 'approved' && out.value) {
     if (!out.value.sources.length) out.next = 'None of these: read the comments for what the user wants instead (another source, a proxy, an estimate, skipping it).'
-    else if (out.value.sources.length > 1 && !comb) out.next = 'The user kept several sources: say how they combine (what anchors, what fills in, how they are calibrated) before the scraper brief, and ask if it is not obvious.'
+    else if (out.value.sources.length > 1 && !comb && !out.comments.length) out.next = 'The user kept several sources: say how they combine (what anchors, what fills in, how they are calibrated) before the scraper brief, and ask if it is not obvious.'
   }
   return out
 }

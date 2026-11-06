@@ -26,7 +26,7 @@ import type { ToolSpec } from './provider'
 import { answerForAgent, answerSummary, commentsOf, LIMITS, readCard, type Card, type CardAnswer } from './form'
 import { parseScoutReport } from './sources'
 import { recipeSql, type Recipe, type RecipeSql } from '../dataset/recipes'
-import { frameCard, frameOutcome, frameSection, planCard, planOutcome, POSTURES, runCard, runOutcome, sourceCard, sourceOutcome, withFrame, type FrameComponent, type Posture, type Rounds, type SourceOption } from './exchanges'
+import { USER_NOTES, frameCard, frameOutcome, frameSection, planCard, planOutcome, POSTURES, runCard, runOutcome, sourceCard, sourceOutcome, withFrame, type FrameComponent, type Posture, type Rounds, type SourceOption } from './exchanges'
 
 /** What the tools act through: the page's workspace copy and the server. */
 export interface AgentHost {
@@ -169,7 +169,7 @@ export const TOOLS: ToolSpec[] = [
     name: 'pick_source',
     strict: true,
     description:
-      'The Source pick exchange: after the scout, let the user choose the source(s) for one need among those it found — each with its coverage, terms and fit, and what exactly it measures (units, money basis, mean or median, period), in a line. Several may answer a need together (one anchors, another fills in): recommend every source you would use, and when that is more than one, give "combination": how they combine (what anchors, what fills in, how they are calibrated where they overlap, and any extra data that needs) — the user edits it. When candidates measure different things, say so in their lines. Use these / Not now. Returns {decision, sources (the names kept), combination (as edited), comments, next}.',
+      'The Source pick exchange: after the scout, let the user choose the source(s) for one need among those it found — each with its coverage, terms and fit, and what exactly it measures (units, money basis, mean or median, period), in a line. Several may answer a need together (one anchors, another fills in): recommend every source you would use, and when that is more than one, give "combination": how they combine (what anchors, what fills in, how they are calibrated where they overlap, and any extra data that needs) — the user edits it. When candidates measure different things, say so in their lines. Use these / Not now, plus Revise with my notes (at most 2 rounds: redraft from their comments and edits and call this again). Returns {decision: approved | revise | declined, sources (the names kept), combination (as edited), comments, next}.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1155,7 +1155,7 @@ async function askUser(host: AgentHost, input: Obj): Promise<ToolOutcome> {
   need(typeof card !== 'string', card as string)
   const c = card as Card
   const a = await host.ask(c)
-  const note = commentsOf(a).length ? { note: 'Take the user\'s comments into account in what you do next.' } : {}
+  const note = commentsOf(a).length ? { note: USER_NOTES } : {}
   return ok({ ...answerForAgent(c, a), ...note }, answerSummary(c, a))
 }
 
@@ -1182,9 +1182,9 @@ async function pickSource(host: AgentHost, input: Obj): Promise<ToolOutcome> {
     recommended,
     ...(str(input.why) && input.why.trim() ? { why: input.why.trim() } : {}),
     ...(str(input.combination) && input.combination.trim() ? { combination: input.combination.trim() } : {}),
-  })
+  }, roundsOf(host))
   const a = await host.ask(card)
-  const out = sourceOutcome(card, a, sources)
+  const out = sourceOutcome(card, a, sources, roundsOf(host))
   return ok({ decision: out.decision, ...out.value, ...(out.comments.length ? { comments: out.comments } : {}), next: out.next }, answerSummary(card, a))
 }
 
