@@ -93,7 +93,7 @@ import { fieldLabel, type LayerData, type LayerFeature } from '../lib/schema'
 import { formatPrimitive } from '../lib/format'
 import { logDebug } from '../debug'
 import AgentPanel from './agent/AgentPanel.vue'
-import type { AgentHost } from '../lib/agent/tools'
+import type { AgentHost } from '../agents/tools'
 import type { Caller } from '../shared/api'
 
 const base = import.meta.env.BASE_URL

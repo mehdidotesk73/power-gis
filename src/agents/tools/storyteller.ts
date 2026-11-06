@@ -5,12 +5,12 @@
 // workspace draft (Save keeps it). Asked again in the same chat, it rewrites the
 // same story.
 
-import type { ToolOutcome } from '../agent/loop'
-import type { ToolSpec } from '../agent/provider'
-import { Invalid, readVisualization, runTool, TOOLS, type AgentHost } from '../agent/tools'
-import { newId } from '../dataset/dataset'
-import { addStory, updateStory } from '../workspace/workspace'
-import { CHART_KINDS, MAX_FIGURES, MAX_SCENES, NARRATIVE_WORDS, readStory, runFigure, type Figure, type Scene, type Story } from './story'
+import type { ToolOutcome } from '../../lib/agent/loop'
+import type { ToolSpec } from '../../lib/agent/provider'
+import { Invalid, readVisualization, runTool, TOOLS, type AgentHost } from './index'
+import { newId } from '../../lib/dataset/dataset'
+import { addStory, updateStory } from '../../lib/workspace/workspace'
+import { CHART_KINDS, MAX_FIGURES, MAX_SCENES, NARRATIVE_WORDS, readStory, runFigure, type Figure, type Scene, type Story } from '../../lib/story/story'
 
 const s = (description?: string) => ({ type: 'string', ...(description ? { description } : {}) })
 
@@ -39,7 +39,7 @@ const FIGURE = {
   required: ['kind', 'caption', 'sql', 'inputs', 'chart', 'x', 'y', 'visualizationId', 'datasetId', 'geometry', 'label', 'column', 'aggregation', 'colormap', 'reverse', 'hide', 'fit'],
 }
 
-export const STORY_TOOLS: ToolSpec[] = [
+export const STORYTELLER_TOOLS: ToolSpec[] = [
   TOOLS.find((t) => t.name === 'query_sql')!,
   {
     name: 'write_story',

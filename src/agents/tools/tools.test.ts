@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { documentFiles } from '../workspace/files'
-import { toWorkspaceFile } from '../workspace/file'
-import { cardAnswer, initialState, NEITHER, type Card, type QuestionState } from './form'
+import { documentFiles } from '../../lib/workspace/files'
+import { toWorkspaceFile } from '../../lib/workspace/file'
+import { cardAnswer, initialState, NEITHER, type Card, type QuestionState } from '../../lib/agent/form'
 
 /** Answers a card as a user would: change its state, press a button (default: the first). */
 const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string | void, comments = '') => async (card: Card) => {
@@ -9,14 +9,14 @@ const answering = (fn: (card: Card, s: Record<string, QuestionState>) => string 
   const button = fn(card, s) || card.buttons[0]
   return cardAnswer(card, s, button, comments)
 }
-import { briefWithNeeds, forgetChat, notDescribed, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './tools'
-import { USER_NOTES } from './exchanges'
-import { runAgent } from './loop'
-import { EDITOR_TOOL } from './workspaceFiles'
-import type { ChatSession, TurnInput, TurnResult } from './provider'
-import { emptyWorkspace, type WorkspaceDoc } from '../workspace/workspace'
+import { briefWithNeeds, forgetChat, notDescribed, runTool, TOOLS, webFileDescription, workspaceVersion, type AgentHost } from './index'
+import { USER_NOTES } from '../../lib/agent/exchanges'
+import { runAgent } from '../../lib/agent/loop'
+import { EDITOR_TOOL } from '../../lib/agent/workspaceFiles'
+import type { ChatSession, TurnInput, TurnResult } from '../../lib/agent/provider'
+import { emptyWorkspace, type WorkspaceDoc } from '../../lib/workspace/workspace'
 import type { DatasetRecord } from '../../shared/records'
-import type { ColumnInfo } from '../dataset/columns'
+import type { ColumnInfo } from '../../lib/dataset/columns'
 
 const t0 = '2026-01-01T00:00:00.000Z'
 const record = (id: string, columns: ColumnInfo[], store: 'local' | 'remote' = 'local'): DatasetRecord => ({

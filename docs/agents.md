@@ -12,8 +12,8 @@ scraping (finding data on the web) come next.
 |---|---|
 | Provider-neutral contract: `ChatProvider` / `ChatSession` (text + tool calls in, turn out) | `src/lib/agent/provider.ts` |
 | The loop: send, run tool calls, send results, until a text answer; stop, step limit | `src/lib/agent/loop.ts` |
-| The tools: definitions, input validation, the store gate, over an `AgentHost` | `src/lib/agent/tools.ts` |
-| Instructions (built-ins listed from `shared/builtins.ts`) | `src/lib/agent/prompt.ts` |
+| The tools: definitions, input validation, the store gate, over an `AgentHost` | `src/agents/tools/` (one file per tool or bundle; `index.ts` lists the assistant's and dispatches) |
+| Each agent's config and prompt | `src/agents/<agent>/agent.ts` + `prompt.md` (assistant, scout, scraper, storyteller, diagnosis) |
 | Claude adapter: Messages API from the browser, streaming, keeps Anthropic-format history | `src/client/agent/claude.ts` |
 | Chat panel: API key (this device), messages, tool steps, Stop, token use | `src/components/agent/AgentPanel.vue` |
 | The host: the page's own functions (draft, `runTransform`, `deleteForGood`, `describeBinding`) | `MapPage.vue` → `agentHost` |
@@ -151,7 +151,7 @@ cloud ones refused), applied like any edit — a draft (`WorkspaceDoc.datasetEdi
   `{kind, name, datasetId, visible, binding: {kind: geometry, column, label?}, column, aggregation,
   style}`. A new one needs only name, datasetId, binding and column: the rest comes from the app's
   defaults (`makeVisualization`; a kept id keeps its style, `retarget`). Each style part given is
-  checked (`readStyle` in `tools.ts`: color, opacity, pattern, outline, size; arrows' size) and
+  checked (`readStyle` in `agents/tools/workspace.ts`: color, opacity, pattern, outline, size; arrows' size) and
   replaces the default's; the encodings' `field` is always the drawn value, and `kind` must match
   what the column draws as. `datasets.json` holds the document's facts (`datasetFact`): name and
   description editable, store / cloudId / rows / structured origin / sameAs read-only.
@@ -503,7 +503,7 @@ New deduction patterns join as tool pieces or written patterns depending on that
 **Who describes what** (user, 2026-11-05): the scout and the scraper report what they found and how they extracted
 it; they don't describe datasets or judge their gaps. The **assistant** describes each dataset that arrives, right
 away: it has the reasons behind the request, the runs' reports and the data to query (`apply_workspace` refuses other
-changes until each dataset from the web has a description and a source, `notDescribed` in `lib/agent/tools.ts`). The
+changes until each dataset from the web has a description and a source, `notDescribed` in `agents/tools/workspace.ts`). The
 **storyteller** only writes the story: it changes nothing in the workspace. Before a story the assistant fills in only
 what's missing (no About, a dataset without a description or source), never rewrites what's there.
 
@@ -535,7 +535,7 @@ priced into the chat's cost), and the assistant hears back the story's id, title
 - **What it reads**: `lib/story/lineage.ts` walks from the visualizations back to the starting data (each dataset and
   transform once, inputs first) and writes it out — every dataset's facts and **description** (why descriptions must
   carry the reasoning: `docs/agents.md` *Describing datasets*), every transform's SQL, the visualizations' settings.
-- **Tools** (`lib/story/storyTools.ts`): `query_sql` (the assistant's) and `write_story`, which checks every scene
+- **Tools** (`agents/tools/storyteller.ts`): `query_sql` (the assistant's) and `write_story`, which checks every scene
   (words, figures) and runs every figure before saving anything; refusals list what to fix. It never changes datasets,
   transforms or visualizations: the story lands in the workspace draft.
 - **Figures are code** (`lib/story/story.ts`): `sample` (SQL, 8 rows), `chart` (SQL + bar / pie / line / scatter /
